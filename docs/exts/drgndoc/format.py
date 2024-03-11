@@ -39,10 +39,16 @@ class _FormatVisitor(NodeVisitor):
         self._parts: List[str] = []
 
     def visit(  # type: ignore[override]  # This is intentionally incompatible with the supertype.
-        self, node: ast.AST, rst: bool, qualify_typing: bool
+        self,
+        node: ast.AST,
+        *,
+        rst: bool,
+        qualify_typing: bool,
+        qualify_typeshed: bool,
     ) -> str:
         self._rst = rst
         self._qualify_typing = qualify_typing
+        self._qualify_typeshed = qualify_typeshed
         super().visit(node)
         ret = "".join(self._parts)
         self._parts.clear()
@@ -97,6 +103,8 @@ class _FormatVisitor(NodeVisitor):
         title = target
         if not self._qualify_typing and title.startswith("typing."):
             title = title[len("typing.") :]
+        elif not self._qualify_typeshed and title.startswith("_typeshed."):
+            title = title[len("_typeshed.") :]
         elif self._context_module and title.startswith(self._context_module + "."):
             title = title[len(self._context_module) + 1 :]
             if self._context_class and title.startswith(self._context_class + "."):
@@ -284,12 +292,23 @@ class Formatter:
             default_sep = "="
             if arg.annotation:
                 signature.append(": ")
-                signature.append(visitor.visit(arg.annotation, False, rst))
+                signature.append(
+                    visitor.visit(
+                        arg.annotation,
+                        rst=False,
+                        qualify_typing=rst,
+                        qualify_typeshed=False,
+                    )
+                )
                 default_sep = " = "
 
             if default:
                 signature.append(default_sep)
-                signature.append(visitor.visit(default, False, True))
+                signature.append(
+                    visitor.visit(
+                        default, rst=False, qualify_typing=True, qualify_typeshed=True
+                    )
+                )
             need_comma = True
 
         posonlyargs = getattr(node.args, "posonlyargs", [])
@@ -328,7 +347,11 @@ class Formatter:
 
         if want_rtype and node.returns:
             signature.append(" -> ")
-            signature.append(visitor.visit(node.returns, False, rst))
+            signature.append(
+                visitor.visit(
+                    node.returns, rst=False, qualify_typing=rst, qualify_typeshed=False
+                )
+            )
 
         return "".join(signature), lines
 
@@ -356,7 +379,12 @@ class Formatter:
                 context_module,
                 context_class,
             )
-            bases = [visitor.visit(base, rst, False) for base in node.bases]
+            bases = [
+                visitor.visit(
+                    base, rst=rst, qualify_typing=False, qualify_typeshed=False
+                )
+                for base in node.bases
+            ]
             if lines:
                 lines.append("")
             lines.append(("    " if rst else "") + "Bases: " + ", ".join(bases))
@@ -489,7 +517,13 @@ class Formatter:
             lines = [f".. {directive}:: {name}"]
             if node.annotation:
                 lines.append(
-                    "    :type: " + visitor.visit(node.annotation, False, True)
+                    "    :type: "
+                    + visitor.visit(
+                        node.annotation,
+                        rst=False,
+                        qualify_typing=True,
+                        qualify_typeshed=False,
+                    )
                 )
             if docstring_lines:
                 lines.append("")
@@ -500,7 +534,15 @@ class Formatter:
             if node.annotation:
                 if docstring_lines:
                     docstring_lines.insert(0, "")
-                docstring_lines.insert(0, visitor.visit(node.annotation, False, False))
+                docstring_lines.insert(
+                    0,
+                    visitor.visit(
+                        node.annotation,
+                        rst=False,
+                        qualify_typing=False,
+                        qualify_typeshed=False,
+                    ),
+                )
             return docstring_lines
 
     def format(
