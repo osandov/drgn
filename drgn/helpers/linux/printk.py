@@ -9,7 +9,11 @@ The ``drgn.helpers.linux.printk`` module provides helpers for reading the Linux
 kernel log buffer.
 """
 
-from typing import Dict, List, NamedTuple, Optional, Tuple
+import sys
+from typing import TYPE_CHECKING, Dict, List, NamedTuple, Optional, Tuple
+
+if TYPE_CHECKING:
+    from _typeshed import SupportsWrite
 
 from drgn import Object, Program, cast, sizeof
 from drgn.helpers.common.prog import takes_program_or_default
@@ -17,6 +21,7 @@ from drgn.helpers.common.prog import takes_program_or_default
 __all__ = (
     "get_dmesg",
     "get_printk_records",
+    "print_dmesg",
 )
 
 
@@ -243,6 +248,8 @@ def get_dmesg(prog: Program) -> bytes:
     Get the contents of the kernel log buffer formatted like
     :manpage:`dmesg(1)`.
 
+    If you just want to print the log buffer, use :func:`print_dmesg()`.
+
     The format of each line is:
 
     .. code-block::
@@ -263,3 +270,21 @@ def get_dmesg(prog: Program) -> bytes:
     ]
     lines.append(b"")  # So we get a trailing newline.
     return b"\n".join(lines)
+
+
+@takes_program_or_default
+def print_dmesg(prog: Program, *, file: "Optional[SupportsWrite[str]]" = None) -> None:
+    """
+    Print the contents of the kernel log buffer.
+
+    >>> print_dmesg()
+    [    0.000000] Linux version 6.8.0-vmtest28.1default (drgn@drgn) (x86_64-linux-gcc (GCC) 12.2.0, GNU ld (GNU Binutils) 2.39) #1 SMP PREEMPT_DYNAMIC Mon Mar 11 06:38:45 UTC 2024
+    [    0.000000] Command line: rootfstype=9p rootflags=trans=virtio,cache=loose,msize=1048576 ro console=ttyS0,115200 panic=-1 crashkernel=256M init=/tmp/drgn-vmtest-rudzppeo/init
+    [    0.000000] BIOS-provided physical RAM map:
+    ...
+
+    :param file: File to print to. Defaults to :data:`sys.stdout`.
+    """
+    (sys.stdout if file is None else file).write(
+        get_dmesg(prog).decode(errors="replace")
+    )
