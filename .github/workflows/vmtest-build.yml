@@ -21,7 +21,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -31,9 +31,9 @@ jobs:
         run: python3 -m vmtest.manage --kernel-directory build/vmtest/linux.git --build-directory build/vmtest/kbuild -K -a ${{ matrix.arch }} -f ${{ matrix.flavor }}
       - name: Upload kernel build logs
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: kernel-build-logs
+          name: kernel-build-logs-${{ matrix.arch }}-${{ matrix.flavor }}
           path: build/vmtest/kbuild/*.log
           if-no-files-found: ignore
   test:
