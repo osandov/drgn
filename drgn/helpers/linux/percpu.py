@@ -12,12 +12,13 @@ from :linux:`include/linux/percpu_counter.h`.
 
 from _drgn import _linux_helper_per_cpu_ptr as per_cpu_ptr
 from drgn import IntegerLike, Object
-from drgn.helpers.linux.cpumask import for_each_online_cpu
+from drgn.helpers.linux.cpumask import for_each_online_cpu, for_each_possible_cpu
 
 __all__ = (
     "per_cpu",
     "per_cpu_ptr",
     "percpu_counter_sum",
+    "per_cpu_owner",
 )
 
 
@@ -49,3 +50,23 @@ def percpu_counter_sum(fbc: Object) -> int:
     for cpu in for_each_online_cpu(fbc.prog_):
         ret += per_cpu_ptr(ptr, cpu)[0].value_()
     return ret
+
+
+def per_cpu_owner(name: str, val: Object) -> int:
+    """
+    Given a per-cpu variable/pointer, return CPU to which this per-cpu
+    variable/pointer belongs.
+
+    :param name: name of the per-cpu variable/pointer
+    :param val: per-cpu variable/pointer
+    :returns: cpu number to which per-cpu variable/pointer belongs.
+              If cpu can't be found return -1
+    """
+
+    prog = val.prog_
+    var_name = prog[name]
+    for cpu in for_each_possible_cpu(prog):
+        if per_cpu(var_name, cpu).value_() == val.value_():
+            return cpu
+
+    return -1
