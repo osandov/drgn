@@ -1,0 +1,422 @@
+From 531194bfade3a8fb9f5ed25fe3b615219d92996c Mon Sep 17 00:00:00 2001
+Message-ID: <531194bfade3a8fb9f5ed25fe3b615219d92996c.1710188478.git.osandov@osandov.com>
+From: Omar Sandoval <osandov@osandov.com>
+Date: Mon, 11 Mar 2024 13:08:27 -0700
+Subject: [PATCH] s390/crash: fix /proc/vmcore reads
+
+Squashed backport of the following upstream commits:
+
+7190d84966b3 ("s390/mm: remove unused tprot() function")
+d6da67378198 ("s390/crash: move copy_to_user_real() to crash_dump.c")
+6d2e5a4a13da ("s390/crash: use static swap buffer for copy_to_user_real()")
+ebbc95701691 ("s390/crash: support multi-segment iterators")
+
+Signed-off-by: Omar Sandoval <osandov@osandov.com>
+---
+ arch/s390/include/asm/mmu.h     |  14 ----
+ arch/s390/include/asm/os_info.h |  17 ++++-
+ arch/s390/include/asm/sclp.h    |   4 +-
+ arch/s390/include/asm/uaccess.h |   1 -
+ arch/s390/kernel/crash_dump.c   | 118 ++++++++------------------------
+ arch/s390/mm/maccess.c          |  26 -------
+ drivers/s390/char/zcore.c       |  58 +++++++---------
+ 7 files changed, 70 insertions(+), 168 deletions(-)
+
+diff --git a/arch/s390/include/asm/mmu.h b/arch/s390/include/asm/mmu.h
+index 82aae78e1315..bc254bce48fa 100644
+--- a/arch/s390/include/asm/mmu.h
++++ b/arch/s390/include/asm/mmu.h
+@@ -42,18 +42,4 @@ typedef struct {
+ 	.context.pgtable_list = LIST_HEAD_INIT(name.context.pgtable_list), \
+ 	.context.gmap_list = LIST_HEAD_INIT(name.context.gmap_list),
+ 
+-static inline int tprot(unsigned long addr)
+-{
+-	int rc = -EFAULT;
+-
+-	asm volatile(
+-		"	tprot	0(%1),0\n"
+-		"0:	ipm	%0\n"
+-		"	srl	%0,28\n"
+-		"1:\n"
+-		EX_TABLE(0b,1b)
+-		: "+d" (rc) : "a" (addr) : "cc");
+-	return rc;
+-}
+-
+ #endif
+diff --git a/arch/s390/include/asm/os_info.h b/arch/s390/include/asm/os_info.h
+index 147a8d547ef9..85248d8fee0c 100644
+--- a/arch/s390/include/asm/os_info.h
++++ b/arch/s390/include/asm/os_info.h
+@@ -8,6 +8,8 @@
+ #ifndef _ASM_S390_OS_INFO_H
+ #define _ASM_S390_OS_INFO_H
+ 
++#include <linux/uio.h>
++
+ #define OS_INFO_VERSION_MAJOR	1
+ #define OS_INFO_VERSION_MINOR	1
+ #define OS_INFO_MAGIC		0x4f53494e464f535aULL /* OSINFOSZ */
+@@ -39,7 +41,20 @@ u32 os_info_csum(struct os_info *os_info);
+ 
+ #ifdef CONFIG_CRASH_DUMP
+ void *os_info_old_entry(int nr, unsigned long *size);
+-int copy_oldmem_kernel(void *dst, unsigned long src, size_t count);
++size_t copy_oldmem_iter(struct iov_iter *iter, unsigned long src, size_t count);
++
++static inline int copy_oldmem_kernel(void *dst, unsigned long src, size_t count)
++{
++	struct iov_iter iter;
++	struct kvec kvec;
++
++	kvec.iov_base = dst;
++	kvec.iov_len = count;
++	iov_iter_kvec(&iter, WRITE, &kvec, 1, count);
++	if (copy_oldmem_iter(&iter, src, count) < count)
++		return -EFAULT;
++	return 0;
++}
+ #else
+ static inline void *os_info_old_entry(int nr, unsigned long *size)
+ {
+diff --git a/arch/s390/include/asm/sclp.h b/arch/s390/include/asm/sclp.h
+index 236b34b75ddb..24ee532fab84 100644
+--- a/arch/s390/include/asm/sclp.h
++++ b/arch/s390/include/asm/sclp.h
+@@ -17,6 +17,7 @@
+ #define EXT_SCCB_READ_CPU	(3 * PAGE_SIZE)
+ 
+ #ifndef __ASSEMBLY__
++#include <linux/uio.h>
+ #include <asm/chpid.h>
+ #include <asm/cpu.h>
+ 
+@@ -142,8 +143,7 @@ int sclp_pci_deconfigure(u32 fid);
+ int sclp_ap_configure(u32 apid);
+ int sclp_ap_deconfigure(u32 apid);
+ int sclp_pci_report(struct zpci_report_error_header *report, u32 fh, u32 fid);
+-int memcpy_hsa_kernel(void *dest, unsigned long src, size_t count);
+-int memcpy_hsa_user(void __user *dest, unsigned long src, size_t count);
++size_t memcpy_hsa_iter(struct iov_iter *iter, unsigned long src, size_t count);
+ void sclp_ocf_cpc_name_copy(char *dst);
+ 
+ static inline int sclp_get_core_info(struct sclp_core_info *info, int early)
+diff --git a/arch/s390/include/asm/uaccess.h b/arch/s390/include/asm/uaccess.h
+index f4511e21d646..2a067315fe59 100644
+--- a/arch/s390/include/asm/uaccess.h
++++ b/arch/s390/include/asm/uaccess.h
+@@ -285,7 +285,6 @@ static inline unsigned long __must_check clear_user(void __user *to, unsigned lo
+ 	return __clear_user(to, n);
+ }
+ 
+-int copy_to_user_real(void __user *dest, unsigned long src, unsigned long count);
+ void *s390_kernel_write(void *dst, const void *src, size_t size);
+ 
+ int __noreturn __put_kernel_bad(void);
+diff --git a/arch/s390/kernel/crash_dump.c b/arch/s390/kernel/crash_dump.c
+index f8ebdd70dd31..49c035e5b75d 100644
+--- a/arch/s390/kernel/crash_dump.c
++++ b/arch/s390/kernel/crash_dump.c
+@@ -53,6 +53,8 @@ struct save_area {
+ };
+ 
+ static LIST_HEAD(dump_save_areas);
++static DEFINE_MUTEX(memcpy_real_mutex);
++static char memcpy_real_buf[PAGE_SIZE];
+ 
+ /*
+  * Allocate a save area
+@@ -114,38 +116,35 @@ void __init save_area_add_vxrs(struct save_area *sa, __vector128 *vxrs)
+ 	memcpy(sa->vxrs_high, vxrs + 16, 16 * sizeof(__vector128));
+ }
+ 
+-/*
+- * Return physical address for virtual address
+- */
+-static inline void *load_real_addr(void *addr)
++static size_t copy_to_iter_real(struct iov_iter *iter, unsigned long src, size_t count)
+ {
+-	unsigned long real_addr;
++	size_t len, copied, res = 0;
+ 
+-	asm volatile(
+-		   "	lra     %0,0(%1)\n"
+-		   "	jz	0f\n"
+-		   "	la	%0,0\n"
+-		   "0:"
+-		   : "=a" (real_addr) : "a" (addr) : "cc");
+-	return (void *)real_addr;
++	mutex_lock(&memcpy_real_mutex);
++	while (count) {
++		len = min(PAGE_SIZE, count);
++		if (memcpy_real(memcpy_real_buf, src, len))
++			break;
++		copied = copy_to_iter(memcpy_real_buf, len, iter);
++		count -= copied;
++		src += copied;
++		res += copied;
++		if (copied < len)
++			break;
++	}
++	mutex_unlock(&memcpy_real_mutex);
++	return res;
+ }
+ 
+-/*
+- * Copy memory of the old, dumped system to a kernel space virtual address
+- */
+-int copy_oldmem_kernel(void *dst, unsigned long src, size_t count)
++size_t copy_oldmem_iter(struct iov_iter *iter, unsigned long src, size_t count)
+ {
+-	unsigned long len;
+-	void *ra;
+-	int rc;
++	size_t len, copied, res = 0;
+ 
+ 	while (count) {
+ 		if (!oldmem_data.start && src < sclp.hsa_size) {
+ 			/* Copy from zfcp/nvme dump HSA area */
+ 			len = min(count, sclp.hsa_size - src);
+-			rc = memcpy_hsa_kernel(dst, src, len);
+-			if (rc)
+-				return rc;
++			copied = memcpy_hsa_iter(iter, src, len);
+ 		} else {
+ 			/* Check for swapped kdump oldmem areas */
+ 			if (oldmem_data.start && src - oldmem_data.start < oldmem_data.size) {
+@@ -157,57 +156,15 @@ int copy_oldmem_kernel(void *dst, unsigned long src, size_t count)
+ 			} else {
+ 				len = count;
+ 			}
+-			if (is_vmalloc_or_module_addr(dst)) {
+-				ra = load_real_addr(dst);
+-				len = min(PAGE_SIZE - offset_in_page(ra), len);
+-			} else {
+-				ra = dst;
+-			}
+-			if (memcpy_real(ra, src, len))
+-				return -EFAULT;
++			copied = copy_to_iter_real(iter, src, len);
+ 		}
+-		dst += len;
+-		src += len;
+-		count -= len;
++		count -= copied;
++		src += copied;
++		res += copied;
++		if (copied < len)
++			break;
+ 	}
+-	return 0;
+-}
+-
+-/*
+- * Copy memory of the old, dumped system to a user space virtual address
+- */
+-static int copy_oldmem_user(void __user *dst, unsigned long src, size_t count)
+-{
+-	unsigned long len;
+-	int rc;
+-
+-	while (count) {
+-		if (!oldmem_data.start && src < sclp.hsa_size) {
+-			/* Copy from zfcp/nvme dump HSA area */
+-			len = min(count, sclp.hsa_size - src);
+-			rc = memcpy_hsa_user(dst, src, len);
+-			if (rc)
+-				return rc;
+-		} else {
+-			/* Check for swapped kdump oldmem areas */
+-			if (oldmem_data.start && src - oldmem_data.start < oldmem_data.size) {
+-				src -= oldmem_data.start;
+-				len = min(count, oldmem_data.size - src);
+-			} else if (oldmem_data.start && src < oldmem_data.size) {
+-				len = min(count, oldmem_data.size - src);
+-				src += oldmem_data.start;
+-			} else {
+-				len = count;
+-			}
+-			rc = copy_to_user_real(dst, src, len);
+-			if (rc)
+-				return rc;
+-		}
+-		dst += len;
+-		src += len;
+-		count -= len;
+-	}
+-	return 0;
++	return res;
+ }
+ 
+ /*
+@@ -217,26 +174,9 @@ ssize_t copy_oldmem_page(struct iov_iter *iter, unsigned long pfn, size_t csize,
+ 			 unsigned long offset)
+ {
+ 	unsigned long src;
+-	int rc;
+ 
+-	if (!(iter_is_iovec(iter) || iov_iter_is_kvec(iter)))
+-		return -EINVAL;
+-	/* Multi-segment iterators are not supported */
+-	if (iter->nr_segs > 1)
+-		return -EINVAL;
+-	if (!csize)
+-		return 0;
+ 	src = pfn_to_phys(pfn) + offset;
+-
+-	/* XXX: pass the iov_iter down to a common function */
+-	if (iter_is_iovec(iter))
+-		rc = copy_oldmem_user(iter->iov->iov_base, src, csize);
+-	else
+-		rc = copy_oldmem_kernel(iter->kvec->iov_base, src, csize);
+-	if (rc < 0)
+-		return rc;
+-	iov_iter_advance(iter, csize);
+-	return csize;
++	return copy_oldmem_iter(iter, src, csize);
+ }
+ 
+ /*
+diff --git a/arch/s390/mm/maccess.c b/arch/s390/mm/maccess.c
+index 421efa46946b..d6d84e02f35a 100644
+--- a/arch/s390/mm/maccess.c
++++ b/arch/s390/mm/maccess.c
+@@ -171,32 +171,6 @@ void memcpy_absolute(void *dest, void *src, size_t count)
+ 	arch_local_irq_restore(flags);
+ }
+ 
+-/*
+- * Copy memory from kernel (real) to user (virtual)
+- */
+-int copy_to_user_real(void __user *dest, unsigned long src, unsigned long count)
+-{
+-	int offs = 0, size, rc;
+-	char *buf;
+-
+-	buf = (char *) __get_free_page(GFP_KERNEL);
+-	if (!buf)
+-		return -ENOMEM;
+-	rc = -EFAULT;
+-	while (offs < count) {
+-		size = min(PAGE_SIZE, count - offs);
+-		if (memcpy_real(buf, src + offs, size))
+-			goto out;
+-		if (copy_to_user(dest + offs, buf, size))
+-			goto out;
+-		offs += size;
+-	}
+-	rc = 0;
+-out:
+-	free_page((unsigned long) buf);
+-	return rc;
+-}
+-
+ /*
+  * Check if physical address is within prefix or zero page
+  */
+diff --git a/drivers/s390/char/zcore.c b/drivers/s390/char/zcore.c
+index 92b32ce645b9..f6da215ccf9f 100644
+--- a/drivers/s390/char/zcore.c
++++ b/drivers/s390/char/zcore.c
+@@ -17,6 +17,7 @@
+ #include <linux/debugfs.h>
+ #include <linux/panic_notifier.h>
+ #include <linux/reboot.h>
++#include <linux/uio.h>
+ 
+ #include <asm/asm-offsets.h>
+ #include <asm/ipl.h>
+@@ -54,38 +55,37 @@ static DEFINE_MUTEX(hsa_buf_mutex);
+ static char hsa_buf[PAGE_SIZE] __aligned(PAGE_SIZE);
+ 
+ /*
+- * Copy memory from HSA to user memory (not reentrant):
++ * Copy memory from HSA to iterator (not reentrant):
+  *
+- * @dest:  User buffer where memory should be copied to
++ * @iter:  Iterator where memory should be copied to
+  * @src:   Start address within HSA where data should be copied
+  * @count: Size of buffer, which should be copied
+  */
+-int memcpy_hsa_user(void __user *dest, unsigned long src, size_t count)
++size_t memcpy_hsa_iter(struct iov_iter *iter, unsigned long src, size_t count)
+ {
+-	unsigned long offset, bytes;
++	size_t bytes, copied, res = 0;
++	unsigned long offset;
+ 
+ 	if (!hsa_available)
+-		return -ENODATA;
++		return 0;
+ 
+ 	mutex_lock(&hsa_buf_mutex);
+ 	while (count) {
+ 		if (sclp_sdias_copy(hsa_buf, src / PAGE_SIZE + 2, 1)) {
+ 			TRACE("sclp_sdias_copy() failed\n");
+-			mutex_unlock(&hsa_buf_mutex);
+-			return -EIO;
++			break;
+ 		}
+ 		offset = src % PAGE_SIZE;
+ 		bytes = min(PAGE_SIZE - offset, count);
+-		if (copy_to_user(dest, hsa_buf + offset, bytes)) {
+-			mutex_unlock(&hsa_buf_mutex);
+-			return -EFAULT;
+-		}
+-		src += bytes;
+-		dest += bytes;
+-		count -= bytes;
++		copied = copy_to_iter(hsa_buf + offset, bytes, iter);
++		count -= copied;
++		src += copied;
++		res += copied;
++		if (copied < bytes)
++			break;
+ 	}
+ 	mutex_unlock(&hsa_buf_mutex);
+-	return 0;
++	return res;
+ }
+ 
+ /*
+@@ -95,28 +95,16 @@ int memcpy_hsa_user(void __user *dest, unsigned long src, size_t count)
+  * @src:   Start address within HSA where data should be copied
+  * @count: Size of buffer, which should be copied
+  */
+-int memcpy_hsa_kernel(void *dest, unsigned long src, size_t count)
++static inline int memcpy_hsa_kernel(void *dst, unsigned long src, size_t count)
+ {
+-	unsigned long offset, bytes;
++	struct iov_iter iter;
++	struct kvec kvec;
+ 
+-	if (!hsa_available)
+-		return -ENODATA;
+-
+-	mutex_lock(&hsa_buf_mutex);
+-	while (count) {
+-		if (sclp_sdias_copy(hsa_buf, src / PAGE_SIZE + 2, 1)) {
+-			TRACE("sclp_sdias_copy() failed\n");
+-			mutex_unlock(&hsa_buf_mutex);
+-			return -EIO;
+-		}
+-		offset = src % PAGE_SIZE;
+-		bytes = min(PAGE_SIZE - offset, count);
+-		memcpy(dest, hsa_buf + offset, bytes);
+-		src += bytes;
+-		dest += bytes;
+-		count -= bytes;
+-	}
+-	mutex_unlock(&hsa_buf_mutex);
++	kvec.iov_base = dst;
++	kvec.iov_len = count;
++	iov_iter_kvec(&iter, WRITE, &kvec, 1, count);
++	if (memcpy_hsa_iter(&iter, src, count) < count)
++		return -EIO;
+ 	return 0;
+ }
+ 
+-- 
+2.44.0
+

@@ -130,6 +130,10 @@ _PATCHES = (
         name="s390-kernel-emit-CFI-data-in-.debug_frame-and-discar.patch",
         versions=((None, KernelVersion("4.15")),),
     ),
+    _Patch(
+        name="s390-crash-fix-proc-vmcore-reads.patch",
+        versions=((KernelVersion("5.18"), KernelVersion("6.0")),),
+    ),
 )
 
 
