@@ -3,9 +3,15 @@
 
 from drgn import NULL
 from drgn.helpers.linux.locks import (
+    get_rwsem_owner,
+    get_rwsem_waiter_type,
+    is_rwsem_reader_owned,
+    is_rwsem_writer_owned,
     mutex_for_each_waiter_task,
     mutex_is_locked,
     mutex_owner,
+    rwsem_for_each_waiter,
+    rwsem_for_each_waiter_task,
     semaphore_for_each_waiter_task,
     semaphore_is_locked,
 )
@@ -57,4 +63,62 @@ class TestSemaphore(LinuxKernelTestCase):
         self.assertEqual(
             list(semaphore_for_each_waiter_task(self.locked_semaphore)),
             [self.prog["drgn_test_semaphore_waiter_kthread"]],
+        )
+
+
+@skip_unless_have_test_kmod
+class TestRwsemaphore(LinuxKernelTestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.read_locked_rwsemaphore = cls.prog[
+            "drgn_test_read_locked_rwsemaphore"
+        ].address_of_()
+        cls.write_locked_rwsemaphore = cls.prog[
+            "drgn_test_write_locked_rwsemaphore"
+        ].address_of_()
+        cls.unlocked_rwsemaphore = cls.prog[
+            "drgn_test_unlocked_rwsemaphore"
+        ].address_of_()
+
+    def test_is_rwsem_writer_owned(self):
+        self.assertTrue(is_rwsem_writer_owned(self.write_locked_rwsemaphore))
+        self.assertFalse(is_rwsem_writer_owned(self.read_locked_rwsemaphore))
+        self.assertFalse(is_rwsem_writer_owned(self.unlocked_rwsemaphore))
+
+    def test_is_rwsem_reader_owned(self):
+        self.assertTrue(is_rwsem_reader_owned(self.read_locked_rwsemaphore))
+        self.assertFalse(is_rwsem_reader_owned(self.write_locked_rwsemaphore))
+        self.assertFalse(is_rwsem_reader_owned(self.unlocked_rwsemaphore))
+
+    def test_get_rwsem_owner(self):
+        self.assertEqual(
+            get_rwsem_owner(self.write_locked_rwsemaphore),
+            self.prog["drgn_test_rwsemaphore_write_owner_kthread"],
+        )
+        self.assertEqual(
+            get_rwsem_owner(self.read_locked_rwsemaphore),
+            NULL(self.prog, "struct task_struct *"),
+        )
+        self.assertEqual(
+            get_rwsem_owner(self.unlocked_rwsemaphore),
+            NULL(self.prog, "struct task_struct *"),
+        )
+
+    def test_get_rwsem_waiter_type(self):
+        for waiter in rwsem_for_each_waiter(self.read_locked_rwsemaphore):
+            self.assertEqual(get_rwsem_waiter_type(waiter), "down_write")
+        for waiter in rwsem_for_each_waiter(self.write_locked_rwsemaphore):
+            self.assertEqual(get_rwsem_waiter_type(waiter), "down_read")
+
+    def test_rwsem_for_each_waiter_task(self):
+        self.assertEqual(
+            list(rwsem_for_each_waiter_task(self.unlocked_rwsemaphore)), []
+        )
+        self.assertEqual(
+            list(rwsem_for_each_waiter_task(self.read_locked_rwsemaphore)),
+            [self.prog["drgn_test_rwsemaphore_write_waiter_kthread"]],
+        )
+        self.assertEqual(
+            list(rwsem_for_each_waiter_task(self.write_locked_rwsemaphore)),
+            [self.prog["drgn_test_rwsemaphore_read_waiter_kthread"]],
         )

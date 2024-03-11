@@ -1272,6 +1272,95 @@ static void drgn_test_semaphore_exit(void)
 		complete(&drgn_test_semaphore_release_owner);
 }
 
+// rwsemaphore
+static DECLARE_COMPLETION(drgn_test_rwsemaphore_release_read_owner);
+static DECLARE_COMPLETION(drgn_test_rwsemaphore_release_write_owner);
+static struct task_struct *drgn_test_rwsemaphore_read_owner_kthread;
+static struct task_struct *drgn_test_rwsemaphore_write_owner_kthread;
+static struct task_struct *drgn_test_rwsemaphore_read_waiter_kthread;
+static struct task_struct *drgn_test_rwsemaphore_write_waiter_kthread;
+static struct rw_semaphore drgn_test_read_locked_rwsemaphore;
+static struct rw_semaphore drgn_test_write_locked_rwsemaphore;
+static struct rw_semaphore drgn_test_unlocked_rwsemaphore;
+
+static int drgn_test_rwsemaphore_read_owner_kthread_fn(void *arg)
+{
+	down_read(&drgn_test_read_locked_rwsemaphore);
+	wait_for_completion(&drgn_test_rwsemaphore_release_read_owner);
+	up_read(&drgn_test_read_locked_rwsemaphore);
+	return 0;
+}
+
+static int drgn_test_rwsemaphore_write_owner_kthread_fn(void *arg)
+{
+	down_write(&drgn_test_write_locked_rwsemaphore);
+	wait_for_completion(&drgn_test_rwsemaphore_release_write_owner);
+	up_write(&drgn_test_write_locked_rwsemaphore);
+	return 0;
+}
+
+static int drgn_test_rwsemaphore_read_waiter_kthread_fn(void *arg)
+{
+	//attempt to acquire lock held by writer so  that down_read blocks
+	down_read(&drgn_test_write_locked_rwsemaphore);
+	up_read(&drgn_test_write_locked_rwsemaphore);
+	return 0;
+}
+
+static int drgn_test_rwsemaphore_write_waiter_kthread_fn(void *arg)
+{
+	//We could have attempted to acquire writer owned lock as well, but this
+	//keeps test simulation simple
+	down_write(&drgn_test_read_locked_rwsemaphore);
+	up_write(&drgn_test_read_locked_rwsemaphore);
+	return 0;
+}
+
+static int drgn_test_rwsemaphore_init(void)
+{
+	init_rwsem(&drgn_test_read_locked_rwsemaphore);
+	init_rwsem(&drgn_test_write_locked_rwsemaphore);
+	init_rwsem(&drgn_test_unlocked_rwsemaphore);
+
+	drgn_test_rwsemaphore_read_owner_kthread = kthread_create(drgn_test_rwsemaphore_read_owner_kthread_fn,
+						 NULL,
+						 "drgn_test_rwsemaphore_read_owner_kthread");
+
+	drgn_test_rwsemaphore_write_owner_kthread = kthread_create(drgn_test_rwsemaphore_write_owner_kthread_fn,
+						 NULL,
+						 "drgn_test_rwsemaphore_write_owner_kthread");
+
+	drgn_test_rwsemaphore_read_waiter_kthread = kthread_create(drgn_test_rwsemaphore_read_waiter_kthread_fn,
+						 NULL,
+						 "drgn_test_rwsemaphore_read_waiter_kthread");
+
+	drgn_test_rwsemaphore_write_waiter_kthread = kthread_create(drgn_test_rwsemaphore_write_waiter_kthread_fn,
+						 NULL,
+						 "drgn_test_rwsemaphore_write_waiter_kthread");
+
+	if (!drgn_test_rwsemaphore_read_owner_kthread ||
+	    !drgn_test_rwsemaphore_write_owner_kthread ||
+	    !drgn_test_rwsemaphore_read_waiter_kthread ||
+	    !drgn_test_rwsemaphore_write_waiter_kthread)
+		return -1;
+
+	wake_up_process(drgn_test_rwsemaphore_read_owner_kthread);
+	wake_up_process(drgn_test_rwsemaphore_write_owner_kthread);
+	mdelay(500); //make sure owners get chance to grab the rwsemaphores
+	wake_up_process(drgn_test_rwsemaphore_read_waiter_kthread);
+	wake_up_process(drgn_test_rwsemaphore_write_waiter_kthread);
+	return 0;
+}
+
+static void drgn_test_rwsemaphore_exit(void)
+{
+	if (drgn_test_rwsemaphore_read_owner_kthread)
+		complete(&drgn_test_rwsemaphore_release_read_owner);
+
+	if (drgn_test_rwsemaphore_write_owner_kthread)
+		complete(&drgn_test_rwsemaphore_release_write_owner);
+}
+
 // Dummy function symbol.
 int drgn_test_function(int x)
 {
@@ -1291,6 +1380,7 @@ static void drgn_test_exit(void)
 	drgn_test_waitq_exit();
 	drgn_test_mutex_exit();
 	drgn_test_semaphore_exit();
+	drgn_test_rwsemaphore_exit();
 	drgn_test_idr_exit();
 }
 
@@ -1336,6 +1426,10 @@ static int __init drgn_test_init(void)
 		goto out;
 
 	ret = drgn_test_semaphore_init();
+	if (ret)
+		goto out;
+
+	ret = drgn_test_rwsemaphore_init();
 	if (ret)
 		goto out;
 
