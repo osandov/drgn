@@ -2,7 +2,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-# type: ignore
+"""List BPF programs or maps and their properties unavailable via kernel API."""
 
 import argparse
 
