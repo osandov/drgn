@@ -36,7 +36,12 @@ struct drgn_ctf_enumnode {
 DEFINE_HASH_MAP(drgn_ctf_enums, const char *, struct drgn_ctf_enumnode,
 		c_string_key_hash_pair, c_string_key_eq);
 
-DEFINE_HASH_MAP(drgn_ctf_dicts, const char *, ctf_dict_t *,
+struct drgn_ctf_dicts_value {
+	ctf_dict_t *dict;
+	ctf_archive_t *arc;
+};
+
+DEFINE_HASH_MAP(drgn_ctf_dicts, const char *, struct drgn_ctf_dicts_value,
 		c_string_key_hash_pair, c_string_key_eq);
 
 struct drgn_ctf_key {
@@ -720,43 +725,50 @@ drgn_forward_from_ctf(struct drgn_ctf_info *info, ctf_dict_t *dict,
 {
 	int ctf_kind = ctf_type_kind_forwarded(dict, id);
 	const char *name = ctf_type_name_raw(dict, id);
-	struct drgn_error *err;
+	struct drgn_error *err = NULL;
 
 	if (name && !*name)
 		name = NULL;
 
-	/*
-	 * TODO: A forward declared type could be duplicated in several modules.
-	 * In general, we can't really know which module to look in, this is a
-	 * difficult problem to solve. For now, an easy answer is to just use
-	 * the first available option.
-	 */
-	if (name) {
+	if (name && dict != info->root && ctf_parent_dict(dict) != info->root) {
+		// This dict is not from the "main" CTF archive, so we must be
+		// looking at CTF loaded for an external module. To resolve
+		// forwards here, we should search the main CTF dict.
+		ctf_dict_t *search_dict = info->vmlinux ?: info->root;
+		err = drgn_ctf_lookup_by_name(info, search_dict, name, (1ULL << ctf_kind),
+					      &id, &dict);
+	} else if (name) {
+		// Otherwise, we assume this is forwarded in the main archive.
+		// These forwards are somewhat difficult to resolve, usually we
+		// need to look in a child dict but we have no indication which
+		// one to search in. Currently, we do a search of all dicts and
+		// go with the first result, but this is an area for future
+		// improvement.
 		err = drgn_ctf_lookup_by_name(info, NULL, name, (1ULL << ctf_kind),
 					      &id, &dict);
+	}
 
-		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
-			const char *kind_name;
-			switch (ctf_kind) {
-				case CTF_K_ENUM:
-					kind_name = "enum";
-					break;
-				case CTF_K_STRUCT:
-					kind_name = "struct";
-					break;
-				case CTF_K_UNION:
-					kind_name = "union";
-					break;
-				default:
-					kind_name = "UNKNOWN KIND:";
-					break;
-			}
-			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "cannot resolve CTF forwarded type: %s %s\n",
-						 kind_name, name);
-		} else if (err) {
-			return err;
+	if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+		const char *kind_name;
+		switch (ctf_kind) {
+			case CTF_K_ENUM:
+				kind_name = "enum";
+				break;
+			case CTF_K_STRUCT:
+				kind_name = "struct";
+				break;
+			case CTF_K_UNION:
+				kind_name = "union";
+				break;
+			default:
+				kind_name = "UNKNOWN KIND:";
+				break;
 		}
+		return drgn_error_format(DRGN_ERROR_OTHER,
+						"cannot resolve CTF forwarded type: %s %s\n",
+						kind_name, name);
+	} else if (err) {
+		return err;
 	}
 
 	/*
@@ -809,7 +821,7 @@ again:
 		/* We should be accurate about which dict the cached type
 		 * actually belongs to: otherwise, we'll cache multiple
 		 * copies. */
-		key.dict = info->root;
+		key.dict = ctf_parent_dict(dict) ?: dict;
 	struct hash_pair hp = drgn_ctf_type_map_hash(&key);
 	struct drgn_ctf_type_map_iterator it =
 		drgn_ctf_type_map_search_hashed(&info->types, &key, hp);
@@ -870,40 +882,10 @@ drgn_ctf_get_dict(struct drgn_ctf_info *info, const char *name, ctf_dict_t **ret
 	struct hash_pair hp = drgn_ctf_dicts_hash(&name);
 	struct drgn_ctf_dicts_iterator it = drgn_ctf_dicts_search_hashed(&info->dicts, &name, hp);
 	if (it.entry) {
-		*ret = it.entry->value;
+		*ret = it.entry->value.dict;
 		return NULL;
 	}
-
-	int errnum;
-	const char *name_saved = strdup(name);
-	struct drgn_error *err;
-	if (!name_saved)
-		return &drgn_enomem;
-
-	ctf_dict_t *dict = ctf_dict_open(info->archive, name, &errnum);
-	if (!dict && errnum == ECTF_ARNNAME) {
-		// The common case for failure is that the dictionary name did
-		// not exist, this only occurs when a dict name is passed in via
-		// "drgn.type()" second argument. Return a lookup error.
-		err = &drgn_not_found;
-		goto out;
-	} else if (!dict) {
-		err = drgn_error_format(DRGN_ERROR_OTHER, "ctf_dict_open: \"%s\": %s",
-					name, ctf_errmsg(errnum));
-		goto out;
-	}
-	struct drgn_ctf_dicts_entry entry = {name_saved, dict};
-	if (drgn_ctf_dicts_insert_searched(&info->dicts, &entry, hp, NULL) < 0) {
-		err = &drgn_enomem;
-		goto out_close;
-	}
-	*ret = dict;
-	return NULL;
-out_close:
-	ctf_dict_close(dict);
-out:
-	free((char *)name_saved);
-	return err;
+	return &drgn_not_found;
 }
 
 static struct drgn_error *
@@ -1021,7 +1003,7 @@ drgn_ctf_find_var_all_dicts(struct drgn_ctf_info *info, const char *name, uint64
 			    struct drgn_object *ret)
 {
 	struct drgn_ctf_dicts_iterator it;
-	struct drgn_error *err;
+	struct drgn_error *err = NULL;
 
 	/*
 	 * A reasonable assumption is that this is in vmlinux. First search it,
@@ -1037,9 +1019,10 @@ drgn_ctf_find_var_all_dicts(struct drgn_ctf_info *info, const char *name, uint64
 	}
 
 	for (it = drgn_ctf_dicts_first(&info->dicts); it.entry; it = drgn_ctf_dicts_next(it)) {
-		if (it.entry->value == info->vmlinux || it.entry->value == info->root)
+		ctf_dict_t *dict = it.entry->value.dict;
+		if (dict == info->vmlinux)
 			continue; /* no need to search these */
-		err = drgn_ctf_find_var(info, name, it.entry->value, addr, ret);
+		err = drgn_ctf_find_var(info, name, dict, addr, ret);
 		if (!err || !drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 			return err;
 	}
@@ -1285,38 +1268,37 @@ static int process_type(ctf_id_t type, void *void_arg)
 	return ret;
 }
 
-static int process_dict(ctf_dict_t *unused, const char *name, void *void_arg)
+static struct drgn_error *
+process_dict(ctf_dict_t *dict, const char *name, struct drgn_ctf_info *info,
+	     ctf_archive_t *arc)
 {
-	struct drgn_ctf_arg *arg = void_arg;
-	ctf_dict_t *dict;
+	struct hash_pair hp = drgn_ctf_dicts_hash(&name);
+	struct drgn_ctf_dicts_iterator it = drgn_ctf_dicts_search_hashed(&info->dicts, &name, hp);
+	if (it.entry)
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "added duplicate CTF module \"%s\"\n",
+					 name);
 
-	/* The CTF archive iterator will close the dict handle it gives us once
-	 * we return. So ignore the argument and open a new handle which we will
-	 * cache. */
-	arg->err = drgn_ctf_get_dict(arg->info, name, &dict);
-	if (arg->err)
-		return -1;
+	char *name_saved = strdup(name);
+	if (!name_saved)
+		return &drgn_enomem;
 
-	if (strcmp(name, "shared_ctf") == 0) {
-		arg->info->root = dict;
-	} else if (strcmp(name, "vmlinux") == 0) {
-		if (arg->info->vmlinux)
-			return 0; /* already visited */
-		arg->info->vmlinux = dict;
+	struct drgn_ctf_dicts_entry entry = {name_saved, {dict, arc}};
+	if (drgn_ctf_dicts_insert_searched(&info->dicts, &entry, hp, NULL) < 0) {
+		free(name_saved);
+		return &drgn_enomem;
 	}
 
-	arg->dict = dict;
-	arg->dict_name = name;
+	struct drgn_ctf_arg arg = {0};
+	arg.info = info;
+	arg.dict = dict;
+	arg.dict_name = name;
+	int ret = ctf_type_iter(dict, process_type, &arg);
 
-	int ret = ctf_type_iter(dict, process_type, void_arg);
-	/* For CTF errors, set a drgn error immediately */
-	if (ret != 0 && !arg->err)
-		arg->err = drgn_error_ctf(get_ctf_errno(dict));
-
-	arg->dict = NULL;
-	arg->dict_name = NULL;
-
-	return ret;
+	// nonzero return means an error or early break
+	if (ret != 0 && !arg.err)
+		return drgn_error_ctf(get_ctf_errno(dict));
+	return arg.err;
 }
 
 #ifndef WITH_LIBBFD
@@ -1402,7 +1384,9 @@ drgn_ctf_dicts_close_all(struct drgn_ctf_dicts *dicts)
 		// free the name until we've deleted from the hash table, since
 		// it will be hashed one last time in the delete function.
 		char *tmp = (char *)it.entry->key;
-		ctf_dict_close(it.entry->value);
+		ctf_dict_close(it.entry->value.dict);
+		if (it.entry->value.arc)  // module CTF
+			ctf_arc_close(it.entry->value.arc);
 		it = drgn_ctf_dicts_delete_iterator(dicts, it);
 		free(tmp);
 	}
@@ -1433,11 +1417,108 @@ static void drgn_ctf_decref(void *arg)
 	drgn_ctf_destroy(info);
 }
 
+/* A hack: get the CTF finder corresponding to this program.
+ * Assumes there is only one, which is enforced by drgn_program_load_ctf(). */
+static struct drgn_ctf_info *
+drgn_program_get_ctf(struct drgn_program *prog)
+{
+	drgn_handler_list_for_each_enabled(struct drgn_type_finder, finder,
+					   &prog->type_finders) {
+		if (finder->ops.find == drgn_type_from_ctf)
+			return finder->arg;
+	}
+	return NULL;
+}
+
+struct drgn_error *
+drgn_program_load_module_ctf(struct drgn_program *prog,
+			     const char *module,
+			     const char *file)
+{
+	#ifndef WITH_LIBBFD
+	return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+				 "drgn was not compiled with libbfd support, module CTF is not available");
+	#endif
+	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
+		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+					 "module CTF can only be loaded for the Linux kernel");
+	struct drgn_ctf_info *ctf = drgn_program_get_ctf(prog);
+	if (!ctf)
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "module CTF cannot be loaded until after CTF has been loaded");
+
+	int errnum;
+	ctf_archive_t *arc = ctf_open(file, NULL, &errnum);
+	if (!arc)
+		return drgn_error_ctf(errnum);
+
+	ctf_dict_t *dict = ctf_dict_open(arc, ".ctf", &errnum);
+	if (!dict) {
+		ctf_arc_close(arc);
+		return drgn_error_ctf(errnum);
+	}
+
+	struct drgn_error *err = process_dict(dict, module, ctf, arc);
+	if (err) {
+		ctf_dict_close(dict);
+		ctf_arc_close(arc);
+		return err;
+	}
+
+	return NULL;
+}
+
+static struct drgn_error *
+process_archive(struct drgn_ctf_info *info)
+{
+	ctf_dict_t *dict;
+	const char *name;
+	int errnum;
+
+	// try to process vmlinux first, if it exists, to put it at the
+	// beginning of the lists
+	dict = ctf_dict_open(info->archive, "vmlinux", &errnum);
+	if (dict) {
+		struct drgn_error *err = process_dict(dict, "vmlinux", info, NULL);
+		if (err) {
+			ctf_dict_close(dict);
+			return err;
+		}
+		info->vmlinux = dict;
+	}
+
+	dict = NULL;
+	ctf_next_t *next = NULL;
+	while ((dict = ctf_archive_next(info->archive, &next, &name,
+					false, &errnum)) != NULL) {
+		if (strcmp(name, "vmlinux") == 0)
+			continue; /* processed this above */
+
+		if (!ctf_parent_name(dict))
+			info->root = dict;
+
+		struct drgn_error *err = process_dict(dict, name, info, NULL);
+		if (err) {
+			ctf_dict_close(dict);
+			ctf_next_destroy(next);
+			return err;
+		}
+	}
+	if (errnum != ECTF_NEXT_END)
+		return drgn_error_ctf(errnum);
+	return NULL;
+}
+
 struct drgn_error *
 drgn_program_load_ctf(struct drgn_program *prog, const char *file)
 {
 	struct drgn_error *err;
 	int errnum = 0;
+
+	if (drgn_program_get_ctf(prog))
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "CTF info is already loaded");
+
 	struct drgn_ctf_info *info = calloc(1, sizeof(*info));
 
 	if (!info)
@@ -1468,6 +1549,7 @@ drgn_program_load_ctf(struct drgn_program *prog, const char *file)
 	info->ctf_size = data.cts_size;
 	info->archive = ctf_arc_bufopen(&data, NULL, NULL, &errnum);
 	if (!info->archive) {
+		free(info->ctf_data);
 		free(info);
 		return drgn_error_format(DRGN_ERROR_OTHER, "ctf_arc_bufopen \"%s\": %s",
 					 file, ctf_errmsg(errnum));
@@ -1510,30 +1592,9 @@ drgn_program_load_ctf(struct drgn_program *prog, const char *file)
 	 * (libctf doesn't contain an efficient lookup mechanism for these
 	 * either).
 	 */
-	struct drgn_ctf_arg arg = {0};
-	arg.info = info;
-
-	/* Try to process vmlinux first so it's at the beginning of the hash
-	 * lists */
-	ctf_dict_t *d = ctf_dict_open(info->archive, "vmlinux", &errnum);
-	if (d) {
-		errnum = process_dict(d, "vmlinux", &arg);
-		ctf_dict_close(d);
-		if (errnum != 0) {
-			err = arg.err;
-			goto error;
-		}
-	}
-
-
-	/* Now process the remaining dictionaries */
-	errnum = ctf_archive_iter(info->archive, process_dict, &arg);
-	if (errnum != 0) {
-		if (!arg.err)
-			arg.err = drgn_error_ctf(errnum);
-		err = arg.err;
+	err = process_archive(info);
+	if (err)
 		goto error;
-	}
 
 	err = drgn_program_register_type_finder(prog, "ctf", &info->tfind, info,
 						DRGN_HANDLER_REGISTER_ENABLE_LAST);

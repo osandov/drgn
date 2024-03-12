@@ -514,5 +514,7 @@ PyObject *drgnpy_linux_helper_load_builtin_kallsyms(PyObject *self, PyObject *ar
 						    PyObject *kwds);
 PyObject *drgnpy_linux_helper_load_ctf(PyObject *self, PyObject *args,
 				       PyObject *kwds);
+PyObject *drgnpy_linux_helper_load_module_ctf(PyObject *self, PyObject *args,
+					      PyObject *kwds);
 
 #endif /* DRGNPY_H */

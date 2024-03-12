@@ -372,3 +372,31 @@ PyObject *drgnpy_linux_helper_load_ctf(PyObject *self, PyObject *args,
 	return NULL;
 #endif // WITH_LIBCTF
 }
+
+PyObject *drgnpy_linux_helper_load_module_ctf(PyObject *self, PyObject *args,
+					      PyObject *kwds)
+
+{
+#ifdef WITH_LIBCTF
+	static char *keywords[] = {"prog", "module", "file", NULL};
+	Program *prog;
+	const char *module;
+	const char *file;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!ss:load_module_ctf",
+					 keywords, &Program_type, &prog, &module,
+					 &file))
+		return NULL;
+
+	struct drgn_error *err = drgn_program_load_module_ctf(&prog->prog, module, file);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+	return Py_None;
+#else
+	PyErr_SetString(PyExc_NotImplementedError,
+			"CTF support is not available, configure drgn with "
+			"--with-libctf to enable");
+	return NULL;
+#endif // WITH_LIBCTF
+}

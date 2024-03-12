@@ -16,4 +16,10 @@ struct drgn_program;
 struct drgn_error *
 drgn_program_load_ctf(struct drgn_program *prog, const char *file);
 
+struct drgn_error *
+drgn_program_load_module_ctf(struct drgn_program *prog,
+			     const char *module,
+			     const char *file);
+
+
 #endif // DRGN_CTF_H
