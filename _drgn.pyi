@@ -2511,3 +2511,38 @@ def _linux_helper_pid_task(pid: Object, pid_type: IntegerLike) -> Object:
 def _linux_helper_find_task(__ns: Object, __pid: IntegerLike) -> Object: ...
 def _linux_helper_kaslr_offset(__prog: Program) -> int: ...
 def _linux_helper_pgtable_l5_enabled(__prog: Program) -> bool: ...
+def _linux_helper_load_proc_kallsyms(
+    filename: Optional[str] = None,
+    modules: bool = False,
+) -> SymbolIndex:
+    """
+    Create a symbol index from ``/proc/kallsyms``
+
+    The ``/proc/kallsyms`` file is provided by the running kernel, and it
+    exports the kallsyms data which is embedded in the kernel image. For the
+    live kernel, it is much easier to read this file rather than attempt to
+    parse the built-in data structures for kallsyms. This helper parses
+    ``/proc/kallsyms`` and returns an index of the contained symbols.
+
+    The text-formtated data in ``/proc/kallsyms`` is not perfect: in particular,
+    it doesn't contain full information related to the :class:`SymbolKind` and
+    :class:`SymbolBinding`, and most critically, it does not contain the symbol
+    size. As a result, drgn is forced to infer some of this information.  For
+    this reason, the default behavior of this function is not to include module
+    symbols. You can use :func:`load_module_kallsyms()` to parse this
+    information from the kernel image, which requires vmlinux debuginfo, but
+    includes full symbol information. Or, you can set ``modules=True`` to
+    override this default behavior.
+
+    Finally, please keep in mind that when read by non-root users,
+    ``/proc/kallsyms`` will return 0's for all addresses, as a security measure
+    to avoid breaking KASLR. So in addition to being useless for vmcores, this
+    function is only helpful for live kernels if running as root. For other
+    cases, you should fall back to :func:`load_builtin_kallsyms()`.
+
+    :param filename: the file to read symbols from (default: ``/proc/kallsyms``)
+    :param modules: whether we should include module symbols in the result
+    :returns: a symbol index containing symbols for the kernel
+    """
+
+def _linux_helper_load_builtin_kallsyms(prog: Program) -> SymbolIndex: ...
