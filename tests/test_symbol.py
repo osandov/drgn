@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 import tempfile
 
-from drgn import Program, Symbol, SymbolBinding, SymbolKind
+from drgn import Program, Symbol, SymbolBinding, SymbolIndex, SymbolKind
 from tests import TestCase
 from tests.dwarfwriter import dwarf_sections
 from tests.elf import ET, PT, SHT, STB, STT
@@ -343,3 +343,81 @@ class TestSymbolFinder(TestCase):
         self.expect_args(None, None, False)
         self.assertEqual(self.prog.symbols(), self.TEST_SYMS)
         self.assertTrue(self.called)
+
+
+class TestSymbolIndex(TestCase):
+    # Symbols are listed here in order of address, but are shuffled below
+    AA = Symbol("AA", 10, 5, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    BB = Symbol("BB", 12, 1, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    CC = Symbol("CC", 13, 8, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    DD = Symbol("DD", 28, 5, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    EE = Symbol("EE", 34, 1, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    FF = Symbol("FF", 34, 10, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    GG = Symbol("GG", 34, 2, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    BB2 = Symbol("BB", 36, 3, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+
+    TEST_SYMS = [GG, BB, AA, BB2, CC, FF, DD, EE]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.finder = SymbolIndex(cls.TEST_SYMS)
+
+    def test_name_single(self):
+        for sym in self.TEST_SYMS:
+            if sym.name != "BB":
+                self.assertEqual([sym], self.finder(sym.name, None, True))
+                self.assertEqual([sym], self.finder(sym.name, None, False))
+
+    def test_name_multiple(self):
+        multi_result = self.finder("BB", None, False)
+        self.assertEqual(2, len(multi_result))
+        self.assertIn(self.BB, multi_result)
+        self.assertIn(self.BB2, multi_result)
+
+        single_result = self.finder("BB", None, True)
+        self.assertIn(single_result[0], (self.BB, self.BB2))
+
+    def test_addr(self):
+        cases = {
+            9: [],
+            10: [self.AA],
+            12: [self.AA, self.BB],
+            13: [self.AA, self.CC],
+            15: [self.CC],
+            25: [],
+            28: [self.DD],
+            30: [self.DD],
+            34: [self.EE, self.FF, self.GG],
+            35: [self.FF, self.GG],
+            36: [self.FF, self.BB2],
+            43: [self.FF],
+            44: [],
+        }
+        for address, expected in cases.items():
+            # first, lookup by address alone and ensure we get all correct
+            # candidates:
+            multi_result = self.finder(None, address, False)
+            self.assertEqual(len(expected), len(multi_result))
+            self.assertTrue(all(e in multi_result for e in expected))
+
+            # next, ensure that the single lookup works as expected:
+            if expected:
+                single_result = self.finder(None, address, True)
+                self.assertEqual(1, len(single_result))
+                self.assertIn(single_result[0], expected)
+
+            # now, test that adding a name filter correctly filters:
+            for sym in expected:
+                self.assertEqual([sym], self.finder(sym.name, address, True))
+                self.assertEqual([sym], self.finder(sym.name, address, False))
+            self.assertEqual([], self.finder("MISSING", address, True))
+            self.assertEqual([], self.finder("MISSING", address, False))
+
+    def test_all(self):
+        result = self.finder(None, None, True)
+        self.assertEqual(1, len(result))
+        self.assertIn(result[0], self.TEST_SYMS)
+        result = self.finder(None, None, False)
+        self.assertEqual(len(self.TEST_SYMS), len(result))
+        for sym in self.TEST_SYMS:
+            self.assertIn(sym, result)

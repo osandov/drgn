@@ -591,8 +591,14 @@ static PyObject *Program_add_symbol_finder(Program *self, PyObject *args,
 	if (ret == -1)
 		return NULL;
 
-	err = drgn_program_add_symbol_finder(&self->prog, py_symbol_find_fn,
-					     fn);
+	// Fast path for the symbol index finder, avoiding Python overhead
+	if (PyObject_TypeCheck(fn, &SymbolIndex_type))
+		err = drgn_program_add_symbol_finder(&self->prog,
+						     drgn_symbol_index_find,
+						     &((SymbolIndex *)fn)->index);
+	else
+		err = drgn_program_add_symbol_finder(&self->prog, py_symbol_find_fn,
+						fn);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
