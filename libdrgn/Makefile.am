@@ -171,6 +171,7 @@ _drgn_la_SOURCES = python/constants.c \
 		   python/program.c \
 		   python/stack_trace.c \
 		   python/symbol.c \
+		   python/symbol_index.c \
 		   python/test.c \
 		   python/thread.c \
 		   python/type.c \
