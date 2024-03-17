@@ -10,6 +10,7 @@ from drgn import Object
 from drgn.helpers.linux.locks import mutex_is_locked
 from drgn.helpers.linux.locks import mutex_owner
 from drgn.helpers.linux.locks import mutex_for_each_waiter_task
+from drgn.helpers.linux.locks import semaphore_for_each_waiter_task
 
 ###############################################
 # mutex
@@ -45,6 +46,23 @@ def dump_mutex_owner_call_stack(mutex: Object) -> None:
         print("\n")
 
 
+###############################################
+# semaphore
+###############################################
+def dump_semaphore_waiters_call_stack(semaphore: Object) -> None:
+    """
+    Dump call stacks for all tasks blocked on a semaphore.
+
+    :param lock: ``struct semaphore *``
+    """
+    prog = semaphore.prog_
+    print(f"Dumping call stack for waiter(s) of semaphore: {semaphore.value_():x}")
+    for task in semaphore_for_each_waiter_task(semaphore):
+        trace = prog.stack_trace(task.pid.value_())
+        print(f"\ncall stack for pid: {task.pid.value_()}")
+        print(trace)
+        print("\n")
+
 def parse_cmdline_args(args):
     parser = ArgumentParser()
     parser.add_argument("lock_type", type=str, help="type of lock i.e mutex. semaphore, rwsemaphore etc.")
@@ -70,6 +88,11 @@ def main():
                 dump_mutex_waiters_call_stack(lock.address_of_())
             if (info_type == "all" or info_type == "owner"):
                 dump_mutex_owner_call_stack(lock.address_of_())
+    elif lock_type == "semaphore":
+        for lock_addr in locks:
+            lock = Object(prog, "struct semaphore", address=int(lock_addr, 16))
+            if (info_type == "all" or info_type == "waiter"):
+                dump_semaphore_waiters_call_stack(lock.address_of_())
     else:
         print(f"No information available for {lock_type}.") 
 
