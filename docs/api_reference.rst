@@ -109,6 +109,7 @@ Symbols
 .. drgndoc:: Symbol
 .. drgndoc:: SymbolBinding
 .. drgndoc:: SymbolKind
+.. drgndoc:: SymbolIndex
 
 Stack Traces
 ------------
