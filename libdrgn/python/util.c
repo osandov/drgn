@@ -78,6 +78,21 @@ int index_converter(PyObject *o, void *p)
 	}
 }
 
+int u64_converter(PyObject *o, void *p)
+{
+	struct u64_arg *arg = p;
+
+	arg->is_none = o == Py_None;
+	if (arg->allow_none && arg->is_none)
+		return 1;
+
+	_cleanup_pydecref_ PyObject *index_obj = PyNumber_Index(o);
+	if (!index_obj)
+		return 0;
+	arg->value = PyLong_AsUint64(index_obj);
+	return (arg->value != UINT64_C(-1) || !PyErr_Occurred());
+}
+
 int path_converter(PyObject *o, void *p)
 {
 	if (o == NULL) {

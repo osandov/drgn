@@ -3,6 +3,7 @@
 
 #include "drgnpy.h"
 #include "../helpers.h"
+#include "../kallsyms.h"
 #include "../program.h"
 
 PyObject *drgnpy_linux_helper_direct_mapping_offset(PyObject *self, PyObject *arg)
@@ -290,4 +291,74 @@ PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *arg)
 	if (!(prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
 		return PyErr_Format(PyExc_ValueError, "not Linux kernel");
 	Py_RETURN_BOOL(prog->prog.vmcoreinfo.pgtable_l5_enabled);
+}
+
+PyObject *drgnpy_linux_helper_load_proc_kallsyms(PyObject *self, PyObject *args,
+						 PyObject *kwds)
+
+{
+	static char *kwnames[] = {"filename", "modules", NULL};
+	const char *filename = "/proc/kallsyms";
+	int modules = 0;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|sp:load_proc_kallsyms",
+					 kwnames, &filename, &modules))
+		return NULL;
+
+	_cleanup_pydecref_ SymbolIndex *index = call_tp_alloc(SymbolIndex);
+	if (!index)
+		return set_drgn_error(&drgn_enomem);
+
+	struct drgn_error *err = drgn_load_proc_kallsyms(filename, modules, &index->index);
+	if (err)
+		return set_drgn_error(err);
+	return (PyObject *)no_cleanup_ptr(index);
+}
+
+PyObject *
+drgnpy_linux_helper_load_builtin_kallsyms(PyObject *self, PyObject *args,
+					  PyObject *kwds)
+{
+	static char *kwnames[] = {"prog", "names", "token_table", "token_index", "num_syms",
+	                          "offsets", "relative_base", "addresses", "_stext", NULL};
+	struct kallsyms_locations kl;
+	PyObject *prog_obj;
+	struct u64_arg names = {};
+	struct u64_arg token_table = {};
+	struct u64_arg token_index = {};
+	struct u64_arg num_syms = {};
+	struct u64_arg offsets = {};
+	struct u64_arg relative_base = {};
+	struct u64_arg addresses = {};
+	struct u64_arg stext = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&O&O&O&O&O&O&O&:load_builtin_kallsyms",
+					 kwnames, &Program_type, &prog_obj,
+					 u64_converter, &names,
+					 u64_converter, &token_table,
+					 u64_converter, &token_index,
+					 u64_converter, &num_syms,
+					 u64_converter, &offsets,
+					 u64_converter, &relative_base,
+					 u64_converter, &addresses,
+					 u64_converter, &stext))
+		return NULL;
+
+	kl.kallsyms_names = names.value;
+	kl.kallsyms_token_table = token_table.value;
+	kl.kallsyms_token_index = token_index.value;
+	kl.kallsyms_num_syms = num_syms.value;
+	kl.kallsyms_offsets = offsets.value;
+	kl.kallsyms_relative_base = relative_base.value;
+	kl.kallsyms_addresses = addresses.value;
+	kl._stext = stext.value;
+
+	struct drgn_program *prog = &((Program *)prog_obj)->prog;
+	_cleanup_pydecref_ SymbolIndex *index = call_tp_alloc(SymbolIndex);
+	if (!index)
+		return set_drgn_error(&drgn_enomem);
+
+	struct drgn_error *err = drgn_load_builtin_kallsyms(prog, &kl, &index->index);
+	if (err)
+		return set_drgn_error(err);
+	return (PyObject *)no_cleanup_ptr(index);
 }
