@@ -19,6 +19,7 @@
 #include "../hash_table.h"
 #include "../pp.h"
 #include "../program.h"
+#include "../symbol.h"
 
 /* These were added in Python 3.7. */
 #ifndef Py_UNREACHABLE
@@ -108,6 +109,11 @@ typedef struct {
 	 */
 	PyObject *attr_cache;
 } DrgnType;
+
+typedef struct {
+	PyObject_HEAD
+	struct drgn_symbol_index index;
+} SymbolIndex;
 
 typedef struct {
 	PyObject_HEAD
@@ -243,6 +249,7 @@ extern PyTypeObject Register_type;
 extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject Symbol_type;
+extern PyTypeObject SymbolIndex_type;
 extern PyTypeObject Thread_type;
 extern PyTypeObject ThreadIterator_type;
 extern PyTypeObject TypeEnumerator_type;

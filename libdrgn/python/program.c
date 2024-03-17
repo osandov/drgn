@@ -503,6 +503,13 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 		  enum drgn_find_symbol_flags flags, void *arg,
 		  struct drgn_symbol_result_builder *builder)
 {
+	// Fast path for SymbolIndex: don't bother converting to and from Python
+	// types, as this is a C finder.
+	if (PyObject_TypeCheck(PyTuple_GET_ITEM(arg, 1), &SymbolIndex_type)) {
+		SymbolIndex *ix = (SymbolIndex *)PyTuple_GET_ITEM(arg, 1);
+		return drgn_symbol_index_find(name, addr, flags, &ix->index, builder);
+	}
+
 	PyGILState_guard();
 
 	_cleanup_pydecref_ PyObject *name_obj = NULL;
