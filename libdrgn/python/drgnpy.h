@@ -353,6 +353,8 @@ struct index_arg {
 };
 int index_converter(PyObject *o, void *p);
 
+int u64_converter(PyObject *o, void *p);
+
 struct path_arg {
 	bool allow_fd;
 	bool allow_none;
@@ -396,5 +398,9 @@ DrgnObject *drgnpy_linux_helper_pid_task(PyObject *self, PyObject *args,
 DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args);
 PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *arg);
 PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *arg);
+PyObject *drgnpy_linux_helper_load_proc_kallsyms(PyObject *self, PyObject *args,
+						 PyObject *kwds);
+PyObject *drgnpy_linux_helper_load_builtin_kallsyms(PyObject *self, PyObject *args,
+						    PyObject *kwds);
 
 #endif /* DRGNPY_H */
