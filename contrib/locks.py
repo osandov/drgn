@@ -27,7 +27,7 @@ from drgn.helpers.linux.locks import (
     semaphore_for_each_waiter_task,
 )
 from drgn.helpers.linux.percpu import per_cpu, per_cpu_owner
-from drgn.helpers.linux.sched import task_state_to_char
+from drgn.helpers.linux.sched import cpu_curr, task_state_to_char
 
 ######################################
 # osq lock
@@ -281,6 +281,61 @@ def dump_semaphore_waiters_call_stack(semaphore: Object) -> None:
 ###############################################
 # rwsem
 ###############################################
+def rwsem_has_spinner(rwsem: Object) -> bool:
+    """
+    Check if rwsem has optimistic spinners or not
+
+    :param rwsem: ``struct rw_semaphore *``
+    :returns: True if rwsem has optimistic spinners, False otherwise.
+    """
+    return osq_is_locked(rwsem.osq.address_of_())
+
+
+def get_rwsem_spinners_info(rwsem: Object) -> None:
+    """
+    Get a summary of rwsem spinners.
+    The summary consists of ``struct task_struct *`` and pid and CPU.
+
+    :param rwsem: ``struct rw_semaphore *``
+    """
+
+    prog = rwsem.prog_
+    spinner_list = [
+        cpu for cpu in osq_for_owner_and_each_spinner(rwsem.osq.address_of_())
+    ]
+    print(
+        f"  rwsem: {rwsem.value_():x} has {len(spinner_list)} spinners, which are as follows: "
+    )
+    for cpu in spinner_list:
+        task = cpu_curr(prog, cpu)
+        print(
+            f"    ({task.type_.type_name()})0x{task.value_():x}: (pid){task.pid.value_()} :(cpu){cpu}"
+        )
+
+
+def dump_rwsem_spinners_call_stack(rwsem: Object) -> None:
+    """
+    Get a summary of rwsem spinners.
+    The summary consists of ``struct task_struct *`` and pid and CPU.
+
+    :param rwsem: ``struct rw_semaphore *``
+    """
+
+    prog = rwsem.prog_
+    spinner_list = [
+        cpu for cpu in osq_for_owner_and_each_spinner(rwsem.osq.address_of_())
+    ]
+    print(
+        f"rwsem: {rwsem.value_():x} has {len(spinner_list)} spinners and their call-stack is as follows: "
+    )
+    for cpu in spinner_list:
+        task = cpu_curr(prog, cpu)
+        trace = prog.stack_trace(task.pid.value_())
+        print(f"\ncall stack for pid: {task.pid.value_()}")
+        print(trace)
+        print("\n")
+
+
 def get_rwsem_info(rwsem: Object) -> None:
     """
     Get information about given rwsem.
@@ -308,6 +363,11 @@ def get_rwsem_info(rwsem: Object) -> None:
     if not rwsem_is_locked(rwsem):
         print(f"  rwsem: {rwsem.value_():x} is free.")
         return
+
+    if rwsem_has_spinner(rwsem):
+        get_rwsem_spinners_info(rwsem)
+    else:
+        print("rwsem has no spinners.")
 
     owner_is_writer = is_rwsem_writer_owned(rwsem)
     owner_is_reader = is_rwsem_reader_owned(rwsem)
@@ -433,7 +493,10 @@ def cmd_rwsem(args):
             dump_rwsem_waiters_call_stack(lock.address_of_())
         elif args.owner_callstack:
             dump_rwsem_owner_call_stack(lock.address_of_())
-
+        elif args.spinner_list:
+            get_rwsem_spinners_info(lock.address_of_())
+        elif args.spinner_callstack:
+            dump_rwsem_spinners_call_stack(lock.address_of_())
 
 def cmd_osq(args):
     dump_osq_node_info(prog)
@@ -517,6 +580,17 @@ def main():
         action="store_true",
         help="provide callstack of owner of given rwsem(s)",
     )
+    rwsem_arg_group.add_argument(
+        "--spinner-list",
+        action="store_true",
+        help="provide a list, of optimistic-spinners of given rwsem(s)",
+    )
+    rwsem_arg_group.add_argument(
+        "--spinner-callstack",
+        action="store_true",
+        help="provide callstack of all optimistic-spinners of given rwsem(s)",
+    )
+
     parser_rwsem.add_argument(
         "locks", nargs="*", default=None, help="list of lock addresses"
     )
