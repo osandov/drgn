@@ -171,6 +171,60 @@ def dump_osq_node_info(prog: Program) -> None:
 ###############################################
 # mutex
 ###############################################
+def mutex_has_spinner(mutex: Object) -> bool:
+    """
+    Check if mutex has optimistic spinners or not
+
+    :param mutex: ``struct mutex *``
+    :returns: True if mutex has optimistic spinners, False otherwise.
+    """
+    return osq_is_locked(mutex.osq.address_of_())
+
+
+def get_mutex_spinners_info(mutex: Object) -> None:
+    """
+    Get a summary of mutex spinners.
+    The summary consists of ``struct task_struct *`` and pid and CPU.
+
+    :param mutex: ``struct mutex *``
+    """
+
+    prog = mutex.prog_
+    spinner_list = [
+        cpu for cpu in osq_for_owner_and_each_spinner(mutex.osq.address_of_())
+    ]
+    print(
+        f"  mutex: {mutex.value_():x} has {len(spinner_list)} spinners, which are as follows: "
+    )
+    for cpu in spinner_list:
+        task = cpu_curr(prog, cpu)
+        print(
+            f"    ({task.type_.type_name()})0x{task.value_():x}: (pid){task.pid.value_()} :(cpu){cpu}"
+        )
+
+
+def dump_mutex_spinners_call_stack(mutex: Object) -> None:
+    """
+    Get call stack of mutex spinners.
+
+    :param mutex: ``struct mutex *``
+    """
+
+    prog = mutex.prog_
+    spinner_list = [
+        cpu for cpu in osq_for_owner_and_each_spinner(mutex.osq.address_of_())
+    ]
+    print(
+        f"mutex: {mutex.value_():x} has {len(spinner_list)} spinners and their call-stack is as follows: "
+    )
+    for cpu in spinner_list:
+        task = cpu_curr(prog, cpu)
+        trace = prog.stack_trace(task.pid.value_())
+        print(f"\ncall stack for pid: {task.pid.value_()}")
+        print(trace)
+        print("\n")
+
+
 def dump_mutex_waiters_call_stack(mutex: Object) -> None:
     """
     Dump call stacks for all tasks blocked on a mutex.
@@ -231,6 +285,10 @@ def get_mutex_info(mutex: Object) -> None:
     :param mutex: ``struct mutex *``
     """
     if mutex_is_locked(mutex):
+        if mutex_has_spinner(mutex):
+            get_mutex_spinners_info(mutex)
+        else:
+            print("mutex has no spinners.")
         owner = mutex_owner(mutex)
         print(
             f"  mutex: {mutex.value_():x} is owned by ({owner.type_.type_name()})0x{owner.value_():x} pid: {owner.pid.value_()} state: {task_state_to_char(owner)}"
@@ -315,8 +373,7 @@ def get_rwsem_spinners_info(rwsem: Object) -> None:
 
 def dump_rwsem_spinners_call_stack(rwsem: Object) -> None:
     """
-    Get a summary of rwsem spinners.
-    The summary consists of ``struct task_struct *`` and pid and CPU.
+    Get call stack of rwsem spinners.
 
     :param rwsem: ``struct rw_semaphore *``
     """
@@ -471,6 +528,10 @@ def cmd_mutex(args):
             dump_mutex_waiters_call_stack(lock.address_of_())
         elif args.owner_callstack:
             dump_mutex_owner_call_stack(lock.address_of_())
+        elif args.spinner_list:
+            get_mutex_spinners_info(lock.address_of_())
+        elif args.spinner_callstack:
+            dump_mutex_spinners_call_stack(lock.address_of_())
 
 
 def cmd_semaphore(args):
@@ -497,6 +558,7 @@ def cmd_rwsem(args):
             get_rwsem_spinners_info(lock.address_of_())
         elif args.spinner_callstack:
             dump_rwsem_spinners_call_stack(lock.address_of_())
+
 
 def cmd_osq(args):
     dump_osq_node_info(prog)
@@ -528,6 +590,16 @@ def main():
         "--owner-callstack",
         action="store_true",
         help="provide callstack of owner of given mutex(es)",
+    )
+    mutex_arg_group.add_argument(
+        "--spinner-list",
+        action="store_true",
+        help="provide a list, of optimistic-spinners of given mutex(es)",
+    )
+    mutex_arg_group.add_argument(
+        "--spinner-callstack",
+        action="store_true",
+        help="provide callstack of all optimistic-spinners of given mutex(es)",
     )
     parser_mutex.add_argument(
         "locks", nargs="*", default=None, help="list of lock addresses"
