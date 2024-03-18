@@ -5,8 +5,11 @@
 """ Script to dump lock information"""
 
 import argparse
+from collections import defaultdict
+from typing import Any, Dict, Iterator
 
-from drgn import Object
+from drgn import Object, Program
+from drgn.helpers.linux.cpumask import for_each_present_cpu
 from drgn.helpers.linux.list import list_empty
 from drgn.helpers.linux.locks import (
     _RWSEM_READER_MASK,
@@ -23,7 +26,146 @@ from drgn.helpers.linux.locks import (
     rwsem_is_locked,
     semaphore_for_each_waiter_task,
 )
+from drgn.helpers.linux.percpu import per_cpu, per_cpu_owner
 from drgn.helpers.linux.sched import task_state_to_char
+
+######################################
+# osq lock
+######################################
+_OSQ_UNLOCKED_VAL = 0
+
+
+def osq_is_locked(osq: Object) -> bool:
+    """
+    Check if an osq is locked or not
+
+    :param osq: ``struct optimistic_spin_queue *``
+    :returns: True if osq is locked, False otherwise.
+    """
+
+    return osq.tail.counter.value_() != _OSQ_UNLOCKED_VAL
+
+
+def get_osq_owner_cpu(osq: Object) -> int:
+    """
+    Get owner cpu of an osq.
+
+    :param osq: ``struct optimistic_spin_queue *``
+    :returns: cpu that owns this osq, -1 otherwise
+    """
+
+    if not osq_is_locked(osq):
+        return -1
+
+    prog = osq.prog_
+    # If there are no osq_lock spinners, then tail - 1 is the
+    # owner CPU. For free osq_lock, tail is 0. So to avoid confusing
+    # this with CPU#0, tail stores CPU no. + 1.
+    # If ther are osq_lock spinners, then current owner of osq_lock
+    # is at the head of list of per-cpu osq_node.
+    tail = osq.tail.counter.value_()
+    osq_node = per_cpu(prog["osq_node"], tail - 1)
+    if not osq_node.prev.value_():
+        return tail - 1
+
+    while osq_node.prev and osq_node.prev.next == osq_node.address_of_():
+        osq_node = osq_node.prev[0]
+
+    return per_cpu_owner("osq_node", osq_node)
+
+
+def tail_osq_node_to_spinners(osq_node: Object) -> Iterator[int]:
+    """
+    Given the tail osq_node, find owner and all spinners of same osq
+
+    MCS/OSQ locks are unique in the sense that for these locks both
+    the owners and waiters spin, albeit on different things.
+    The owner spins, usually to optimistically grab a sleeping lock but
+    the waiters spin on some per-cpu entity.
+
+    :param osq_node: ``struct optimistic_spin_node *``
+    :returns: Iterator of spinning CPUs
+    """
+
+    tail_osq_node = osq_node
+    while tail_osq_node.prev and tail_osq_node.prev.next == tail_osq_node.address_of_():
+        yield per_cpu_owner("osq_node", tail_osq_node)
+        tail_osq_node = tail_osq_node.prev[0]
+
+    yield per_cpu_owner("osq_node", tail_osq_node)
+
+
+def osq_for_owner_and_each_spinner(osq: Object) -> Iterator[int]:
+    """
+    Given an osq, find its owner and all spinners
+
+    MCS/OSQ locks are unique in the sense that for these locks both
+    the owners and waiters spin, albeit on different things.
+    The owner spins, usually to optimistically grab a sleeping lock but
+    the waiters spin on some per-cpu entity.
+
+    :param osq: ``struct optimistic_spin_queue *``
+    :returns: Iterator of spinning CPUs
+    """
+    if not osq_is_locked(osq):
+        return []
+
+    prog = osq.prog_
+    tail = osq.tail.counter.value_()
+    tail_cpu = tail - 1
+    tail_osq_node = per_cpu(prog["osq_node"], tail_cpu)
+
+    for cpu in tail_osq_node_to_spinners(tail_osq_node):
+        yield cpu
+
+
+def dump_osq_node_info(prog: Program) -> None:
+    """
+    Show CPUs spinning to grab sleeping lock(s).
+
+    :param prog: drgn.Program
+    """
+
+    osq_spinners: Dict[Any, Any] = defaultdict(list)
+    for cpu in for_each_present_cpu(prog):
+        osq_node = per_cpu(prog["osq_node"], cpu)
+        if not osq_node.next.value_():
+            # osq_node.next NULL means either of below 3 cases:
+            # 1. This CPU owns osq_lock and there are no spinners
+            # 2. This CPU was in the list linked by osq_node.prev and osq_node.next
+            #    But now it has been removed (because it got the osq_lock, did its
+            #    stuff and eventually released the osq_lock and hence got removed
+            #    from the list
+            # 3. This CPU is one of the spinners of osq_lock and is at the tail of
+            #    list of spinners. So even if we ignore this osq_node, eventually
+            #    there will be a CPU, whose osq_node.next list will bring us to
+            #    this CPU and hence this CPU will not go unaccounted
+            #
+            # So we can see that we can safely ignore CPUs with osq_node.next == NULL
+            # and still we will not miss any osq_lock spinners
+            continue
+
+        # if osq_node.next is not NULL, then first get to the tail of spinners list.
+        while osq_node.next.value_():
+            osq_node = osq_node.next[0]
+
+        # if osq_node.address_ present in osq_spinners.keys, then we have already
+        # the spinner list terminatting at this osq_node, so ignore it
+        # Otherwise add this osq_node.address_ as key and add list of spinners as value
+        # to this key
+
+        if osq_node.address_ in osq_spinners.keys():
+            continue
+
+        for spinner_cpu in tail_osq_node_to_spinners(osq_node):
+            osq_spinners[osq_node.address_].append(spinner_cpu)
+
+    if not len(osq_spinners):
+        print("There are no spinners on any osq_lock")
+    else:
+        print("There are spinners on one or more osq_lock")
+        for key in osq_spinners.keys():
+            print(f"CPU(s): {osq_spinners[key]} are spinning on same osq_lock")
 
 
 ###############################################
@@ -259,7 +401,6 @@ def get_rwsem_waiters_info(rwsem: Object) -> None:
 
 
 def cmd_mutex(args):
-    print("##### In cmd_mutex ####")
     for lock_addr in args.locks:
         lock = Object(prog, "struct mutex", address=int(lock_addr, 16))
         if args.info:
@@ -273,7 +414,6 @@ def cmd_mutex(args):
 
 
 def cmd_semaphore(args):
-    print("##### In cmd_semaphore ####")
     for lock_addr in args.locks:
         lock = Object(prog, "struct semaphore", address=int(lock_addr, 16))
         if args.info or args.waiter_list:
@@ -283,7 +423,6 @@ def cmd_semaphore(args):
 
 
 def cmd_rwsem(args):
-    print("##### In cmd_rwsem ####")
     for lock_addr in args.locks:
         lock = Object(prog, "struct rw_semaphore", address=int(lock_addr, 16))
         if args.info:
@@ -294,6 +433,10 @@ def cmd_rwsem(args):
             dump_rwsem_waiters_call_stack(lock.address_of_())
         elif args.owner_callstack:
             dump_rwsem_owner_call_stack(lock.address_of_())
+
+
+def cmd_osq(args):
+    dump_osq_node_info(prog)
 
 
 def main():
@@ -378,6 +521,15 @@ def main():
         "locks", nargs="*", default=None, help="list of lock addresses"
     )
     parser_rwsem.set_defaults(func=cmd_rwsem)
+
+    parser_osq = sub_parsers.add_parser("osq", help="get system wide osq lock info.")
+    osq_arg_group = parser_osq.add_mutually_exclusive_group()
+    osq_arg_group.add_argument(
+        "--dump",
+        action="store_true",
+        help="dump system-wide osq lock spinners",
+    )
+    parser_osq.set_defaults(func=cmd_osq)
 
     args = parser.parse_args()
     args.func(args)
