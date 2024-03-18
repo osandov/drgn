@@ -16,6 +16,8 @@ DEFINE_VECTOR_FUNCTIONS(symbol_vector);
 
 LIBDRGN_PUBLIC void drgn_symbol_destroy(struct drgn_symbol *sym)
 {
+	if (sym && sym->lifetime == DRGN_LIFETIME_STATIC)
+		return;
 	if (sym && sym->name_lifetime == DRGN_LIFETIME_OWNED)
 		/* Cast here is necessary - we want symbol users to
 		 * never modify sym->name, but when we own the name,
@@ -37,6 +39,7 @@ void drgn_symbol_from_elf(const char *name, uint64_t address,
 {
 	ret->name = name;
 	ret->name_lifetime = DRGN_LIFETIME_STATIC;
+	ret->lifetime = DRGN_LIFETIME_OWNED;
 	ret->address = address;
 	ret->size = elf_sym->st_size;
 	int binding = GELF_ST_BIND(elf_sym->st_info);
@@ -84,6 +87,7 @@ drgn_symbol_create(const char *name, uint64_t address, uint64_t size,
 	sym->binding = binding;
 	sym->kind = kind;
 	sym->name_lifetime = name_lifetime;
+	sym->lifetime = DRGN_LIFETIME_OWNED;
 	*ret = sym;
 	return NULL;
 }
@@ -314,21 +318,6 @@ static void address_search_range(struct drgn_symbol_index *index, uint64_t addre
 	#undef less_than_end
 }
 
-/** Allocate a copy of the symbol and add to it the builder */
-static bool add_symbol_result(struct drgn_symbol_result_builder *builder,
-			      struct drgn_symbol *symbol)
-{
-	struct drgn_symbol *copy = malloc(sizeof(*copy));
-	if (!copy)
-		return false;
-	*copy = *symbol;
-	if (!drgn_symbol_result_builder_add(builder, copy)) {
-		free(copy);
-		return false;
-	}
-	return true;
-}
-
 struct drgn_error *
 drgn_symbol_index_find(const char *name, uint64_t address,
 		       enum drgn_find_symbol_flags flags, void *arg,
@@ -352,7 +341,7 @@ drgn_symbol_index_find(const char *name, uint64_t address,
 			if ((flags & DRGN_FIND_SYMBOL_NAME) &&
 			    strcmp(s->name, name) != 0)
 				continue;
-			if (!add_symbol_result(builder, s))
+			if (!drgn_symbol_result_builder_add(builder, s))
 				return &drgn_enomem;
 			if (flags & DRGN_FIND_SYMBOL_ONE)
 				break;
@@ -364,7 +353,7 @@ drgn_symbol_index_find(const char *name, uint64_t address,
 			return NULL;
 		for (uint32_t i = it.entry->value.start; i < it.entry->value.end; i++) {
 			struct drgn_symbol *s = &index->symbols[index->name_sort[i]];
-			if (!add_symbol_result(builder, s))
+			if (!drgn_symbol_result_builder_add(builder, s))
 				return &drgn_enomem;
 			if (flags & DRGN_FIND_SYMBOL_ONE)
 				break;
@@ -372,7 +361,7 @@ drgn_symbol_index_find(const char *name, uint64_t address,
 	} else {
 		for (int i = 0; i < index->num_syms; i++) {
 			struct drgn_symbol *s = &index->symbols[i];
-			if (!add_symbol_result(builder, s))
+			if (!drgn_symbol_result_builder_add(builder, s))
 				return &drgn_enomem;
 			if (flags & DRGN_FIND_SYMBOL_ONE)
 				break;
@@ -426,11 +415,13 @@ drgn_symbol_index_init_from_builder(struct drgn_symbol_index *index,
 	// Now that the name array is finalized, resolve the names to real
 	// pointers. Update the name lifetime to static, reflecting that the
 	// symbol name is owned by the finder whose lifetime is bound to the
-	// program's once it is attached.
+	// program's once it is attached. The same goes for the symbol. Using
+	// static lifetimes helps avoid unnecessary copying.
 	for (size_t i = 0; i < num_syms; i++) {
 		size_t string_index = (size_t)symbols[i].name;
 		symbols[i].name = &names[string_index];
 		symbols[i].name_lifetime = DRGN_LIFETIME_STATIC;
+		symbols[i].lifetime = DRGN_LIFETIME_STATIC;
 	}
 
 	if (num_syms > UINT32_MAX) {
