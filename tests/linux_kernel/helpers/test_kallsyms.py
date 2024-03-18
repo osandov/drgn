@@ -5,8 +5,12 @@ import tempfile
 from unittest import TestCase
 
 from drgn import Symbol, SymbolBinding, SymbolKind
-from drgn.helpers.linux.kallsyms import load_builtin_kallsyms, load_proc_kallsyms
-from tests.linux_kernel import LinuxKernelTestCase
+from drgn.helpers.linux.kallsyms import (
+    load_builtin_kallsyms,
+    load_module_kallsyms,
+    load_proc_kallsyms,
+)
+from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 
 def compare_local_symbols(self, finder, modules=False):
@@ -68,7 +72,7 @@ class TestProcKallsyms(TestCase):
             Symbol("null", 0x0, 8, SymbolBinding.UNIQUE, SymbolKind.UNKNOWN),
             Symbol("local_data", 0x8, 8, SymbolBinding.UNKNOWN, SymbolKind.OBJECT),
             Symbol("global_bss", 0x10, 16, SymbolBinding.GLOBAL, SymbolKind.OBJECT),
-            Symbol("weak_symbol", 0x20, 32, SymbolBinding.WEAK, SymbolKind.UNKNOWN),
+            Symbol("weak_symbol", 0x20, 32, SymbolBinding.WEAK, SymbolKind.OBJECT),
             # this one has zero size since it is at the end of vmlinux
             Symbol("unknown", 0x40, 0, SymbolBinding.UNKNOWN, SymbolKind.UNKNOWN),
             # this one has zero size since it is at the end of a module
@@ -87,3 +91,15 @@ class TestBuiltinKallsyms(LinuxKernelTestCase):
             self.skipTest("VMCOREINFO is missing necessary symbols")
         finder = load_builtin_kallsyms(self.prog)
         compare_local_symbols(self, finder)
+
+    @skip_unless_have_test_kmod
+    def test_module_kallsyms(self):
+        finder = load_module_kallsyms(self.prog)
+        test_data = finder("drgn_test_empty_list", None, True)[0]
+        self.assertEqual("drgn_test_empty_list", test_data.name)
+        self.assertEqual(SymbolKind.OBJECT, test_data.kind)
+        self.assertIn(test_data.binding, (SymbolBinding.GLOBAL, SymbolBinding.UNKNOWN))
+        size = self.prog.type("struct list_head").size
+        self.assertEqual(size, test_data.size)
+        address = self.prog.object("drgn_test_empty_list").address_
+        self.assertEqual(address, test_data.address)
