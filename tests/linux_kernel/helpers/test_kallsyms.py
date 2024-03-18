@@ -5,8 +5,12 @@ import tempfile
 from unittest import TestCase
 
 from drgn import Symbol, SymbolBinding, SymbolKind
-from drgn.helpers.linux.kallsyms import _load_builtin_kallsyms, _load_proc_kallsyms
-from tests.linux_kernel import LinuxKernelTestCase
+from drgn.helpers.linux.kallsyms import (
+    _load_builtin_kallsyms,
+    _load_proc_kallsyms,
+    load_module_kallsyms,
+)
+from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 
 def compare_local_symbols(self, finder, modules=False):
@@ -93,3 +97,15 @@ class TestBuiltinKallsyms(LinuxKernelTestCase):
             self.skipTest("VMCOREINFO is missing necessary symbols")
         finder = _load_builtin_kallsyms(self.prog)
         compare_local_symbols(self, finder)
+
+    @skip_unless_have_test_kmod
+    def test_module_kallsyms(self):
+        finder = load_module_kallsyms(self.prog)
+        test_data = finder(None, "drgn_test_empty_list", None, True)[0]
+        self.assertEqual("drgn_test_empty_list", test_data.name)
+        self.assertEqual(SymbolKind.OBJECT, test_data.kind)
+        self.assertIn(test_data.binding, (SymbolBinding.GLOBAL, SymbolBinding.UNKNOWN))
+        size = self.prog.type("struct list_head").size
+        self.assertEqual(size, test_data.size)
+        address = self.prog.object("drgn_test_empty_list").address_
+        self.assertEqual(address, test_data.address)
