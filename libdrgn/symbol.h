@@ -21,6 +21,7 @@ struct drgn_symbol {
 	enum drgn_symbol_binding binding;
 	enum drgn_symbol_kind kind;
 	enum drgn_lifetime name_lifetime;
+	enum drgn_lifetime lifetime;
 };
 
 struct drgn_symbol_finder {
