@@ -318,6 +318,7 @@ static void symbol_from_kallsyms(uint64_t address, char *name, char kind,
 		ret->kind = DRGN_SYMBOL_KIND_UNKNOWN;
 	}
 	ret->name_lifetime = DRGN_LIFETIME_STATIC;
+	ret->lifetime = DRGN_LIFETIME_STATIC; // avoid copying
 }
 
 /** Compute an address via the CONFIG_KALLSYMS_ABSOLUTE_PERCPU method*/
