@@ -12,6 +12,7 @@ from drgn.helpers.linux.locks import (
     mutex_owner,
     rwsem_for_each_waiter,
     rwsem_for_each_waiter_task,
+    rwsem_is_locked,
     semaphore_for_each_waiter_task,
     semaphore_is_locked,
 )
@@ -89,6 +90,11 @@ class TestRwsemaphore(LinuxKernelTestCase):
         self.assertTrue(is_rwsem_reader_owned(self.read_locked_rwsemaphore))
         self.assertFalse(is_rwsem_reader_owned(self.write_locked_rwsemaphore))
         self.assertFalse(is_rwsem_reader_owned(self.unlocked_rwsemaphore))
+
+    def test_rwsem_is_locked(self):
+        self.assertTrue(rwsem_is_locked(self.write_locked_rwsemaphore))
+        self.assertTrue(rwsem_is_locked(self.read_locked_rwsemaphore))
+        self.assertFalse(rwsem_is_locked(self.unlocked_rwsemaphore))
 
     def test_get_rwsem_owner(self):
         self.assertEqual(

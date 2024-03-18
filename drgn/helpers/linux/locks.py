@@ -154,6 +154,16 @@ _RWSEM_WR_NONSPINNABLE = 1 << 2
 _RWSEM_NONSPINNABLE = 1 << 1
 
 
+def rwsem_is_locked(lock: Object) -> bool:
+    """
+    Check if a given rwsem is locked or not.
+
+    :param lock: ``struct rw_semaphore *``
+    :return: True if rwsem is locked, False otherwise.
+    """
+    return lock.count.counter.value_() != 0
+
+
 def rwsem_for_each_waiter(rwsem: Object) -> Iterator[Object]:
     """
     Iterate over all rwsem_waiter objects for a given rwsem.
