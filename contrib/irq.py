@@ -5,6 +5,7 @@
 """ Script to dump irq stats using drgn"""
 
 from typing import Iterator
+from typing import Tuple
 
 from drgn import NULL
 from drgn import Object
@@ -12,17 +13,27 @@ from drgn import Program
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_present_cpu
 from drgn.helpers.linux.cpumask import cpumask_to_cpulist
+from drgn.helpers.linux.mapletree import mtree_load
+from drgn.helpers.linux.mapletree import mt_for_each
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.radixtree import radix_tree_for_each
 from drgn.helpers.linux.radixtree import radix_tree_lookup
 
 
-def _sparse_irq_supported(prog: Program) -> bool:
+def _sparse_irq_supported(prog: Program) -> Tuple[bool, str]:
     try:
-        _ = prog["irq_desc_tree"]
-        return True
+        # Since Linux kernel commit 721255b9826b ("genirq: Use a maple
+        # tree for interrupt descriptor management") (in v6.5), sparse
+        # irq descriptors are stored in a maple tree.
+        _ = prog["sparse_irqs"]
+        return True, "maple"
     except KeyError:
-        return False
+        # Before that, they are in radix tree.
+        try:
+            _ = prog["irq_desc_tree"]
+            return True, "radix"
+        except KeyError:
+            return False, None
 
 
 def _kstat_irqs_cpu(prog: Program, irq: int, cpu: int) -> int:
@@ -73,9 +84,15 @@ def for_each_irq(prog: Program) -> Iterator[int]:
 
     :return: Iterator of irq numbers
     """
-    if _sparse_irq_supported(prog):
+    _, tree_type = _sparse_irq_supported(prog)
+
+    if tree_type == "radix":
         irq_desc_tree = prog["irq_desc_tree"].address_of_()
         for irq, _ in radix_tree_for_each(irq_desc_tree):
+            yield irq
+    elif tree_type == "maple":
+        irq_desc_tree = prog["sparse_irqs"].address_of_()
+        for irq, _, _ in mt_for_each(irq_desc_tree):
             yield irq
     else:
         count = len(prog["irq_desc"])
@@ -91,12 +108,16 @@ def for_each_irq_desc(prog: Program) -> Iterator[Object]:
 
     :return: Iterator of ``struct irq_desc *`` objects.
     """
-    if _sparse_irq_supported(prog):
+    _, tree_type = _sparse_irq_supported(prog)
+    if tree_type == "radix":
         irq_desc_tree = prog["irq_desc_tree"].address_of_()
         for _, addr in radix_tree_for_each(irq_desc_tree):
-            irq_desc = Object(
-                prog, "struct irq_desc", address=addr
-            ).address_of_()
+            irq_desc = Object(prog, "struct irq_desc", address=addr).address_of_()
+            yield irq_desc
+    elif tree_type == "maple":
+        irq_desc_tree = prog["sparse_irqs"].address_of_()
+        for _, _, addr in mt_for_each(irq_desc_tree):
+            irq_desc = Object(prog, "struct irq_desc", address=addr).address_of_()
             yield irq_desc
     else:
         count = len(prog["irq_desc"])
@@ -131,8 +152,14 @@ def irq_to_desc(prog: Program, irq: int) -> Object:
     :return: ``struct irq_desc *`` object if irq descriptor is found.
              NULL otherwise
     """
-    if _sparse_irq_supported(prog):
-        addr = radix_tree_lookup(prog["irq_desc_tree"].address_of_(), irq)
+    _, tree_type = _sparse_irq_supported(prog)
+
+    if tree_type:
+        if tree_type == "radix":
+            addr = radix_tree_lookup(prog["irq_desc_tree"].address_of_(), irq)
+        else:
+            addr = mtree_load(prog["sparse_irqs"].address_of_(), irq)
+
         if addr:
             return Object(prog, "struct irq_desc", address=addr).address_of_()
         else:
@@ -192,6 +219,7 @@ def get_irq_affinity_list(prog: Program, irq: int) -> Object:
         return cpumask_to_cpulist(affinity)
     else:
         return None
+
 
 def show_irq_num_stats(prog: Program, irq: int) -> None:
     """
