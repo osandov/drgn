@@ -16,6 +16,7 @@
 DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq);
 
 static PyObject *percent_s;
+static PyObject *logging_StreamHandler;
 static PyObject *logger;
 static PyObject *logger_log;
 
@@ -40,7 +41,7 @@ static void drgnpy_log_fn(struct drgn_program *prog, void *arg,
 		PyErr_WriteUnraisable(logger_log);
 }
 
-static int get_log_level(void)
+static int get_logging_status(int *log_level_ret, bool *enable_progress_bar_ret)
 {
 	// We don't use getEffectiveLevel() because that doesn't take
 	// logging.disable() into account.
@@ -57,38 +58,128 @@ static int get_log_level(void)
 		if (ret)
 			break;
 	}
-	return level;
+
+	*log_level_ret = level;
+
+	if (level > DRGN_LOG_WARNING || !isatty(STDERR_FILENO)) {
+		*enable_progress_bar_ret = false;
+		return 0;
+	}
+
+	PyObject *current_logger = logger;
+	_cleanup_pydecref_ PyObject *logger_to_decref = NULL;
+	do {
+		_cleanup_pydecref_ PyObject *handlers =
+			PyObject_GetAttrString(current_logger, "handlers");
+		if (!handlers)
+			return -1;
+
+		Py_ssize_t size = PySequence_Size(handlers);
+		if (size < 0)
+			return -1;
+
+		for (Py_ssize_t i = 0; i < size; i++) {
+			_cleanup_pydecref_ PyObject *handler =
+				PySequence_GetItem(handlers, i);
+			if (!handler)
+				return -1;
+
+			int r = PyObject_IsInstance(handler,
+						    logging_StreamHandler);
+			if (r < 0)
+				return -1;
+			if (!r)
+				continue;
+
+			_cleanup_pydecref_ PyObject *stream =
+				PyObject_GetAttrString(handler, "stream");
+			if (!stream)
+				return -1;
+
+			_cleanup_pydecref_ PyObject *fd_obj =
+				PyObject_CallMethod(stream, "fileno", NULL);
+			if (!fd_obj) {
+				// Ignore AttributeError,
+				// io.UnsupportedOperation, etc.
+				if (PyErr_ExceptionMatches(PyExc_Exception)) {
+					PyErr_Clear();
+					continue;
+				} else {
+					return -1;
+				}
+			}
+
+			long fd = PyLong_AsLong(fd_obj);
+			if (fd == -1 && PyErr_Occurred())
+				return -1;
+
+			if (fd == STDERR_FILENO) {
+				*enable_progress_bar_ret = true;
+				return 0;
+			}
+		}
+
+		_cleanup_pydecref_ PyObject *propagate =
+			PyObject_GetAttrString(current_logger, "propagate");
+		if (!propagate)
+			return -1;
+		int ret = PyObject_IsTrue(propagate);
+		if (ret < 0)
+			return -1;
+		if (!ret)
+			break;
+
+		Py_XDECREF(logger_to_decref);
+		logger_to_decref = PyObject_GetAttrString(current_logger,
+							  "parent");
+		if (!logger_to_decref)
+			return -1;
+		current_logger = logger_to_decref;
+	} while (current_logger != Py_None);
+
+	*enable_progress_bar_ret = false;
+	return 0;
 }
 
-// This is slightly heinous. We need to sync the Python log level with the
-// libdrgn log level, but the Python log level can change at any time, and there
-// is no API to be notified of this. So, we monkey patch logger._cache.clear()
-// to update the log level on every live program. This only works since CPython
-// commit 78c18a9b9a14 ("bpo-30962: Added caching to Logger.isEnabledFor()
-// (GH-2752)") (in v3.7), though. Before that, the best we can do is sync the
-// level at the time that the program is created.
+// This is slightly heinous. We need to sync the Python logging configuration
+// with libdrgn, but the Python log level and handlers can change at any time,
+// and there are no APIs to be notified of this.
+//
+// To sync the log level, we monkey patch logger._cache.clear() to update the
+// libdrgn log level on every live program. This only works since CPython commit
+// 78c18a9b9a14 ("bpo-30962: Added caching to Logger.isEnabledFor() (GH-2752)")
+// (in v3.7), though. Before that, the best we can do is sync the level at the
+// time that the program is created.
+//
+// We also check handlers in that monkey patch, which isn't the right place to
+// hook but should work in practice in most cases.
 #if PY_VERSION_HEX >= 0x030700a1
 static int cached_log_level;
+static bool cached_enable_progress_bar;
 static struct pyobjectp_set programs = HASH_TABLE_INIT;
 
-static int cache_log_level(void)
+static int cache_logging_status(void)
 {
-	int level = get_log_level();
-	if (level < 0)
-		return level;
-	cached_log_level = level;
-	return 0;
+	return get_logging_status(&cached_log_level,
+				  &cached_enable_progress_bar);
 }
 
 static PyObject *LoggerCacheWrapper_clear(PyObject *self)
 {
 	PyDict_Clear(self);
-	if (cache_log_level())
-		return NULL;
-	for (struct pyobjectp_set_iterator it = pyobjectp_set_first(&programs);
-	     it.entry; it = pyobjectp_set_next(it)) {
-		Program *prog = (Program *)*it.entry;
-		drgn_program_set_log_level(&prog->prog, cached_log_level);
+	if (!pyobjectp_set_empty(&programs)) {
+		if (cache_logging_status())
+			return NULL;
+		for (struct pyobjectp_set_iterator it =
+		     pyobjectp_set_first(&programs);
+		     it.entry; it = pyobjectp_set_next(it)) {
+			Program *prog = (Program *)*it.entry;
+			drgn_program_set_log_level(&prog->prog,
+						   cached_log_level);
+			drgn_program_set_progress_file(&prog->prog,
+						       cached_enable_progress_bar
+						       ? stderr : NULL);
+		}
 	}
 	Py_RETURN_NONE;
 }
@@ -114,19 +205,23 @@ static int init_logger_cache_wrapper(void)
 				      NULL);
 	if (!cache_wrapper)
 		return -1;
-	if (PyObject_SetAttrString(logger, "_cache", cache_wrapper))
-		return -1;
-
-	return cache_log_level();
+	return PyObject_SetAttrString(logger, "_cache", cache_wrapper);
 }
 
 static int Program_init_logging(Program *prog)
 {
+	// The cache is only maintained while there are live programs, so if
+	// this is the only program, we need to update the cache.
+	if (pyobjectp_set_empty(&programs) && cache_logging_status())
+		return -1;
+
 	PyObject *obj = (PyObject *)prog;
 	if (pyobjectp_set_insert(&programs, &obj, NULL) < 0)
 		return -1;
 	drgn_program_set_log_callback(&prog->prog, drgnpy_log_fn, NULL);
 	drgn_program_set_log_level(&prog->prog, cached_log_level);
+	drgn_program_set_progress_file(&prog->prog,
+				       cached_enable_progress_bar ? stderr : NULL);
 	return 0;
 }
 
@@ -140,11 +235,14 @@ static int init_logger_cache_wrapper(void) { return 0; }
 
 static int Program_init_logging(Program *prog)
 {
-	int level = get_log_level();
-	if (level < 0)
-		return level;
+	int level;
+	bool enable_progress_bar;
+	if (get_logging_status(&level, &enable_progress_bar))
+		return -1;
 	drgn_program_set_log_callback(&prog->prog, drgnpy_log_fn, NULL);
 	drgn_program_set_log_level(&prog->prog, level);
+	drgn_program_set_progress_file(&prog->prog,
+				       enable_progress_bar ? stderr : NULL);
 	return 0;
 }
 
@@ -159,6 +257,10 @@ int init_logging(void)
 
 	_cleanup_pydecref_ PyObject *logging = PyImport_ImportModule("logging");
 	if (!logging)
+		return -1;
+	logging_StreamHandler = PyObject_GetAttrString(logging,
+						       "StreamHandler");
+	if (!logging_StreamHandler)
 		return -1;
 	logger = PyObject_CallMethod(logging, "getLogger", "s", "drgn");
 	if (!logger)
