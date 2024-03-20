@@ -351,7 +351,7 @@ linux_kernel_pgtable_iterator_create_ppc64(struct drgn_program * prog,
 	err = drgn_program_find_object(prog, "interrupt_base_book3e", NULL,
 				       DRGN_FIND_OBJECT_ANY, &tmp);
 	if (!err) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
 					 "virtual address translation is not available for BOOK3E CPU family");
 	}
 	if (err->code != DRGN_ERROR_LOOKUP)
@@ -372,7 +372,7 @@ linux_kernel_pgtable_iterator_create_ppc64(struct drgn_program * prog,
 	if (err)
 		return err;
 	if (!(mmu_features & 0x40)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
 					 "virtual address translation is only supported for Radix MMU");
 	}
 
