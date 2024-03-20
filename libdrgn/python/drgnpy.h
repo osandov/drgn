@@ -40,6 +40,13 @@
     } while (0)
 #endif
 
+#if PY_VERSION_HEX < 0x030900a1
+static inline PyObject *PyObject_CallNoArgs(PyObject *func)
+{
+	return PyObject_CallFunctionObjArgs(func, NULL);
+}
+#endif
+
 #define DRGNPY_PUBLIC __attribute__((__visibility__("default")))
 
 // PyLong_From* and PyLong_As* for stdint.h types. These use _Generic for
