@@ -1,0 +1,5 @@
+*
+!/.gitignore
+!/__init__.py
+!/__main__.py
+!*.zst

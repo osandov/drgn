@@ -3,12 +3,10 @@
 
 import os
 import os.path
-import subprocess
-import tempfile
-import unittest
 
 from drgn import Program
 from tests import TestCase
+from tests.resources import get_resource
 
 
 class TestLive(TestCase):
@@ -60,23 +58,8 @@ class TestCoreDump(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        with tempfile.NamedTemporaryFile() as core_dump_file:
-            try:
-                subprocess.check_call(
-                    [
-                        "zstd",
-                        "--quiet",
-                        "--force",
-                        "--decompress",
-                        "--stdout",
-                        os.path.join(os.path.dirname(__file__), "sample.coredump.zst"),
-                    ],
-                    stdout=core_dump_file,
-                )
-            except FileNotFoundError:
-                raise unittest.SkipTest("zstd not found")
-            cls.prog = Program()
-            cls.prog.set_core_dump(core_dump_file.name)
+        cls.prog = Program()
+        cls.prog.set_core_dump(get_resource("multithreaded.core"))
 
     def test_threads(self):
         self.assertSequenceEqual(

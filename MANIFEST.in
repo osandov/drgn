@@ -1,5 +1,6 @@
 recursive-include docs *.css *.ico *.png *.py *.rst
-recursive-include tests *.py *.zst
+recursive-include tests *.py
+recursive-include tests/resources *.zst
 include tests/linux_kernel/kmod/Makefile tests/linux_kernel/kmod/drgn_test.c
 recursive-include contrib *.py *.rst
 recursive-include tools *.py *.rst
