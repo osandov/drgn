@@ -11,12 +11,9 @@ also available.
 See the :doc:`installation` instructions. Then, start with the
 :doc:`user_guide`.
 
-License
--------
-
 .. include:: ../README.rst
-    :start-after: start-license
-    :end-before: end-license
+    :start-after: start-for-index
+    :end-before: end-for-index
 
 Acknowledgements
 ----------------

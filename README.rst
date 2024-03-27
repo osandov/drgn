@@ -242,14 +242,22 @@ variables with ``trace['name']``:
 See the `user guide <https://drgn.readthedocs.io/en/latest/user_guide.html>`_
 for more details and features.
 
+.. start-for-index
+
+Getting Help
+------------
+
+* The `GitHub issue tracker <https://github.com/osandov/drgn/issues>`_ is the
+  preferred method to report issues.
+* There is also a `Linux Kernel Debuggers Matrix room
+  <https://matrix.to/#/#linux-debuggers:matrix.org>`_.
+
 License
 -------
-
-.. start-license
 
 Copyright (c) Meta Platforms, Inc. and affiliates.
 
 drgn is licensed under the `LGPLv2.1
 <https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html>`_ or later.
 
-.. end-license
+.. end-for-index
