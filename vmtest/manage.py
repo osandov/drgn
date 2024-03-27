@@ -54,10 +54,6 @@ IGNORE_KERNEL_RANGES = (
     (KernelVersion("4.15~"), KernelVersion("4.19")),
     (KernelVersion("4.20~"), KernelVersion("5.4")),
     (KernelVersion("5.5~"), KernelVersion("5.10")),
-    # 5.10.211 fails to build:
-    # https://lore.kernel.org/stable/ZeYXvd1-rVkPGvvW@telecaster/. Use an older
-    # version until it's fixed.
-    (KernelVersion("5.10.211~"), KernelVersion("5.11")),
 )
 
 # Use the GitHub mirrors rather than the official kernel.org repositories since
