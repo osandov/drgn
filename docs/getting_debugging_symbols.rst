@@ -14,6 +14,13 @@ distributions. If drgn prints an error like::
 
 Then you need to install debugging symbols.
 
+On the other hand, because drgn is based on the elfutils library, and elfutils
+can use the debuginfod protocol to automatically fetch debuginfo, on many 
+distros the $DEBUGINFOD_URLS environment variable is set, and the preceding
+message will not appear, and following steps may be unnecessary.  See 
+https://sourceware.org/elfutils/Debuginfod.html for details.
+
+
 Fedora
 ------
 
