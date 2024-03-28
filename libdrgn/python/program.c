@@ -591,8 +591,14 @@ static PyObject *Program_add_symbol_finder(Program *self, PyObject *args,
 	if (ret == -1)
 		return NULL;
 
-	err = drgn_program_add_symbol_finder(&self->prog, py_symbol_find_fn,
-					     fn);
+	// Fast path for the symbol index finder, avoiding Python overhead
+	if (PyObject_TypeCheck(fn, &SymbolIndex_type))
+		err = drgn_program_add_symbol_finder(&self->prog,
+						     drgn_symbol_index_find,
+						     &((SymbolIndex *)fn)->index);
+	else
+		err = drgn_program_add_symbol_finder(&self->prog, py_symbol_find_fn,
+						fn);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -1023,23 +1029,7 @@ static PyObject *Program_symbols(Program *self, PyObject *args)
 	if (err)
 		return set_drgn_error(err);
 
-	_cleanup_pydecref_ PyObject *list = PyList_New(count);
-	if (!list) {
-		drgn_symbols_destroy(symbols, count);
-		return NULL;
-	}
-	for (size_t i = 0; i < count; i++) {
-		PyObject *pysym = Symbol_wrap(symbols[i], (PyObject *)self);
-		if (!pysym) {
-			/* Free symbols which aren't yet added to list. */
-			drgn_symbols_destroy(symbols, count);
-			return NULL;
-		}
-		symbols[i] = NULL;
-		PyList_SET_ITEM(list, i, pysym);
-	}
-	free(symbols);
-	return_ptr(list);
+	return Symbol_list_wrap(symbols, count, (PyObject *)self);
 }
 
 static PyObject *Program_symbol(Program *self, PyObject *arg)

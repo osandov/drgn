@@ -1623,6 +1623,67 @@ class Symbol:
     kind: Final[SymbolKind]
     """Kind of entity represented by this symbol."""
 
+class SymbolIndex:
+    """
+    A ``SymbolIndex`` contains a static set of symbols and allows efficient
+    lookup by name and address.
+
+    With :meth:`Program.add_symbol_finder()`, you can add a callback to provide
+    custom symbol finding logic. However, in many cases, all that is necessary
+    is to provide drgn with a list of symbols that you know to be part of the
+    program. This object allows you to do that. It efficiently implements the
+    API required for :meth:`Program.add_symbol_finder()` given a static set of
+    symbols. For example::
+
+        >>> prog = drgn.Program()
+        >>> symbol = drgn.Symbol("foo", 0x123, 1, drgn.SymbolBinding.GLOBAL, drgn.SymbolKind.OBJECT)
+        >>> finder = drgn.SymbolIndex([symbol])
+        >>> prog.add_symbol_finder(finder)
+        >>> prog.symbols()
+        [Symbol(name='foo', address=0x123, size=0x1, binding=<SymbolBinding.GLOBAL: 2>, kind=<SymbolKind.OBJECT: 1>)]
+        >>> prog.symbol("bar")
+        Traceback (most recent call last):
+          File "<console>", line 1, in <module>
+        LookupError: not found
+        >>> prog.symbol("foo")
+        Symbol(name='foo', address=0x123, size=0x1, binding=<SymbolBinding.GLOBAL: 2>, kind=<SymbolKind.OBJECT: 1>)
+        >>> prog.symbol(0x100)
+        Traceback (most recent call last):
+          File "<console>", line 1, in <module>
+        LookupError: not found
+        >>> prog.symbol(0x123)
+        Symbol(name='foo', address=0x123, size=0x1, binding=<SymbolBinding.GLOBAL: 2>, kind=<SymbolKind.OBJECT: 1>)
+    """
+
+    def __init__(self, symbols: Sequence[Symbol]) -> None:
+        """
+        Create a ``SymbolIndex`` from a sequence of symbols
+
+        The returned symbol index satisfies the Symbol Finder API. It supports
+        overlapping symbol address ranges and duplicate symbol names. However,
+        in the case of these sorts of conflicts, it doesn't provide any
+        guarantee on the order of the results, or which result is returned when
+        a single symbol is requested.
+
+        :param symbols: A non-empty sequence of symbols
+        :returns: A callable object suitable to provide to
+          :meth:`Program.add_symbol_finder()`.
+        """
+    def __call__(
+        self,
+        name: Optional[str],
+        address: Optional[int],
+        one: bool,
+    ) -> List[Symbol]:
+        """
+        Lookup symbol by name, address, or both.
+
+        :param name: if given, only return symbols with this name
+        :param address: if given, only return symbols spanning this address
+        :param one: if given, limit the result to a single symbol
+        :returns: a list of matching symbols (empty if none are found)
+        """
+
 class SymbolBinding(enum.Enum):
     """
     A ``SymbolBinding`` describes the linkage behavior and visibility of a
@@ -2450,3 +2511,38 @@ def _linux_helper_pid_task(pid: Object, pid_type: IntegerLike) -> Object:
 def _linux_helper_find_task(__ns: Object, __pid: IntegerLike) -> Object: ...
 def _linux_helper_kaslr_offset(__prog: Program) -> int: ...
 def _linux_helper_pgtable_l5_enabled(__prog: Program) -> bool: ...
+def _linux_helper_load_proc_kallsyms(
+    filename: Optional[str] = None,
+    modules: bool = False,
+) -> SymbolIndex:
+    """
+    Create a symbol index from ``/proc/kallsyms``
+
+    The ``/proc/kallsyms`` file is provided by the running kernel, and it
+    exports the kallsyms data which is embedded in the kernel image. For the
+    live kernel, it is much easier to read this file rather than attempt to
+    parse the built-in data structures for kallsyms. This helper parses
+    ``/proc/kallsyms`` and returns an index of the contained symbols.
+
+    The text-formtated data in ``/proc/kallsyms`` is not perfect: in particular,
+    it doesn't contain full information related to the :class:`SymbolKind` and
+    :class:`SymbolBinding`, and most critically, it does not contain the symbol
+    size. As a result, drgn is forced to infer some of this information.  For
+    this reason, the default behavior of this function is not to include module
+    symbols. You can use :func:`load_module_kallsyms()` to parse this
+    information from the kernel image, which requires vmlinux debuginfo, but
+    includes full symbol information. Or, you can set ``modules=True`` to
+    override this default behavior.
+
+    Finally, please keep in mind that when read by non-root users,
+    ``/proc/kallsyms`` will return 0's for all addresses, as a security measure
+    to avoid breaking KASLR. So in addition to being useless for vmcores, this
+    function is only helpful for live kernels if running as root. For other
+    cases, you should fall back to :func:`load_builtin_kallsyms()`.
+
+    :param filename: the file to read symbols from (default: ``/proc/kallsyms``)
+    :param modules: whether we should include module symbols in the result
+    :returns: a symbol index containing symbols for the kernel
+    """
+
+def _linux_helper_load_builtin_kallsyms(prog: Program) -> SymbolIndex: ...

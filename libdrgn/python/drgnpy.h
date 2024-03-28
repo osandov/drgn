@@ -19,6 +19,7 @@
 #include "../hash_table.h"
 #include "../pp.h"
 #include "../program.h"
+#include "../symbol.h"
 
 /* These were added in Python 3.7. */
 #ifndef Py_UNREACHABLE
@@ -108,6 +109,11 @@ typedef struct {
 	 */
 	PyObject *attr_cache;
 } DrgnType;
+
+typedef struct {
+	PyObject_HEAD
+	struct drgn_symbol_index index;
+} SymbolIndex;
 
 typedef struct {
 	PyObject_HEAD
@@ -233,6 +239,7 @@ extern PyTypeObject Register_type;
 extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject Symbol_type;
+extern PyTypeObject SymbolIndex_type;
 extern PyTypeObject Thread_type;
 extern PyTypeObject ThreadIterator_type;
 extern PyTypeObject TypeEnumerator_type;
@@ -289,6 +296,8 @@ Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
 
 PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj);
+PyObject *Symbol_list_wrap(struct drgn_symbol **symbols, size_t count,
+			   PyObject *name_obj);
 
 PyObject *Thread_wrap(struct drgn_thread *drgn_thread);
 
@@ -370,5 +379,9 @@ DrgnObject *drgnpy_linux_helper_pid_task(PyObject *self, PyObject *args,
 DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args);
 PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *arg);
 PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *arg);
+PyObject *drgnpy_linux_helper_load_proc_kallsyms(PyObject *self, PyObject *args,
+						 PyObject *kwds);
+PyObject *drgnpy_linux_helper_load_builtin_kallsyms(PyObject *self, PyObject *args,
+						    PyObject *kwds);
 
 #endif /* DRGNPY_H */
