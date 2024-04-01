@@ -13,6 +13,7 @@ from util import NORMALIZED_MACHINE_NAME
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
 SUPPORTED_KERNEL_VERSIONS = (
+    "6.9",
     "6.8",
     "6.7",
     "6.6",
