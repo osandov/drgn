@@ -18,9 +18,10 @@ from _drgn import (
     _linux_helper_follow_phys,
     _linux_helper_read_vm,
 )
-from drgn import IntegerLike, Object, Program, cast
+from drgn import NULL, IntegerLike, Object, Program, cast
 from drgn.helpers.common.format import decode_enum_type_flags
 from drgn.helpers.common.prog import takes_program_or_default
+from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.mapletree import mt_for_each, mtree_load
 from drgn.helpers.linux.rbtree import rb_find
 
@@ -38,11 +39,13 @@ __all__ = (
     "compound_order",
     "decode_page_flags",
     "environ",
+    "find_vmap_area",
     "follow_page",
     "follow_pfn",
     "follow_phys",
     "for_each_page",
     "for_each_vma",
+    "for_each_vmap_area",
     "page_size",
     "page_to_pfn",
     "page_to_phys",
@@ -1084,6 +1087,101 @@ def vmalloc_to_pfn(prog: Program, addr: IntegerLike) -> Object:
     :return: ``unsigned long``
     """
     return page_to_pfn(vmalloc_to_page(prog, addr))
+
+
+def _vmap_area_rb_cmp(addr: int, va: Object) -> int:
+    if addr < va.va_start.value_():
+        return -1
+    elif addr >= va.va_end.value_():
+        return 1
+    else:
+        return 0
+
+
+@takes_program_or_default
+def find_vmap_area(prog: Program, addr: IntegerLike) -> Object:
+    """
+    Return the ``struct vmap_area *`` containing an address.
+
+    >>> find_vmap_area(0xffffa2b680081000)
+    *(struct vmap_area *)0xffffa16541046b40 = {
+            ...
+    }
+
+    :param addr: Address to look up.
+    :return: ``struct vmap_area *`` (``NULL`` if not found)
+    """
+    addr = operator.index(addr)
+    # Since Linux kernel commit d093602919ad ("mm: vmalloc: remove global
+    # vmap_area_root rb-tree") (in v6.9), vmap areas are split up in multiple
+    # red-black trees in separate "nodes". Before that, they're in a single
+    # red-black tree.
+    try:
+        vmap_nodes = prog["vmap_nodes"].read_()
+    except KeyError:
+        return rb_find(
+            "struct vmap_area",
+            prog["vmap_area_root"].address_of_(),
+            "rb_node",
+            addr,
+            _vmap_area_rb_cmp,
+        )
+    else:
+        nr_vmap_nodes = prog["nr_vmap_nodes"].value_()
+        i = j = (addr // prog["vmap_zone_size"].value_()) % nr_vmap_nodes
+        while True:
+            vn = vmap_nodes[i]
+            va = rb_find(
+                "struct vmap_area",
+                vn.busy.root.address_of_(),
+                "rb_node",
+                addr,
+                _vmap_area_rb_cmp,
+            )
+            if va:
+                return va
+            # As noted in the kernel implementation, the given address may be
+            # in a different node than the start address, so we have to loop.
+            i = (i + 1) % nr_vmap_nodes
+            if i == j:
+                return NULL(prog, "struct vmap_area *")
+
+
+@takes_program_or_default
+def for_each_vmap_area(prog: Program) -> Iterator[Object]:
+    """
+    Iterate over every ``struct vmap_area *`` on the system.
+
+    >>> for va in for_each_vmap_area():
+    ...     caller = ""
+    ...     if va.vm:
+    ...         sym = prog.symbol(va.vm.caller)
+    ...         if sym:
+    ...             caller = f" {sym.name}"
+    ...     print(f"{hex(va.va_start)}-{hex(va.va_end)}{caller}")
+    ...
+    0xffffa2b680000000-0xffffa2b680005000 irq_init_percpu_irqstack
+    0xffffa2b680005000-0xffffa2b680007000 acpi_os_map_iomem
+    0xffffa2b68000b000-0xffffa2b68000d000 hpet_enable
+    0xffffa2b680080000-0xffffa2b680085000 kernel_clone
+    ...
+
+    :return: Iterator of ``struct vmap_area *`` objects.
+    """
+    # Since Linux kernel commit d093602919ad ("mm: vmalloc: remove global
+    # vmap_area_root rb-tree") (in v6.9), vmap areas are split up in multiple
+    # lists in separate "nodes". Before that, they're in a single list.
+    try:
+        vmap_nodes = prog["vmap_nodes"].read_()
+    except KeyError:
+        yield from list_for_each_entry(
+            "struct vmap_area", prog["vmap_area_list"].address_of_(), "list"
+        )
+    else:
+        for i in range(prog["nr_vmap_nodes"]):
+            yield from list_for_each_entry(
+                "struct vmap_area", vmap_nodes[i].busy.head.address_of_(), "list"
+            )
 
 
 def access_process_vm(task: Object, address: IntegerLike, size: IntegerLike) -> bytes:

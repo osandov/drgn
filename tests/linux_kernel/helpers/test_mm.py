@@ -27,10 +27,12 @@ from drgn.helpers.linux.mm import (
     compound_order,
     decode_page_flags,
     environ,
+    find_vmap_area,
     follow_page,
     follow_pfn,
     follow_phys,
     for_each_vma,
+    for_each_vmap_area,
     page_size,
     page_to_pfn,
     page_to_phys,
@@ -284,6 +286,30 @@ class TestMm(LinuxKernelTestCase):
         self.assertEqual(
             vmalloc_to_pfn(self.prog["drgn_test_vmalloc_va"]),
             self.prog["drgn_test_vmalloc_pfn"],
+        )
+
+    @skip_unless_have_test_kmod
+    def test_find_vmap_area(self):
+        self.assertEqual(
+            find_vmap_area(
+                self.prog, self.prog["drgn_test_vmalloc_va"] + 1234
+            ).va_start.value_(),
+            self.prog["drgn_test_vmalloc_va"].value_(),
+        )
+
+        with self.subTest("non-vmap address"):
+            self.assertIdentical(
+                find_vmap_area(self.prog, self.prog["drgn_test_va"]),
+                NULL(self.prog, "struct vmap_area *"),
+            )
+
+    @skip_unless_have_test_kmod
+    def test_for_each_vmap_area(self):
+        self.assertTrue(
+            any(
+                va.va_start.value_() == self.prog["drgn_test_vmalloc_va"].value_()
+                for va in for_each_vmap_area(self.prog)
+            )
         )
 
     @skip_unless_have_full_mm_support
