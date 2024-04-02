@@ -13,10 +13,17 @@ import typing
 from typing import Optional
 
 import drgn
-from drgn import IntegerLike, PlatformFlags, Program, SymbolKind
+from drgn import FaultError, IntegerLike, PlatformFlags, Program, SymbolKind, cast
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.prog import takes_program_or_default
-from drgn.helpers.linux.slab import slab_object_info
+from drgn.helpers.linux.mm import (
+    PageSlab,
+    compound_head,
+    find_vmap_area,
+    pfn_to_virt,
+    virt_to_page,
+)
+from drgn.helpers.linux.slab import _get_slab_cache_helper, _get_slab_type
 
 __all__ = (
     "identify_address",
@@ -28,6 +35,52 @@ _SYMBOL_KIND_STR = {
     SymbolKind.OBJECT: "object symbol",
     SymbolKind.FUNC: "function symbol",
 }
+
+
+def _identify_kernel_address(prog: Program, addr: int) -> Optional[str]:
+    try:
+        direct_map_start = pfn_to_virt(prog["min_low_pfn"]).value_()
+        direct_map_end = (pfn_to_virt(prog["max_low_pfn"]) + prog["PAGE_SIZE"]).value_()
+        in_direct_map = direct_map_start <= addr < direct_map_end
+    except NotImplementedError:
+        # Virtual address translation isn't implemented for this
+        # architecture.
+        in_direct_map = False
+    if in_direct_map:
+        page = virt_to_page(prog, addr)
+
+        try:
+            head_page = compound_head(page)
+            is_slab = PageSlab(head_page)
+        except FaultError:
+            return None
+
+        if is_slab:
+            slab = cast(_get_slab_type(prog), head_page)
+            slab_info = _get_slab_cache_helper(slab.slab_cache).object_info(
+                head_page, slab, addr
+            )
+            if slab_info:
+                cache_name = escape_ascii_string(
+                    slab_info.slab_cache.name.string_(), escape_backslash=True
+                )
+                maybe_free = "" if slab_info.allocated else "free "
+                return f"{maybe_free}slab object: {cache_name}+{hex(addr - slab_info.address)}"
+    else:
+        va = find_vmap_area(prog, addr)
+        if va:
+            caller = ""
+            vm = va.vm.read_()
+            if vm:
+                caller_value = vm.caller.value_()
+                try:
+                    caller_sym = prog.symbol(caller_value)
+                except LookupError:
+                    pass
+                else:
+                    caller = f" caller {caller_sym.name}+{hex(caller_value - caller_sym.address)}"
+            return f"vmap: {hex(va.va_start)}-{hex(va.va_end)}{caller}"
+    return None
 
 
 @takes_program_or_default
@@ -50,6 +103,10 @@ def identify_address(prog: Program, addr: IntegerLike) -> Optional[str]:
       (where ``hex_offset`` is the offset from the beginning of the object in
       hexadecimal).
     * Free slab objects: ``free slab object: {slab_cache_name}+{hex_offset}``.
+    * Vmap addresses (e.g., vmalloc, ioremap):
+      ``vmap: {hex_start_address}-{hex_end_address}``. If the function that
+      allocated the vmap is known, this also includes
+      ``caller {function_name}+{hex_offset}``.
 
     This may recognize other types of addresses in the future.
 
@@ -58,36 +115,19 @@ def identify_address(prog: Program, addr: IntegerLike) -> Optional[str]:
     """
     addr = operator.index(addr)
 
-    if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
-        # Linux kernel-specific identification:
-        try:
-            slab = slab_object_info(prog, addr)
-        except NotImplementedError:
-            # Probably because virtual address translation isn't implemented
-            # for this architecture.
-            pass
-        else:
-            if slab:
-                # address is slab allocated
-                cache_name = escape_ascii_string(
-                    slab.slab_cache.name.string_(), escape_backslash=True
-                )
-                maybe_free = "" if slab.allocated else "free "
-                return (
-                    f"{maybe_free}slab object: {cache_name}+{hex(addr - slab.address)}"
-                )
-
     # Check if address is of a symbol:
     try:
         symbol = prog.symbol(addr)
     except LookupError:  # not a symbol
-        # Unrecognized address
-        return None
+        pass
+    else:
+        symbol_kind = _SYMBOL_KIND_STR.get(symbol.kind, "symbol")
+        return f"{symbol_kind}: {symbol.name}+{hex(addr - symbol.address)}"
 
-    offset = hex(addr - symbol.address)
-    symbol_kind = _SYMBOL_KIND_STR.get(symbol.kind, "symbol")
-
-    return f"{symbol_kind}: {symbol.name}+{offset}"
+    if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
+        # Linux kernel-specific identification:
+        return _identify_kernel_address(prog, addr)
+    return None
 
 
 @takes_program_or_default

@@ -50,6 +50,12 @@ class TestIdentifyAddress(LinuxKernelTestCase):
                             f"slab object: drgn_test_{size}+0x0",
                         )
 
+    @skip_unless_have_test_kmod
+    def test_identify_vmap(self):
+        self.assertTrue(
+            identify_address(self.prog["drgn_test_vmalloc_va"]).startswith("vmap: 0x")
+        )
+
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_identify_unrecognized(self):
