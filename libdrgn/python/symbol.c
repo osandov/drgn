@@ -3,9 +3,8 @@
 
 #include <inttypes.h>
 
-#include "drgn.h"
 #include "drgnpy.h"
-#include "symbol.h"
+#include "../symbol.h"
 
 PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj)
 {
