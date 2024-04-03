@@ -398,6 +398,7 @@ static void drgn_test_maple_tree_exit(void) {}
 
 // mm
 
+const int drgn_test_vmap_stack_enabled = IS_ENABLED(CONFIG_VMAP_STACK);
 void *drgn_test_va;
 phys_addr_t drgn_test_pa;
 unsigned long drgn_test_pfn;

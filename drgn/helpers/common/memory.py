@@ -9,6 +9,7 @@ The ``drgn.helpers.common.memory`` module provides helpers for working with memo
 """
 
 import operator
+import os
 import typing
 from typing import Optional
 
@@ -23,6 +24,7 @@ from drgn.helpers.linux.mm import (
     pfn_to_virt,
     virt_to_page,
 )
+from drgn.helpers.linux.pid import for_each_task
 from drgn.helpers.linux.slab import _get_slab_cache_helper, _get_slab_type
 
 __all__ = (
@@ -72,6 +74,22 @@ def _identify_kernel_address(prog: Program, addr: int) -> Optional[str]:
             caller = ""
             vm = va.vm.read_()
             if vm:
+                for task in for_each_task(prog):
+                    try:
+                        try:
+                            stack_vm_area = task.stack_vm_area
+                        except AttributeError:
+                            # CONFIG_VMAP_STACK must be disabled.
+                            break
+                        if stack_vm_area == vm:
+                            return (
+                                f"vmap stack: {task.pid.value_()}"
+                                f" ({os.fsdecode(task.comm.string_())})"
+                                f" +{hex(addr - task.stack.value_())}"
+                            )
+                    except FaultError:
+                        pass
+
                 caller_value = vm.caller.value_()
                 try:
                     caller_sym = prog.symbol(caller_value)
@@ -107,6 +125,9 @@ def identify_address(prog: Program, addr: IntegerLike) -> Optional[str]:
       ``vmap: {hex_start_address}-{hex_end_address}``. If the function that
       allocated the vmap is known, this also includes
       ``caller {function_name}+{hex_offset}``.
+    * Vmap kernel stacks: ``vmap stack: {pid} ({comm}) +{hex_offset}`` (where
+      ``pid`` and ``comm`` identify the task and ``hex_offset`` is the offset
+      from the beginning of the stack in hexadecimal).
 
     This may recognize other types of addresses in the future.
 
