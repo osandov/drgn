@@ -10,8 +10,29 @@ with CONFIG_PROC_KCORE=y.
 import argparse
 import sys
 
+from drgn import Object
 from drgn.helpers.common.memory import identify_address
 from drgn.helpers.linux.list import list_for_each_entry
+from drgn.helpers.linux.mm import for_each_vmap_area, virt_to_page
+
+
+def virt_to_vmap_address(prog, addr):
+    page = virt_to_page(addr)
+    for va in for_each_vmap_area(prog):
+        vm = va.vm.read_()
+        if vm:
+            for i, va_page in enumerate(
+                Object(
+                    prog, prog.array_type(page.type_, vm.nr_pages), address=vm.pages
+                ).read_()
+            ):
+                if va_page == page:
+                    return (
+                        va.va_start.value_()
+                        + (i << prog["PAGE_SHIFT"])
+                        + (addr & (prog["PAGE_SIZE"].value_() - 1))
+                    )
+    return None
 
 
 def search_memory(prog, needle):
@@ -31,7 +52,13 @@ def search_memory(prog, needle):
                 i = buf.find(needle, i)
                 if i < 0:
                     break
-                identity = identify_address(prog, addr + i)
+
+                vmap_address = virt_to_vmap_address(prog, addr + i)
+                if vmap_address is not None:
+                    identity = identify_address(prog, vmap_address)
+                else:
+                    identity = identify_address(prog, addr + i)
+
                 if identity is None:
                     print(hex(addr + i))
                 else:
