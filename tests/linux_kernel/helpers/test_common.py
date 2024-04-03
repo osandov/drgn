@@ -4,7 +4,8 @@
 from contextlib import redirect_stdout
 import io
 
-from drgn.helpers.common.memory import identify_address
+from drgn import sizeof
+from drgn.helpers.common.memory import identify_address, print_annotated_memory
 from drgn.helpers.common.stack import print_annotated_stack
 from drgn.helpers.linux.mm import pfn_to_virt
 from tests.linux_kernel import (
@@ -61,6 +62,19 @@ class TestIdentifyAddress(LinuxKernelTestCase):
             self.assertIsNone(identify_address(self.prog, start_addr - 1))
         self.assertIsNone(identify_address(self.prog, end_addr))
         self.assertIsNone(identify_address(self.prog, self.prog["drgn_test_va"]))
+
+
+class TestPrintAnnotatedMemory(LinuxKernelTestCase):
+    @skip_unless_have_test_kmod
+    def test_print_annotated_memory(self):
+        f = io.StringIO()
+        with redirect_stdout(f):
+            print_annotated_memory(
+                self.prog,
+                self.prog["drgn_test_small_slab_objects"].address_,
+                sizeof(self.prog["drgn_test_small_slab_objects"]),
+            )
+        self.assertIn("slab object: drgn_test_small+0x0", f.getvalue())
 
 
 class TestPrintAnnotatedStack(LinuxKernelTestCase):
