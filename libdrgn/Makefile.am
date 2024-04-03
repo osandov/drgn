@@ -116,6 +116,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 
 libdrgnimpl_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden $(OPENMP_CFLAGS) \
 			$(elfutils_CFLAGS)
+libdrgnimpl_la_CPPFLAGS = $(AM_CPPFLAGS) -iquote .
 libdrgnimpl_la_LIBADD = $(OPENMP_LIBS) $(elfutils_LIBS) -lm
 
 if WITH_LIBKDUMPFILE
