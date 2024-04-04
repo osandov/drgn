@@ -1176,6 +1176,7 @@ static void drgn_test_waitq_exit(void)
 }
 
 // Dummy function symbol.
+int drgn_test_function(int x); // Silence -Wmissing-prototypes.
 int drgn_test_function(int x)
 {
 	return x + 1;
