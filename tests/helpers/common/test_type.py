@@ -179,6 +179,27 @@ class TestMemberAtOffset(TestCase):
         self.assertEqual(member_at_offset(line_segment_type, 8), "b.x")
         self.assertEqual(member_at_offset(line_segment_type, 12), "b.y")
 
+    def test_padding_in_nested(self):
+        prog = mock_program()
+        type = prog.struct_type(
+            None,
+            16,
+            (
+                TypeMember(
+                    prog.struct_type(
+                        None,
+                        16,
+                        (
+                            TypeMember(prog.int_type("int", 4, True), "i", 0),
+                            TypeMember(prog.int_type("long", 8, True), "l", 64),
+                        ),
+                    ),
+                    "x",
+                ),
+            ),
+        )
+        self.assertEqual(member_at_offset(type, 4), "x.<padding between i and l>")
+
     def test_array(self):
         prog = mock_program()
         type = prog.array_type(prog.int_type("int", 4, True), 2)
@@ -245,6 +266,22 @@ class TestMemberAtOffset(TestCase):
         )
         self.assertEqual(member_at_offset(type, 16), "<end>")
         self.assertEqual(member_at_offset(type, 17), "<past end>")
+
+    def test_array_of_structs_padding(self):
+        prog = mock_program()
+        type = prog.array_type(
+            prog.struct_type(
+                None,
+                16,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "i", 0),
+                    TypeMember(prog.int_type("long", 8, True), "l", 64),
+                ),
+            ),
+            2,
+        )
+        self.assertEqual(member_at_offset(type, 4), "[0].<padding between i and l>")
+        self.assertEqual(member_at_offset(type, 20), "[1].<padding between i and l>")
 
     def test_array_member(self):
         prog = mock_program()
