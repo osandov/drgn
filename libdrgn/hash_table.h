@@ -903,8 +903,14 @@ static bool table##_rehash(struct table *table, size_t orig_chunk_count,	\
 			unsigned int mask = table##_chunk_occupied(src), i;	\
 			if (table##_vector_policy) {				\
 				unsigned int pmask = mask;			\
-				for_each_bit(i, pmask)				\
-					__builtin_prefetch(&src->items[i]);	\
+				for_each_bit(i, pmask) {			\
+					table##_item_type *item =		\
+						&src->items[i];			\
+					table##_entry_type *entry =		\
+						table##_item_to_entry(table,	\
+								      item);	\
+					__builtin_prefetch(entry);		\
+				}						\
 			}							\
 			for_each_bit(i, mask) {					\
 				remaining--;					\
