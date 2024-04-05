@@ -367,8 +367,9 @@ static bool vector##_empty(const struct vector *vector)				\
 }										\
 										\
 static const vector##_size_type vector##_max_size =				\
-	min_iconst(PTRDIFF_MAX, (vector##_size_type)-1)				\
-	/ sizeof(vector##_entry_type);						\
+	/* The redundant cast works around llvm/llvm-project#38137. */		\
+	(vector##_size_type)min_iconst(PTRDIFF_MAX / sizeof(vector##_entry_type),\
+				       (vector##_size_type)-1);			\
 										\
 static vector##_size_type vector##_capacity(const struct vector *vector)	\
 {										\
