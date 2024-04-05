@@ -168,6 +168,13 @@ bool hash_table_empty(struct hash_table *table);
 size_t hash_table_size(struct hash_table *table);
 
 /**
+ * Maximum possible number of entries in a @ref hash_table.
+ *
+ * Attempts to increase the size or capacity beyond this will fail.
+ */
+const size_t hash_table_max_size;
+
+/**
  * Delete all entries in a @ref hash_table.
  *
  * This does not necessarily free memory used by the hash table.
@@ -728,6 +735,10 @@ static inline bool table##_empty(struct table *table)				\
 	return table##_size(table) == 0;					\
 }										\
 										\
+static const size_t table##_max_size =						\
+	min_iconst(PTRDIFF_MAX / sizeof(table##_entry_type),			\
+		   (table##_size_type)-1);					\
+										\
 static table##_item_type *table##_allocate_tag(struct table *table,		\
 					       uint8_t *fullness,		\
 					       struct hash_pair hp)		\
@@ -787,8 +798,8 @@ table##_compute_chunk_count_and_scale(size_t capacity,				\
 			continuous_multi_chunk_capacity ?			\
 			((capacity - 1) >> ss) + 1 :				\
 			table##_chunk_desired_capacity << (chunk_pow - ss);	\
-		if (table##_vector_policy &&					\
-		    table##_compute_capacity(chunk_count, scale) > UINT32_MAX)	\
+		if (table##_compute_capacity(chunk_count, scale)		\
+		    > table##_max_size)						\
 			return false;						\
 		*chunk_count_ret = chunk_count;					\
 		*scale_ret = scale;						\
