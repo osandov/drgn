@@ -26,6 +26,7 @@
 
 #include "bitops.h"
 #include "cityhash.h"
+#include "generics.h"
 #include "minmax.h"
 #include "nstring.h" // IWYU pragma: export
 #include "util.h"
@@ -386,23 +387,21 @@ enum {										\
 	table##_vector_policy = sizeof(table##_entry_type) >= 24,		\
 };										\
 										\
+/*										\
+ * The vector storage policy stores 32-bit indices, so it only needs 32-bit	\
+ * sizes.									\
+ */										\
+typedef_if(table##_size_type, table##_vector_policy, uint32_t, size_t);		\
+										\
 struct table {									\
 	struct table##_chunk *chunks;						\
-	struct {								\
-		/*								\
-		 * The vector storage policy stores 32-bit indices, so we only	\
-		 * need 32-bit sizes.						\
-		 */								\
-		uint32_t chunk_mask;						\
-		uint32_t size;							\
+	table##_size_type _chunk_mask;						\
+	table##_size_type _size;						\
+	union {									\
 		/* Allocated together with chunks. */				\
-		table##_entry_type *entries;					\
-	} vector[table##_vector_policy];					\
-	struct {								\
-		size_t chunk_mask;						\
-		size_t size;							\
+		table##_entry_type *vector;					\
 		uintptr_t first_packed;						\
-	} basic[!table##_vector_policy];					\
+	};									\
 };										\
 struct DEFINE_HASH_TABLE_needs_semicolon
 
@@ -440,7 +439,7 @@ static struct table##_iterator table##_##func(struct table *table,		\
 	return (struct table##_iterator){};					\
 }
 
-#define HASH_TABLE_SEARCH_BY_INDEX_ITEM_TO_KEY(table, item) (*(item)->index)
+#define HASH_TABLE_SEARCH_BY_INDEX_ITEM_TO_KEY(table, item) (*(uint32_t *)item)
 
 /**
  * Define the functions for a hash table.
@@ -466,19 +465,14 @@ table##_entry_to_key(const table##_entry_type *entry)				\
  * When using the basic policy, the entry is stored directly in the item. When	\
  * using the vector policy, the item is an index to an out-of-band vector of	\
  * entries.									\
- *										\
- * C doesn't make it easy to define a type conditionally, so we use a nasty	\
- * hack: the member for the used policy is an array of length 1, and the unused	\
- * member is an array of length 0. We also have to force the struct to be	\
- * aligned only for the used member.						\
  */										\
-typedef struct {								\
-	uint32_t index[table##_vector_policy];					\
-	table##_entry_type entry[!table##_vector_policy];			\
-} __attribute__((__packed__,							\
-		 __aligned__(table##_vector_policy ?				\
-			     alignof(uint32_t) : alignof(table##_entry_type))))	\
-table##_item_type;								\
+typedef_if(table##_item_type, table##_vector_policy, uint32_t,			\
+	   table##_entry_type);							\
+										\
+static inline uint32_t *table##_vector_item(table##_item_type *item)		\
+{										\
+	return (uint32_t *)item;						\
+}										\
 										\
 enum {										\
 	/*									\
@@ -543,7 +537,7 @@ struct table##_iterator {							\
 	union {									\
 		/*								\
 		 * Lowest entry if public iterator and using the vector storage	\
-		 * policy (i.e., table->vector->entries).			\
+		 * policy (i.e., table->vector).				\
 		 */								\
 		table##_entry_type *lowest;					\
 		/*								\
@@ -562,16 +556,10 @@ static inline struct hash_pair table##_hash(const table##_key_type *key)	\
 static inline table##_entry_type *						\
 table##_item_to_entry(struct table *table, table##_item_type *item)		\
 {										\
-	if (table##_vector_policy) {						\
-		return &table->vector->entries[*item->index];			\
-	} else {								\
-		/*								\
-		 * Returning item->entry directly results in a false positive	\
-		 * -Waddress-of-packed-member warning.				\
-		 */								\
-		void *entry = item->entry;					\
-		return entry;							\
-	}									\
+	if (table##_vector_policy)						\
+		return &table->vector[*table##_vector_item(item)];		\
+	else									\
+		return (table##_entry_type *)item;				\
 }										\
 										\
 static inline table##_key_type							\
@@ -698,15 +686,12 @@ __attribute__((__unused__))							\
 static void table##_init(struct table *table)					\
 {										\
 	table->chunks = hash_table_empty_chunk;					\
-	if (table##_vector_policy) {						\
-		table->vector->chunk_mask = 0;					\
-		table->vector->size = 0;					\
-		table->vector->entries = NULL;					\
-	} else {								\
-		table->basic->chunk_mask = 0;					\
-		table->basic->size = 0;						\
-		table->basic->first_packed = 0;					\
-	}									\
+	table->_chunk_mask = 0;							\
+	table->_size = 0;							\
+	if (table##_vector_policy)						\
+		table->vector = NULL;						\
+	else									\
+		table->first_packed = 0;					\
 }										\
 										\
 __attribute__((__unused__))							\
@@ -718,35 +703,23 @@ static void table##_deinit(struct table *table)					\
 										\
 static inline size_t table##_size(struct table *table)				\
 {										\
-	if (table##_vector_policy)						\
-		return table->vector->size;					\
-	else									\
-		return table->basic->size;					\
+	return table->_size;							\
 }										\
 										\
 static inline void table##_set_size(struct table *table, size_t size)		\
 {										\
-	if (table##_vector_policy)						\
-		table->vector->size = size;					\
-	else									\
-		table->basic->size = size;					\
+	table->_size = size;							\
 }										\
 										\
 static inline size_t table##_chunk_mask(struct table *table)			\
 {										\
-	if (table##_vector_policy)						\
-		return table->vector->chunk_mask;				\
-	else									\
-		return table->basic->chunk_mask;				\
+	return table->_chunk_mask;						\
 }										\
 										\
 static inline void table##_set_chunk_mask(struct table *table,			\
 					  size_t chunk_mask)			\
 {										\
-	if (table##_vector_policy)						\
-		table->vector->chunk_mask = chunk_mask;				\
-	else									\
-		table->basic->chunk_mask = chunk_mask;				\
+	table->_chunk_mask = chunk_mask;					\
 }										\
 										\
 __attribute__((__unused__))							\
@@ -869,10 +842,10 @@ static bool table##_rehash(struct table *table, size_t orig_chunk_count,	\
 	table->chunks = new_chunks;						\
 	table##_entry_type *orig_entries;					\
 	if (table##_vector_policy) {						\
-		orig_entries = table->vector->entries;				\
-		table->vector->entries = new_chunks + entries_offset;		\
+		orig_entries = table->vector;					\
+		table->vector = new_chunks + entries_offset;			\
 		if (table##_size(table) > 0) {					\
-			memcpy(table->vector->entries, orig_entries,		\
+			memcpy(table->vector, orig_entries,			\
 			       table##_size(table) *				\
 			       sizeof(table##_entry_type));			\
 		}								\
@@ -898,7 +871,7 @@ static bool table##_rehash(struct table *table, size_t orig_chunk_count,	\
 			src_i++;						\
 		}								\
 		if (!table##_vector_policy) {					\
-			table->basic->first_packed =				\
+			table->first_packed =					\
 				table##_pack_iterator(dst, dst_i - 1);		\
 		}								\
 	} else {								\
@@ -941,7 +914,7 @@ static bool table##_rehash(struct table *table, size_t orig_chunk_count,	\
 			size_t i = table##_chunk_mask(table);			\
 			while (fullness[i] == 0)				\
 				i--;						\
-			table->basic->first_packed =				\
+			table->first_packed =					\
 				table##_pack_iterator(&table->chunks[i],	\
 						      fullness[i] - 1);		\
 		}								\
@@ -959,7 +932,7 @@ err:										\
 	table->chunks = orig_chunks;						\
 	table##_set_chunk_mask(table, orig_chunk_count - 1);			\
 	if (table##_vector_policy)						\
-		table->vector->entries = orig_entries;				\
+		table->vector = orig_entries;					\
 	return false;								\
 }										\
 										\
@@ -982,7 +955,7 @@ static void table##_do_clear(struct table *table, bool reset)			\
 			table##_chunk_mark_eof(table->chunks, capacity_scale);	\
 		}								\
 		if (!table##_vector_policy)					\
-			table->basic->first_packed = 0;				\
+			table->first_packed = 0;				\
 		table##_set_size(table, 0);					\
 	}									\
 	if (reset) {								\
@@ -990,7 +963,7 @@ static void table##_do_clear(struct table *table, bool reset)			\
 		table->chunks = hash_table_empty_chunk;				\
 		table##_set_chunk_mask(table, 0);				\
 		if (table##_vector_policy)					\
-			table->vector->entries = NULL;				\
+			table->vector = NULL;					\
 	}									\
 }										\
 										\
@@ -1056,7 +1029,7 @@ table##_search_hashed(struct table *table, const table##_key_type *key,		\
 	/* Convert the item iterator to a public iterator. */			\
 	if (table##_vector_policy && it.item) {					\
 		it.entry = table##_item_to_entry(table, it.item);		\
-		it.lowest = table->vector->entries;				\
+		it.lowest = table->vector;					\
 	}									\
 	return it;								\
 }										\
@@ -1099,8 +1072,8 @@ table##_adjust_size_and_first_after_insert(struct table *table,			\
 {										\
 	if (!table##_vector_policy) {						\
 		uintptr_t first_packed = table##_pack_iterator(chunk, index);	\
-		if (first_packed > table->basic->first_packed)			\
-			table->basic->first_packed = first_packed;		\
+		if (first_packed > table->first_packed)				\
+			table->first_packed = first_packed;			\
 	}									\
 	table##_set_size(table, table##_size(table) + 1);			\
 }										\
@@ -1130,8 +1103,9 @@ static int table##_insert_searched(struct table *table,				\
 	}									\
 	chunk->tags[first_empty] = hp.second;					\
 	if (table##_vector_policy) {						\
-		*chunk->items[first_empty].index = table##_size(table);		\
-		memcpy(&table->vector->entries[table##_size(table)], entry,	\
+		*table##_vector_item(&chunk->items[first_empty]) =		\
+			table##_size(table);					\
+		memcpy(&table->vector[table##_size(table)], entry,		\
 		       sizeof(*entry));						\
 	} else {								\
 		memcpy(&chunk->items[first_empty], entry, sizeof(*entry));	\
@@ -1140,8 +1114,8 @@ static int table##_insert_searched(struct table *table,				\
 	if (it_ret) {								\
 		if (table##_vector_policy) {					\
 			it_ret->entry =						\
-				&table->vector->entries[table##_size(table) - 1];\
-			it_ret->lowest = table->vector->entries;		\
+				&table->vector[table##_size(table) - 1];	\
+			it_ret->lowest = table->vector;				\
 		} else {							\
 			it_ret->item = &chunk->items[first_empty];		\
 			it_ret->index = first_empty;				\
@@ -1178,13 +1152,13 @@ static int table##_insert(struct table *table,					\
 /* Similar to table##_next_impl() but for the cached first position. */		\
 static void table##_advance_first_packed(struct table *table)			\
 {										\
-	uintptr_t packed = table->basic->first_packed;				\
+	uintptr_t packed = table->first_packed;					\
 	struct table##_chunk *chunk = table##_unpack_chunk(packed);		\
 	size_t index = table##_unpack_index(packed);				\
 	while (index > 0) {							\
 		index--;							\
 		if (chunk->tags[index]) {					\
-			table->basic->first_packed =				\
+			table->first_packed =					\
 				table##_pack_iterator(chunk, index);		\
 			return;							\
 		}								\
@@ -1198,7 +1172,7 @@ static void table##_advance_first_packed(struct table *table)			\
 		chunk--;							\
 		unsigned int last = table##_chunk_last_occupied(chunk);		\
 		if (last != (unsigned int)-1) {					\
-			table->basic->first_packed =				\
+			table->first_packed =					\
 				table##_pack_iterator(chunk, last);		\
 			return;							\
 		}								\
@@ -1212,9 +1186,9 @@ table##_adjust_size_and_first_before_delete(struct table *table,		\
 {										\
 	table##_set_size(table, table##_size(table) - 1);			\
 	if (!table##_vector_policy &&						\
-	    table##_pack_iterator(chunk, index) == table->basic->first_packed) {\
+	    table##_pack_iterator(chunk, index) == table->first_packed) {	\
 		if (table##_empty(table))					\
-			table->basic->first_packed = 0;				\
+			table->first_packed = 0;				\
 		else								\
 			table##_advance_first_packed(table);			\
 	}									\
@@ -1294,19 +1268,19 @@ static void table##_vector_delete_impl(struct table *table,			\
 				       struct hash_pair hp)			\
 {										\
 	/* Delete the index from the table. */					\
-	uint32_t index = *item_it.item->index;					\
+	uint32_t index = *table##_vector_item(item_it.item);			\
 	table##_delete_impl(table, item_it, hp);				\
 										\
 	/* Replace it with the last entry and update its index in the table. */	\
 	uint32_t tail_index = table##_size(table);				\
 	if (tail_index != index) {						\
 		table##_entry_type *tail =					\
-			&table->vector->entries[tail_index];			\
+			&table->vector[tail_index];				\
 		table##_key_type tail_key = table##_entry_to_key(tail);		\
 		item_it = table##_search_by_index(table, &tail_index,		\
 						  table##_hash(&tail_key));	\
-		*item_it.item->index = index;					\
-		memcpy(&table->vector->entries[index], tail, sizeof(*tail));	\
+		*table##_vector_item(item_it.item) = index;			\
+		memcpy(&table->vector[index], tail, sizeof(*tail));		\
 	}									\
 }										\
 										\
@@ -1381,13 +1355,13 @@ static struct table##_iterator table##_first(struct table *table)		\
 		if (table##_empty(table))					\
 			entry = NULL;						\
 		else								\
-			entry = &table->vector->entries[table##_size(table) - 1];\
+			entry = &table->vector[table##_size(table) - 1];	\
 		return (struct table##_iterator){				\
 			.entry = entry,						\
-			.lowest = table->vector->entries,			\
+			.lowest = table->vector,				\
 		};								\
 	} else {								\
-		return table##_unpack_iterator(table->basic->first_packed);	\
+		return table##_unpack_iterator(table->first_packed);		\
 	}									\
 }										\
 										\
