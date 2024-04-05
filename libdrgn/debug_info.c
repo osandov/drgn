@@ -719,8 +719,8 @@ drgn_module_find_gnu_debugaltlink_file(struct drgn_module_try_files_state *state
 	const char *debugaltlink = data->d_buf;
 	const char *nul = memchr(debugaltlink, 0, data->d_size);
 	if (!nul || nul + 1 == debugaltlink + data->d_size) {
-		drgn_log_warning(prog, "%s: couldn't parse .gnu_debugaltlink",
-				 file->path);
+		drgn_log_debug(prog, "%s: couldn't parse .gnu_debugaltlink",
+			       file->path);
 		return NULL;
 	}
 	const void *build_id = nul + 1;
@@ -3263,8 +3263,7 @@ userspace_loaded_module_iterator_read_main_phdrs(struct userspace_loaded_module_
 	}
 	if (have_phdr_vaddr) {
 		it->main_bias = prog->auxv.at_phdr - phdr_vaddr;
-		drgn_log_debug(prog, "main bias is 0x%" PRIx64,
-			       it->main_bias);
+		drgn_log_debug(prog, "main bias is 0x%" PRIx64, it->main_bias);
 	} else {
 		drgn_log_debug(prog,
 			       "didn't find PT_LOAD containing program headers");
@@ -3274,8 +3273,7 @@ userspace_loaded_module_iterator_read_main_phdrs(struct userspace_loaded_module_
 		it->have_main_dyn = true;
 		it->main_dyn_vaddr = dyn_vaddr + it->main_bias;
 		it->main_dyn_memsz = dyn_memsz;
-		drgn_log_debug(prog,
-			       "main dynamic section is at 0x%" PRIx64,
+		drgn_log_debug(prog, "main dynamic section is at 0x%" PRIx64,
 			       it->main_dyn_vaddr);
 	} else {
 		drgn_log_debug(prog,
@@ -3401,8 +3399,7 @@ userspace_loaded_module_iterator_yield_main(struct userspace_loaded_module_itera
 	if (err)
 		goto delete_module;
 	if (it->read_main_phdrs) {
-		err = identify_module_from_phdrs(it, *ret,
-						 prog->auxv.at_phnum,
+		err = identify_module_from_phdrs(it, *ret, prog->auxv.at_phnum,
 						 it->main_bias);
 		if (err)
 			goto delete_module;
@@ -3458,8 +3455,8 @@ userspace_loaded_module_iterator_yield_vdso(struct userspace_loaded_module_itera
 
 	// This is based on the Linux kernel's reference vDSO parser.
 	uint64_t bias = prog->auxv.at_sysinfo_ehdr;
-	uint64_t dyn_vaddr = 0, dyn_memsz = 0;
-	bool have_load = false;
+	uint64_t dyn_vaddr, dyn_memsz = 0;
+	bool have_load = false, have_dyn = false;
 	for (size_t i = 0; i < ehdr.e_phnum; i++) {
 		GElf_Phdr phdr;
 		userspace_loaded_module_iterator_phdr(it, i, &phdr);
@@ -3477,19 +3474,21 @@ userspace_loaded_module_iterator_yield_vdso(struct userspace_loaded_module_itera
 				       phdr.p_offset, phdr.p_memsz);
 			dyn_vaddr = prog->auxv.at_sysinfo_ehdr + phdr.p_offset;
 			dyn_memsz = phdr.p_memsz;
+			have_dyn = true;
 		}
 	}
 	if (!have_load) {
 		drgn_log_warning(prog,
-				 "didn't find PT_LOAD program header for vDSO; ignoring");
+				 "can't find vDSO: "
+				 "no PT_LOAD header in vDSO program headers");
 		*ret = NULL;
 		return NULL;
 	}
 	drgn_log_debug(prog, "vDSO bias is 0x%" PRIx64, bias);
-	if (!dyn_vaddr) {
-		// TODO: make warnings more user-centric
+	if (!have_dyn) {
 		drgn_log_warning(prog,
-				 "didn't find valid PT_DYNAMIC program header for vDSO; ignoring");
+				 "can't find vDSO: "
+				 "no PT_DYNAMIC header in vDSO program headers");
 		*ret = NULL;
 		return NULL;
 	}
@@ -3508,28 +3507,33 @@ userspace_loaded_module_iterator_yield_vdso(struct userspace_loaded_module_itera
 	} else if (err)
 		return err;
 
-	uint64_t dt_strtab = 0, dt_soname = 0;
+	uint64_t dt_strtab, dt_soname;
+	bool have_dt_strtab = false, have_dt_soname = false;
 	for (size_t i = 0; i < num_dyn; i++) {
 		GElf_Dyn dyn;
 		userspace_loaded_module_iterator_dyn(it, i, &dyn);
 		if (dyn.d_tag == DT_STRTAB) {
 			dt_strtab = dyn.d_un.d_ptr;
+			have_dt_strtab = true;
 			drgn_log_debug(prog, "found DT_STRTAB 0x%" PRIx64,
 				       dt_strtab);
 		} else if (dyn.d_tag == DT_SONAME) {
 			dt_soname = dyn.d_un.d_val;
+			have_dt_soname = true;
 			drgn_log_debug(prog, "found DT_SONAME 0x%" PRIx64,
 				       dt_soname);
 		} else if (dyn.d_tag == DT_NULL) {
 			break;
 		}
 	}
-	if (!dt_strtab || !dt_soname) {
+	if (!have_dt_strtab || !have_dt_soname) {
 		drgn_log_warning(prog,
-				 "didn't find valid %s%s%s for vDSO; skipping",
-				 dt_strtab ? "" : "DT_STRTAB",
-				 dt_strtab || dt_soname ? "" : " or ",
-				 dt_soname ? "" : "DT_SONAME");
+				 "can't find vDSO: "
+				 "no %s%s%s entr%s in vDSO dynamic section",
+				 have_dt_strtab ? "" : "DT_STRTAB",
+				 have_dt_strtab || have_dt_soname ? "" : " or ",
+				 have_dt_soname ? "" : "DT_SONAME",
+				 have_dt_strtab || have_dt_soname ? "y" : "ies");
 		*ret = NULL;
 		return NULL;
 	}
@@ -3539,8 +3543,8 @@ userspace_loaded_module_iterator_yield_vdso(struct userspace_loaded_module_itera
 					 false, SIZE_MAX, &name);
 	if (err && err->code == DRGN_ERROR_FAULT) {
 		drgn_log_warning(prog,
-				 "couldn't read vDSO soname at 0x%" PRIx64 ": %s"
-				 "; skipping",
+				 "can't find vDSO: "
+				 "couldn't read soname at 0x%" PRIx64 ": %s",
 				 err->address, err->message);
 		drgn_error_destroy(err);
 		*ret = NULL;
@@ -3611,8 +3615,8 @@ userspace_get_link_map(struct userspace_loaded_module_iterator *it)
 							    &num_dyn);
 	if (err == &drgn_not_found) {
 		drgn_log_warning(prog,
-				 "couldn't read main dynamic section"
-				 "; can't iterate shared libraries");
+				 "can't find shared libraries: "
+				 "couldn't read main dynamic section");
 		return NULL;
 	} else if (err) {
 		return err;
@@ -3634,11 +3638,10 @@ userspace_get_link_map(struct userspace_loaded_module_iterator *it)
 	}
 	if (i >= num_dyn) {
 		drgn_log_warning(prog,
-				 "didn't find main DT_DEBUG entry"
-				 "; can't iterate shared libraries");
+				 "can't find shared libraries: "
+				 "no DT_DEBUG entry in main dynamic section");
 		return NULL;
 	}
-	// TODO: what if r_debug is NULL?
 
 	struct drgn_r_debug {
 		int32_t r_version;
@@ -3656,9 +3659,12 @@ userspace_get_link_map(struct userspace_loaded_module_iterator *it)
 			    struct drgn_r_debug32, visit_r_debug_members);
 #undef visit_r_debug_members
 	if (err && err->code == DRGN_ERROR_FAULT) {
+		// Note: musl doesn't update DT_DEBUG for static PIE binaries
+		// compiled with GCC (as of musl v1.2.3 and GCC 13), so that
+		// case is known to fail here.
 		drgn_log_warning(prog,
-				 "couldn't read r_debug at 0x%" PRIx64 ": %s"
-				 "; can't iterate shared libraries",
+				 "can't find shared libraries: "
+				 "couldn't read r_debug at 0x%" PRIx64 ": %s",
 				 err->address, err->message);
 		drgn_error_destroy(err);
 		return NULL;
@@ -3671,8 +3677,8 @@ userspace_get_link_map(struct userspace_loaded_module_iterator *it)
 
 	if (r_debug.r_version < 1) {
 		drgn_log_warning(prog,
-				 "invalid r_debug.r_version %" PRId32
-				 "; can't iterate shared libraries",
+				 "can't find shared libraries: "
+				 "invalid r_debug.r_version %" PRId32,
 				 r_debug.r_version);
 		return NULL;
 	}
@@ -3773,8 +3779,8 @@ userspace_next_link_map(struct userspace_loaded_module_iterator *it,
 	    >= USERSPACE_LOADED_MODULE_ITERATOR_STATE_LINK_MAP
 	    + MAX_LINK_MAP_LIST_ITERATIONS) {
 		drgn_log_warning(prog,
-				 "too many entries or cycle in link_map list; "
-				 "can't iterate remaining shared libraries");
+				 "can't find remaining shared libraries: "
+				 "too many entries or cycle in link_map list");
 		return &drgn_stop;
 	}
 	it->state++;
@@ -3790,8 +3796,8 @@ userspace_next_link_map(struct userspace_loaded_module_iterator *it,
 #undef visit_link_map_members
 	if (err && err->code == DRGN_ERROR_FAULT) {
 		drgn_log_warning(prog,
-				 "couldn't read next link_map at 0x%" PRIx64 ": %s"
-				 "; can't iterate remaining shared libraries",
+				 "can't find remaining shared libraries: "
+				 "couldn't read next link_map at 0x%" PRIx64 ": %s",
 				 err->address, err->message);
 		drgn_error_destroy(err);
 		return &drgn_stop;

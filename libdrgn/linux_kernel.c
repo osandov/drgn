@@ -701,8 +701,8 @@ drgn_module_try_linux_kmod_files(struct drgn_module_try_files_state *state)
 		if (err) {
 			if (!drgn_error_should_log(err))
 				return err;
-			drgn_error_log_warning(prog, err,
-					       "couldn't open depmod index: ");
+			drgn_error_log_debug(prog, err,
+					     "couldn't open depmod index: ");
 			drgn_error_destroy(err);
 			modules_dep->path = NULL;
 			modules_dep->addr = MAP_FAILED;
@@ -720,14 +720,14 @@ drgn_module_try_linux_kmod_files(struct drgn_module_try_files_state *state)
 	err = depmod_index_find(modules_dep, module->name, &depmod_path,
 				&depmod_path_len);
 	if (err) {
-		drgn_error_log_warning(prog, err,
-				       "couldn't parse depmod index: ");
+		drgn_error_log_debug(prog, err,
+				     "couldn't parse depmod index: ");
 		drgn_error_destroy(err);
 		return NULL;
 	}
 	if (!depmod_path) {
-		drgn_log_warning(prog, "couldn't find %s in depmod index",
-				 module->name);
+		drgn_log_debug(prog, "couldn't find %s in depmod index",
+			       module->name);
 		return NULL;
 	}
 	drgn_log_debug(prog, "found %.*s in depmod index",
@@ -1423,8 +1423,9 @@ yield_kernel_module(struct linux_kernel_loaded_module_iterator *it,
 		if (err) {
 list_walk_err:
 			if (drgn_error_should_log(err)) {
-				drgn_error_log_error(prog, err,
-						     "couldn't read next module: ");
+				drgn_error_log_warning(prog, err,
+						       "can't find remaining kernel modules: "
+						       "couldn't read next module: ");
 				drgn_error_destroy(err);
 				*ret = NULL;
 				err = NULL;
@@ -1440,8 +1441,8 @@ list_walk_err:
 
 		if (it->module_list_iterations_remaining == 0) {
 			drgn_log_warning(prog,
-					 "too many entries or cycle in modules list; "
-					 "can't iterate remaining kernel modules");
+					 "can't find remaining kernel modules: "
+					 "too many entries or cycle in modules list");
 			*ret = NULL;
 			return NULL;
 		}
@@ -1472,7 +1473,7 @@ list_walk_err:
 
 		err = kernel_module_find_or_create_internal(&mod, ret, NULL);
 		if (err && drgn_error_should_log(err)) {
-			drgn_error_log_error(prog, err, "ignoring module: ");
+			drgn_error_log_warning(prog, err, "ignoring module: ");
 			drgn_error_destroy(err);
 			continue;
 		}
@@ -1519,8 +1520,9 @@ linux_kernel_loaded_module_iterator_next(struct drgn_module_iterator *_it,
 			return err;
 		}
 		if (it->node.kind != DRGN_OBJECT_REFERENCE) {
-			drgn_log_error(prog,
-				       "can't get address of modules list");
+			drgn_log_warning(prog,
+					 "can't find kernel modules: "
+					 "can't get address of modules list");
 			*ret = NULL;
 			return NULL;
 		}
@@ -1531,8 +1533,9 @@ linux_kernel_loaded_module_iterator_next(struct drgn_module_iterator *_it,
 		if (err) {
 			if (!drgn_error_should_log(err))
 				return err;
-			drgn_error_log_error(prog, err,
-					     "couldn't read modules list: ");
+			drgn_error_log_warning(prog, err,
+					       "can't find kernel modules: "
+					       "couldn't read modules list: ");
 			drgn_error_destroy(err);
 			*ret = NULL;
 			return NULL;
