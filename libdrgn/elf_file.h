@@ -252,7 +252,6 @@ drgn_elf_file_section_buffer_read(struct drgn_elf_file_section_buffer *buffer,
 bool next_elf_note(const void **p, size_t *size, unsigned int align, bool bswap,
 		   Elf32_Nhdr *nhdr_ret, const char **name_ret,
 		   const void **desc_ret);
-// TODO: make sure we're still using this everywhere
 
 /** @} */
 

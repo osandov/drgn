@@ -449,7 +449,7 @@ void drgn_module_delete(struct drgn_module *module)
 {
 	assert(!module->loaded_file);
 	assert(!module->debug_file);
-	if (module->start != UINT64_MAX) {
+	if (module->start < module->end) {
 		drgn_module_address_tree_delete_entry(&module->prog->dbinfo.modules_by_address,
 						      module);
 	}
@@ -511,7 +511,7 @@ drgn_module_set_address_range(struct drgn_module *module, uint64_t start,
 					 "invalid module address range");
 	}
 
-	if (module->start != UINT64_MAX) {
+	if (module->start < module->end) {
 		drgn_module_address_tree_delete_entry(&module->prog->dbinfo.modules_by_address,
 						      module);
 	}
@@ -1454,7 +1454,6 @@ static inline int drgn_map_files_segment_compare(const void *_a, const void *_b)
 
 DEFINE_VECTOR(drgn_map_files_segment_vector, struct drgn_map_files_segment);
 
-// TODO: log when running as root would help?
 static struct drgn_error *
 open_map_files_for_shared_library(struct drgn_module *module, int *fd_ret)
 {
@@ -2582,8 +2581,7 @@ drgn_module_try_default_files_internal(struct drgn_module_try_files_state *state
 	return drgn_module_try_download_files_internal(state);
 }
 
-// TODO: export this?
-static const char * const drgn_default_debug_directories[] = {
+LIBDRGN_PUBLIC const char * const drgn_default_debug_directories[] = {
 	"", ".debug", "/usr/lib/debug", NULL,
 };
 
@@ -2834,7 +2832,6 @@ static const int MAX_LINK_MAP_LIST_ITERATIONS = 10000;
 struct userspace_loaded_module_iterator {
 	struct drgn_module_iterator it;
 	int state;
-	// TODO: use bit fields?
 	bool read_main_phdrs;
 	bool have_main_dyn;
 	bool have_vdso_dyn;
@@ -2906,86 +2903,22 @@ find_mapped_file_segment(struct userspace_loaded_module_iterator *it,
 	return &it->file_segments[lo - 1];
 }
 
-// Alignment of ELF notes is a mess. The [System V
-// gABI](http://www.sco.com/developers/gabi/latest/ch5.pheader.html#note_section)
-// says that the note header and descriptor should be aligned to 4 bytes for
-// 32-bit files and 8 bytes for 64-bit files. However, on Linux, 4-byte
-// alignment is used for both 32-bit and 64-bit files.
-//
-// The only exception as of 2023 is NT_GNU_PROPERTY_TYPE_0, which is defined to
-// follow the gABI alignment. See ["PT_NOTE alignment, NT_GNU_PROPERTY_TYPE_0,
-// glibc and
-// gold"](https://public-inbox.org/libc-alpha/13a92cb0-a993-f684-9a96-e02e4afb1bef@redhat.com/).
-// But, note that the 12-byte note header plus the 4-byte "GNU\0" name is a
-// multiple of 8 bytes, and the NT_GNU_PROPERTY_TYPE_0 descriptor is defined to
-// be a multiple of 4 bytes for 32-bit files and 8 bytes for 64-bit files. As a
-// result, NT_GNU_PROPERTY_TYPE_0 is never actually padded, and 4-byte vs 8-byte
-// alignment are equivalent for parsing purposes.
-//
-// According to the [gABI Linux
-// Extensions](https://gitlab.com/x86-psABIs/Linux-ABI), consumers are now
-// supposed to use the p_align of the PT_NOTE segment instead of assuming an
-// alignment. However, the Linux kernel as of 6.0 generates core dumps with
-// PT_NOTE segments with a p_align of 0 or 1 which are actually aligned to 4
-// bytes. So, when parsing notes from an ELF file, we use 8-byte alignment if
-// p_align is 8 and 4-byte alignment otherwise. binutils and elfutils appear to
-// do the same.
-//
-// Before Linux kernel commit f7ba52f302fd ("vmlinux.lds.h: Discard
-// .note.gnu.property section") (in v6.4), the vmlinux linker script can create
-// a PT_NOTE segment with a p_align of 8 where the entries other than
-// NT_GNU_PROPERTY_TYPE_0 are actually aligned to 4 bytes.
-//
-// Finally, there are cases where we don't know p_align. /sys/kernel/notes
-// contains the contents of the vmlinux .notes section, which (ignoring the
-// aforementioned bug) we can assume has 4-byte alignment.
-// /sys/module/$module/notes/* contains a file for each note section. Since
-// NT_GNU_PROPERTY_TYPE_0 can be parsed assuming 4-byte alignment, we can again
-// assume 4-byte alignment. This will work as long as any future note types
-// requiring 8-byte alignment also happen to have an 8-byte aligned header+name
-// and descriptor (but hopefully no one ever adds an 8-byte aligned note again).
 size_t parse_gnu_build_id_from_note(const void *note, size_t note_size,
 				    unsigned int align, bool bswap,
 				    const void **ret)
 {
-	const char *p = note;
-	const char *end = p + note_size;
-	// Elf64_Nhdr is the same as Elf32_Nhdr.
 	Elf32_Nhdr nhdr;
-	while (end - p >= sizeof(nhdr)) {
-#define ALIGN_NOTE() do {							\
-		size_t to_align = (size_t)-(p - (char *)note) & (align - 1);	\
-		if (to_align > end - p)						\
-			break;							\
-		p += to_align;							\
-} while (0)
-		memcpy(&nhdr, p, sizeof(nhdr));
-		if (bswap) {
-			nhdr.n_namesz = bswap_32(nhdr.n_namesz);
-			nhdr.n_descsz = bswap_32(nhdr.n_descsz);
-			nhdr.n_type = bswap_32(nhdr.n_type);
-		}
-		p += sizeof(nhdr);
-
-		if (nhdr.n_namesz > end - p)
-			break;
-		const char *name = p;
-		p += nhdr.n_namesz;
-		ALIGN_NOTE();
-
+	const char *name;
+	const void *desc;
+	while (next_elf_note(&note, &note_size, align, bswap, &nhdr, &name,
+			     &desc)) {
 		if (nhdr.n_namesz == sizeof("GNU")
 		    && memcmp(name, "GNU", sizeof("GNU")) == 0
 		    && nhdr.n_type == NT_GNU_BUILD_ID
 		    && nhdr.n_descsz > 0) {
-			if (nhdr.n_descsz > end - p)
-				break;
-			*ret = p;
+			*ret = desc;
 			return nhdr.n_descsz;
 		}
-
-		p += nhdr.n_descsz;
-		ALIGN_NOTE();
-#undef ALIGN_NOTE
 	}
 	*ret = NULL;
 	return 0;
@@ -3576,7 +3509,6 @@ userspace_loaded_module_iterator_yield_vdso(struct userspace_loaded_module_itera
 	__auto_type unique_struct64p = (struct64p);				\
 	static_assert(sizeof(*unique_struct64p) >= sizeof(type32),		\
 		      "64-bit type is smaller than 32-bit type");		\
-	/* TODO: check if have platform? */					\
 	const bool unique_is_64_bit =						\
 		drgn_platform_is_64_bit(&unique_prog->platform);		\
 	struct drgn_error *unique_err =						\

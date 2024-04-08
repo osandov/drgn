@@ -923,6 +923,9 @@ enum drgn_module_file_status {
 	DRGN_MODULE_FILE_SUCCEEDED,
 };
 
+// TODO: document
+extern const char * const drgn_default_debug_directories[];
+
 // TODO: API versioning?
 struct drgn_module_try_files_args {
 	enum drgn_module_file_status loaded_status, debug_status;
