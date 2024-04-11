@@ -30,9 +30,21 @@ def stack_depot_fetch(handle: Object) -> Optional[StackTrace]:
     # Renamed in Linux kernel commit 961c949b012f ("lib/stackdepot: rename slab
     # to pool") (in v6.3).
     try:
-        pool = prog["stack_pools"][handle_parts.pool_index]
+        stack_pools = prog["stack_pools"]
     except KeyError:
         pool = prog["stack_slabs"][handle_parts.slabindex]
+    else:
+        # Linux kernel commit 3ee34eabac2a ("lib/stackdepot: fix first entry
+        # having a 0-handle") (in v6.9-rc1) changed the meaning of pool_index.
+        # Linux kernel commit a6c1d9cb9a68 ("stackdepot: rename pool_index to
+        # pool_index_plus_1") (in v6.9-rc3) renamed pool_index to reflect the
+        # new meaning. This will therefore be wrong for v6.9-rc[1-2] and
+        # v6.8.[3-4].
+        try:
+            pool_index = handle_parts.pool_index_plus_1 - 1
+        except AttributeError:
+            pool_index = handle_parts.pool_index
+        pool = stack_pools[pool_index]
 
     if not pool:
         return None
