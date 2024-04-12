@@ -140,13 +140,13 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo dnf install autoconf automake elfutils-devel gcc git libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
+      $ sudo dnf install autoconf automake check-devel elfutils-devel gcc git libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
 
 * RHEL/CentOS
 
   .. code-block:: console
 
-      $ sudo dnf install autoconf automake elfutils-devel gcc git libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
+      $ sudo dnf install autoconf automake check-devel elfutils-devel gcc git libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
 
   Optionally, install ``libkdumpfile-devel`` from EPEL on RHEL/CentOS >= 8 or
   install `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_ from
@@ -158,7 +158,7 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo apt-get install autoconf automake gcc git liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
+      $ sudo apt install autoconf automake check gcc git liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
 
   Optionally, install libkdumpfile from source if you want support for the
   makedumpfile format.
@@ -167,7 +167,7 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo pacman -S --needed autoconf automake gcc git libelf libtool make pkgconf python python-pip python-setuptools
+      $ sudo pacman -S --needed autoconf automake check gcc git libelf libtool make pkgconf python python-pip python-setuptools
 
   Optionally, install `libkdumpfile
   <https://aur.archlinux.org/packages/libkdumpfile/>`__ from the AUR or from
@@ -177,7 +177,7 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo zypper install autoconf automake gcc git libdw-devel libelf-devel libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
+      $ sudo zypper install autoconf automake check-devel gcc git libdw-devel libelf-devel libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
 
 Then, run:
 

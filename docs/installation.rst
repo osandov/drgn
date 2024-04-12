@@ -24,6 +24,10 @@ The build requires:
 - `pkgconf <http://pkgconf.org/>`_
 - `setuptools <https://pypi.org/project/setuptools/>`_
 
+Running tests requires:
+
+- `check <https://libcheck.github.io/check/>`_ 0.10.0 or newer
+
 Building from the Git repository (rather than a release tarball) additionally
 requires:
 

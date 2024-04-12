@@ -187,11 +187,17 @@ class test(Command):
     def _run_local(self):
         import unittest
 
+        try:
+            self.get_finalized_command("build_ext").make("check")
+            make_check_success = True
+        except subprocess.CalledProcessError:
+            make_check_success = False
+
         argv = ["discover"]
         if self.verbose:
             argv.append("-v")
         test = unittest.main(module=None, argv=argv, exit=False)
-        return test.result.wasSuccessful()
+        return make_check_success and test.result.wasSuccessful()
 
     def _run_vm(self, kernel):
         from vmtest.kmod import build_kmod

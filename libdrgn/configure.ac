@@ -17,6 +17,8 @@ LT_INIT
 
 AC_SYS_LARGEFILE
 
+AC_REQUIRE_AUX_FILE([tap-driver.sh])
+
 MY_C_AUTO
 MY_CHECK_VA_ARGS_COMMA_DELETION
 
@@ -91,6 +93,13 @@ AS_CASE(["x$with_libkdumpfile"],
 				    [with_libkdumpfile=no])])
 AM_CONDITIONAL([WITH_LIBKDUMPFILE], [test "x$with_libkdumpfile" = xyes])
 AM_COND_IF([WITH_LIBKDUMPFILE], [AC_DEFINE(WITH_LIBKDUMPFILE)])
+
+dnl We need check for running tests, but we don't want to fail the build over
+dnl it. Instead, if it's not found, set variables so that only `make check`
+dnl fails.
+PKG_CHECK_MODULES(check, [check >= 0.10.0],,
+		  [check_CFLAGS="\$(error Test requires 'check' ('check-devel') >= 0.10.0)"
+		   check_LIBS="\$(error Test requires 'check' ('check-devel') >= 0.10.0)"])
 
 AC_ARG_ENABLE([compiler-warnings],
 	      [AS_HELP_STRING([--enable-compiler-warnings@<:@=no|yes|error@:>@],
