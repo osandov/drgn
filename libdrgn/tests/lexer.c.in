@@ -1,0 +1,89 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include "test_util.h"
+#include "../lexer.h"
+
+static struct drgn_error *dummy_lexer_func(struct drgn_lexer *lexer,
+					   struct drgn_token *token)
+{
+	token->kind = *lexer->p;
+	token->value = lexer->p;
+	if (token->kind) {
+		token->len = 1;
+		lexer->p++;
+	} else {
+		token->len = 0;
+	}
+	return NULL;
+}
+
+#suite lexer
+
+#tcase lexer
+
+#test pop
+{
+	struct drgn_lexer lexer;
+	drgn_lexer_init(&lexer, dummy_lexer_func, "12345");
+	struct drgn_token token;
+	for (int i = 0; i < 5; i++) {
+		drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
+		ck_assert_int_eq(token.kind, '1' + i);
+		ck_assert_uint_eq(token.len, 1);
+		ck_assert_int_eq(*token.value, '1' + i);
+	}
+	drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
+	ck_assert_int_eq(token.kind, 0);
+	ck_assert_uint_eq(token.len, 0);
+	drgn_lexer_deinit(&lexer);
+}
+
+#test push
+{
+	struct drgn_lexer lexer;
+	drgn_lexer_init(&lexer, dummy_lexer_func, "12345");
+	struct drgn_token tokens[4];
+	for (int i = 0; i < 4; i++)
+		drgn_ck_no_err(drgn_lexer_pop(&lexer, &tokens[i]));
+	for (int i = 3; i >= 0; i--)
+		drgn_ck_no_err(drgn_lexer_push(&lexer, &tokens[i]));
+	struct drgn_token token;
+	for (int i = 0; i < 5; i++) {
+		drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
+		ck_assert_int_eq(token.kind, '1' + i);
+		ck_assert_uint_eq(token.len, 1);
+		ck_assert_int_eq(*token.value, '1' + i);
+	}
+	drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
+	ck_assert_int_eq(token.kind, 0);
+	ck_assert_uint_eq(token.len, 0);
+	drgn_lexer_deinit(&lexer);
+}
+
+#test peek
+{
+	struct drgn_lexer lexer;
+	drgn_lexer_init(&lexer, dummy_lexer_func, "12345");
+	struct drgn_token token;
+	for (int i = 0; i < 5; i++) {
+		drgn_ck_no_err(drgn_lexer_peek(&lexer, &token));
+		ck_assert_int_eq(token.kind, '1' + i);
+		ck_assert_uint_eq(token.len, 1);
+		ck_assert_int_eq(*token.value, '1' + i);
+
+		drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
+		ck_assert_int_eq(token.kind, '1' + i);
+		ck_assert_uint_eq(token.len, 1);
+		ck_assert_int_eq(*token.value, '1' + i);
+	}
+
+	drgn_ck_no_err(drgn_lexer_peek(&lexer, &token));
+	ck_assert_int_eq(token.kind, 0);
+	ck_assert_uint_eq(token.len, 0);
+
+	drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
+	ck_assert_int_eq(token.kind, 0);
+	ck_assert_uint_eq(token.len, 0);
+	drgn_lexer_deinit(&lexer);
+}

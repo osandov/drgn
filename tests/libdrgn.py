@@ -160,7 +160,6 @@ _drgn_cdll.drgn_test_lexer_peek.argtypes = [
 
 
 drgn_c_family_lexer_func = drgn_lexer_func.in_dll(_drgn_cdll, "drgn_test_lexer_c")
-drgn_test_lexer_func = drgn_lexer_func.in_dll(_drgn_cdll, "drgn_test_lexer_func")
 
 
 class C_TOKEN(enum.IntEnum):

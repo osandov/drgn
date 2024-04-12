@@ -50,22 +50,6 @@ DRGNPY_PUBLIC struct drgn_error *drgn_test_lexer_peek(struct drgn_lexer *lexer,
 	return drgn_lexer_peek(lexer, token);
 }
 
-struct drgn_error *drgn_test_lexer_func(struct drgn_lexer *lexer,
-					struct drgn_token *token);
-DRGNPY_PUBLIC struct drgn_error *drgn_test_lexer_func(struct drgn_lexer *lexer,
-						      struct drgn_token *token)
-{
-	token->kind = *lexer->p;
-	token->value = lexer->p;
-	if (token->kind) {
-		token->len = 1;
-		lexer->p++;
-	} else {
-		token->len = 0;
-	}
-	return NULL;
-}
-
 typeof(drgn_c_family_lexer_func) drgn_test_lexer_c;
 DRGNPY_PUBLIC struct drgn_error *drgn_test_lexer_c(struct drgn_lexer *lexer,
 						   struct drgn_token *token)
