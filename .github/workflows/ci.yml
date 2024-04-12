@@ -53,8 +53,8 @@ jobs:
           fi
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install dwarves libelf-dev libdw-dev qemu-kvm zstd ${{ matrix.cc == 'clang' && 'libomp-$(clang --version | sed -rn "s/.*clang version ([0-9]+).*/\\1/p")-dev' || '' }}
+          sudo apt-get update -y
+          sudo apt-get install -y check dwarves libelf-dev libdw-dev qemu-kvm zstd ${{ matrix.cc == 'clang' && 'libomp-$(clang --version | sed -rn "s/.*clang version ([0-9]+).*/\\1/p")-dev' || '' }}
           pip install pyroute2 ${USE_PRE_COMMIT/1/pre-commit}
       - name: Generate version.py
         run: python setup.py --version

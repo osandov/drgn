@@ -53,6 +53,16 @@ curl -L "$libkdumpfile_url" | tar -xz --strip-components=1
 make -j$(($(nproc) + 1))
 make install
 
+# CentOS 7 has check 0.9.9, which is too old.
+check_version=0.15.2
+check_url=https://github.com/libcheck/check/releases/download/$check_version/check-$check_version.tar.gz
+mkdir /tmp/check
+cd /tmp/check
+curl -L "$check_url" | tar -xz --strip-components=1
+./configure --disable-build-docs
+make -j$(($(nproc) + 1))
+make install
+
 ldconfig
 
 mkdir /tmp/drgn

@@ -9,7 +9,8 @@ AM_CPPFLAGS = -I $(top_srcdir)/include -D_GNU_SOURCE
 AM_CFLAGS = $(WARN_CFLAGS) $(SANITIZER_CFLAGS)
 AM_LDFLAGS= $(SANITIZER_LDFLAGS)
 
-noinst_HEADERS = include/elf.h
+noinst_HEADERS = include/elf.h \
+		 tests/test_util.h
 
 include_HEADERS = drgn.h
 
@@ -196,6 +197,7 @@ python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 EXTRA_DIST = $(ARCH_DEFS_PYS) \
 	     $(STRSWITCH_INCS:.inc=.inc.strswitch) \
 	     Doxyfile \
+	     build-aux/checkmk \
 	     build-aux/codegen_utils.py \
 	     build-aux/gen_arch_inc_strswitch.py \
 	     build-aux/gen_c_keywords_inc_strswitch.py \
@@ -207,3 +209,26 @@ EXTRA_PROGRAMS = examples/load_debug_info
 
 examples_load_debug_info_SOURCES = examples/load_debug_info.c
 examples_load_debug_info_LDADD = libdrgnimpl.la
+
+# Only test internals here. Anything exposed via Python should be tested in
+# Python unit tests instead.
+TESTS = $(check_PROGRAMS)
+
+check_PROGRAMS =
+
+EXTRA_DIST += $(addsuffix .c.in,$(check_PROGRAMS))
+
+AM_TESTS_ENVIRONMENT = export CK_TAP_LOG_FILE_NAME=-;
+
+LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) \
+	     $(top_srcdir)/build-aux/tap-driver.sh
+
+tests/%.c: build-aux/checkmk tests/%.c.in
+	$(AWK) -f $^ > $@
+
+test_cflags = $(AM_CFLAGS) $(check_CFLAGS)
+test_cppflags = $(AM_CPPFLAGS) -iquote $(srcdir)/tests
+test_ldadd = $(check_LIBS) libdrgnimpl.la
+
+# Don't delete test-suite.log on failure.
+.PRECIOUS: $(TEST_SUITE_LOG)
