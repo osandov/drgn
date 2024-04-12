@@ -214,7 +214,7 @@ examples_load_debug_info_LDADD = libdrgnimpl.la
 # Python unit tests instead.
 TESTS = $(check_PROGRAMS)
 
-check_PROGRAMS =
+check_PROGRAMS = tests/lexer
 
 EXTRA_DIST += $(addsuffix .c.in,$(check_PROGRAMS))
 
@@ -229,6 +229,10 @@ tests/%.c: build-aux/checkmk tests/%.c.in
 test_cflags = $(AM_CFLAGS) $(check_CFLAGS)
 test_cppflags = $(AM_CPPFLAGS) -iquote $(srcdir)/tests
 test_ldadd = $(check_LIBS) libdrgnimpl.la
+
+tests_lexer_CFLAGS = $(test_cflags)
+tests_lexer_CPPFLAGS = $(test_cppflags)
+tests_lexer_LDADD = $(test_ldadd)
 
 # Don't delete test-suite.log on failure.
 .PRECIOUS: $(TEST_SUITE_LOG)
