@@ -240,11 +240,13 @@ fi
 
             @contextlib.contextmanager
             def github_workflow_group(title):
-                print("::group::" + title, flush=True)
+                sys.stdout.flush()
+                print("::group::" + title, file=sys.stderr, flush=True)
                 try:
                     yield
                 finally:
-                    print("::endgroup::", flush=True)
+                    sys.stdout.flush()
+                    print("::endgroup::", file=sys.stderr, flush=True)
 
         else:
 
