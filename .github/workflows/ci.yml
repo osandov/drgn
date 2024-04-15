@@ -56,6 +56,15 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y check dwarves libelf-dev libdw-dev qemu-kvm zstd ${{ matrix.cc == 'clang' && 'libomp-$(clang --version | sed -rn "s/.*clang version ([0-9]+).*/\\1/p")-dev' || '' }}
           pip install pyroute2 setuptools ${USE_PRE_COMMIT/1/pre-commit}
+      # Upstream defaults to world-read-writeable /dev/kvm. Debian/Ubuntu
+      # override this; see
+      # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=892945. We want the
+      # upstream default.
+      - name: Set up KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /lib/udev/rules.d/99-fix-kvm.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger -w /dev/kvm
       - name: Generate version.py
         run: python setup.py --version
       - name: Check with mypy
