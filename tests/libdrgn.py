@@ -2,13 +2,10 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import ctypes
-import enum
-from enum import auto
 import os
 
 import _drgn
 
-_drgn_pydll = ctypes.PyDLL(_drgn.__file__)
 _drgn_cdll = ctypes.CDLL(_drgn.__file__)
 
 
@@ -19,15 +16,6 @@ class _drgn_error(ctypes.Structure):
         ("path", ctypes.c_char_p),
         ("msg", ctypes.c_char_p),
     ]
-
-
-_drgn_pydll.set_drgn_error.restype = ctypes.c_void_p
-_drgn_pydll.set_drgn_error.argtypes = [ctypes.POINTER(_drgn_error)]
-
-
-def _check_err(err):
-    if err:
-        _drgn_pydll.set_drgn_error(err)
 
 
 class _path_iterator_component(ctypes.Structure):
@@ -108,146 +96,6 @@ class _drgn_token(ctypes.Structure):
         ("value", ctypes.c_void_p),
         ("len", ctypes.c_size_t),
     ]
-
-
-class _drgn_lexer(ctypes.Structure):
-    _fields_ = [
-        ("func", ctypes.c_void_p),
-        ("p", ctypes.c_void_p),
-        ("stack", ctypes.POINTER(_drgn_token)),
-        ("stack_len", ctypes.c_size_t),
-        ("stack_capacity", ctypes.c_size_t),
-    ]
-
-
-class _drgn_c_family_lexer(ctypes.Structure):
-    _fields_ = [
-        ("lexer", _drgn_lexer),
-        ("cpp", ctypes.c_bool),
-    ]
-
-
-drgn_lexer_func = ctypes.CFUNCTYPE(
-    ctypes.POINTER(_drgn_error),
-    ctypes.POINTER(_drgn_lexer),
-    ctypes.POINTER(_drgn_token),
-)
-
-
-_drgn_cdll.drgn_test_lexer_init.restype = None
-_drgn_cdll.drgn_test_lexer_init.argtypes = [
-    ctypes.POINTER(_drgn_lexer),
-    ctypes.POINTER(drgn_lexer_func),
-    ctypes.c_char_p,
-]
-_drgn_cdll.drgn_test_lexer_deinit.restype = None
-_drgn_cdll.drgn_test_lexer_deinit.argtypes = [ctypes.POINTER(_drgn_lexer)]
-_drgn_cdll.drgn_test_lexer_pop.restype = ctypes.POINTER(_drgn_error)
-_drgn_cdll.drgn_test_lexer_pop.argtypes = [
-    ctypes.POINTER(_drgn_lexer),
-    ctypes.POINTER(_drgn_token),
-]
-_drgn_cdll.drgn_test_lexer_push.restype = ctypes.POINTER(_drgn_error)
-_drgn_cdll.drgn_test_lexer_push.argtypes = [
-    ctypes.POINTER(_drgn_lexer),
-    ctypes.POINTER(_drgn_token),
-]
-_drgn_cdll.drgn_test_lexer_peek.restype = ctypes.POINTER(_drgn_error)
-_drgn_cdll.drgn_test_lexer_peek.argtypes = [
-    ctypes.POINTER(_drgn_lexer),
-    ctypes.POINTER(_drgn_token),
-]
-
-
-drgn_c_family_lexer_func = drgn_lexer_func.in_dll(_drgn_cdll, "drgn_test_lexer_c")
-
-
-class C_TOKEN(enum.IntEnum):
-    EOF = -1
-    VOID = auto()
-    CHAR = auto()
-    SHORT = auto()
-    INT = auto()
-    LONG = auto()
-    SIGNED = auto()
-    UNSIGNED = auto()
-    BOOL = auto()
-    FLOAT = auto()
-    DOUBLE = auto()
-    COMPLEX = auto()
-    CONST = auto()
-    RESTRICT = auto()
-    VOLATILE = auto()
-    ATOMIC = auto()
-    STRUCT = auto()
-    UNION = auto()
-    CLASS = auto()
-    ENUM = auto()
-    LPAREN = auto()
-    RPAREN = auto()
-    LBRACKET = auto()
-    RBRACKET = auto()
-    ASTERISK = auto()
-    DOT = auto()
-    NUMBER = auto()
-    IDENTIFIER = auto()
-    TEMPLATE_ARGUMENTS = auto()
-
-
-class Token:
-    def __init__(self, token):
-        self._token = token
-
-    @property
-    def kind(self):
-        return self._token.kind
-
-    @property
-    def value(self):
-        return ctypes.string_at(self._token.value, self._token.len).decode()
-
-    def __repr__(self):
-        return f"Token({self.kind}, {self.value!r})"
-
-
-class Lexer:
-    def __init__(self, func, str, cpp=False):
-        self._c_family_lexer = _drgn_c_family_lexer()
-        self._lexer = self._c_family_lexer.lexer
-        self._func = func
-        self._str = str.encode()
-        self._c_family_lexer.cpp = cpp
-        _drgn_cdll.drgn_test_lexer_init(
-            ctypes.pointer(self._lexer), self._func, self._str
-        )
-
-    def __del__(self):
-        _drgn_cdll.drgn_test_lexer_deinit(ctypes.pointer(self._lexer))
-
-    def pop(self):
-        token = _drgn_token()
-        _check_err(
-            _drgn_cdll.drgn_test_lexer_pop(
-                ctypes.pointer(self._lexer), ctypes.pointer(token)
-            )
-        )
-        return Token(token)
-
-    def push(self, token):
-        _check_err(
-            _drgn_cdll.drgn_test_lexer_push(
-                ctypes.pointer(self._lexer), ctypes.pointer(token._token)
-            )
-        )
-
-    def peek(self):
-        token = _drgn_token()
-        _check_err(
-            _drgn_cdll.drgn_test_lexer_peek(
-                ctypes.pointer(self._lexer), ctypes.pointer(token)
-            )
-        )
-        return Token(token)
 
 
 _drgn_cdll.drgn_test_serialize_bits.restype = None

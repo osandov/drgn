@@ -1,0 +1,285 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include <assert.h>
+
+#include "test_util.h"
+#include "../array.h"
+#include "../c_lexer.h"
+#include "../lexer.h"
+#include "../pp.h"
+
+#suite language_c
+
+#tcase lexer
+
+struct test_token {
+	int kind;
+	const char *s;
+};
+
+static void assert_lexes(const char *s, const struct test_token *tokens,
+			 bool cpp)
+{
+	struct drgn_c_family_lexer lexer;
+	lexer.cpp = cpp;
+	drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s);
+	for (;;) {
+		struct drgn_token token;
+		drgn_ck_no_err(drgn_lexer_pop(&lexer.lexer, &token));
+		ck_assert_int_eq(token.kind, tokens->kind);
+		ck_assert_uint_eq(token.len, strlen(tokens->s));
+		ck_assert_mem_eq(token.value, tokens->s, strlen(tokens->s));
+		if (tokens->kind == C_TOKEN_EOF)
+			break;
+		tokens++;
+	}
+	drgn_lexer_deinit(&lexer.lexer);
+}
+
+#define assert_lexes_c(s, tokens) assert_lexes(s, tokens, false)
+#define assert_lexes_cpp(s, tokens) assert_lexes(s, tokens, true)
+
+static const char c_keywords[] =
+	"void char short int long signed unsigned _Bool float double _Complex "
+	"const restrict volatile _Atomic struct union class enum";
+
+#test lexer_empty
+{
+	struct drgn_c_family_lexer lexer;
+	lexer.cpp = false;
+	drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, "");
+	for (int i = 0; i < 64; i++) {
+		struct drgn_token token;
+		drgn_ck_no_err(drgn_lexer_pop(&lexer.lexer, &token));
+		ck_assert_int_eq(token.kind, C_TOKEN_EOF);
+		ck_assert_uint_eq(token.len, 0);
+	}
+	drgn_lexer_deinit(&lexer.lexer);
+}
+
+#test lexer_symbols
+{
+	static const char s[] = "()[]*.";
+	static struct test_token tokens[] = {
+		{ C_TOKEN_LPAREN, "(" },
+		{ C_TOKEN_RPAREN, ")" },
+		{ C_TOKEN_LBRACKET, "["},
+		{ C_TOKEN_RBRACKET, "]"},
+		{ C_TOKEN_ASTERISK, "*" },
+		{ C_TOKEN_DOT, "." },
+		{ C_TOKEN_EOF, "" },
+	};
+	assert_lexes_c(s, tokens);
+}
+
+#test lexer_keywords
+{
+	static const struct test_token tokens[] = {
+		{ C_TOKEN_VOID, "void" },
+		{ C_TOKEN_CHAR, "char" },
+		{ C_TOKEN_SHORT, "short" },
+		{ C_TOKEN_INT, "int" },
+		{ C_TOKEN_LONG, "long" },
+		{ C_TOKEN_SIGNED, "signed" },
+		{ C_TOKEN_UNSIGNED, "unsigned" },
+		{ C_TOKEN_BOOL, "_Bool" },
+		{ C_TOKEN_FLOAT, "float" },
+		{ C_TOKEN_DOUBLE, "double" },
+		{ C_TOKEN_COMPLEX, "_Complex" },
+		{ C_TOKEN_CONST, "const" },
+		{ C_TOKEN_RESTRICT, "restrict" },
+		{ C_TOKEN_VOLATILE, "volatile" },
+		{ C_TOKEN_ATOMIC, "_Atomic" },
+		{ C_TOKEN_STRUCT, "struct" },
+		{ C_TOKEN_UNION, "union" },
+		{ C_TOKEN_IDENTIFIER, "class" }, // Not C_TOKEN_CLASS
+		{ C_TOKEN_ENUM, "enum" },
+		{ C_TOKEN_EOF, "" },
+	};
+	static_assert(array_size(tokens)
+		      == MAX_KEYWORD_TOKEN - MIN_KEYWORD_TOKEN + 2,
+		      "keyword tokens changed");
+	assert_lexes_c(c_keywords, tokens);
+}
+
+#test lexer_keywords_cpp
+{
+	static const struct test_token tokens[] = {
+		{ C_TOKEN_VOID, "void" },
+		{ C_TOKEN_CHAR, "char" },
+		{ C_TOKEN_SHORT, "short" },
+		{ C_TOKEN_INT, "int" },
+		{ C_TOKEN_LONG, "long" },
+		{ C_TOKEN_SIGNED, "signed" },
+		{ C_TOKEN_UNSIGNED, "unsigned" },
+		{ C_TOKEN_BOOL, "_Bool" },
+		{ C_TOKEN_FLOAT, "float" },
+		{ C_TOKEN_DOUBLE, "double" },
+		{ C_TOKEN_COMPLEX, "_Complex" },
+		{ C_TOKEN_CONST, "const" },
+		{ C_TOKEN_RESTRICT, "restrict" },
+		{ C_TOKEN_VOLATILE, "volatile" },
+		{ C_TOKEN_ATOMIC, "_Atomic" },
+		{ C_TOKEN_STRUCT, "struct" },
+		{ C_TOKEN_UNION, "union" },
+		{ C_TOKEN_CLASS, "class" },
+		{ C_TOKEN_ENUM, "enum" },
+		{ C_TOKEN_EOF, "" },
+	};
+	static_assert(array_size(tokens)
+		      == MAX_KEYWORD_TOKEN - MIN_KEYWORD_TOKEN + 2,
+		      "keyword tokens changed");
+	assert_lexes_cpp(c_keywords, tokens);
+}
+
+#test lexer_identifiers
+{
+	#define concat_space(_, x) x " "
+	#define identifier_token(_, x) { C_TOKEN_IDENTIFIER, x },
+
+	#define identifiers "_", "x", "foo", "_bar", "baz1"
+	static const char s[] = PP_MAP(concat_space,, identifiers);
+	static const struct test_token tokens[] = {
+		PP_MAP(identifier_token,, identifiers)
+		{ C_TOKEN_EOF, "" },
+	};
+	#undef identifiers
+	assert_lexes_c(s, tokens);
+}
+
+#test lexer_almost_keywords
+{
+	#define almost_keywords							\
+		"voi", "cha", "shor", "in", "lon", "signe", "unsigne", "_Boo",	\
+		"floa", "doubl", "_Comple", "cons", "restric", "volatil",	\
+		"_Atomi", "struc", "unio", "clas", "enu"
+	static const char s[] = PP_MAP(concat_space,, almost_keywords);
+	static const struct test_token tokens[] = {
+		PP_MAP(identifier_token,, almost_keywords)
+		{ C_TOKEN_EOF, "" },
+	};
+	#undef almost_keywords
+	assert_lexes_c(s, tokens);
+}
+
+#test lexer_identifiers_with_template_arguments
+{
+	#define concat2_with_spaces(_, x) concat2_with_spaces_impl x
+	#define concat2_with_spaces_impl(a, b) a " " b " "
+	#define identifier_and_template_arguments_tokens(_, x)	\
+		identifier_and_template_arguments_tokens_impl x
+	#define identifier_and_template_arguments_tokens_impl(a, b)	\
+		{ C_TOKEN_IDENTIFIER, a }, { C_TOKEN_TEMPLATE_ARGUMENTS, b },
+
+	#define pairs								\
+            ("vector", "<int>"),						\
+            ("pair", "<int, double>"),						\
+            ("unordered_map", "<std::string, std::vector<pair<short, bool>>>"),	\
+            ("IntLiteral", "<123>"),						\
+            ("IntLiteralWithSuffix", "<123UL>"),				\
+            ("FloatLiteral", "<1.987>"),					\
+            ("FloatLiteralWithExponent", "<1.23423e+1f>"),			\
+            ("PointerLiteral", "<&asdf>"),					\
+            ("ParenthesizedPointerLiteral", "<(&asdf)>"),			\
+            ("CharLiteral", "<'a'>"),						\
+            ("CharLiteralEdgeCase1", "<'<'>"),					\
+            ("CharLiteralEdgeCase2", "<'>'>"),					\
+            ("CharLiteralEdgeCase3", "<'\\''>")
+	static const char s[] = PP_MAP(concat2_with_spaces,, pairs);
+	static const struct test_token tokens[] = {
+		PP_MAP(identifier_and_template_arguments_tokens,, pairs)
+		{ C_TOKEN_EOF, "" },
+	};
+	#undef pairs
+	assert_lexes_cpp(s, tokens);
+}
+
+#test lexer_identifiers_with_invalid_template_arguments
+{
+	static const char * const s[] = {
+		"vector<int",
+		"pair<<int, double>",
+		"unordered_map<string, vector<pair<short, bool>>",
+	};
+	for (size_t i = 0; i < array_size(s); i++) {
+		struct drgn_c_family_lexer lexer;
+		lexer.cpp = true;
+		drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s[i]);
+		struct drgn_token token;
+		struct drgn_error *err;
+		do {
+			err = drgn_lexer_pop(&lexer.lexer, &token);
+		} while (!err && token.kind != C_TOKEN_EOF);
+		ck_assert_ptr_nonnull(err);
+		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
+		ck_assert(strstr(err->message, "invalid template arguments"));
+		drgn_lexer_deinit(&lexer.lexer);
+	}
+}
+
+#test lexer_template_arguments_with_extra_right_brackets
+{
+	static const char * const s[] = {
+		"vectorint>",
+		"pair<int, double>>",
+	};
+	for (size_t i = 0; i < array_size(s); i++) {
+		struct drgn_c_family_lexer lexer;
+		lexer.cpp = true;
+		drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s[i]);
+		struct drgn_token token;
+		struct drgn_error *err;
+		do {
+			err = drgn_lexer_pop(&lexer.lexer, &token);
+		} while (!err && token.kind != C_TOKEN_EOF);
+		ck_assert_ptr_nonnull(err);
+		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
+		ck_assert(strstr(err->message, "invalid character"));
+		drgn_lexer_deinit(&lexer.lexer);
+	}
+}
+
+#test lexer_numbers
+{
+	static const char s[] = "0 1234 0xdeadbeef";
+	static const struct test_token tokens[] = {
+		{ C_TOKEN_NUMBER, "0" },
+		{ C_TOKEN_NUMBER, "1234" },
+		{ C_TOKEN_NUMBER, "0xdeadbeef" },
+		{ C_TOKEN_EOF, "" },
+	};
+	assert_lexes_c(s, tokens);
+}
+
+#test lexer_invalid_numbers
+{
+	static const char * const s[] = { "0x", "1234y" };
+	for (size_t i = 0; i < array_size(s); i++) {
+		struct drgn_c_family_lexer lexer;
+		lexer.cpp = false;
+		drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s[i]);
+		struct drgn_token token;
+		struct drgn_error *err = drgn_lexer_pop(&lexer.lexer, &token);
+		ck_assert_ptr_nonnull(err);
+		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
+		ck_assert(strstr(err->message, "invalid number"));
+		drgn_lexer_deinit(&lexer.lexer);
+	}
+}
+
+#test lexer_invalid_characters
+{
+	static const char * const s[] = { "@", "$" };
+	for (size_t i = 0; i < array_size(s); i++) {
+		struct drgn_c_family_lexer lexer;
+		lexer.cpp = false;
+		drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s[i]);
+		struct drgn_token token;
+		struct drgn_error *err = drgn_lexer_pop(&lexer.lexer, &token);
+		ck_assert_ptr_nonnull(err);
+		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
+		ck_assert(strstr(err->message, "invalid character"));
+		drgn_lexer_deinit(&lexer.lexer);
+	}
+}

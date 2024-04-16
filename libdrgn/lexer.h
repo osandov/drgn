@@ -125,10 +125,6 @@ struct drgn_error *drgn_lexer_push(struct drgn_lexer *lexer,
 struct drgn_error *drgn_lexer_peek(struct drgn_lexer *lexer,
 				   struct drgn_token *token);
 
-/* Exported only for testing. */
-struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
-					    struct drgn_token *token);
-
 /** @} */
 
 #endif /* DRGN_LEXER_H */
