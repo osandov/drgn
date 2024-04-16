@@ -12,6 +12,7 @@
 
 #include "array.h"
 #include "bitops.h"
+#include "c_lexer.h"
 #include "error.h"
 #include "language.h" // IWYU pragma: associated
 #include "lexer.h"
@@ -1611,52 +1612,7 @@ static struct drgn_error *c_format_object(const struct drgn_object *obj,
 	return NULL;
 }
 
-/* This obviously incomplete since we only handle the tokens we care about. */
-enum {
-	C_TOKEN_EOF = -1,
-	MIN_KEYWORD_TOKEN,
-	MIN_SPECIFIER_TOKEN = MIN_KEYWORD_TOKEN,
-	C_TOKEN_VOID = MIN_SPECIFIER_TOKEN,
-	C_TOKEN_CHAR,
-	C_TOKEN_SHORT,
-	C_TOKEN_INT,
-	C_TOKEN_LONG,
-	C_TOKEN_SIGNED,
-	C_TOKEN_UNSIGNED,
-	C_TOKEN_BOOL,
-	C_TOKEN_FLOAT,
-	C_TOKEN_DOUBLE,
-	C_TOKEN_COMPLEX,
-	MAX_SPECIFIER_TOKEN = C_TOKEN_COMPLEX,
-	MIN_QUALIFIER_TOKEN,
-	C_TOKEN_CONST = MIN_QUALIFIER_TOKEN,
-	C_TOKEN_RESTRICT,
-	C_TOKEN_VOLATILE,
-	C_TOKEN_ATOMIC,
-	MAX_QUALIFIER_TOKEN = C_TOKEN_ATOMIC,
-	C_TOKEN_STRUCT,
-	C_TOKEN_UNION,
-	C_TOKEN_CLASS,
-	C_TOKEN_ENUM,
-	MAX_KEYWORD_TOKEN = C_TOKEN_ENUM,
-	C_TOKEN_LPAREN,
-	C_TOKEN_RPAREN,
-	C_TOKEN_LBRACKET,
-	C_TOKEN_RBRACKET,
-	C_TOKEN_ASTERISK,
-	C_TOKEN_DOT,
-	C_TOKEN_NUMBER,
-	C_TOKEN_IDENTIFIER,
-	C_TOKEN_TEMPLATE_ARGUMENTS,
-	C_TOKEN_COLON,
-};
-
 #include "c_keywords.inc"
-
-struct drgn_c_family_lexer {
-	struct drgn_lexer lexer;
-	bool cpp;
-};
 
 struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
 					    struct drgn_token *token) {

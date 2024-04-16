@@ -12,50 +12,8 @@
  */
 
 #include "drgnpy.h"
-#include "../lexer.h"
 #include "../path.h"
 #include "../serialize.h"
-
-typeof(drgn_lexer_init) drgn_test_lexer_init;
-DRGNPY_PUBLIC void drgn_test_lexer_init(struct drgn_lexer *lexer,
-					drgn_lexer_func func, const char *str)
-{
-	return drgn_lexer_init(lexer, func, str);
-}
-
-typeof(drgn_lexer_deinit) drgn_test_lexer_deinit;
-DRGNPY_PUBLIC void drgn_test_lexer_deinit(struct drgn_lexer *lexer)
-{
-	return drgn_lexer_deinit(lexer);
-}
-
-typeof(drgn_lexer_pop) drgn_test_lexer_pop;
-DRGNPY_PUBLIC struct drgn_error *drgn_test_lexer_pop(struct drgn_lexer *lexer,
-						     struct drgn_token *token)
-{
-	return drgn_lexer_pop(lexer, token);
-}
-
-typeof(drgn_lexer_push) drgn_test_lexer_push;
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_lexer_push(struct drgn_lexer *lexer, const struct drgn_token *token)
-{
-	return drgn_lexer_push(lexer, token);
-}
-
-typeof(drgn_lexer_peek) drgn_test_lexer_peek;
-DRGNPY_PUBLIC struct drgn_error *drgn_test_lexer_peek(struct drgn_lexer *lexer,
-						      struct drgn_token *token)
-{
-	return drgn_lexer_peek(lexer, token);
-}
-
-typeof(drgn_c_family_lexer_func) drgn_test_lexer_c;
-DRGNPY_PUBLIC struct drgn_error *drgn_test_lexer_c(struct drgn_lexer *lexer,
-						   struct drgn_token *token)
-{
-	return drgn_c_family_lexer_func(lexer, token);
-}
 
 typeof(path_iterator_next) drgn_test_path_iterator_next;
 DRGNPY_PUBLIC bool drgn_test_path_iterator_next(struct path_iterator *it,

@@ -45,6 +45,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 binary_search_tree.h \
 			 bitops.h \
 			 c_keywords.inc \
+			 c_lexer.h \
 			 cfi.c \
 			 cfi.h \
 			 cityhash.h \
@@ -214,7 +215,8 @@ examples_load_debug_info_LDADD = libdrgnimpl.la
 # Python unit tests instead.
 TESTS = $(check_PROGRAMS)
 
-check_PROGRAMS = tests/lexer
+check_PROGRAMS = tests/language_c \
+		 tests/lexer
 
 EXTRA_DIST += $(addsuffix .c.in,$(check_PROGRAMS))
 
@@ -230,6 +232,9 @@ test_cflags = $(AM_CFLAGS) $(check_CFLAGS)
 test_cppflags = $(AM_CPPFLAGS) -iquote $(srcdir)/tests
 test_ldadd = $(check_LIBS) libdrgnimpl.la
 
+tests_language_c_CFLAGS = $(test_cflags)
+tests_language_c_CPPFLAGS = $(test_cppflags)
+tests_language_c_LDADD = $(test_ldadd)
 tests_lexer_CFLAGS = $(test_cflags)
 tests_lexer_CPPFLAGS = $(test_cppflags)
 tests_lexer_LDADD = $(test_ldadd)
