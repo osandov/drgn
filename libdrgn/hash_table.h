@@ -336,7 +336,7 @@ hash_table_size_and_chunk_shift_init(struct hash_table_size_and_chunk_shift *scs
 	scs->packed = 0;
 }
 
-static const int hash_table_size_shift = 8;
+enum { hash_table_size_shift = 8 };
 static const size_t hash_table_max_size = SIZE_MAX >> hash_table_size_shift;
 
 static inline size_t
