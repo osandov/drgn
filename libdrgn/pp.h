@@ -122,6 +122,88 @@
 /** @endcond */
 
 /**
+ * Call a macro on each variable argument.
+ *
+ * ```
+ * #define add_string(arg, x) x arg
+ * PP_MAP(add_string, "\n", "abc", "def") // Expands to "abc" "\n" "def" "\n"
+ * ```
+ *
+ * @param[in] func Macro taking @p arg and the next variable argument.
+ * @param[in] arg First argument to pass to @p func.
+ *
+ * @hideinitializer
+ */
+#define PP_MAP(func, arg, ...) PP_OVERLOAD(PP_MAP_I, __VA_ARGS__)(func, arg, __VA_ARGS__)
+/** @cond */
+#define PP_MAP_I64(func, arg, x, ...) func(arg, x) PP_MAP_I63(func, arg, __VA_ARGS__)
+#define PP_MAP_I63(func, arg, x, ...) func(arg, x) PP_MAP_I62(func, arg, __VA_ARGS__)
+#define PP_MAP_I62(func, arg, x, ...) func(arg, x) PP_MAP_I61(func, arg, __VA_ARGS__)
+#define PP_MAP_I61(func, arg, x, ...) func(arg, x) PP_MAP_I60(func, arg, __VA_ARGS__)
+#define PP_MAP_I60(func, arg, x, ...) func(arg, x) PP_MAP_I59(func, arg, __VA_ARGS__)
+#define PP_MAP_I59(func, arg, x, ...) func(arg, x) PP_MAP_I58(func, arg, __VA_ARGS__)
+#define PP_MAP_I58(func, arg, x, ...) func(arg, x) PP_MAP_I57(func, arg, __VA_ARGS__)
+#define PP_MAP_I57(func, arg, x, ...) func(arg, x) PP_MAP_I56(func, arg, __VA_ARGS__)
+#define PP_MAP_I56(func, arg, x, ...) func(arg, x) PP_MAP_I55(func, arg, __VA_ARGS__)
+#define PP_MAP_I55(func, arg, x, ...) func(arg, x) PP_MAP_I54(func, arg, __VA_ARGS__)
+#define PP_MAP_I54(func, arg, x, ...) func(arg, x) PP_MAP_I53(func, arg, __VA_ARGS__)
+#define PP_MAP_I53(func, arg, x, ...) func(arg, x) PP_MAP_I52(func, arg, __VA_ARGS__)
+#define PP_MAP_I52(func, arg, x, ...) func(arg, x) PP_MAP_I51(func, arg, __VA_ARGS__)
+#define PP_MAP_I51(func, arg, x, ...) func(arg, x) PP_MAP_I50(func, arg, __VA_ARGS__)
+#define PP_MAP_I50(func, arg, x, ...) func(arg, x) PP_MAP_I49(func, arg, __VA_ARGS__)
+#define PP_MAP_I49(func, arg, x, ...) func(arg, x) PP_MAP_I48(func, arg, __VA_ARGS__)
+#define PP_MAP_I48(func, arg, x, ...) func(arg, x) PP_MAP_I47(func, arg, __VA_ARGS__)
+#define PP_MAP_I47(func, arg, x, ...) func(arg, x) PP_MAP_I46(func, arg, __VA_ARGS__)
+#define PP_MAP_I46(func, arg, x, ...) func(arg, x) PP_MAP_I45(func, arg, __VA_ARGS__)
+#define PP_MAP_I45(func, arg, x, ...) func(arg, x) PP_MAP_I44(func, arg, __VA_ARGS__)
+#define PP_MAP_I44(func, arg, x, ...) func(arg, x) PP_MAP_I43(func, arg, __VA_ARGS__)
+#define PP_MAP_I43(func, arg, x, ...) func(arg, x) PP_MAP_I42(func, arg, __VA_ARGS__)
+#define PP_MAP_I42(func, arg, x, ...) func(arg, x) PP_MAP_I41(func, arg, __VA_ARGS__)
+#define PP_MAP_I41(func, arg, x, ...) func(arg, x) PP_MAP_I40(func, arg, __VA_ARGS__)
+#define PP_MAP_I40(func, arg, x, ...) func(arg, x) PP_MAP_I39(func, arg, __VA_ARGS__)
+#define PP_MAP_I39(func, arg, x, ...) func(arg, x) PP_MAP_I38(func, arg, __VA_ARGS__)
+#define PP_MAP_I38(func, arg, x, ...) func(arg, x) PP_MAP_I37(func, arg, __VA_ARGS__)
+#define PP_MAP_I37(func, arg, x, ...) func(arg, x) PP_MAP_I36(func, arg, __VA_ARGS__)
+#define PP_MAP_I36(func, arg, x, ...) func(arg, x) PP_MAP_I35(func, arg, __VA_ARGS__)
+#define PP_MAP_I35(func, arg, x, ...) func(arg, x) PP_MAP_I34(func, arg, __VA_ARGS__)
+#define PP_MAP_I34(func, arg, x, ...) func(arg, x) PP_MAP_I33(func, arg, __VA_ARGS__)
+#define PP_MAP_I33(func, arg, x, ...) func(arg, x) PP_MAP_I32(func, arg, __VA_ARGS__)
+#define PP_MAP_I32(func, arg, x, ...) func(arg, x) PP_MAP_I31(func, arg, __VA_ARGS__)
+#define PP_MAP_I31(func, arg, x, ...) func(arg, x) PP_MAP_I30(func, arg, __VA_ARGS__)
+#define PP_MAP_I30(func, arg, x, ...) func(arg, x) PP_MAP_I29(func, arg, __VA_ARGS__)
+#define PP_MAP_I29(func, arg, x, ...) func(arg, x) PP_MAP_I28(func, arg, __VA_ARGS__)
+#define PP_MAP_I28(func, arg, x, ...) func(arg, x) PP_MAP_I27(func, arg, __VA_ARGS__)
+#define PP_MAP_I27(func, arg, x, ...) func(arg, x) PP_MAP_I26(func, arg, __VA_ARGS__)
+#define PP_MAP_I26(func, arg, x, ...) func(arg, x) PP_MAP_I25(func, arg, __VA_ARGS__)
+#define PP_MAP_I25(func, arg, x, ...) func(arg, x) PP_MAP_I24(func, arg, __VA_ARGS__)
+#define PP_MAP_I24(func, arg, x, ...) func(arg, x) PP_MAP_I23(func, arg, __VA_ARGS__)
+#define PP_MAP_I23(func, arg, x, ...) func(arg, x) PP_MAP_I22(func, arg, __VA_ARGS__)
+#define PP_MAP_I22(func, arg, x, ...) func(arg, x) PP_MAP_I21(func, arg, __VA_ARGS__)
+#define PP_MAP_I21(func, arg, x, ...) func(arg, x) PP_MAP_I20(func, arg, __VA_ARGS__)
+#define PP_MAP_I20(func, arg, x, ...) func(arg, x) PP_MAP_I19(func, arg, __VA_ARGS__)
+#define PP_MAP_I19(func, arg, x, ...) func(arg, x) PP_MAP_I18(func, arg, __VA_ARGS__)
+#define PP_MAP_I18(func, arg, x, ...) func(arg, x) PP_MAP_I17(func, arg, __VA_ARGS__)
+#define PP_MAP_I17(func, arg, x, ...) func(arg, x) PP_MAP_I16(func, arg, __VA_ARGS__)
+#define PP_MAP_I16(func, arg, x, ...) func(arg, x) PP_MAP_I15(func, arg, __VA_ARGS__)
+#define PP_MAP_I15(func, arg, x, ...) func(arg, x) PP_MAP_I14(func, arg, __VA_ARGS__)
+#define PP_MAP_I14(func, arg, x, ...) func(arg, x) PP_MAP_I13(func, arg, __VA_ARGS__)
+#define PP_MAP_I13(func, arg, x, ...) func(arg, x) PP_MAP_I12(func, arg, __VA_ARGS__)
+#define PP_MAP_I12(func, arg, x, ...) func(arg, x) PP_MAP_I11(func, arg, __VA_ARGS__)
+#define PP_MAP_I11(func, arg, x, ...) func(arg, x) PP_MAP_I10(func, arg, __VA_ARGS__)
+#define PP_MAP_I10(func, arg, x, ...) func(arg, x) PP_MAP_I9(func, arg, __VA_ARGS__)
+#define PP_MAP_I9(func, arg, x, ...) func(arg, x) PP_MAP_I8(func, arg, __VA_ARGS__)
+#define PP_MAP_I8(func, arg, x, ...) func(arg, x) PP_MAP_I7(func, arg, __VA_ARGS__)
+#define PP_MAP_I7(func, arg, x, ...) func(arg, x) PP_MAP_I6(func, arg, __VA_ARGS__)
+#define PP_MAP_I6(func, arg, x, ...) func(arg, x) PP_MAP_I5(func, arg, __VA_ARGS__)
+#define PP_MAP_I5(func, arg, x, ...) func(arg, x) PP_MAP_I4(func, arg, __VA_ARGS__)
+#define PP_MAP_I4(func, arg, x, ...) func(arg, x) PP_MAP_I3(func, arg, __VA_ARGS__)
+#define PP_MAP_I3(func, arg, x, ...) func(arg, x) PP_MAP_I2(func, arg, __VA_ARGS__)
+#define PP_MAP_I2(func, arg, x, ...) func(arg, x) PP_MAP_I1(func, arg, __VA_ARGS__)
+#define PP_MAP_I1(func, arg, x) func(arg, x)
+#define PP_MAP_I0(func, arg, x)
+/** @endcond */
+
+/**
  * Create a unique name.
  *
  * This can be used to avoid name collisions and shadowing in macros that define
