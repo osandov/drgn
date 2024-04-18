@@ -18,6 +18,7 @@ LT_INIT
 AC_SYS_LARGEFILE
 
 MY_C_AUTO
+MY_CHECK_VA_ARGS_COMMA_DELETION
 
 AC_ARG_ENABLE([openmp],
 	      [AS_HELP_STRING([--enable-openmp@<:@=ARG@:>@],
