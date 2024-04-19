@@ -12,23 +12,7 @@
  */
 
 #include "drgnpy.h"
-#include "../path.h"
 #include "../serialize.h"
-
-typeof(path_iterator_next) drgn_test_path_iterator_next;
-DRGNPY_PUBLIC bool drgn_test_path_iterator_next(struct path_iterator *it,
-						const char **component,
-						size_t *component_len)
-{
-	return path_iterator_next(it, component, component_len);
-}
-
-typeof(path_ends_with) drgn_test_path_ends_with;
-DRGNPY_PUBLIC bool drgn_test_path_ends_with(struct path_iterator *haystack,
-					    struct path_iterator *needle)
-{
-	return path_ends_with(haystack, needle);
-}
 
 typeof(serialize_bits) drgn_test_serialize_bits;
 DRGNPY_PUBLIC void drgn_test_serialize_bits(void *buf, uint64_t bit_offset,

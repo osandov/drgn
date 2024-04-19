@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import ctypes
-import os
 
 import _drgn
 
@@ -16,67 +15,6 @@ class _drgn_error(ctypes.Structure):
         ("path", ctypes.c_char_p),
         ("msg", ctypes.c_char_p),
     ]
-
-
-class _path_iterator_component(ctypes.Structure):
-    _fields_ = [
-        ("path", ctypes.c_char_p),
-        ("len", ctypes.c_size_t),
-    ]
-
-
-class _path_iterator(ctypes.Structure):
-    _fields_ = [
-        ("components", ctypes.POINTER(_path_iterator_component)),
-        ("num_components", ctypes.c_size_t),
-        ("dot_dot", ctypes.c_size_t),
-    ]
-
-
-_drgn_cdll.drgn_test_path_iterator_next.restype = ctypes.c_bool
-_drgn_cdll.drgn_test_path_iterator_next.argtypes = [
-    ctypes.POINTER(_path_iterator),
-    ctypes.POINTER(ctypes.POINTER(ctypes.c_char)),
-    ctypes.POINTER(ctypes.c_size_t),
-]
-
-
-class PathIterator:
-    def __init__(self, *paths):
-        components = (_path_iterator_component * len(paths))()
-        for i, path in enumerate(paths):
-            path = os.fsencode(path)
-            components[i].path = path
-            components[i].len = len(path)
-        self._it = _path_iterator(components, len(paths))
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        component = ctypes.POINTER(ctypes.c_char)()
-        component_len = ctypes.c_size_t()
-        if _drgn_cdll.drgn_test_path_iterator_next(
-            ctypes.pointer(self._it),
-            ctypes.pointer(component),
-            ctypes.pointer(component_len),
-        ):
-            return os.fsdecode(ctypes.string_at(component, component_len.value))
-        else:
-            raise StopIteration()
-
-
-_drgn_cdll.drgn_test_path_ends_with.restype = ctypes.c_bool
-_drgn_cdll.drgn_test_path_ends_with.argtypes = [
-    ctypes.POINTER(_path_iterator),
-    ctypes.POINTER(_path_iterator),
-]
-
-
-def path_ends_with(path1: PathIterator, path2: PathIterator):
-    return _drgn_cdll.drgn_test_path_ends_with(
-        ctypes.pointer(path1._it), ctypes.pointer(path2._it)
-    )
 
 
 class _drgn_type(ctypes.Structure):
