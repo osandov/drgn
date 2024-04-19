@@ -1,0 +1,264 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include <inttypes.h>
+#include <string.h>
+
+#include "test_util.h"
+#include "../array.h"
+#include "../cleanup.h"
+#include "../path.h"
+#include "../pp.h"
+
+#suite path
+
+#tcase path_iterator
+
+static void
+assert_path_iterator_no_combinations_impl(struct nstring *in_components,
+					  size_t num_in_components,
+					  const struct nstring *out_components,
+					  size_t num_out_components,
+					  const char *msg)
+{
+	struct path_iterator it = {
+		.components = in_components,
+		.num_components = num_in_components,
+	};
+	struct nstring component;
+	for (size_t i = 0; i < num_out_components; i++) {
+		const struct nstring *expected = &out_components[i];
+		ck_assert_msg(path_iterator_next(&it, &component.str,
+						 &component.len),
+			      "%s: expected '%.*s', got end", msg,
+			      (int)expected->len, expected->str);
+		ck_assert_msg(nstring_eq(&component, expected),
+			      "%s: expected '%.*s', got '%.*s'",
+			      msg, (int)expected->len, expected->str,
+			      (int)component.len, component.str);
+	}
+	ck_assert_msg(!path_iterator_next(&it, &component.str, &component.len),
+		      "%s: expected end, got '%.*s'", msg, (int)component.len,
+		      component.str);
+}
+
+#define to_nstring(_, x) { x, strlen(x) },
+#define to_nstring_array(...)	\
+	(struct nstring []){ PP_MAP(to_nstring,, __VA_ARGS__) }
+#define to_const_nstring_array(...)	\
+	(const struct nstring []){ PP_MAP(to_nstring,, __VA_ARGS__) }
+
+#define assert_path_iterator_no_combinations(in_components, out_components)	\
+	assert_path_iterator_no_combinations_impl(to_nstring_array in_components,\
+						  PP_NARGS in_components,	\
+						  to_const_nstring_array out_components,\
+						  PP_NARGS out_components,	\
+						  "Assertion 'path_iterator"#in_components" -> "#out_components" failed")
+
+static void assert_path_iterator_impl(const struct nstring *in_components,
+				      size_t num_in_components,
+				      const struct nstring *out_components,
+				      size_t num_out_components,
+				      const char *msg)
+{
+	ck_assert_uint_gt(num_in_components, 0);
+	ck_assert_uint_le(num_in_components, 64);
+
+	// Join all in_components with a '/'. We will use substrings of this as
+	// the iterator components.
+	size_t total_length = 0;
+	for (size_t i = 0; i < num_in_components; i++)
+		total_length += in_components[i].len + 1;
+	_cleanup_free_ char *buf = malloc(total_length);
+	ck_assert_ptr_nonnull(buf);
+	char *p = buf;
+	for (size_t i = 0; i < num_in_components; i++) {
+		p = stpcpy(p, in_components[i].str);
+		*(p++) = '/';
+	}
+	*p = '\0';
+
+	struct nstring components[64];
+	// Iterate over all possible combinations. Bit i of mask indicates
+	// whether to join in_components i and i + 1 with a '/'.
+	for (uint64_t mask = 0; mask < 1 << (num_in_components - 1); mask++) {
+		struct path_iterator it = {
+			.components = components,
+			.num_components = 1,
+		};
+		components[0].str = buf;
+		components[0].len = in_components[0].len;
+		for (size_t i = 1; i < num_in_components; i++) {
+			if (mask & (1 << (i - 1))) {
+				components[it.num_components - 1].len +=
+					1 + in_components[i].len;
+			} else {
+				components[it.num_components].str =
+					components[it.num_components - 1].str
+					+ components[it.num_components - 1].len
+					+ 1;
+				components[it.num_components].len =
+					in_components[i].len;
+				it.num_components++;
+			}
+		}
+
+		struct nstring component;
+		for (size_t i = 0; i < num_out_components; i++) {
+			const struct nstring *expected = &out_components[i];
+			ck_assert_msg(path_iterator_next(&it, &component.str,
+							 &component.len),
+				      "%s on mask 0x%" PRIx64 ": expected '%.*s', got end",
+				      msg, mask, (int)expected->len,
+				      expected->str);
+			ck_assert_msg(nstring_eq(&component, expected),
+				      "%s on mask 0x%" PRIx64 ": expected '%.*s', got '%.*s'",
+				      msg, mask, (int)expected->len,
+				      expected->str, (int)component.len,
+				      component.str);
+		}
+		ck_assert_msg(!path_iterator_next(&it, &component.str, &component.len),
+			      "%s on mask 0x%" PRIx64 ": expected end, got '%.*s'",
+			      msg, mask, (int)component.len, component.str);
+	}
+}
+
+// Assert that a path_iterator over all possible combinations of joining or not
+// joining in_components with '/' always yields out_components.
+#define assert_path_iterator(in_components, out_components)			\
+	assert_path_iterator_impl(to_nstring_array in_components,		\
+				  PP_NARGS in_components,			\
+				  to_const_nstring_array out_components,	\
+				  PP_NARGS out_components,			\
+				  "Assertion 'path_iterator"#in_components" -> "#out_components" failed")
+
+#test path_iterator_empty
+{
+	assert_path_iterator_no_combinations((), ());
+	assert_path_iterator_no_combinations((""), ());
+	assert_path_iterator_no_combinations(("", ""), ());
+}
+
+#test path_iterator_simple
+{
+	assert_path_iterator(("a"), ("a"));
+	assert_path_iterator(("abc", "def"), ("def", "abc"));
+	assert_path_iterator(("abc", "def", "ghi"), ("ghi", "def", "abc"));
+}
+
+#test path_iterator_root
+{
+	assert_path_iterator(("/"), (""));
+	assert_path_iterator(("/", ""), (""));
+	assert_path_iterator(("", "/"), (""));
+	assert_path_iterator(("", "/", ""), (""));
+}
+
+#test path_iterator_absolute
+{
+	assert_path_iterator(("/root"), ("root", ""));
+	assert_path_iterator(("/./usr"), ("usr", ""));
+	assert_path_iterator(("/home", "user"), ("user", "home", ""));
+	assert_path_iterator_no_combinations(("foo", "/root"), ("root", ""));
+}
+
+#test path_iterator_redundant_slash
+{
+	assert_path_iterator(("a/"), ("a"));
+	assert_path_iterator(("a//"), ("a"));
+	assert_path_iterator(("//"), (""));
+	assert_path_iterator(("//a"), ("a", ""));
+	assert_path_iterator(("///a"), ("a", ""));
+}
+
+#test path_iterator_dot
+{
+	assert_path_iterator(("a", "."), ("a"));
+	assert_path_iterator((".", "a"), ("a"));
+	assert_path_iterator((".", "a", "."), ("a"));
+}
+
+#test path_iterator_dot_dot
+{
+        assert_path_iterator(("a", "b", ".."), ("a"));
+        assert_path_iterator(("a", "..", "b"), ("b"));
+}
+
+#test path_iterator_relative_dot_dot
+{
+        assert_path_iterator(("..", "one", "two"), ("two", "one", ".."));
+        assert_path_iterator(("one", "..", "..", "two"), ("two", ".."));
+        assert_path_iterator(("one", "two", "..", "..", ".."), (".."));
+}
+
+#test path_iterator_dot_dot_above_root
+{
+        assert_path_iterator(("/..", "one", "two"), ("two", "one", ""));
+        assert_path_iterator(("/one", "..", "..", "two"), ("two", ""));
+        assert_path_iterator(("/one", "two", "..", "..", ".."), (""));
+}
+
+#test path_iterator_current_directory
+{
+        assert_path_iterator(("."), ());
+        assert_path_iterator_no_combinations(("", "."), ());
+        assert_path_iterator((".", ""), ());
+        assert_path_iterator((".", "."), ());
+        assert_path_iterator(("foo", ".."), ());
+        assert_path_iterator(("a", "b", "..", ".."), ());
+}
+
+#tcase path_ends_with
+
+#define assert_path_ends_with_impl(op, haystack, needle)	\
+	ck_assert(op path_ends_with(&(struct path_iterator){	\
+		.components = to_nstring_array haystack,	\
+		.num_components = PP_NARGS haystack,		\
+	}, &(struct path_iterator){				\
+		.components = to_nstring_array needle,		\
+		.num_components = PP_NARGS needle,		\
+	}))
+
+#define assert_path_ends_with(haystack, needle)		\
+	assert_path_ends_with_impl(, haystack, needle)
+
+#define assert_not_path_ends_with(haystack, needle)	\
+	assert_path_ends_with_impl(!, haystack, needle)
+
+#test path_ends_with_empty
+{
+	assert_path_ends_with((), ());
+	assert_path_ends_with(("ab"), ());
+	assert_not_path_ends_with((), ("ab"));
+}
+
+#test path_ends_with_one_component
+{
+        assert_path_ends_with(("ab"), ("ab"));
+        assert_not_path_ends_with(("ab"), ("cd"));
+}
+
+#test path_ends_with_multiple_components
+{
+        assert_path_ends_with(("ab/cd/ef"), ("ef"));
+        assert_path_ends_with(("ab/cd", "ef"), ("cd/ef"));
+        assert_not_path_ends_with(("ab/cd/ef"), ("cd"));
+        assert_not_path_ends_with(("ab/cd/ef"), ("ab/ef"));
+        assert_not_path_ends_with(("ef"), ("ab/cd/ef"));
+}
+
+#test path_ends_with_component_substring
+{
+	assert_not_path_ends_with(("ab/cd/ef"), ("d/ef"));
+}
+
+#test path_ends_with_absolute
+{
+        assert_path_ends_with(("/abc"), ("abc"));
+        assert_not_path_ends_with(("abc"), ("/abc"));
+}
+
+#test path_ends_with_absolute_component
+{
+	assert_not_path_ends_with(("ab/cd", "/ef"), ("cd/ef"));
+}

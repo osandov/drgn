@@ -216,7 +216,8 @@ examples_load_debug_info_LDADD = libdrgnimpl.la
 TESTS = $(check_PROGRAMS)
 
 check_PROGRAMS = tests/language_c \
-		 tests/lexer
+		 tests/lexer \
+		 tests/path
 
 EXTRA_DIST += $(addsuffix .c.in,$(check_PROGRAMS))
 
@@ -238,6 +239,9 @@ tests_language_c_LDADD = $(test_ldadd)
 tests_lexer_CFLAGS = $(test_cflags)
 tests_lexer_CPPFLAGS = $(test_cppflags)
 tests_lexer_LDADD = $(test_ldadd)
+tests_path_CFLAGS = $(test_cflags)
+tests_path_CPPFLAGS = $(test_cppflags)
+tests_path_LDADD = $(test_ldadd)
 
 # Don't delete test-suite.log on failure.
 .PRECIOUS: $(TEST_SUITE_LOG)
