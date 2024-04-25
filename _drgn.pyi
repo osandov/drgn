@@ -1608,6 +1608,24 @@ class Symbol:
     identifier along with its corresponding address range in the program.
     """
 
+    def __init__(
+        self,
+        name: str,
+        address: int,
+        size: int,
+        binding: SymbolBinding,
+        kind: SymbolKind,
+    ) -> None:
+        """
+        Create a ``Symbol``.
+
+        :param name: :attr:`Symbol.name`
+        :param address: :attr:`Symbol.address`
+        :param size: :attr:`Symbol.size`
+        :param binding: :attr:`Symbol.binding`
+        :param kind: :attr:`Symbol.kind`
+        """
+        ...
     name: Final[str]
     """Name of this symbol."""
 
