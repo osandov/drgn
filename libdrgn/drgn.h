@@ -580,6 +580,13 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
  */
 bool drgn_filename_matches(const char *haystack, const char *needle);
 
+enum {
+	/** Enable a handler after all enabled handlers. */
+	DRGN_HANDLER_REGISTER_ENABLE_LAST = SIZE_MAX,
+	/** Don't enable a handler. */
+	DRGN_HANDLER_REGISTER_DONT_ENABLE = SIZE_MAX - 1,
+};
+
 /**
  * Callback for finding a type.
  *
