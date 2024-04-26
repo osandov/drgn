@@ -8,6 +8,7 @@
 
 #include "cleanup.h"
 #include "drgn.h"
+#include "handler.h"
 #include "vector.h"
 
 struct drgn_symbol {
@@ -20,10 +21,9 @@ struct drgn_symbol {
 };
 
 struct drgn_symbol_finder {
-	drgn_symbol_find_fn fn;
+	struct drgn_handler handler;
+	struct drgn_symbol_finder_ops ops;
 	void *arg;
-	struct drgn_symbol_finder *next;
-	bool free;
 };
 
 DEFINE_VECTOR_TYPE(symbolp_vector, struct drgn_symbol *);

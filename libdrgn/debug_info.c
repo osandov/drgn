@@ -2186,8 +2186,12 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 	drgn_program_add_object_finder_impl(prog, &dbinfo->object_finder,
 					    drgn_debug_info_find_object,
 					    dbinfo);
-	drgn_program_add_symbol_finder_impl(prog, &dbinfo->symbol_finder,
-					    elf_symbols_search, prog);
+	const struct drgn_symbol_finder_ops symbol_finder_ops = {
+		.find = elf_symbols_search,
+	};
+	drgn_program_register_symbol_finder_impl(prog, &dbinfo->symbol_finder,
+						 "elf", &symbol_finder_ops,
+						 prog, 0);
 	drgn_module_table_init(&dbinfo->modules);
 	c_string_set_init(&dbinfo->module_names);
 	drgn_dwarf_info_init(dbinfo);

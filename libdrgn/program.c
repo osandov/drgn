@@ -112,17 +112,6 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_object_init(&prog->vmemmap, prog);
 }
 
-static void drgn_program_deinit_symbol_finders(struct drgn_program *prog)
-{
-	struct drgn_symbol_finder *finder = prog->symbol_finders;
-	while (finder) {
-		struct drgn_symbol_finder *next = finder->next;
-		if (finder->free)
-			free(finder);
-		finder = next;
-	}
-}
-
 void drgn_program_deinit(struct drgn_program *prog)
 {
 	if (prog->core_dump_notes_cached) {
@@ -145,8 +134,12 @@ void drgn_program_deinit(struct drgn_program *prog)
 
 	drgn_object_deinit(&prog->vmemmap);
 
+	drgn_handler_list_deinit(struct drgn_symbol_finder, finder,
+				 &prog->symbol_finders,
+		if (finder->ops.destroy)
+			finder->ops.destroy(finder->arg);
+	);
 	drgn_object_index_deinit(&prog->oindex);
-	drgn_program_deinit_symbol_finders(prog);
 	drgn_program_deinit_types(prog);
 	drgn_memory_reader_deinit(&prog->reader);
 
@@ -217,6 +210,81 @@ drgn_program_add_object_finder(struct drgn_program *prog,
 {
 	return drgn_program_add_object_finder_impl(prog, NULL, fn, arg);
 }
+
+#define DRGN_PROGRAM_FINDER(which)						\
+struct drgn_error *								\
+drgn_program_register_##which##_finder_impl(struct drgn_program *prog,		\
+					    struct drgn_##which##_finder *finder,\
+					    const char *name,			\
+					    const struct drgn_##which##_finder_ops *ops,\
+					    void *arg, size_t enable_index)	\
+{										\
+	struct drgn_error *err;							\
+	if (finder) {								\
+		finder->handler.name = name;					\
+		finder->handler.free = false;					\
+	} else {								\
+		finder = malloc(sizeof(*finder));				\
+		if (!finder)							\
+			return &drgn_enomem;					\
+		finder->handler.name = strdup(name);				\
+		if (!finder->handler.name) {					\
+			free(finder);						\
+			return &drgn_enomem;					\
+		}								\
+		finder->handler.free = true;					\
+	}									\
+	memcpy(&finder->ops, ops, sizeof(finder->ops));				\
+	finder->arg = arg;							\
+	err = drgn_handler_list_register(&prog->which##_finders,		\
+					 &finder->handler, enable_index,	\
+					 #which " finder");			\
+	if (err && finder->handler.free) {					\
+		free((char *)finder->handler.name);				\
+		free(finder);							\
+	}									\
+	return err;								\
+}										\
+										\
+LIBDRGN_PUBLIC struct drgn_error *						\
+drgn_program_register_##which##_finder(struct drgn_program *prog, const char *name,\
+				       const struct drgn_##which##_finder_ops *ops,\
+				       void *arg, size_t enable_index)		\
+{										\
+	return drgn_program_register_##which##_finder_impl(prog, NULL, name,	\
+							   ops, arg,		\
+							   enable_index);	\
+}										\
+										\
+LIBDRGN_PUBLIC struct drgn_error *						\
+drgn_program_registered_##which##_finders(struct drgn_program *prog,		\
+					  const char ***names_ret,		\
+					  size_t *count_ret)			\
+{										\
+	return drgn_handler_list_registered(&prog->which##_finders, names_ret,	\
+					    count_ret);				\
+}										\
+										\
+LIBDRGN_PUBLIC struct drgn_error *						\
+drgn_program_set_enabled_##which##_finders(struct drgn_program *prog,		\
+					   const char * const *names,		\
+					   size_t count)			\
+{										\
+	return drgn_handler_list_set_enabled(&prog->which##_finders, names,	\
+					     count, #which "finder");		\
+}										\
+										\
+LIBDRGN_PUBLIC struct drgn_error *						\
+drgn_program_enabled_##which##_finders(struct drgn_program *prog,		\
+				       const char ***names_ret,			\
+				       size_t *count_ret)			\
+{										\
+	return drgn_handler_list_enabled(&prog->which##_finders, names_ret,	\
+					 count_ret);				\
+}
+
+DRGN_PROGRAM_FINDER(symbol)
+#undef DRGN_PROGRAM_FINDER
 
 static struct drgn_error *
 drgn_program_check_initialized(struct drgn_program *prog)
@@ -1801,44 +1869,15 @@ drgn_program_symbols_search(struct drgn_program *prog, const char *name,
 			    struct drgn_symbol_result_builder *builder)
 {
 	struct drgn_error *err = NULL;
-	struct drgn_symbol_finder *finder = prog->symbol_finders;
-	while (finder) {
-		err = finder->fn(name, addr, flags, finder->arg, builder);
+	drgn_handler_list_for_each_enabled(struct drgn_symbol_finder, finder,
+					   &prog->symbol_finders) {
+		err = finder->ops.find(name, addr, flags, finder->arg, builder);
 		if (err ||
 		    ((flags & DRGN_FIND_SYMBOL_ONE)
 		     && drgn_symbol_result_builder_count(builder) > 0))
 			break;
-		finder = finder->next;
 	}
 	return err;
-}
-
-struct drgn_error *
-drgn_program_add_symbol_finder_impl(struct drgn_program *prog,
-				    struct drgn_symbol_finder *finder,
-				    drgn_symbol_find_fn fn, void *arg)
-{
-	if (finder) {
-		finder->free = false;
-	} else {
-		finder = malloc(sizeof(*finder));
-		if (!finder)
-			return &drgn_enomem;
-		finder->free = true;
-	}
-	finder->fn = fn;
-	finder->arg = arg;
-	finder->next = prog->symbol_finders;
-	prog->symbol_finders = finder;
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_add_symbol_finder(struct drgn_program *prog,
-			       drgn_symbol_find_fn fn,
-			       void *arg)
-{
-	return drgn_program_add_symbol_finder_impl(prog, NULL, fn, arg);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
