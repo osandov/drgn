@@ -922,3 +922,93 @@ class TestCoreDump(TestCase):
         with self.assertRaisesRegex(FaultError, "memory not saved in core dump") as cm:
             prog.read(0xFFFF0000, len(data) + 4)
         self.assertEqual(cm.exception.address, 0xFFFF000C)
+
+
+def dummy_symbol_finder(prog, name, address, one):
+    return ()
+
+
+class TestSymbolFinders(TestCase):
+    def test_registered(self):
+        prog = Program()
+        self.assertEqual(prog.registered_symbol_finders(), {"elf"})
+        prog.register_symbol_finder("foo", dummy_symbol_finder)
+        self.assertEqual(prog.registered_symbol_finders(), {"elf", "foo"})
+
+    def test_register_duplicate(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "duplicate symbol finder",
+            Program().register_symbol_finder,
+            "elf",
+            dummy_symbol_finder,
+        )
+
+    def test_default_enabled(self):
+        self.assertEqual(Program().enabled_symbol_finders(), ["elf"])
+
+    def test_disable_all(self):
+        prog = Program()
+        prog.set_enabled_symbol_finders(())
+        self.assertEqual(prog.enabled_symbol_finders(), [])
+
+    def test_register_then_enable(self):
+        prog = Program()
+        prog.register_symbol_finder("foo", dummy_symbol_finder)
+        self.assertEqual(prog.enabled_symbol_finders(), ["elf"])
+
+        prog.set_enabled_symbol_finders(["foo", "elf"])
+        self.assertEqual(prog.enabled_symbol_finders(), ["foo", "elf"])
+
+    def test_register_enable_index(self):
+        prog = Program()
+        with self.subTest("None"):
+            prog.register_symbol_finder("ghost", dummy_symbol_finder, enable_index=None)
+            self.assertEqual(prog.enabled_symbol_finders(), ["elf"])
+
+        with self.subTest("first"):
+            prog.register_symbol_finder("foo", dummy_symbol_finder, enable_index=0)
+            self.assertEqual(prog.enabled_symbol_finders(), ["foo", "elf"])
+
+        with self.subTest("middle"):
+            prog.register_symbol_finder("bar", dummy_symbol_finder, enable_index=1)
+            self.assertEqual(prog.enabled_symbol_finders(), ["foo", "bar", "elf"])
+
+        with self.subTest("end"):
+            prog.register_symbol_finder("baz", dummy_symbol_finder, enable_index=3)
+            self.assertEqual(
+                prog.enabled_symbol_finders(), ["foo", "bar", "elf", "baz"]
+            )
+
+        with self.subTest("past end"):
+            prog.register_symbol_finder("qux", dummy_symbol_finder, enable_index=10)
+            self.assertEqual(
+                prog.enabled_symbol_finders(), ["foo", "bar", "elf", "baz", "qux"]
+            )
+
+        with self.subTest("DRGN_HANDLER_REGISTER_DONT_ENABLE"):
+            prog.register_symbol_finder(
+                "quux",
+                dummy_symbol_finder,
+                enable_index=(2**64 if sys.maxsize > 2**32 else 2**32) - 2,
+            )
+            self.assertEqual(
+                prog.enabled_symbol_finders(),
+                ["foo", "bar", "elf", "baz", "qux", "quux"],
+            )
+
+        with self.subTest("last"):
+            prog.register_symbol_finder("quuux", dummy_symbol_finder, enable_index=-1)
+            self.assertEqual(
+                prog.enabled_symbol_finders(),
+                ["foo", "bar", "elf", "baz", "qux", "quux", "quuux"],
+            )
+
+    def test_register_enable_index_invalid(self):
+        self.assertRaises(
+            OverflowError,
+            Program().register_symbol_finder,
+            "foo",
+            dummy_symbol_finder,
+            enable_index=-2,
+        )
