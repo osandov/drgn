@@ -180,8 +180,12 @@ int Program_hold_object(Program *prog, PyObject *obj)
 
 bool Program_hold_reserve(Program *prog, size_t n)
 {
-	return pyobjectp_set_reserve(&prog->objects,
-				     pyobjectp_set_size(&prog->objects) + n);
+	if (!pyobjectp_set_reserve(&prog->objects,
+				   pyobjectp_set_size(&prog->objects) + n)) {
+		PyErr_NoMemory();
+		return false;
+	}
+	return true;
 }
 
 int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
