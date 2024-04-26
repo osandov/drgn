@@ -63,6 +63,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 error.c \
 			 error.h \
 			 generics.h \
+			 handler.c \
+			 handler.h \
 			 hash_table.c \
 			 hash_table.h \
 			 helpers.h \
