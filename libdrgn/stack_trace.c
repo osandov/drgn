@@ -486,11 +486,23 @@ not_found:;
 	// different platform than the program.
 	if (!drgn_platforms_equal(&file->platform, &trace->prog->platform))
 		regs = NULL;
-	Dwarf_Die function_die = frame->scopes[frame->function_scope];
+	// If this is an inline frame, then DW_AT_frame_base is in the
+	// containing DW_TAG_subprogram DIE.
+	size_t subprogram_frame_i = frame_i;
+	Dwarf_Die *function_die;
+	for (;;) {
+		struct drgn_stack_frame *subprogram_frame =
+			&trace->frames[subprogram_frame_i];
+		function_die =
+			&subprogram_frame->scopes[subprogram_frame->function_scope];
+		if (dwarf_tag(function_die) == DW_TAG_subprogram)
+			break;
+		subprogram_frame_i++;
+	}
 	return drgn_object_from_dwarf(&trace->prog->dbinfo, file, &die,
 				      dwarf_tag(&die) == DW_TAG_enumerator ?
 				      &type_die : NULL,
-				      &function_die, regs, ret);
+				      function_die, regs, ret);
 }
 
 LIBDRGN_PUBLIC bool drgn_stack_frame_register(struct drgn_stack_trace *trace,
