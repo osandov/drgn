@@ -11,8 +11,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "drgn.h"
-#include "util.h"
+#include "../drgn.h"
+#include "../util.h"
 
 extern char **environ;
 
