@@ -83,7 +83,7 @@ mount -t tmpfs -o nosuid,nodev tmpfs /tmp/merged/tmp
 # Pivot into the new root.
 pivot_root /tmp/merged /tmp/merged/mnt
 cd /
-umount -l /mnt
+umount -n -l /mnt
 
 # Load kernel modules.
 mkdir -p "/lib/modules/$RELEASE"
