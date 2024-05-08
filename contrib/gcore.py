@@ -157,7 +157,7 @@ def vma_snapshot(
 
         if file:
             path = d_path(file.f_path)
-            offset = vma.vm_pgoff.value_()
+            offset = vma.vm_pgoff.value_() * page_size
             if (
                 mapped_files
                 and mapped_files[-1].path == path
@@ -293,9 +293,9 @@ def nt_auxv(task: Object) -> bytes:
     return prog.read(auxv.address_, auxv[i + 2].address_ - auxv.address_)
 
 
-def nt_file(mapped_files: Sequence[MappedFile]) -> bytes:
+def nt_file(mapped_files: Sequence[MappedFile], page_size: int) -> bytes:
     buf = bytearray(16 + 24 * len(mapped_files))
-    struct.pack_into("QQ", buf, 0, len(mapped_files), 4096)
+    struct.pack_into("QQ", buf, 0, len(mapped_files), page_size)
     for i, mapped_file in enumerate(mapped_files):
         struct.pack_into(
             "QQQ",
@@ -303,7 +303,7 @@ def nt_file(mapped_files: Sequence[MappedFile]) -> bytes:
             16 + 24 * i,
             mapped_file.start,
             mapped_file.end,
-            mapped_file.offset // 4096,
+            mapped_file.offset // page_size,
         )
     for mapped_file in mapped_files:
         buf.extend(mapped_file.path)
@@ -312,7 +312,7 @@ def nt_file(mapped_files: Sequence[MappedFile]) -> bytes:
 
 
 def gen_notes(
-    task: Object, mapped_files: Sequence[MappedFile], use_procfs: bool
+    task: Object, mapped_files: Sequence[MappedFile], page_size: int, use_procfs: bool
 ) -> bytearray:
     notes = []
 
@@ -355,7 +355,7 @@ def gen_notes(
         (
             b"CORE",
             0x46494C45,  # NT_FILE
-            nt_file(mapped_files),
+            nt_file(mapped_files, page_size),
         )
     )
 
@@ -465,7 +465,7 @@ def main(prog: Program, argv: Sequence[str]) -> None:
         sys.exit(f"PID {args.pid} not found")
 
     segments, mapped_files = vma_snapshot(page_size, task)
-    notes = gen_notes(task, mapped_files, args.use_procfs)
+    notes = gen_notes(task, mapped_files, page_size, args.use_procfs)
 
     with contextlib.ExitStack() as exit_stack:
         if args.use_procfs:
