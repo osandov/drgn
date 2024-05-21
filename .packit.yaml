@@ -40,10 +40,6 @@ jobs:
     - epel-8-ppc64le
     - epel-8-s390x
     - epel-8-x86_64
-    - epel-9-aarch64
-    - epel-9-ppc64le
-    - epel-9-s390x
-    - epel-9-x86_64
 
 - job: copr_build
   trigger: pull_request
@@ -65,7 +61,3 @@ jobs:
     - epel-8-ppc64le
     - epel-8-s390x
     - epel-8-x86_64
-    - epel-9-aarch64
-    - epel-9-ppc64le
-    - epel-9-s390x
-    - epel-9-x86_64
