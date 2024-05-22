@@ -613,7 +613,7 @@ def _print_inode_item(
 {indent}ctime {item.ctime}
 {indent}mtime {item.mtime}
 {indent}otime {item.otime}
-        """,
+""",
         end="",
         file=file,
     )
