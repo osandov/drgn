@@ -35,11 +35,16 @@ static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 		arch = &arch_info_arm;
 	else if (strcmp(str, KDUMP_ARCH_PPC64) == 0)
 		arch = &arch_info_ppc64;
-	/* libkdumpfile doesn't support RISC-V */
 	else if (strcmp(str, KDUMP_ARCH_S390X) == 0)
 		arch = &arch_info_s390x;
 	else if (strcmp(str, KDUMP_ARCH_S390) == 0)
 		arch = &arch_info_s390;
+#if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 5, 4)
+	else if (strcmp(str, KDUMP_ARCH_RISCV64) == 0)
+		arch = &arch_info_riscv64;
+	else if (strcmp(str, KDUMP_ARCH_RISCV32) == 0)
+		arch = &arch_info_riscv32;
+#endif
 	else
 		arch = &arch_info_unknown;
 
@@ -79,11 +84,16 @@ static struct drgn_error *drgn_platform_to_kdump(kdump_ctx_t *ctx,
 		arch_str = KDUMP_ARCH_ARM;
 	else if (platform->arch == &arch_info_ppc64)
 		arch_str = KDUMP_ARCH_PPC64;
-	/* libkdumpfile doesn't support RISC-V */
 	else if (platform->arch == &arch_info_s390x)
 		arch_str = KDUMP_ARCH_S390X;
 	else if (platform->arch == &arch_info_s390)
 		arch_str = KDUMP_ARCH_S390;
+#if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 5, 4)
+	else if (platform->arch == &arch_info_riscv64)
+		arch_str = KDUMP_ARCH_RISCV64;
+	else if (platform->arch == &arch_info_riscv32)
+		arch_str = KDUMP_ARCH_RISCV32;
+#endif
 
 	if (arch_str) {
 		ks = kdump_set_string_attr(ctx, KDUMP_ATTR_ARCH_NAME, arch_str);
