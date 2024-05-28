@@ -4,6 +4,7 @@
 
 """List BPF programs or maps and their properties unavailable via kernel API."""
 
+import sys
 import argparse
 
 from drgn.helpers.common.type import enum_type_to_class
@@ -110,6 +111,30 @@ def list_bpf_maps(args):
         print(f"{id_:>6}: {type_:32} {name}")
 
 
+def __run_interactive(args):
+    try:
+        from drgn.cli import run_interactive
+    except ImportError:
+        sys.exit("Interactive mode requires drgn 0.0.23+")
+
+    def globals_func(globals):
+        globals["BpfMapType"] = BpfMapType
+        globals["BpfProgType"] = BpfProgType
+        globals["BpfAttachType"] = BpfAttachType
+
+        globals["get_btf_name"] = get_btf_name
+        globals["get_prog_name"] = get_prog_name
+        globals["attach_type_to_tramp"] = attach_type_to_tramp
+        globals["get_linked_func"] = get_linked_func
+        globals["get_tramp_progs"] = get_tramp_progs
+        globals["list_bpf_progs"] = list_bpf_progs
+        globals["list_bpf_maps"] = list_bpf_maps
+
+        return globals
+
+    run_interactive(prog, globals_func=globals_func)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="drgn script to list BPF programs or maps and their properties unavailable via kernel API"
@@ -123,6 +148,11 @@ def main():
 
     map_parser = subparsers.add_parser("map", aliases=["m"], help="list BPF maps")
     map_parser.set_defaults(func=list_bpf_maps)
+
+    interact_parser = subparsers.add_parser(
+        "interact", aliases=["i"], help="start interactive shell, requires 0.0.23+ drgn"
+    )
+    interact_parser.set_defaults(func=__run_interactive)
 
     args = parser.parse_args()
     args.func(args)
