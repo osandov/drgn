@@ -167,6 +167,8 @@ struct drgn_program {
 		uint64_t mem_section_length;
 		/** VA_BITS on AArch64. */
 		uint64_t va_bits;
+		/** phys_base on x86_64 */
+		uint64_t phys_base;
 		/** Whether 5-level paging was enabled on x86-64. */
 		bool pgtable_l5_enabled;
 		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */

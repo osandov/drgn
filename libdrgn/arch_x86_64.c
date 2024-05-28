@@ -18,6 +18,10 @@
 
 #include "arch_x86_64_defs.inc"
 
+// This is __START_KERNEL_map from the Linux kernel. It has never been modified
+// since the x86_64 architecture was introduced.
+#define START_KERNEL_MAP UINT64_C(0xffffffff80000000)
+
 static const struct drgn_cfi_row default_dwarf_cfi_row_x86_64 = DRGN_CFI_ROW(
 	// The System V psABI defines the CFA as the value of rsp in the calling
 	// frame.
@@ -616,7 +620,18 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 	for (;; level--) {
 		uint64_t table;
 		bool table_physical;
-		if (level == levels) {
+		if (level == levels && prog->vmcoreinfo.phys_base &&
+		    it->it.pgtable == prog->vmcoreinfo.swapper_pg_dir) {
+			// Avoid recursive address translation on swapper_pg_dir by
+			// directly resolving to a physical address. Don't do
+			// this if phys_base is 0, since that likely means it
+			// was not present in the vmcoreinfo. It has been
+			// present since Linux kernel commit 401721ecd1dc
+			// ("kexec: export the value of phys_base instead of
+			// symbol address") (in v4.10).
+			table = it->it.pgtable + prog->vmcoreinfo.phys_base - START_KERNEL_MAP;
+			table_physical = true;
+		} else if (level == levels) {
 			table = it->it.pgtable;
 			table_physical = false;
 		} else {
