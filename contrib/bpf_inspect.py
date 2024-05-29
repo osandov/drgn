@@ -30,11 +30,11 @@ def get_prog_btf_name(bpf_prog):
     return ""
 
 
-def get_prog_name(bpf_prog):
+def get_bpf_prog_name(bpf_prog):
     return get_prog_btf_name(bpf_prog) or bpf_prog.aux.name.string_().decode()
 
 
-def attach_type_to_tramp(attach_type):
+def bpf_attach_type_to_tramp(attach_type):
     # bpf_tramp_prog_type is available since linux kernel 5.5, this code should
     # be called only after checking for bpf_prog.aux.trampoline to be present
     # though so no error checking here.
@@ -53,21 +53,21 @@ def attach_type_to_tramp(attach_type):
     return BpfProgTrampType.BPF_TRAMP_REPLACE
 
 
-def get_linked_func(bpf_prog):
-    kind = attach_type_to_tramp(bpf_prog.expected_attach_type)
+def get_bpf_linked_func(bpf_prog):
+    kind = bpf_attach_type_to_tramp(bpf_prog.expected_attach_type)
 
     linked_prog = bpf_prog.aux.linked_prog
     linked_prog_id = linked_prog.aux.id.value_()
     linked_btf_id = bpf_prog.aux.attach_btf_id.value_()
     linked_name = (
-        f"{get_prog_name(linked_prog)}->"
+        f"{get_bpf_prog_name(linked_prog)}->"
         f"{get_btf_name(linked_prog.aux.btf, linked_btf_id)}()"
     )
 
     return f"{linked_prog_id}->{linked_btf_id}: {kind.name} {linked_name}"
 
 
-def get_tramp_progs(bpf_prog):
+def get_bpf_tramp_progs(bpf_prog):
     try:
         tr = bpf_prog.aux.member_("trampoline")
     except LookupError:
@@ -89,20 +89,26 @@ def get_tramp_progs(bpf_prog):
                 yield tramp_aux.prog
 
 
-def list_bpf_progs(args):
+def list_bpf_progs():
     for bpf_prog in bpf_prog_for_each(prog):
         id_ = bpf_prog.aux.id.value_()
         type_ = BpfProgType(bpf_prog.type).name
-        name = get_prog_name(bpf_prog)
+        name = get_bpf_prog_name(bpf_prog)
 
-        linked = ", ".join([get_linked_func(p) for p in get_tramp_progs(bpf_prog)])
+        linked = ", ".join(
+            [get_bpf_linked_func(p) for p in get_bpf_tramp_progs(bpf_prog)]
+        )
         if linked:
             linked = f" linked:[{linked}]"
 
         print(f"{id_:>6}: {type_:32} {name:32} {linked}")
 
 
-def list_bpf_maps(args):
+def __list_bpf_progs(args):
+    list_bpf_progs()
+
+
+def list_bpf_maps():
     for map_ in bpf_map_for_each(prog):
         id_ = map_.id.value_()
         type_ = BpfMapType(map_.map_type).name
@@ -111,26 +117,29 @@ def list_bpf_maps(args):
         print(f"{id_:>6}: {type_:32} {name}")
 
 
+def __list_bpf_maps(args):
+    list_bpf_maps()
+
+
 def __run_interactive(args):
     try:
         from drgn.cli import run_interactive
     except ImportError:
         sys.exit("Interactive mode requires drgn 0.0.23+")
 
-    def globals_func(globals):
-        globals["BpfMapType"] = BpfMapType
-        globals["BpfProgType"] = BpfProgType
-        globals["BpfAttachType"] = BpfAttachType
+    def should_add_to_globals(name):
+        if name.startswith("__"):
+            return False
+        return "bpf" in name or "Bpf" in name or "btf" in name
 
-        globals["get_btf_name"] = get_btf_name
-        globals["get_prog_name"] = get_prog_name
-        globals["attach_type_to_tramp"] = attach_type_to_tramp
-        globals["get_linked_func"] = get_linked_func
-        globals["get_tramp_progs"] = get_tramp_progs
-        globals["list_bpf_progs"] = list_bpf_progs
-        globals["list_bpf_maps"] = list_bpf_maps
+    globals_keys = globals().keys()
 
-        return globals
+    def globals_func(globals_):
+        for key in globals_keys:
+            if should_add_to_globals(key):
+                globals_[key] = globals()[key]
+
+        return globals_
 
     run_interactive(prog, globals_func=globals_func)
 
@@ -144,10 +153,10 @@ def main():
     subparsers.required = True
 
     prog_parser = subparsers.add_parser("prog", aliases=["p"], help="list BPF programs")
-    prog_parser.set_defaults(func=list_bpf_progs)
+    prog_parser.set_defaults(func=__list_bpf_progs)
 
     map_parser = subparsers.add_parser("map", aliases=["m"], help="list BPF maps")
-    map_parser.set_defaults(func=list_bpf_maps)
+    map_parser.set_defaults(func=__list_bpf_maps)
 
     interact_parser = subparsers.add_parser(
         "interact", aliases=["i"], help="start interactive shell, requires 0.0.23+ drgn"
