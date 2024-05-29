@@ -6,11 +6,26 @@
 
 from drgn.helpers.linux.list import list_for_each_entry
 
+def module_total_size(mod):
+    # Since Linux kernel commit ac3b43283923 ("module: replace module_layout
+    # with module_memory") (in v6.4), the memory sizes are in the struct
+    # module::mem array. Before that, they are in struct module::init_layout
+    # and struct module::core_layout.
+    try:
+        num_types = mod.prog_["MOD_MEM_NUM_TYPES"]
+    except KeyError:
+        return (mod.init_layout.size + mod.core_layout.size).value_()
+    else:
+        return sum(
+            mod.mem[type].size.value_()
+            for type in range(num_types)
+        )
+
+
 print("Module                  Size  Used by")
 config_module_unload = prog.type("struct module").has_member("refcnt")
 for mod in list_for_each_entry("struct module", prog["modules"].address_of_(), "list"):
     name = mod.name.string_().decode()
-    size = (mod.init_layout.size + mod.core_layout.size).value_()
     if config_module_unload:
         refcnt = mod.refcnt.counter.value_() - 1
         used_by = [
@@ -26,4 +41,4 @@ for mod in list_for_each_entry("struct module", prog["modules"].address_of_(), "
     used = ",".join(used_by)
     if used:
         used = " " + used
-    print(f"{name:19} {size:>8}  {refcnt}{used}")
+    print(f"{name:19} {module_total_size(mod):>8}  {refcnt}{used}")
