@@ -175,6 +175,8 @@ int Program_hold_object(Program *prog, PyObject *obj)
 	if (ret > 0) {
 		Py_INCREF(obj);
 		ret = 0;
+	} else if (ret < 0) {
+		PyErr_NoMemory();
 	}
 	return ret;
 }
