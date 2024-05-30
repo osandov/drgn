@@ -477,9 +477,9 @@ static struct drgn_error *py_object_find_fn(const char *name, size_t name_len,
 	if (!flags_obj)
 		return drgn_error_from_python();
 	_cleanup_pydecref_ PyObject *obj =
-		PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOOs",
-				      PyTuple_GET_ITEM(arg, 0), name_obj,
-				      flags_obj, filename);
+		PyObject_CallFunction(arg, "OOOs",
+				      container_of(drgn_object_program(ret), Program, prog),
+				      name_obj, flags_obj, filename);
 	if (!obj)
 		return drgn_error_from_python();
 	if (obj == Py_None)
@@ -573,14 +573,11 @@ static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 		return NULL;
 	}
 
-	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);
-	if (!arg)
-		return NULL;
-	if (Program_hold_object(self, arg))
+	if (Program_hold_object(self, fn))
 		return NULL;
 
 	err = drgn_program_add_object_finder(&self->prog, py_object_find_fn,
-					     arg);
+					     fn);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
