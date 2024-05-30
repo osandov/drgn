@@ -8,11 +8,17 @@ import sys
 import argparse
 
 from drgn.helpers.common.type import enum_type_to_class
-from drgn.helpers.linux import bpf_map_for_each, bpf_prog_for_each, hlist_for_each_entry
+from drgn.helpers.linux import (
+    bpf_map_for_each,
+    bpf_prog_for_each,
+    bpf_link_for_each,
+    hlist_for_each_entry,
+)
 
 BpfMapType = enum_type_to_class(prog.type("enum bpf_map_type"), "BpfMapType")
 BpfProgType = enum_type_to_class(prog.type("enum bpf_prog_type"), "BpfProgType")
 BpfAttachType = enum_type_to_class(prog.type("enum bpf_attach_type"), "BpfAttachType")
+BpfLinkType = enum_type_to_class(prog.type("enum bpf_link_type"), "BpfLinkType")
 
 
 def get_btf_name(btf, btf_id):
@@ -89,19 +95,21 @@ def get_bpf_tramp_progs(bpf_prog):
                 yield tramp_aux.prog
 
 
+def inspect_bpf_prog(bpf_prog):
+    id_ = bpf_prog.aux.id.value_()
+    type_ = BpfProgType(bpf_prog.type).name
+    name = get_bpf_prog_name(bpf_prog)
+
+    linked = ", ".join([get_bpf_linked_func(p) for p in get_bpf_tramp_progs(bpf_prog)])
+    if linked:
+        linked = f" linked:[{linked}]"
+
+    return f"{id_:>6}: {type_:32} {name:32} {linked}"
+
+
 def list_bpf_progs():
     for bpf_prog in bpf_prog_for_each(prog):
-        id_ = bpf_prog.aux.id.value_()
-        type_ = BpfProgType(bpf_prog.type).name
-        name = get_bpf_prog_name(bpf_prog)
-
-        linked = ", ".join(
-            [get_bpf_linked_func(p) for p in get_bpf_tramp_progs(bpf_prog)]
-        )
-        if linked:
-            linked = f" linked:[{linked}]"
-
-        print(f"{id_:>6}: {type_:32} {name:32} {linked}")
+        print(inspect_bpf_prog(bpf_prog))
 
 
 def __list_bpf_progs(args):
@@ -119,6 +127,19 @@ def list_bpf_maps():
 
 def __list_bpf_maps(args):
     list_bpf_maps()
+
+
+def list_bpf_links():
+    for link in bpf_link_for_each(prog):
+        id_ = link.id.value_()
+        type_ = BpfLinkType(link.type).name
+        prog_ = inspect_bpf_prog(link.prog)
+
+        print(f"{id_:>6}: {type_:32} prog: {prog_}")
+
+
+def __list_bpf_links(args):
+    list_bpf_links()
 
 
 def __run_interactive(args):
@@ -157,6 +178,9 @@ def main():
 
     map_parser = subparsers.add_parser("map", aliases=["m"], help="list BPF maps")
     map_parser.set_defaults(func=__list_bpf_maps)
+
+    link_parser = subparsers.add_parser("link", aliases=["l"], help="list BPF links")
+    link_parser.set_defaults(func=__list_bpf_links)
 
     interact_parser = subparsers.add_parser(
         "interact", aliases=["i"], help="start interactive shell, requires 0.0.23+ drgn"
