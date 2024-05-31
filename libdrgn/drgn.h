@@ -587,41 +587,91 @@ enum {
 	DRGN_HANDLER_REGISTER_DONT_ENABLE = SIZE_MAX - 1,
 };
 
-/**
- * Callback for finding a type.
- *
- * @param[in] kinds Kinds of types to find, as a bitmask of bits shifted by @ref
- * drgn_type_kind. E.g., `(1 << DRGN_TYPE_STRUCT) | (1 << DRGN_TYPE_CLASS)`
- * means to find a structure or class type.
- * @param[in] name Name of type (or tag, for structs, unions, and enums). This
- * is @em not null-terminated.
- * @param[in] name_len Length of @p name.
- * @param[in] filename Filename containing the type definition or @c NULL. This
- * should be matched with @ref drgn_filename_matches().
- * @param[in] arg Argument passed to @ref drgn_program_add_type_finder().
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error. In particular, if the type
- * is not found, this should return &@ref drgn_not_found; any other errors are
- * considered fatal.
- */
-typedef struct drgn_error *
-(*drgn_type_find_fn)(uint64_t kinds, const char *name, size_t name_len,
-		     const char *filename, void *arg,
-		     struct drgn_qualified_type *ret);
+/** Type finder callback table. */
+struct drgn_type_finder_ops {
+	/**
+	 * Callback to destroy the type finder.
+	 *
+	 * This may be @c NULL.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_type_finder().
+	 */
+	void (*destroy)(void *arg);
+	/**
+	 * Callback for finding a type.
+	 *
+	 * @param[in] kinds Kinds of types to find, as a bitmask of bits shifted
+	 * by @ref drgn_type_kind. E.g., `(1 << DRGN_TYPE_STRUCT) | (1 <<
+	 * DRGN_TYPE_CLASS)` means to find a structure or class type.
+	 * @param[in] name Name of type (or tag, for structs, unions, and
+	 * enums). This is @em not null-terminated.
+	 * @param[in] name_len Length of @p name.
+	 * @param[in] filename Filename containing the type definition or @c
+	 * NULL. This should be matched with @ref drgn_filename_matches().
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_type_finder().
+	 * @param[out] ret Returned type.
+	 * @return @c NULL on success, non-@c NULL on error. In particular, if
+	 * the type is not found, this should return &@ref drgn_not_found; any
+	 * other errors are considered fatal.
+	 */
+	struct drgn_error *(*find)(uint64_t kinds, const char *name,
+				   size_t name_len, const char *filename,
+				   void *arg, struct drgn_qualified_type *ret);
+};
 
 /**
  * Register a type finding callback.
  *
- * Callbacks are called in reverse order of the order they were added until the
- * type is found. So, more recently added callbacks take precedence.
- *
- * @param[in] fn The callback.
- * @param[in] arg Argument to pass to @p fn.
- * @return @c NULL on success, non-@c NULL on error.
+ * @param[in] name Finder name. This is copied.
+ * @param[in] ops Callback table. This is copied.
+ * @param[in] arg Argument to pass to callbacks.
+ * @param[in] enable_index Insert the finder into the list of enabled finders at
+ * the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or greater than
+ * the number of enabled finders, insert it at the end. If @ref
+ * DRGN_HANDLER_REGISTER_DONT_ENABLE, don’t enable the finder.
  */
 struct drgn_error *
-drgn_program_add_type_finder(struct drgn_program *prog, drgn_type_find_fn fn,
-			     void *arg);
+drgn_program_register_type_finder(struct drgn_program *prog, const char *name,
+				  const struct drgn_type_finder_ops *ops,
+				  void *arg, size_t enable_index);
+
+/**
+ * Get the names of all registered type finders.
+ *
+ * The order of the names is arbitrary.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_registered_type_finders(struct drgn_program *prog,
+				     const char ***names_ret,
+				     size_t *count_ret);
+
+/**
+ * Set the list of enabled type finders.
+ *
+ * Finders are called in the same order as the list until a type is found.
+ *
+ * @param[in] names Names of finders to enable, in order.
+ * @param[in] count Number of names in @p names.
+ */
+struct drgn_error *
+drgn_program_set_enabled_type_finders(struct drgn_program *prog,
+				      const char * const *names,
+				      size_t count);
+
+/**
+ * Get the names of enabled type finders, in order.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *drgn_program_enabled_type_finders(struct drgn_program *prog,
+						     const char ***names_ret,
+						     size_t *count_ret);
 
 /** Flags for @ref drgn_program_find_object(). */
 enum drgn_find_object_flags {

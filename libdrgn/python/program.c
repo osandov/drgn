@@ -385,10 +385,60 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 	Py_RETURN_NONE;
 }
 
+static inline struct drgn_error *
+py_type_find_fn_common(PyObject *type_obj, void *arg,
+		       struct drgn_qualified_type *ret)
+{
+	if (!PyObject_TypeCheck(type_obj, &DrgnType_type)) {
+		PyErr_SetString(PyExc_TypeError,
+				"type find callback must return Type or None");
+		return drgn_error_from_python();
+	}
+	// This check is also done in libdrgn, but we need it here because if
+	// the type isn't from this program, then there's no guarantee that it
+	// will remain valid after we decrement its reference count.
+	if (DrgnType_prog((DrgnType *)type_obj)
+	    != (Program *)PyTuple_GET_ITEM(arg, 0)) {
+		PyErr_SetString(PyExc_ValueError,
+				"type find callback returned type from wrong program");
+		return drgn_error_from_python();
+	}
+	ret->type = ((DrgnType *)type_obj)->type;
+	ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
+	return NULL;
+}
+
 static struct drgn_error *py_type_find_fn(uint64_t kinds, const char *name,
 					  size_t name_len, const char *filename,
 					  void *arg,
 					  struct drgn_qualified_type *ret)
+{
+	PyGILState_guard();
+
+	_cleanup_pydecref_ PyObject *name_obj =
+		PyUnicode_FromStringAndSize(name, name_len);
+	if (!name_obj)
+		return drgn_error_from_python();
+
+	_cleanup_pydecref_ PyObject *kinds_obj = TypeKindSet_wrap(kinds);
+	if (!kinds_obj)
+		return drgn_error_from_python();
+	_cleanup_pydecref_ PyObject *type_obj =
+		PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOOs",
+				      PyTuple_GET_ITEM(arg, 0), kinds_obj,
+				      name_obj, filename);
+	if (!type_obj)
+		return drgn_error_from_python();
+	if (type_obj == Py_None)
+		return &drgn_not_found;
+	return py_type_find_fn_common(type_obj, arg, ret);
+}
+
+// Old version for add_type_finder().
+static struct drgn_error *py_type_find_fn_old(uint64_t kinds, const char *name,
+					      size_t name_len,
+					      const char *filename, void *arg,
+					      struct drgn_qualified_type *ret)
 {
 	PyGILState_guard();
 
@@ -411,54 +461,9 @@ static struct drgn_error *py_type_find_fn(uint64_t kinds, const char *name,
 			return drgn_error_from_python();
 		if (type_obj == Py_None)
 			continue;
-		if (!PyObject_TypeCheck(type_obj, &DrgnType_type)) {
-			PyErr_SetString(PyExc_TypeError,
-					"type find callback must return Type or None");
-			return drgn_error_from_python();
-		}
-		// This check is also done in libdrgn, but we need it here
-		// because if the type isn't from this program, then there's no
-		// guarantee that it will remain valid after we decrement its
-		// reference count.
-		if (DrgnType_prog((DrgnType *)type_obj)
-		    != (Program *)PyTuple_GET_ITEM(arg, 0)) {
-			PyErr_SetString(PyExc_ValueError,
-					"type find callback returned type from wrong program");
-			return drgn_error_from_python();
-		}
-		ret->type = ((DrgnType *)type_obj)->type;
-		ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
-		return NULL;
+		return py_type_find_fn_common(type_obj, arg, ret);
 	}
 	return &drgn_not_found;
-}
-
-static PyObject *Program_add_type_finder(Program *self, PyObject *args,
-					 PyObject *kwds)
-{
-	struct drgn_error *err;
-
-	static char *keywords[] = {"fn", NULL};
-	PyObject *fn;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_type_finder",
-					 keywords, &fn))
-	    return NULL;
-
-	if (!PyCallable_Check(fn)) {
-		PyErr_SetString(PyExc_TypeError, "fn must be callable");
-		return NULL;
-	}
-
-	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);
-	if (!arg)
-		return NULL;
-	if (Program_hold_object(self, arg))
-		return NULL;
-
-	err = drgn_program_add_type_finder(&self->prog, py_type_find_fn, arg);
-	if (err)
-		return set_drgn_error(err);
-	Py_RETURN_NONE;
 }
 
 static struct drgn_error *py_object_find_fn(const char *name, size_t name_len,
@@ -560,10 +565,11 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 	return NULL;
 }
 
-#define symbol_finder_arg(self, fn)						\
+#define type_finder_arg(self, fn)						\
 	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);	\
 	if (!arg)								\
 		return NULL;
+#define symbol_finder_arg type_finder_arg
 
 #define DEFINE_PROGRAM_FINDER_METHODS(which)					\
 static PyObject *Program_register_##which##_finder(Program *self,		\
@@ -705,7 +711,61 @@ static PyObject *Program_enabled_##which##_finders(Program *self)		\
 	return_ptr(res);							\
 }
 
+DEFINE_PROGRAM_FINDER_METHODS(type)
 DEFINE_PROGRAM_FINDER_METHODS(symbol)
+
+static PyObject *deprecated_finder_name_obj(PyObject *fn)
+{
+	_cleanup_pydecref_ PyObject *name_attr_obj =
+		PyObject_GetAttrString(fn, "__name__");
+	if (name_attr_obj) {
+		return PyUnicode_FromFormat("%S_%lu", name_attr_obj, random());
+	} else if (PyErr_ExceptionMatches(PyExc_AttributeError)) {
+		PyErr_Clear();
+		return PyUnicode_FromFormat("%lu", random());
+	} else {
+		return NULL;
+	}
+}
+
+static PyObject *Program_add_type_finder(Program *self, PyObject *args,
+					 PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"fn", NULL};
+	PyObject *fn;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_type_finder",
+					 keywords, &fn))
+	    return NULL;
+
+	if (!PyCallable_Check(fn)) {
+		PyErr_SetString(PyExc_TypeError, "fn must be callable");
+		return NULL;
+	}
+
+	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);
+	if (!arg)
+		return NULL;
+
+	_cleanup_pydecref_ PyObject *name_obj = deprecated_finder_name_obj(fn);
+	if (!name_obj)
+		return NULL;
+	const char *name = PyUnicode_AsUTF8(name_obj);
+	if (!name)
+		return NULL;
+
+	if (!Program_hold_reserve(self, 1))
+		return NULL;
+	const struct drgn_type_finder_ops ops = {
+		.find = py_type_find_fn_old,
+	};
+	err = drgn_program_register_type_finder(&self->prog, name, &ops, arg,
+						0);
+	if (err)
+		return set_drgn_error(err);
+	Program_hold_object(self, arg);
+	Py_RETURN_NONE;
+}
 
 static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 					   PyObject *kwds)
@@ -1396,6 +1456,7 @@ static int Program_set_language(Program *self, PyObject *value, void *arg)
 static PyMethodDef Program_methods[] = {
 	{"add_memory_segment", (PyCFunction)Program_add_memory_segment,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_memory_segment_DOC},
+	PROGRAM_FINDER_METHOD_DEFS(type),
 	PROGRAM_FINDER_METHOD_DEFS(symbol),
 	{"add_type_finder", (PyCFunction)Program_add_type_finder,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_type_finder_DOC},

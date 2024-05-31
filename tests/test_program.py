@@ -404,14 +404,73 @@ class TestMemory(TestCase):
         )
 
 
-class TestTypes(MockProgramTestCase):
-    def test_invalid_finder(self):
-        self.assertRaises(TypeError, self.prog.add_type_finder, "foo")
+class TestTypeFinder(TestCase):
+    def test_register(self):
+        prog = Program(MOCK_PLATFORM)
 
-        self.prog.add_type_finder(lambda kind, name, filename: "foo")
-        self.assertRaises(TypeError, self.prog.type, "int")
+        # We don't test every corner case because the symbol finder tests cover
+        # the shared part.
+        self.assertEqual(prog.registered_type_finders(), {"dwarf"})
+        self.assertEqual(prog.enabled_type_finders(), ["dwarf"])
 
-    def test_finder_different_program(self):
+        prog.register_type_finder(
+            "foo", lambda prog, kinds, name, filename: None, enable_index=-1
+        )
+        self.assertEqual(prog.registered_type_finders(), {"dwarf", "foo"})
+        self.assertEqual(prog.enabled_type_finders(), ["dwarf", "foo"])
+
+        prog.set_enabled_type_finders(["foo"])
+        self.assertEqual(prog.registered_type_finders(), {"dwarf", "foo"})
+        self.assertEqual(prog.enabled_type_finders(), ["foo"])
+
+    def test_add_type_finder(self):
+        prog = Program(MOCK_PLATFORM)
+
+        def dummy(kind, name, filename):
+            if kind == TypeKind.TYPEDEF and name == "foo":
+                return prog.typedef_type("foo", prog.void_type())
+            else:
+                return None
+
+        prog.add_type_finder(dummy)
+        self.assertTrue(any("dummy" in name for name in prog.registered_type_finders()))
+        self.assertIn("dummy", prog.enabled_type_finders()[0])
+        self.assertIdentical(
+            prog.type("foo"), prog.typedef_type("foo", prog.void_type())
+        )
+
+    def test_register_invalid(self):
+        prog = Program(MOCK_PLATFORM)
+        self.assertRaises(TypeError, prog.register_type_finder, "foo", "foo")
+        prog.register_type_finder(
+            "foo", lambda prog, kinds, name, filename: "foo", enable_index=0
+        )
+        self.assertRaises(TypeError, prog.type, "int")
+
+    def test_add_invalid(self):
+        prog = Program(MOCK_PLATFORM)
+        self.assertRaises(TypeError, prog.add_type_finder, "foo")
+        prog.add_type_finder(lambda kind, name, filename: "foo")
+        self.assertRaises(TypeError, prog.type, "int")
+
+    def test_register_wrong_program(self):
+        def finder(prog, kinds, name, filename):
+            if TypeKind.TYPEDEF in kinds and name == "foo":
+                prog = Program()
+                return prog.typedef_type("foo", prog.void_type())
+            else:
+                return None
+
+        prog = Program(MOCK_PLATFORM)
+        prog.register_type_finder("foo", finder, enable_index=0)
+        self.assertRaisesRegex(
+            ValueError,
+            "type find callback returned type from wrong program",
+            prog.type,
+            "foo",
+        )
+
+    def test_add_wrong_program(self):
         def finder(kind, name, filename):
             if kind == TypeKind.TYPEDEF and name == "foo":
                 prog = Program()
@@ -419,23 +478,41 @@ class TestTypes(MockProgramTestCase):
             else:
                 return None
 
-        self.prog.add_type_finder(finder)
+        prog = Program(MOCK_PLATFORM)
+        prog.add_type_finder(finder)
         self.assertRaisesRegex(
             ValueError,
             "type find callback returned type from wrong program",
-            self.prog.type,
+            prog.type,
             "foo",
         )
 
-    def test_wrong_kind(self):
-        self.prog.add_type_finder(lambda kind, name, filename: self.prog.void_type())
-        self.assertRaises(TypeError, self.prog.type, "int")
+    def test_register_wrong_kind(self):
+        prog = Program(MOCK_PLATFORM)
+        prog.register_type_finder(
+            "foo", lambda prog, kinds, name, filename: prog.void_type(), enable_index=0
+        )
+        self.assertRaises(TypeError, prog.type, "int")
 
-    def test_not_found(self):
-        self.assertRaises(LookupError, self.prog.type, "struct foo")
-        self.prog.add_type_finder(lambda kind, name, filename: None)
-        self.assertRaises(LookupError, self.prog.type, "struct foo")
+    def test_add_wrong_kind(self):
+        prog = Program(MOCK_PLATFORM)
+        prog.add_type_finder(lambda kind, name, filename: prog.void_type())
+        self.assertRaises(TypeError, prog.type, "int")
 
+    def test_register_not_found(self):
+        prog = Program(MOCK_PLATFORM)
+        prog.register_type_finder(
+            "foo", lambda prog, kinds, name, filename: None, enable_index=0
+        )
+        self.assertRaises(LookupError, prog.type, "struct foo")
+
+    def test_add_not_found(self):
+        prog = Program(MOCK_PLATFORM)
+        prog.add_type_finder(lambda kind, name, filename: None)
+        self.assertRaises(LookupError, prog.type, "struct foo")
+
+
+class TestTypes(MockProgramTestCase):
     def test_already_type(self):
         self.assertIdentical(
             self.prog.type(self.prog.pointer_type(self.prog.void_type())),

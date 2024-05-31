@@ -68,11 +68,11 @@ class MockObject(NamedTuple):
 
 
 def mock_program(platform=MOCK_PLATFORM, *, segments=None, types=None, objects=None):
-    def mock_find_type(kind, name, filename):
+    def mock_find_type(prog, kinds, name, filename):
         if filename:
             return None
         for type in types:
-            if type.kind == kind:
+            if type.kind in kinds:
                 try:
                     type_name = type.name
                 except AttributeError:
@@ -105,7 +105,7 @@ def mock_program(platform=MOCK_PLATFORM, *, segments=None, types=None, objects=N
     if segments is not None:
         add_mock_memory_segments(prog, segments)
     if types is not None:
-        prog.add_type_finder(mock_find_type)
+        prog.register_type_finder("mock", mock_find_type, enable_index=0)
     if objects is not None:
         prog.add_object_finder(mock_object_find)
     return prog

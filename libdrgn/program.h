@@ -32,6 +32,7 @@
 #include "type.h"
 #include "vector.h"
 
+struct drgn_type_finder;
 struct drgn_symbol_finder;
 
 /**
@@ -82,7 +83,7 @@ struct drgn_program {
 	 * Types.
 	 */
 	/** Callbacks for finding types. */
-	struct drgn_type_finder *type_finders;
+	struct drgn_handler_list type_finders;
 	/** Void type for each language. */
 	struct drgn_type void_types[DRGN_NUM_LANGUAGES];
 	/** Cache of primitive types. */
@@ -382,6 +383,13 @@ struct drgn_error *
 drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 					     uint64_t address,
 					     struct drgn_symbol **ret);
+
+struct drgn_error *
+drgn_program_register_type_finder_impl(struct drgn_program *prog,
+				       struct drgn_type_finder *finder,
+				       const char *name,
+				       const struct drgn_type_finder_ops *ops,
+				       void *arg, size_t enable_index);
 
 struct drgn_error *
 drgn_program_register_symbol_finder_impl(struct drgn_program *prog,

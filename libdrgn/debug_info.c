@@ -2181,8 +2181,12 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 	// unlikely to fail anwyays, so don't bother propagating an error up.
 	if (!dbinfo->dwfl)
 		abort();
-	drgn_program_add_type_finder_impl(prog, &dbinfo->type_finder,
-					  drgn_debug_info_find_type, dbinfo);
+	const struct drgn_type_finder_ops type_finder_ops = {
+		.find = drgn_debug_info_find_type,
+	};
+	drgn_program_register_type_finder_impl(prog, &dbinfo->type_finder,
+					       "dwarf", &type_finder_ops,
+					       dbinfo, 0);
 	drgn_program_add_object_finder_impl(prog, &dbinfo->object_finder,
 					    drgn_debug_info_find_object,
 					    dbinfo);
