@@ -1310,40 +1310,11 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 		free(*it.entry);
 	drgn_dedupe_type_set_deinit(&prog->dedupe_types);
 
-	struct drgn_type_finder *finder = prog->type_finders;
-	while (finder) {
-		struct drgn_type_finder *next = finder->next;
-		if (finder->free)
-			free(finder);
-		finder = next;
-	}
-}
-
-struct drgn_error *
-drgn_program_add_type_finder_impl(struct drgn_program *prog,
-				  struct drgn_type_finder *finder,
-				  drgn_type_find_fn fn, void *arg)
-{
-	if (finder) {
-		finder->free = false;
-	} else {
-		finder = malloc(sizeof(*finder));
-		if (!finder)
-			return &drgn_enomem;
-		finder->free = true;
-	}
-	finder->fn = fn;
-	finder->arg = arg;
-	finder->next = prog->type_finders;
-	prog->type_finders = finder;
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_add_type_finder(struct drgn_program *prog, drgn_type_find_fn fn,
-			     void *arg)
-{
-	return drgn_program_add_type_finder_impl(prog, NULL, fn, arg);
+	drgn_handler_list_deinit(struct drgn_type_finder, finder,
+				 &prog->type_finders,
+		if (finder->ops.destroy)
+			finder->ops.destroy(finder->arg);
+	);
 }
 
 struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,
@@ -1352,11 +1323,11 @@ struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,
 					       const char *filename,
 					       struct drgn_qualified_type *ret)
 {
-	struct drgn_type_finder *finder = prog->type_finders;
-	while (finder) {
+	drgn_handler_list_for_each_enabled(struct drgn_type_finder, finder,
+					   &prog->type_finders) {
 		struct drgn_error *err =
-			finder->fn(kinds, name, name_len, filename, finder->arg,
-				   ret);
+			finder->ops.find(kinds, name, name_len, filename,
+					 finder->arg, ret);
 		if (!err) {
 			if (drgn_type_program(ret->type) != prog) {
 				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -1370,7 +1341,6 @@ struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,
 		}
 		if (err != &drgn_not_found)
 			return err;
-		finder = finder->next;
 	}
 	return &drgn_not_found;
 }

@@ -283,6 +283,7 @@ drgn_program_enabled_##which##_finders(struct drgn_program *prog,		\
 					 count_ret);				\
 }
 
+DRGN_PROGRAM_FINDER(type)
 DRGN_PROGRAM_FINDER(symbol)
 #undef DRGN_PROGRAM_FINDER
 
