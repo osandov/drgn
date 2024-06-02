@@ -5,6 +5,7 @@
 """List BPF programs or maps and their properties unavailable via kernel API."""
 
 import sys
+import drgn
 import argparse
 
 from drgn.helpers.common.type import enum_type_to_class
@@ -73,26 +74,54 @@ def get_bpf_linked_func(bpf_prog):
     return f"{linked_prog_id}->{linked_btf_id}: {kind.name} {linked_name}"
 
 
+def get_bpf_prog_attach_func(bpf_prog):
+    try:
+        func_ = bpf_prog.aux.attach_func_name
+        if func_:
+            return func_.string_().decode()
+    except LookupError:
+        pass
+
+    return ""
+
+
+def get_tramp_progs(tr):
+    if not tr:
+        return
+
+    if tr.extension_prog:
+        yield tr.extension_prog
+        return
+
+    try:
+        for head in tr.progs_hlist:
+            for tramp_aux in hlist_for_each_entry(
+                "struct bpf_prog_aux", head, "tramp_hlist"
+            ):
+                yield tramp_aux.prog
+    except LookupError:
+        return
+
+
 def get_bpf_tramp_progs(bpf_prog):
     try:
-        tr = bpf_prog.aux.member_("trampoline")
+        # Trampoline was changed to dst_trampoline since Linux kernel commit
+        # 3aac1ead5eb6 ("bpf: Move prog->aux->linked_prog and trampoline into
+        # bpf_link on attach") (in v5.10).
+        # Try to get dst_trampoline first.
+        tr = bpf_prog.aux.member_("dst_trampoline")
+    except LookupError:
+        pass
+
+    try:
+        tr = bpf_prog.aux.member_("trampoline") if not tr else tr
     except LookupError:
         # Trampoline is available since Linux kernel commit
         # fec56f5890d9 ("bpf: Introduce BPF trampoline") (in v5.5).
         # Skip trampoline if current kernel doesn't support it.
         return
 
-    if not tr:
-        return
-
-    if tr.extension_prog:
-        yield tr.extension_prog
-    else:
-        for head in tr.progs_hlist:
-            for tramp_aux in hlist_for_each_entry(
-                "struct bpf_prog_aux", head, "tramp_hlist"
-            ):
-                yield tramp_aux.prog
+    return get_tramp_progs(tr)
 
 
 def inspect_bpf_prog(bpf_prog):
@@ -100,16 +129,17 @@ def inspect_bpf_prog(bpf_prog):
     type_ = BpfProgType(bpf_prog.type).name
     name = get_bpf_prog_name(bpf_prog)
 
-    linked = ", ".join([get_bpf_linked_func(p) for p in get_bpf_tramp_progs(bpf_prog)])
-    if linked:
-        linked = f" linked:[{linked}]"
-
-    return f"{id_:>6}: {type_:32} {name:32} {linked}"
+    return f"{id_:>6}: {type_:32} {name:32}"
 
 
 def list_bpf_progs():
     for bpf_prog in bpf_prog_for_each(prog):
         print(inspect_bpf_prog(bpf_prog))
+
+        linked_progs = get_bpf_tramp_progs(bpf_prog)
+        if linked_progs:
+            for linked_prog in linked_progs:
+                print(f"\tlinked: {inspect_bpf_prog(linked_prog)}")
 
 
 def __list_bpf_progs(args):
@@ -129,17 +159,48 @@ def __list_bpf_maps(args):
     list_bpf_maps()
 
 
-def list_bpf_links():
+def inspect_bpf_tracing_link(link):
+    tracing_link = drgn.cast("struct bpf_tracing_link *", link)
+    tgt_prog = tracing_link.tgt_prog
+    linked_progs = get_tramp_progs(tracing_link.trampoline)
+    return (tgt_prog, linked_progs)
+
+
+def show_bpf_tracing_link_details(link):
+    tgt_prog, linked_progs = inspect_bpf_tracing_link(link)
+
+    if tgt_prog:
+        print(f"\ttarget: {inspect_bpf_prog(tgt_prog)}")
+
+    if linked_progs:
+        for linked_prog in linked_progs:
+            print(f"\tlinked: {inspect_bpf_prog(linked_prog)}")
+
+
+def show_bpf_link_details(link):
+    if link.type == BpfLinkType.BPF_LINK_TYPE_TRACING:
+        show_bpf_tracing_link_details(link)
+
+
+def list_bpf_links(show_details=False):
     for link in bpf_link_for_each(prog):
         id_ = link.id.value_()
         type_ = BpfLinkType(link.type).name
         prog_ = inspect_bpf_prog(link.prog)
 
-        print(f"{id_:>6}: {type_:32} prog: {prog_}")
+        print(f"{id_:>6}: {type_:32}")
+
+        attach_func = get_bpf_prog_attach_func(link.prog)
+        print(f"\tprog:   {prog_} {attach_func}")
+
+        if not show_details:
+            continue
+
+        show_bpf_link_details(link)
 
 
 def __list_bpf_links(args):
-    list_bpf_links()
+    list_bpf_links(args.show_details)
 
 
 def __run_interactive(args):
@@ -181,6 +242,9 @@ def main():
 
     link_parser = subparsers.add_parser("link", aliases=["l"], help="list BPF links")
     link_parser.set_defaults(func=__list_bpf_links)
+    link_parser.add_argument(
+        "--show-details", action="store_true", help="show link internal details"
+    )
 
     interact_parser = subparsers.add_parser(
         "interact", aliases=["i"], help="start interactive shell, requires 0.0.23+ drgn"
