@@ -172,6 +172,7 @@ _drgn_la_SOURCES = python/constants.c \
 		   python/test.c \
 		   python/thread.c \
 		   python/type.c \
+		   python/type_kind_set.c \
 		   python/util.c
 
 _drgn_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden

@@ -87,6 +87,18 @@
 #define ilog2_impl(arg, suffix, x)	\
 	((8 * sizeof(0u##suffix) - 1) ^ __builtin_clz##suffix(x))
 
+/**
+ * Bit population count.
+ *
+ * Return the number of 1-bits in @p x.
+ *
+ * ```
+ * popcount(8) == 1
+ * popcount(3) == 2
+ * ```
+ */
+#define popcount(x) generic_bitop(x, PP_UNIQUE(_x), builtin_bitop_impl, popcount)
+
 #define builtin_bitop_impl(arg, suffix, x) __builtin_##arg##suffix(x)
 #define generic_bitop(x, unique_x, impl, impl_arg) ({			\
 	__auto_type unique_x = (x);					\

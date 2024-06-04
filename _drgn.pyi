@@ -7,6 +7,7 @@ libdrgn bindings
 Don't use this module directly. Instead, use the drgn package.
 """
 
+import collections.abc
 import enum
 import os
 import sys
@@ -2328,6 +2329,26 @@ class TypeKind(enum.Enum):
 
     FUNCTION = ...
     """Function type."""
+
+class TypeKindSet(collections.abc.Set[TypeKind]):
+    """
+    Immutable set of :class:`TypeKind`\\ s.
+
+    >>> kinds = TypeKindSet({TypeKind.STRUCT, TypeKind.CLASS})
+    >>> TypeKind.STRUCT in kinds
+    True
+    >>> TypeKind.INT in kinds
+    False
+    >>> for kind in kinds:
+    ...     print(kind)
+    ...
+    TypeKind.STRUCT
+    TypeKind.CLASS
+    """
+
+    def __contains__(self, __x: object) -> bool: ...
+    def __iter__(self) -> Iterator[TypeKind]: ...
+    def __len__(self) -> int: ...
 
 class PrimitiveType(enum.Enum):
     """A ``PrimitiveType`` represents a primitive type known to drgn."""
