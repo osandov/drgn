@@ -34,6 +34,12 @@
  * @{
  */
 
+struct drgn_object_finder {
+	struct drgn_handler handler;
+	struct drgn_object_finder_ops ops;
+	void *arg;
+};
+
 /** Allocate a zero-initialized @ref drgn_value. */
 static inline bool drgn_value_zalloc(uint64_t size, union drgn_value *value_ret,
 				     char **buf_ret)

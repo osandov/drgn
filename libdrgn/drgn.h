@@ -685,38 +685,90 @@ enum drgn_find_object_flags {
 	DRGN_FIND_OBJECT_ANY = (1 << 3) - 1,
 };
 
-/**
- * Callback for finding an object.
- *
- * @param[in] name Name of object. This is @em not null-terminated.
- * @param[in] name_len Length of @p name.
- * @param[in] filename Filename containing the object definition or @c NULL.
- * This should be matched with @ref drgn_filename_matches().
- * @param[in] flags Flags indicating what kind of object to look for.
- * @param[in] arg Argument passed to @ref drgn_program_add_object_finder().
- * @param[out] ret Returned object. This must only be modified on success.
- * @return @c NULL on success, non-@c NULL on error. In particular, if the
- * object is not found, this should return &@ref drgn_not_found; any other
- * errors are considered fatal.
- */
-typedef struct drgn_error *
-(*drgn_object_find_fn)(const char *name, size_t name_len, const char *filename,
-		       enum drgn_find_object_flags flags, void *arg,
-		       struct drgn_object *ret);
+/** Object finder callback table. */
+struct drgn_object_finder_ops {
+	/**
+	 * Callback to destroy the object finder.
+	 *
+	 * This may be @c NULL.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_object_finder().
+	 */
+	void (*destroy)(void *arg);
+	/**
+	 * Callback for finding an object.
+	 *
+	 * @param[in] name Name of object. This is @em not null-terminated.
+	 * @param[in] name_len Length of @p name.
+	 * @param[in] filename Filename containing the object definition or @c
+	 * NULL. This should be matched with @ref drgn_filename_matches().
+	 * @param[in] flags Flags indicating what kind of object to look for.
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_object_finder().
+	 * @param[out] ret Returned object. This must only be modified on
+	 * success.
+	 * @return @c NULL on success, non-@c NULL on error. In particular, if
+	 * the object is not found, this should return &@ref drgn_not_found; any
+	 * other errors are considered fatal.
+	 */
+	struct drgn_error *(*find)(const char *name, size_t name_len,
+				   const char *filename,
+				   enum drgn_find_object_flags flags,
+				   void *arg, struct drgn_object *ret);
+};
 
 /**
- * Register a object finding callback.
+ * Register an object finding callback.
  *
- * Callbacks are called in reverse order of the order they were added until the
- * object is found. So, more recently added callbacks take precedence.
- *
- * @param[in] fn The callback.
- * @param[in] arg Argument to pass to @p fn.
- * @return @c NULL on success, non-@c NULL on error.
+ * @param[in] name Finder name. This is copied.
+ * @param[in] ops Callback table. This is copied.
+ * @param[in] arg Argument to pass to callbacks.
+ * @param[in] enable_index Insert the finder into the list of enabled finders at
+ * the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or greater than
+ * the number of enabled finders, insert it at the end. If @ref
+ * DRGN_HANDLER_REGISTER_DONT_ENABLE, don’t enable the finder.
  */
 struct drgn_error *
-drgn_program_add_object_finder(struct drgn_program *prog,
-			       drgn_object_find_fn fn, void *arg);
+drgn_program_register_object_finder(struct drgn_program *prog, const char *name,
+				    const struct drgn_object_finder_ops *ops,
+				    void *arg, size_t enable_index);
+
+/**
+ * Get the names of all registered object finders.
+ *
+ * The order of the names is arbitrary.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_registered_object_finders(struct drgn_program *prog,
+				       const char ***names_ret,
+				       size_t *count_ret);
+
+/**
+ * Set the list of enabled object finders.
+ *
+ * Finders are called in the same order as the list until a object is found.
+ *
+ * @param[in] names Names of finders to enable, in order.
+ * @param[in] count Number of names in @p names.
+ */
+struct drgn_error *
+drgn_program_set_enabled_object_finders(struct drgn_program *prog,
+					const char * const *names,
+					size_t count);
+
+/**
+ * Get the names of enabled object finders, in order.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_enabled_object_finders(struct drgn_program *prog,
+				    const char ***names_ret, size_t *count_ret);
 
 /**
  * Set a @ref drgn_program to a core dump.

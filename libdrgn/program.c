@@ -28,7 +28,6 @@
 #include "linux_kernel.h"
 #include "memory_reader.h"
 #include "minmax.h"
-#include "object_index.h"
 #include "program.h"
 #include "symbol.h"
 #include "util.h"
@@ -100,7 +99,6 @@ void drgn_program_init(struct drgn_program *prog,
 	memset(prog, 0, sizeof(*prog));
 	drgn_memory_reader_init(&prog->reader);
 	drgn_program_init_types(prog);
-	drgn_object_index_init(&prog->oindex);
 	drgn_debug_info_init(&prog->dbinfo, prog);
 	prog->core_fd = -1;
 	if (platform)
@@ -139,7 +137,11 @@ void drgn_program_deinit(struct drgn_program *prog)
 		if (finder->ops.destroy)
 			finder->ops.destroy(finder->arg);
 	);
-	drgn_object_index_deinit(&prog->oindex);
+	drgn_handler_list_deinit(struct drgn_object_finder, finder,
+				 &prog->object_finders,
+		if (finder->ops.destroy)
+			finder->ops.destroy(finder->arg);
+	);
 	drgn_program_deinit_types(prog);
 	drgn_memory_reader_deinit(&prog->reader);
 
@@ -194,21 +196,6 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 	return drgn_memory_reader_add_segment(&prog->reader, address,
 					      max_address, read_fn, arg,
 					      physical);
-}
-
-struct drgn_error *
-drgn_program_add_object_finder_impl(struct drgn_program *prog,
-				    struct drgn_object_finder *finder,
-				    drgn_object_find_fn fn, void *arg)
-{
-	return drgn_object_index_add_finder(&prog->oindex, finder, fn, arg);
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_add_object_finder(struct drgn_program *prog,
-			       drgn_object_find_fn fn, void *arg)
-{
-	return drgn_program_add_object_finder_impl(prog, NULL, fn, arg);
 }
 
 #define DRGN_PROGRAM_FINDER(which)						\
@@ -284,6 +271,7 @@ drgn_program_enabled_##which##_finders(struct drgn_program *prog,		\
 }
 
 DRGN_PROGRAM_FINDER(type)
+DRGN_PROGRAM_FINDER(object)
 DRGN_PROGRAM_FINDER(symbol)
 #undef DRGN_PROGRAM_FINDER
 
@@ -1845,12 +1833,50 @@ drgn_program_find_object(struct drgn_program *prog, const char *name,
 			 enum drgn_find_object_flags flags,
 			 struct drgn_object *ret)
 {
+	struct drgn_error *err;
+
+	if ((flags & ~DRGN_FIND_OBJECT_ANY) || !flags) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "invalid find object flags");
+	}
 	if (ret && drgn_object_program(ret) != prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "object is from wrong program");
 	}
-	return drgn_object_index_find(&prog->oindex, name, filename, flags,
-				      ret);
+
+	size_t name_len = strlen(name);
+	drgn_handler_list_for_each_enabled(struct drgn_object_finder, finder,
+					   &prog->object_finders) {
+		err = finder->ops.find(name, name_len, filename, flags,
+				       finder->arg, ret);
+		if (err != &drgn_not_found)
+			return err;
+	}
+
+	const char *kind_str;
+	switch (flags) {
+	case DRGN_FIND_OBJECT_CONSTANT:
+		kind_str = "constant ";
+		break;
+	case DRGN_FIND_OBJECT_FUNCTION:
+		kind_str = "function ";
+		break;
+	case DRGN_FIND_OBJECT_VARIABLE:
+		kind_str = "variable ";
+		break;
+	default:
+		kind_str = "";
+		break;
+	}
+	if (filename) {
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "could not find %s'%s' in '%s'",
+					 kind_str, name, filename);
+	} else {
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "could not find %s'%s'", kind_str,
+					 name);
+	}
 }
 
 struct drgn_error *drgn_error_symbol_not_found(uint64_t address)

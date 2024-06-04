@@ -480,6 +480,49 @@ class Program:
     def enabled_type_finders(self) -> List[str]:
         """Return the names of enabled type finders, in order."""
         ...
+    def register_object_finder(
+        self,
+        name: str,
+        fn: Callable[[Program, str, FindObjectFlags, Optional[str]], Optional[Object]],
+        *,
+        enable_index: Optional[int] = None,
+    ) -> None:
+        """
+        Register a callback for finding objects in the program.
+
+        This does not enable the finder unless *enable_index* is given.
+
+        :param name: Finder name.
+        :param fn: Callable taking the program, name, :class:`FindObjectFlags`,
+            and filename: ``(prog, name, flags, filename)``. The filename
+            should be matched with :func:`filename_matches()`. This should
+            return an :class:`Object` or ``None`` if not found.
+        :param enable_index: Insert the finder into the list of enabled object
+            finders at the given index. If -1 or greater than the number of
+            enabled finders, insert it at the end. If ``None`` or not given,
+            don't enable the finder.
+        :raises ValueError: if there is already a finder with the given name
+        """
+        ...
+    def registered_object_finders(self) -> Set[str]:
+        """Return the names of all registered object finders."""
+        ...
+    def set_enabled_object_finders(self, names: Sequence[str]) -> None:
+        """
+        Set the list of enabled object finders.
+
+        Finders are called in the same order as the list until an object is found.
+
+        Finders that are not in the list are not called.
+
+        :param names: Names of finders to enable, in order.
+        :raises ValueError: if no finder has a given name or the same name is
+            given more than once
+        """
+        ...
+    def enabled_object_finders(self) -> List[str]:
+        """Return the names of enabled object finders, in order."""
+        ...
     def register_symbol_finder(
         self,
         name: str,
@@ -563,16 +606,16 @@ class Program:
         fn: Callable[[Program, str, FindObjectFlags, Optional[str]], Optional[Object]],
     ) -> None:
         """
-        Register a callback for finding objects in the program.
+        Deprecated method to register and enable a callback for finding objects
+        in the program.
 
-        Callbacks are called in reverse order of the order they were added
-        until the object is found. So, more recently added callbacks take
-        precedence.
+        .. deprecated:: 0.0.27
+            Use :meth:`register_object_finder()` instead.
 
-        :param fn: Callable taking a program, name, :class:`FindObjectFlags`,
-            and filename: ``(prog, name, flags, filename)``. The filename
-            should be matched with :func:`filename_matches()`. This should
-            return an :class:`Object` or ``None`` if not found.
+        The differences from :meth:`register_object_finder()` are:
+
+        1. A name for the finder is generated from *fn*.
+        2. The finder is always enabled before any existing finders.
         """
         ...
     def set_core_dump(self, path: Union[Path, int]) -> None:

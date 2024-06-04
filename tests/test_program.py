@@ -512,6 +512,78 @@ class TestTypeFinder(TestCase):
         self.assertRaises(LookupError, prog.type, "struct foo")
 
 
+class TestObjectFinder(TestCase):
+    def test_register(self):
+        prog = Program(MOCK_PLATFORM)
+
+        # We don't test every corner case because the symbol finder tests cover
+        # the shared part.
+        self.assertEqual(prog.registered_object_finders(), {"dwarf"})
+        self.assertEqual(prog.enabled_object_finders(), ["dwarf"])
+
+        prog.register_object_finder(
+            "foo", lambda prog, name, flags, filename: None, enable_index=-1
+        )
+        self.assertEqual(prog.registered_object_finders(), {"dwarf", "foo"})
+        self.assertEqual(prog.enabled_object_finders(), ["dwarf", "foo"])
+
+        prog.set_enabled_object_finders(["foo"])
+        self.assertEqual(prog.registered_object_finders(), {"dwarf", "foo"})
+        self.assertEqual(prog.enabled_object_finders(), ["foo"])
+
+    def test_add_object_finder(self):
+        prog = Program(MOCK_PLATFORM)
+
+        def dummy(prog, name, flags, filename):
+            return Object(prog, "int", 1)
+
+        prog.add_object_finder(dummy)
+        self.assertTrue(
+            any("dummy" in name for name in prog.registered_object_finders())
+        )
+        self.assertIn("dummy", prog.enabled_object_finders()[0])
+        self.assertIdentical(prog.object("foo"), Object(prog, "int", 1))
+
+    def test_register_invalid(self):
+        prog = Program(MOCK_PLATFORM)
+        self.assertRaises(TypeError, prog.register_object_finder, "foo", "foo")
+        prog.register_object_finder(
+            "foo", lambda prog, name, flags, filename: "foo", enable_index=0
+        )
+        self.assertRaises(TypeError, prog.object, "foo")
+
+    def test_add_invalid(self):
+        prog = Program(MOCK_PLATFORM)
+        self.assertRaises(TypeError, prog.add_object_finder, "foo")
+        prog.add_object_finder(lambda prog, name, flags, filename: "foo")
+        self.assertRaises(TypeError, prog.object, "foo")
+
+    def test_wrong_program(self):
+        prog = Program(MOCK_PLATFORM)
+        prog.register_object_finder(
+            "foo",
+            lambda prog, name, flags, filename: Object(
+                Program(MOCK_PLATFORM), "int", 1
+            ),
+            enable_index=0,
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "different program",
+            prog.object,
+            "foo",
+        )
+
+    def test_not_found(self):
+        prog = Program(MOCK_PLATFORM)
+        self.assertRaises(LookupError, prog.object, "foo")
+        prog.register_object_finder(
+            "foo", lambda prog, name, flags, filename: None, enable_index=0
+        )
+        self.assertRaises(LookupError, prog.object, "foo")
+        self.assertFalse("foo" in prog)
+
+
 class TestTypes(MockProgramTestCase):
     def test_already_type(self):
         self.assertIdentical(
@@ -855,18 +927,6 @@ class TestTypes(MockProgramTestCase):
 
 
 class TestObjects(MockProgramTestCase):
-    def test_invalid_finder(self):
-        self.assertRaises(TypeError, self.prog.add_object_finder, "foo")
-
-        self.prog.add_object_finder(lambda prog, name, flags, filename: "foo")
-        self.assertRaises(TypeError, self.prog.object, "foo")
-
-    def test_not_found(self):
-        self.assertRaises(LookupError, self.prog.object, "foo")
-        self.prog.add_object_finder(lambda prog, name, flags, filename: None)
-        self.assertRaises(LookupError, self.prog.object, "foo")
-        self.assertFalse("foo" in self.prog)
-
     def test_constant(self):
         self.objects.append(
             MockObject("PAGE_SIZE", self.prog.int_type("int", 4, True), value=4096)
