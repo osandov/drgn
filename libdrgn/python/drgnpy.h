@@ -197,6 +197,16 @@ typedef struct {
 } LazyObject;
 
 typedef struct {
+	PyObject_HEAD
+	uint64_t kinds;
+} TypeKindSet;
+
+typedef struct {
+	PyObject_HEAD
+	uint64_t mask;
+} TypeKindSetIterator;
+
+typedef struct {
 	LazyObject lazy_obj;
 	PyObject *name;
 	PyObject *bit_offset;
@@ -236,6 +246,8 @@ extern PyTypeObject Symbol_type;
 extern PyTypeObject Thread_type;
 extern PyTypeObject ThreadIterator_type;
 extern PyTypeObject TypeEnumerator_type;
+extern PyTypeObject TypeKindSet_type;
+extern PyTypeObject TypeKindSetIterator_type;
 extern PyTypeObject TypeMember_type;
 extern PyTypeObject TypeParameter_type;
 extern PyTypeObject TypeTemplateParameter_type;
@@ -258,6 +270,9 @@ void *set_error_type_name(const char *format,
 PyObject *Language_wrap(const struct drgn_language *language);
 int language_converter(PyObject *o, void *p);
 int add_languages(void);
+
+PyObject *TypeKindSet_wrap(uint64_t mask);
+int init_type_kind_set(void);
 
 static inline DrgnObject *DrgnObject_alloc(Program *prog)
 {

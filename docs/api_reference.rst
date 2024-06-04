@@ -130,6 +130,7 @@ Types
 .. drgndoc:: TypeParameter
 .. drgndoc:: TypeTemplateParameter
 .. drgndoc:: TypeKind
+.. drgndoc:: TypeKindSet
 .. drgndoc:: PrimitiveType
 .. drgndoc:: Qualifiers
 .. drgndoc:: offsetof
