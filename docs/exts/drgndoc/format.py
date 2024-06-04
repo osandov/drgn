@@ -132,7 +132,7 @@ class _FormatVisitor(NodeVisitor):
         while True:
             value = node.value
             if isinstance(value, ast.Attribute):
-                name_stack.append(node.attr)
+                name_stack.append(value.attr)
                 node = value
                 continue
             elif isinstance(value, ast.Name):
