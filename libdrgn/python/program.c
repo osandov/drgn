@@ -569,6 +569,7 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);	\
 	if (!arg)								\
 		return NULL;
+#define object_finder_arg(self, fn) PyObject *arg = fn;
 #define symbol_finder_arg type_finder_arg
 
 #define DEFINE_PROGRAM_FINDER_METHODS(which)					\
@@ -712,6 +713,7 @@ static PyObject *Program_enabled_##which##_finders(Program *self)		\
 }
 
 DEFINE_PROGRAM_FINDER_METHODS(type)
+DEFINE_PROGRAM_FINDER_METHODS(object)
 DEFINE_PROGRAM_FINDER_METHODS(symbol)
 
 static PyObject *deprecated_finder_name_obj(PyObject *fn)
@@ -783,13 +785,23 @@ static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 		return NULL;
 	}
 
-	if (Program_hold_object(self, fn))
+	_cleanup_pydecref_ PyObject *name_obj = deprecated_finder_name_obj(fn);
+	if (!name_obj)
+		return NULL;
+	const char *name = PyUnicode_AsUTF8(name_obj);
+	if (!name)
 		return NULL;
 
-	err = drgn_program_add_object_finder(&self->prog, py_object_find_fn,
-					     fn);
+	if (!Program_hold_reserve(self, 1))
+		return NULL;
+	const struct drgn_object_finder_ops ops = {
+		.find = py_object_find_fn,
+	};
+	err = drgn_program_register_object_finder(&self->prog, name, &ops, fn,
+						  0);
 	if (err)
 		return set_drgn_error(err);
+	Program_hold_object(self, fn);
 	Py_RETURN_NONE;
 }
 
@@ -1457,6 +1469,7 @@ static PyMethodDef Program_methods[] = {
 	{"add_memory_segment", (PyCFunction)Program_add_memory_segment,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_memory_segment_DOC},
 	PROGRAM_FINDER_METHOD_DEFS(type),
+	PROGRAM_FINDER_METHOD_DEFS(object),
 	PROGRAM_FINDER_METHOD_DEFS(symbol),
 	{"add_type_finder", (PyCFunction)Program_add_type_finder,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_type_finder_DOC},

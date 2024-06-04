@@ -384,8 +384,10 @@ static struct drgn_error *linux_kernel_get_vmemmap(struct drgn_program *prog,
 struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog)
 {
 	struct drgn_error *err;
-	err = drgn_program_add_object_finder(prog, linux_kernel_object_find,
-					     prog);
+	const struct drgn_object_finder_ops ops = {
+		.find = linux_kernel_object_find,
+	};
+	err = drgn_program_register_object_finder(prog, "linux", &ops, prog, 0);
 	if (err)
 		return err;
 	if (!prog->lang)

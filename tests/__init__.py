@@ -107,7 +107,7 @@ def mock_program(platform=MOCK_PLATFORM, *, segments=None, types=None, objects=N
     if types is not None:
         prog.register_type_finder("mock", mock_find_type, enable_index=0)
     if objects is not None:
-        prog.add_object_finder(mock_object_find)
+        prog.register_object_finder("mock", mock_object_find, enable_index=0)
     return prog
 
 

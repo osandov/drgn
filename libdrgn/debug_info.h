@@ -20,7 +20,7 @@
 #include "drgn.h"
 #include "dwarf_info.h"
 #include "hash_table.h"
-#include "object_index.h"
+#include "object.h"
 #include "orc_info.h"
 #include "string_builder.h"
 #include "symbol.h"
@@ -253,13 +253,13 @@ struct drgn_error *
 drgn_debug_info_main_language(struct drgn_debug_info *dbinfo,
 			      const struct drgn_language **ret);
 
-/** @ref drgn_type_find_fn() that uses debugging information. */
+/** @ref drgn_type_finder_ops::find() that uses debugging information. */
 struct drgn_error *drgn_debug_info_find_type(uint64_t kinds, const char *name,
 					     size_t name_len,
 					     const char *filename, void *arg,
 					     struct drgn_qualified_type *ret);
 
-/** @ref drgn_object_find_fn() that uses debugging information. */
+/** @ref drgn_object_finder_ops::find() that uses debugging information. */
 struct drgn_error *
 drgn_debug_info_find_object(const char *name, size_t name_len,
 			    const char *filename,

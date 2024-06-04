@@ -83,7 +83,7 @@ program "memory":
     run_interactive(prog, banner_func=lambda _: "BTRFS debugger")
 
 :meth:`drgn.Program.register_type_finder()` and
-:meth:`drgn.Program.add_object_finder()` are the equivalent methods for
+:meth:`drgn.Program.register_object_finder()` are the equivalent methods for
 plugging in types and objects.
 
 Environment Variables
