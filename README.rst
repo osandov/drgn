@@ -1,19 +1,21 @@
 drgn
 ====
 
-.. image:: https://img.shields.io/pypi/v/drgn
+|pypi badge| |ci badge| |docs badge| |black badge|
+
+.. |pypi badge| image:: https://img.shields.io/pypi/v/drgn
     :target: https://pypi.org/project/drgn/
     :alt: PyPI
 
-.. image:: https://github.com/osandov/drgn/workflows/CI/badge.svg
+.. |ci badge| image:: https://github.com/osandov/drgn/workflows/CI/badge.svg
     :target: https://github.com/osandov/drgn/actions
     :alt: CI Status
 
-.. image:: https://readthedocs.org/projects/drgn/badge/?version=latest
+.. |docs badge| image:: https://readthedocs.org/projects/drgn/badge/?version=latest
     :target: https://drgn.readthedocs.io/en/latest/?badge=latest
     :alt: Documentation Status
 
-.. image:: https://img.shields.io/badge/code%20style-black-000000.svg
+.. |black badge| image:: https://img.shields.io/badge/code%20style-black-000000.svg
     :target: https://github.com/psf/black
 
 .. start-introduction
