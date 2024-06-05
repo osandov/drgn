@@ -4,7 +4,9 @@
 import os
 import os.path
 
+from drgn import Object
 from drgn.helpers.linux.block import (
+    bdev_partno,
     disk_devt,
     disk_name,
     for_each_disk,
@@ -44,3 +46,17 @@ class TestBlock(LinuxKernelTestCase):
             {part_name(part).decode() for part in for_each_partition(self.prog)},
             set(os.listdir("/sys/class/block")),
         )
+
+    def test_bdev_partno(self):
+        for part in for_each_partition(self.prog):
+            try:
+                with open(
+                    os.path.join(b"/sys/class/block", part_name(part), b"partition"),
+                    "r",
+                ) as f:
+                    partition = int(f.read())
+            except FileNotFoundError:
+                partition = 0
+            if part.type_.type.tag == "hd_struct":
+                self.skipTest("can't get bdev easily on old kernels")
+            self.assertIdentical(bdev_partno(part), Object(self.prog, "u8", partition))

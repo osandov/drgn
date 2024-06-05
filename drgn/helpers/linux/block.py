@@ -14,13 +14,14 @@ Before that, they were represented by ``struct hd_struct``.
 
 from typing import Iterator
 
-from drgn import Object, Program, container_of
+from drgn import Object, Program, cast, container_of
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
 from drgn.helpers.linux.list import list_for_each_entry
 
 __all__ = (
+    "bdev_partno",
     "disk_devt",
     "disk_name",
     "for_each_disk",
@@ -49,6 +50,35 @@ def disk_name(disk: Object) -> bytes:
     :param disk: ``struct gendisk *``
     """
     return disk.disk_name.string_()
+
+
+def _bdev_partno_flags(bdev: Object) -> Object:
+    return cast("u8", bdev.__bd_flags.counter)
+
+
+def _bdev_partno_old(bdev: Object) -> Object:
+    return bdev.bd_partno.read_()
+
+
+def bdev_partno(bdev: Object) -> Object:
+    """
+    Get the partition number of a block device.
+
+    :param bdev: ``struct block_device *``
+    :return: ``u8``
+    """
+    try:
+        impl = bdev.prog_.cache["bdev_partno"]
+    except KeyError:
+        # Since Linux kernel commit 1116b9fa15c0 ("bdev: infrastructure for
+        # flags") (in v6.10), partno is part of the atomic_t __bd_flags member.
+        # Before that, it's its own member.
+        bdev.prog_.cache["bdev_partno"] = impl = (
+            _bdev_partno_flags
+            if bdev.prog_.type("struct block_device").has_member("__bd_flags")
+            else _bdev_partno_old
+        )
+    return impl(bdev)
 
 
 def _class_to_subsys(class_: Object) -> Object:
@@ -112,7 +142,7 @@ def for_each_disk(prog: Program) -> Iterator[Object]:
             except LookupError:
                 have_bd_device = False
             else:
-                if bdev.bd_partno == 0:
+                if not bdev_partno(bdev):
                     yield bdev.bd_disk
                 continue
         part = container_of(device, "struct hd_struct", "__dev")
