@@ -36,6 +36,7 @@ from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.mm import (
     PageSlab,
+    _get_PageSlab_impl,
     compound_head,
     for_each_page,
     page_to_virt,
@@ -222,10 +223,12 @@ class _SlabCacheHelper:
     def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
         pointer_type = self._prog.pointer_type(self._prog.type(type))
         slab_type = _get_slab_type(self._prog)
-        PG_slab_mask = 1 << self._prog.constant("PG_slab")
+        # Get the underlying implementation directly to avoid overhead on each
+        # page.
+        PageSlab = _get_PageSlab_impl(self._prog)
         for page in for_each_page(self._prog):
             try:
-                if not page.flags & PG_slab_mask:
+                if not PageSlab(page):
                     continue
             except FaultError:
                 continue
