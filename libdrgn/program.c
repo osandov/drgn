@@ -653,13 +653,9 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 		goto out_segments;
 	}
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		err = drgn_program_add_object_finder(prog,
-						     linux_kernel_object_find,
-						     prog);
+		err = drgn_program_finish_set_kernel(prog);
 		if (err)
 			goto out_segments;
-		if (!prog->lang)
-			prog->lang = &drgn_language_c;
 	}
 
 	return NULL;

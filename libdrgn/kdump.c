@@ -261,12 +261,9 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	}
 
 	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
-	err = drgn_program_add_object_finder(prog, linux_kernel_object_find,
-					     prog);
+	err = drgn_program_finish_set_kernel(prog);
 	if (err)
 		goto err_platform;
-	if (!prog->lang)
-		prog->lang = &drgn_language_c;
 	prog->kdump_ctx = ctx;
 	return NULL;
 

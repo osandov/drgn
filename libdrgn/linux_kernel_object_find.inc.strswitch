@@ -1,10 +1,11 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
-					    const char *filename,
-					    enum drgn_find_object_flags flags,
-					    void *arg, struct drgn_object *ret)
+static struct drgn_error *
+linux_kernel_object_find(const char *name, size_t name_len,
+			 const char *filename,
+			 enum drgn_find_object_flags flags, void *arg,
+			 struct drgn_object *ret)
 {
 	struct drgn_program *prog = arg;
 	if (!filename) {
