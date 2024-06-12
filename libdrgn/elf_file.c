@@ -275,3 +275,51 @@ struct drgn_error *drgn_elf_file_section_buffer_error(struct binary_buffer *bb,
 	return drgn_elf_file_section_error(buffer->file, buffer->scn,
 					   buffer->data, ptr, message);
 }
+
+bool next_elf_note(const void **p, size_t *size, unsigned int align, bool bswap,
+		   Elf32_Nhdr *nhdr_ret, const char **name_ret,
+		   const void **desc_ret)
+{
+	uint64_t align_mask = align - 1;
+
+	if (*size < sizeof(*nhdr_ret))
+		return false;
+	memcpy(nhdr_ret, *p, sizeof(*nhdr_ret));
+	if (bswap) {
+		nhdr_ret->n_namesz = bswap_32(nhdr_ret->n_namesz);
+		nhdr_ret->n_descsz = bswap_32(nhdr_ret->n_descsz);
+		nhdr_ret->n_type = bswap_32(nhdr_ret->n_type);
+	}
+
+	if (nhdr_ret->n_namesz > *size - sizeof(*nhdr_ret))
+		return false;
+	uint64_t aligned_namesz = (nhdr_ret->n_namesz + align_mask) & ~align_mask;
+	if (nhdr_ret->n_descsz > 0
+	    && (aligned_namesz > *size - sizeof(*nhdr_ret)
+		|| nhdr_ret->n_descsz > *size - sizeof(*nhdr_ret) - aligned_namesz))
+	    return false;
+
+	*p = (const char *)*p + sizeof(*nhdr_ret);
+	*size -= sizeof(*nhdr_ret);
+
+	*name_ret = *p;
+	if (aligned_namesz > *size) {
+		*p = (const char *)*p + *size;
+		*size = 0;
+	} else {
+		*p = (const char *)*p + aligned_namesz;
+		*size -= aligned_namesz;
+	}
+
+	*desc_ret = *p;
+	uint64_t aligned_descsz = (nhdr_ret->n_descsz + align_mask) & ~align_mask;
+	if (aligned_descsz > *size) {
+		*p = (const char *)*p + *size;
+		*size = 0;
+	} else {
+		*p = (const char *)*p + aligned_descsz;
+		*size -= aligned_descsz;
+	}
+
+	return true;
+}

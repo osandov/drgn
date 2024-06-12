@@ -21,6 +21,7 @@
 #include "cleanup.h"
 #include "debug_info.h"
 #include "drgn.h"
+#include "elf_file.h"
 #include "error.h"
 #include "hash_table.h"
 #include "helpers.h"
@@ -601,46 +602,17 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 static size_t parse_gnu_build_id_from_note(const void *note, size_t note_size,
 					   bool bswap, const void **ret)
 {
-	const char *p = note;
-	const char *end = p + note_size;
-	// Elf64_Nhdr is the same as Elf32_Nhdr.
 	Elf32_Nhdr nhdr;
-	while (end - p >= sizeof(nhdr)) {
-#define ALIGN_NOTE() do {						\
-		size_t to_align = (size_t)-(p - (char *)note) % 4;	\
-		if (to_align > end - p)					\
-			break;						\
-		p += to_align;						\
-} while (0)
-
-		memcpy(&nhdr, p, sizeof(nhdr));
-		if (bswap) {
-			nhdr.n_namesz = bswap_32(nhdr.n_namesz);
-			nhdr.n_descsz = bswap_32(nhdr.n_descsz);
-			nhdr.n_type = bswap_32(nhdr.n_type);
-		}
-		p += sizeof(nhdr);
-
-		if (nhdr.n_namesz > end - p)
-			break;
-		const char *name = p;
-		p += nhdr.n_namesz;
-		ALIGN_NOTE();
-
+	const char *name;
+	const void *desc;
+	while (next_elf_note(&note, &note_size, 4, bswap, &nhdr, &name, &desc)) {
 		if (nhdr.n_namesz == sizeof("GNU") &&
 		    memcmp(name, "GNU", sizeof("GNU")) == 0 &&
 		    nhdr.n_type == NT_GNU_BUILD_ID &&
 		    nhdr.n_descsz > 0) {
-			if (nhdr.n_descsz > end - p)
-				break;
-			*ret = p;
+			*ret = desc;
 			return nhdr.n_descsz;
 		}
-
-		p += nhdr.n_descsz;
-		ALIGN_NOTE();
-
-#undef ALIGN_NOTE
 	}
 	*ret = NULL;
 	return 0;

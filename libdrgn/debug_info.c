@@ -924,8 +924,8 @@ static void read_phdr(const void *phdr_buf, size_t i, bool is_64_bit,
 	}
 }
 
-static const char *read_build_id(const char *buf, size_t buf_len,
-				 uint64_t align, bool bswap,
+static const char *read_build_id(const void *buf, size_t buf_len,
+				 unsigned int align, bool bswap,
 				 size_t *len_ret)
 {
 	/*
@@ -934,39 +934,18 @@ static const char *read_build_id(const char *buf, size_t buf_len,
 	 */
 	static const uint32_t build_id_min_size = 2;
 	static const uint32_t build_id_max_size = 1024;
-	/* Elf32_Nhdr is the same as Elf64_Nhdr. */
-	Elf64_Nhdr nhdr;
-	const char *p = buf;
-	while (buf + buf_len - p >= sizeof(nhdr)) {
-		memcpy(&nhdr, p, sizeof(nhdr));
-		if (bswap) {
-			nhdr.n_namesz = bswap_32(nhdr.n_namesz);
-			nhdr.n_descsz = bswap_32(nhdr.n_descsz);
-			nhdr.n_type = bswap_32(nhdr.n_type);
-		}
-		p += sizeof(nhdr);
-
-		uint64_t namesz = (nhdr.n_namesz + align - 1) & ~(align - 1);
-		if (namesz > buf + buf_len - p)
-			return NULL;
-		const char *name = p;
-		p += namesz;
-
+	Elf32_Nhdr nhdr;
+	const char *name;
+	const void *desc;
+	while (next_elf_note(&buf, &buf_len, align, bswap, &nhdr, &name, &desc)) {
 		if (nhdr.n_namesz == sizeof("GNU") &&
 		    memcmp(name, "GNU", sizeof("GNU")) == 0 &&
 		    nhdr.n_type == NT_GNU_BUILD_ID &&
 		    nhdr.n_descsz >= build_id_min_size &&
 		    nhdr.n_descsz <= build_id_max_size) {
-			if (nhdr.n_descsz > buf + buf_len - p)
-				return NULL;
 			*len_ret = nhdr.n_descsz;
-			return p;
+			return desc;
 		}
-
-		uint64_t descsz = (nhdr.n_descsz + align - 1) & ~(align - 1);
-		if (descsz > buf + buf_len - p)
-			return NULL;
-		p += descsz;
 	}
 	return NULL;
 }
@@ -1104,7 +1083,8 @@ userspace_core_identify_file(struct drgn_program *prog,
 			}
 			ret->build_id = read_build_id(core->segment_buf,
 						      phdr.p_filesz,
-						      phdr.p_align, arg.bswap,
+						      phdr.p_align == 8 ? 8 : 4,
+						      arg.bswap,
 						      &ret->build_id_len);
 			if (ret->build_id)
 				break;
