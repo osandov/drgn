@@ -473,6 +473,15 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		    ))
 		goto err;
 
+	if (add_bool(m, "_with_libbpf",
+#ifdef WITH_BPF
+		     true
+#else
+		     false
+#endif
+		    ))
+		goto err;
+
 	return m;
 
 err:

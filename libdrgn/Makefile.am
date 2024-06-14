@@ -164,6 +164,12 @@ libdrgn_common_la_CFLAGS += $(libkdumpfile_CFLAGS)
 libdrgn_common_la_LIBADD += $(libkdumpfile_LIBS)
 endif
 
+if WITH_BPF
+libdrgn_common_la_SOURCES += btf_info.c btf_info.h
+libdrgn_common_la_CFLAGS += $(bpf_CFLAGS)
+libdrgn_common_la_LIBADD += $(bpf_LIBS)
+endif
+
 if ENABLE_PYTHON
 noinst_LTLIBRARIES += libdrgn_common_python.la
 

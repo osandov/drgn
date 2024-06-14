@@ -28,6 +28,7 @@
 #include "binary_buffer.h"
 #include "binary_search.h"
 #include "bitmap.h"
+#include "btf_info.h"
 #include "cleanup.h"
 #include "crc32.h"
 #include "debug_info.h"
@@ -447,6 +448,7 @@ static void drgn_module_destroy(struct drgn_module *module)
 	drgn_module_section_address_map_deinit(&module->section_addresses);
 	drgn_module_orc_info_deinit(module);
 	drgn_module_dwarf_info_deinit(module);
+	drgn_module_btf_info_deinit(module);
 	drgn_module_clear_wanted_supplementary_debug_file(module);
 	drgn_elf_file_destroy(module->gnu_debugdata_file);
 	drgn_elf_file_destroy(module->supplementary_debug_file);
@@ -5661,6 +5663,7 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 	}
 #endif
 	drgn_dwarf_info_init(dbinfo);
+	drgn_btf_info_init(dbinfo);
 }
 
 void drgn_debug_info_deinit(struct drgn_debug_info *dbinfo)
