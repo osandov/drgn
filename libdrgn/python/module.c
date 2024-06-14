@@ -181,6 +181,22 @@ static PyObject *Module_try_file(Module *self, PyObject *args, PyObject *kwds)
 	Py_RETURN_NONE;
 }
 
+static PyObject *Module_load_btf(Module *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = { "data", "main_module_base", NULL };
+	const char *btf_data = NULL;
+	size_t btf_size = 0;
+	int main_module_base = DRGN_TRISTATE_DEFAULT;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$z#p:load_btf", keywords,
+					 &btf_data, &btf_size, &main_module_base))
+		return NULL;
+	struct drgn_error *err = drgn_module_load_btf(self->module, btf_data,
+						      btf_size, main_module_base);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static Program *Module_get_prog(Module *self, void *arg)
 {
 	Program *prog = Module_prog(self);
@@ -497,6 +513,8 @@ static PyMethodDef Module_methods[] = {
 	 drgn_Module_wanted_supplementary_debug_file_DOC},
 	{"try_file", (PyCFunction)Module_try_file,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Module_try_file_DOC},
+	{"load_btf", (PyCFunction)Module_load_btf,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Module_load_btf_DOC},
 	{},
 };
 
