@@ -24,9 +24,8 @@ from vmtest.download import (
     DownloadKernel,
     download_in_thread,
 )
-from vmtest.kmod import build_kmod
 from vmtest.rootfsbuild import build_drgn_in_rootfs
-from vmtest.vm import LostVMError, run_in_vm
+from vmtest.vm import LostVMError, TestKmodMode, run_in_vm
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +295,6 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
         for kernel in downloads:
             if not isinstance(kernel, Kernel):
                 continue
-            kmod = build_kmod(args.directory, kernel)
 
             # Skip excessively slow tests when emulating.
             if kernel.arch is HOST_ARCHITECTURE:
@@ -317,7 +315,6 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
 set -e
 
 export PYTHON={shlex.quote(sys.executable)}
-export DRGN_TEST_KMOD={shlex.quote(str(kmod))}
 export DRGN_RUN_LINUX_KERNEL_TESTS=1
 if [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm pytest -v tests/linux_kernel/vmcore
@@ -333,6 +330,7 @@ fi
                     kernel,
                     args.directory / kernel.arch.name / "rootfs",
                     args.directory,
+                    test_kmod=TestKmodMode.BUILD,
                 )
             except LostVMError as e:
                 print("error:", e, file=sys.stderr)

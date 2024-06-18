@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import enum
 import os
 from pathlib import Path
 import re
@@ -20,6 +21,7 @@ from vmtest.download import (
     download,
     download_kernel_argparse_type,
 )
+from vmtest.kmod import build_kmod
 
 # Script run as init in the virtual machine.
 _INIT_TEMPLATE = r"""#!/bin/sh
@@ -138,6 +140,7 @@ if [ -z "$vport" ]; then
 fi
 
 cd {cwd}
+{test_kmod}
 set +e
 setsid -c sh -c {command}
 rc=$?
@@ -192,18 +195,37 @@ def _build_onoatimehack(dir: Path) -> Path:
     return onoatimehack_so
 
 
+class TestKmodMode(enum.Enum):
+    NONE = 0
+    BUILD = 1
+    INSERT = 2
+
+
 class LostVMError(Exception):
     pass
 
 
 def run_in_vm(
-    command: str, kernel: Kernel, root_dir: Optional[Path], build_dir: Path
+    command: str,
+    kernel: Kernel,
+    root_dir: Optional[Path],
+    build_dir: Path,
+    *,
+    test_kmod: TestKmodMode = TestKmodMode.NONE,
 ) -> int:
     if root_dir is None:
         if kernel.arch is HOST_ARCHITECTURE:
             root_dir = Path("/")
         else:
             root_dir = build_dir / kernel.arch.name / "rootfs"
+
+    if test_kmod == TestKmodMode.NONE:
+        test_kmod_command = ""
+    else:
+        kmod = build_kmod(build_dir, kernel)
+        test_kmod_command = f"export DRGN_TEST_KMOD={shlex.quote(str(kmod))}"
+        if test_kmod == TestKmodMode.INSERT:
+            test_kmod_command += '\ninsmod "$DRGN_TEST_KMOD"'
 
     qemu_exe = "qemu-system-" + kernel.arch.name
     match = re.search(
@@ -278,6 +300,7 @@ def run_in_vm(
                     ),
                     command=shlex.quote(command),
                     kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
+                    test_kmod=test_kmod_command,
                 )
             )
         init_path.chmod(0o755)
@@ -404,6 +427,22 @@ if __name__ == "__main__":
         help="directory to use as root directory in VM (default: / for the host architecture, $directory/$arch/rootfs otherwise)",
     )
     parser.add_argument(
+        "--build-test-kmod",
+        dest="test_kmod",
+        action="store_const",
+        const=TestKmodMode.BUILD,
+        default=argparse.SUPPRESS,
+        help="build the drgn test kernel module and define the DRGN_TEST_KMOD environment variable in the VM",
+    )
+    parser.add_argument(
+        "--insert-test-kmod",
+        dest="test_kmod",
+        action="store_const",
+        const=TestKmodMode.INSERT,
+        default=argparse.SUPPRESS,
+        help="insert the drgn test kernel module. Implies --build-test-kmod",
+    )
+    parser.add_argument(
         "command",
         type=str,
         nargs=argparse.REMAINDER,
@@ -420,6 +459,8 @@ if __name__ == "__main__":
         kernel = next(download(args.directory, [args.kernel]))  # type: ignore[assignment]
     if not hasattr(args, "root_directory"):
         args.root_directory = None
+    if not hasattr(args, "test_kmod"):
+        args.test_kmod = TestKmodMode.NONE
 
     try:
         command = (
@@ -427,7 +468,15 @@ if __name__ == "__main__":
             if args.command
             else "sh -i"
         )
-        sys.exit(run_in_vm(command, kernel, args.root_directory, args.directory))
+        sys.exit(
+            run_in_vm(
+                command,
+                kernel,
+                args.root_directory,
+                args.directory,
+                test_kmod=args.test_kmod,
+            )
+        )
     except LostVMError as e:
         print("error:", e, file=sys.stderr)
         sys.exit(args.lost_status)

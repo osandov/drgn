@@ -200,21 +200,14 @@ class test(Command):
         return make_check_success and test.result.wasSuccessful()
 
     def _run_vm(self, kernel):
-        from vmtest.kmod import build_kmod
         import vmtest.vm
 
         logger.info("running tests in VM on Linux %s", kernel.release)
-
-        try:
-            kmod = build_kmod(Path(self.vmtest_dir), kernel)
-        except subprocess.CalledProcessError:
-            return False
 
         command = rf"""
 set -e
 
 export PYTHON={shlex.quote(sys.executable)}
-export DRGN_TEST_KMOD={shlex.quote(str(kmod))}
 if [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm unittest discover -t . -s tests/linux_kernel/vmcore {"-v" if self.verbose else ""}
 else
@@ -228,7 +221,11 @@ fi
 """
         try:
             returncode = vmtest.vm.run_in_vm(
-                command, kernel, Path("/"), Path(self.vmtest_dir)
+                command,
+                kernel,
+                Path("/"),
+                Path(self.vmtest_dir),
+                test_kmod=vmtest.vm.TestKmodMode.BUILD,
             )
         except vmtest.vm.LostVMError:
             logger.exception("error on Linux %s", kernel.release)
