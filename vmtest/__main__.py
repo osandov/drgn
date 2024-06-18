@@ -296,10 +296,12 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
             if not isinstance(kernel, Kernel):
                 continue
 
-            # Skip excessively slow tests when emulating.
             if kernel.arch is HOST_ARCHITECTURE:
+                python_executable = sys.executable
                 tests_expression = ""
             else:
+                python_executable = "/usr/bin/python3"
+                # Skip excessively slow tests when emulating.
                 tests_expression = "-k 'not test_slab_cache_for_each_allocated_object'"
 
             if _kdump_works(kernel):
@@ -314,7 +316,7 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
             test_command = rf"""
 set -e
 
-export PYTHON={shlex.quote(sys.executable)}
+export PYTHON={shlex.quote(python_executable)}
 export DRGN_RUN_LINUX_KERNEL_TESTS=1
 if [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm pytest -v tests/linux_kernel/vmcore
