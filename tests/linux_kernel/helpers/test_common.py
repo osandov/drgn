@@ -82,6 +82,7 @@ class TestIdentifyAddress(LinuxKernelTestCase):
 
 
 class TestPrintAnnotatedMemory(LinuxKernelTestCase):
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_print_annotated_memory(self):
         f = io.StringIO()
