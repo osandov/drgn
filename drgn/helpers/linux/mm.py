@@ -19,7 +19,7 @@ from _drgn import (
     _linux_helper_follow_phys,
     _linux_helper_read_vm,
 )
-from drgn import NULL, IntegerLike, Object, Program, cast
+from drgn import NULL, IntegerLike, Object, ObjectAbsentError, Program, cast
 from drgn.helpers.common.format import decode_enum_type_flags
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.list import list_for_each_entry
@@ -1124,6 +1124,17 @@ def _vmap_area_rb_cmp(addr: int, va: Object) -> int:
         return 0
 
 
+def _vmap_nodes(prog: Program) -> Object:
+    vmap_nodes = prog["vmap_nodes"]
+    try:
+        return vmap_nodes.read_()
+    except ObjectAbsentError:
+        # On 32-bit kernels, vmap_nodes is initialized to &single and never
+        # reassigned. GCC as of version 12.2 doesn't generate a location for
+        # vmap_nodes description in that case.
+        return prog.variable("single", "mm/vmalloc.c").address_of_()
+
+
 @takes_program_or_default
 def find_vmap_area(prog: Program, addr: IntegerLike) -> Object:
     """
@@ -1143,7 +1154,7 @@ def find_vmap_area(prog: Program, addr: IntegerLike) -> Object:
     # red-black trees in separate "nodes". Before that, they're in a single
     # red-black tree.
     try:
-        vmap_nodes = prog["vmap_nodes"].read_()
+        vmap_nodes = _vmap_nodes(prog)
     except KeyError:
         return rb_find(
             "struct vmap_area",
@@ -1198,7 +1209,7 @@ def for_each_vmap_area(prog: Program) -> Iterator[Object]:
     # vmap_area_root rb-tree") (in v6.9), vmap areas are split up in multiple
     # lists in separate "nodes". Before that, they're in a single list.
     try:
-        vmap_nodes = prog["vmap_nodes"].read_()
+        vmap_nodes = _vmap_nodes(prog)
     except KeyError:
         yield from list_for_each_entry(
             "struct vmap_area", prog["vmap_area_list"].address_of_(), "list"
