@@ -41,7 +41,7 @@ SUPPORTED_KERNEL_VERSIONS = (
 )
 
 KERNEL_ORG_COMPILER_VERSION = "12.2.0"
-VMTEST_KERNEL_VERSION = 29
+VMTEST_KERNEL_VERSION = 30
 
 
 BASE_KCONFIG = """
@@ -101,6 +101,9 @@ CONFIG_CRYPTO_SHA256=y
 
 # So that we can trigger a crash with /proc/sysrq-trigger.
 CONFIG_MAGIC_SYSRQ=y
+
+# For testing kernel core dumps from QEMU's dump-guest-memory command.
+CONFIG_FW_CFG_SYSFS=y
 
 # For BPF tests.
 CONFIG_BPF_SYSCALL=y
