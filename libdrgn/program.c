@@ -38,7 +38,6 @@ static inline uint32_t drgn_thread_to_key(const struct drgn_thread *entry)
 	return entry->tid;
 }
 
-DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector);
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_thread_set, drgn_thread_to_key,
 			    int_key_hash_pair, scalar_key_eq);
 
@@ -103,6 +102,7 @@ void drgn_program_init(struct drgn_program *prog,
 	prog->core_fd = -1;
 	if (platform)
 		drgn_program_set_platform(prog, platform);
+	drgn_thread_set_init(&prog->thread_set);
 	char *env = getenv("DRGN_PREFER_ORC_UNWINDER");
 	prog->prefer_orc_unwinder = env && atoi(env);
 	drgn_program_set_log_level(prog, DRGN_LOG_NONE);
@@ -112,12 +112,7 @@ void drgn_program_init(struct drgn_program *prog,
 
 void drgn_program_deinit(struct drgn_program *prog)
 {
-	if (prog->core_dump_notes_cached) {
-		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-			drgn_prstatus_vector_deinit(&prog->prstatus_vector);
-		else
-			drgn_thread_set_deinit(&prog->thread_set);
-	}
+	drgn_thread_set_deinit(&prog->thread_set);
 	/*
 	 * For userspace core dumps, main_thread and crashed_thread are in
 	 * prog->thread_set and thus freed by the above call to
@@ -929,27 +924,17 @@ struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 						     const char *data,
 						     size_t size, uint32_t *ret)
 {
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		struct nstring *entry =
-			drgn_prstatus_vector_append_entry(&prog->prstatus_vector);
-		if (!entry)
-			return &drgn_enomem;
-		entry->str = data;
-		entry->len = size;
-	} else {
-		struct drgn_thread thread = {
-			.prog = prog,
-			.prstatus = { data, size },
-	       };
-		struct drgn_error *err = get_prstatus_pid(prog, data, size,
-							  &thread.tid);
-		if (err)
-			return err;
-		*ret = thread.tid;
-		if (drgn_thread_set_insert(&prog->thread_set, &thread,
-					   NULL) == -1)
-			return &drgn_enomem;
-	}
+	struct drgn_thread thread = {
+		.prog = prog,
+		.prstatus = { data, size },
+	};
+	struct drgn_error *err = get_prstatus_pid(prog, data, size,
+						  &thread.tid);
+	if (err)
+		return err;
+	*ret = thread.tid;
+	if (drgn_thread_set_insert(&prog->thread_set, &thread, NULL) == -1)
+		return &drgn_enomem;
 	return NULL;
 }
 
@@ -967,11 +952,6 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 		return NULL;
 
 	assert(!(prog->flags & DRGN_PROGRAM_IS_LIVE));
-
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		drgn_prstatus_vector_init(&prog->prstatus_vector);
-	else
-		drgn_thread_set_init(&prog->thread_set);
 
 #ifdef WITH_LIBKDUMPFILE
 	if (prog->kdump_ctx) {
@@ -1076,10 +1056,8 @@ out:
 	return NULL;
 
 err:
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		drgn_prstatus_vector_deinit(&prog->prstatus_vector);
-	else
-		drgn_thread_set_deinit(&prog->thread_set);
+	drgn_thread_set_deinit(&prog->thread_set);
+	drgn_thread_set_init(&prog->thread_set);
 	return err;
 }
 
@@ -1408,6 +1386,7 @@ drgn_program_find_thread_kernel_cpu_curr(struct drgn_program *prog,
 	if (err)
 		goto out;
 	thread->tid = tid.uvalue;
+	thread->prstatus = (struct nstring){};
 
 	*ret = thread;
 
@@ -1426,7 +1405,6 @@ drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 
 	assert((prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
 	       !(prog->flags & DRGN_PROGRAM_IS_LIVE));
-	assert(prog->core_dump_notes_cached);
 	if (prog->crashed_thread)
 		return NULL;
 
@@ -1435,17 +1413,12 @@ drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 	if (err)
 		return err;
 
-	if (crashed_cpu >= drgn_prstatus_vector_size(&prog->prstatus_vector))
-		return NULL;
-
 	err = drgn_program_find_thread_kernel_cpu_curr(prog, crashed_cpu,
 						       &prog->crashed_thread);
 	if (err) {
 		prog->crashed_thread = NULL;
 		return err;
 	}
-	prog->crashed_thread->prstatus =
-		*drgn_prstatus_vector_at(&prog->prstatus_vector, crashed_cpu);
 	return NULL;
 }
 
@@ -1489,14 +1462,12 @@ drgn_program_crashed_thread(struct drgn_program *prog, struct drgn_thread **ret)
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "crashed thread is only defined for core dumps");
 	}
-	err = drgn_program_cache_core_dump_notes(prog);
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		err = drgn_program_kernel_core_dump_cache_crashed_thread(prog);
+	else
+		err = drgn_program_cache_core_dump_notes(prog);
 	if (err)
 		return err;
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		err = drgn_program_kernel_core_dump_cache_crashed_thread(prog);
-		if (err)
-			return err;
-	}
 	if (!prog->crashed_thread) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "crashed thread not found");
@@ -1516,36 +1487,14 @@ drgn_thread_object(struct drgn_thread *thread, const struct drgn_object **ret)
 	return NULL;
 }
 
-struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
-						     uint32_t cpu,
-						     struct nstring *ret)
+struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
+					      uint32_t tid, struct nstring *ret)
 {
-	assert(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL);
 	struct drgn_error *err = drgn_program_cache_core_dump_notes(prog);
 	if (err)
 		return err;
-
-	if (cpu < drgn_prstatus_vector_size(&prog->prstatus_vector)) {
-		*ret = *drgn_prstatus_vector_at(&prog->prstatus_vector, cpu);
-	} else {
-		ret->str = NULL;
-		ret->len = 0;
-	}
-	return NULL;
-}
-
-struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
-						     uint32_t tid,
-						     struct nstring *ret)
-{
-	struct drgn_error *err;
-
-	assert(!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL));
-	struct drgn_thread *thread;
-	err = drgn_program_find_thread(prog, tid, &thread);
-	if (err)
-		return err;
-
+	struct drgn_thread *thread =
+		drgn_thread_set_search(&prog->thread_set, &tid).entry;
 	if (!thread) {
 		ret->str = NULL;
 		ret->len = 0;

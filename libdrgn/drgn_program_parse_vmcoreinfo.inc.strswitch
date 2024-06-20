@@ -37,6 +37,9 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 
 		const char *value = equals + 1;
 		@memswitch (line, equals - line)@
+		@case "CRASHTIME"@
+			prog->vmcoreinfo.have_crashtime = true;
+			break;
 		@case "OSRELEASE"@
 			if ((size_t)(newline - value) >=
 			    sizeof(prog->vmcoreinfo.osrelease)) {

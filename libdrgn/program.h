@@ -57,7 +57,6 @@ struct drgn_thread {
 };
 
 DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *);
-DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct nstring);
 DEFINE_HASH_TABLE_TYPE(drgn_thread_set, struct drgn_thread);
 
 struct drgn_program {
@@ -128,16 +127,13 @@ struct drgn_program {
 	/*
 	 * Threads/stack traces.
 	 */
-	union {
-		/*
-		 * For the Linux kernel, PRSTATUS notes indexed by CPU. See
-		 * drgn_get_initial_registers() for why we don't use the PID
-		 * map.
-		 */
-		struct drgn_prstatus_vector prstatus_vector;
-		/* For userspace programs, threads indexed by PID. */
-		struct drgn_thread_set thread_set;
-	};
+	/*
+	 * Threads indexed by TID.
+	 *
+	 * For the Linux kernel, this is only used to index @c PRSTATUS notes.
+	 * See @ref drgn_program_find_prstatus().
+	 */
+	struct drgn_thread_set thread_set;
 	struct drgn_thread *main_thread;
 	struct drgn_thread *crashed_thread;
 	/*
@@ -175,6 +171,8 @@ struct drgn_program {
 		uint64_t phys_base;
 		/** Whether 5-level paging was enabled on x86-64. */
 		bool pgtable_l5_enabled;
+		/** Whether CRASHTIME was in the VMCOREINFO. */
+		bool have_crashtime;
 		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */
 		int page_shift;
 
@@ -331,28 +329,17 @@ struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
 void drgn_thread_deinit(struct drgn_thread *thread);
 
 /**
- * Find the @c NT_PRSTATUS note for the given CPU.
+ * Find the @c NT_PRSTATUS note with the given "PID".
  *
- * This is only valid for the Linux kernel.
- *
- * @param[out] ret Returned note data. If not found, <tt>ret->str</tt> is set to
- * @c NULL and <tt>ret->len</tt> is set to zero.
- */
-struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
-						     uint32_t cpu,
-						     struct nstring *ret);
-
-/**
- * Find the @c NT_PRSTATUS note for the given thread ID.
- *
- * This is only valid for userspace programs.
+ * For userspace, the PID is the thread ID. For the kernel, it's complicated;
+ * see drgn_get_initial_registers_from_kernel_core_dump().
  *
  * @param[out] ret Returned note data. If not found, <tt>ret->str</tt> is set to
  * @c NULL and <tt>ret->len</tt> is set to zero.
  */
-struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
-						     uint32_t tid,
-						     struct nstring *ret);
+struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
+					      uint32_t tid,
+					      struct nstring *ret);
 
 /**
  * Cache the @c NT_PRSTATUS note provided by @p data in @p prog.
