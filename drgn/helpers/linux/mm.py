@@ -1129,9 +1129,9 @@ def _vmap_nodes(prog: Program) -> Object:
     try:
         return vmap_nodes.read_()
     except ObjectAbsentError:
-        # On 32-bit kernels, vmap_nodes is initialized to &single and never
-        # reassigned. GCC as of version 12.2 doesn't generate a location for
-        # vmap_nodes description in that case.
+        # On !SMP and 32-bit kernels, vmap_nodes is initialized to &single and
+        # never reassigned. GCC as of version 12.2 doesn't generate a location
+        # for vmap_nodes description in that case.
         return prog.variable("single", "mm/vmalloc.c").address_of_()
 
 
