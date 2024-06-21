@@ -1644,7 +1644,7 @@ static struct drgn_error *relocate_elf_file(Elf *elf)
 		if (r < 0)
 			return drgn_error_libelf();
 		if (r) {
-			Elf_Scn *scn = elf_getscn(elf, reloc_shdr->sh_info);
+			scn = elf_getscn(elf, reloc_shdr->sh_info);
 			if (!scn)
 				return drgn_error_libelf();
 			GElf_Shdr *shdr, shdr_mem;
@@ -2125,15 +2125,15 @@ elf_symbols_search(const char *name, uint64_t addr, enum drgn_find_symbol_flags 
 	    == (DRGN_FIND_SYMBOL_ADDR | DRGN_FIND_SYMBOL_ONE)) {
 		GElf_Off offset;
 		GElf_Sym elf_sym;
-		const char *name = dwfl_module_addrinfo(
-			dwfl_module, addr, &offset,
-			&elf_sym, NULL, NULL, NULL);
-		if (!name)
+		const char *sym_name = dwfl_module_addrinfo(dwfl_module, addr,
+							    &offset, &elf_sym,
+							    NULL, NULL, NULL);
+		if (!sym_name)
 			return NULL;
 		struct drgn_symbol *sym = malloc(sizeof(*sym));
 		if (!sym)
 			return &drgn_enomem;
-		drgn_symbol_from_elf(name, addr - offset, &elf_sym, sym);
+		drgn_symbol_from_elf(sym_name, addr - offset, &elf_sym, sym);
 		if (!drgn_symbol_result_builder_add(builder, sym)) {
 			arg.err = &drgn_enomem;
 			drgn_symbol_destroy(sym);

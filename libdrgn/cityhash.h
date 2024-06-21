@@ -120,11 +120,11 @@ static uint32_t cityhash32(const void *data, size_t len) {
 	f = f * 5 + cityhash_c3;
 	size_t iters = (len - 1) / 20;
 	do {
-		uint32_t a0 = cityhash_rotate32(cityhash_fetch32(s) * cityhash_c1, 17) * cityhash_c2;
-		uint32_t a1 = cityhash_fetch32(s + 4);
-		uint32_t a2 = cityhash_rotate32(cityhash_fetch32(s + 8) * cityhash_c1, 17) * cityhash_c2;
-		uint32_t a3 = cityhash_rotate32(cityhash_fetch32(s + 12) * cityhash_c1, 17) * cityhash_c2;
-		uint32_t a4 = cityhash_fetch32(s + 16);
+		a0 = cityhash_rotate32(cityhash_fetch32(s) * cityhash_c1, 17) * cityhash_c2;
+		a1 = cityhash_fetch32(s + 4);
+		a2 = cityhash_rotate32(cityhash_fetch32(s + 8) * cityhash_c1, 17) * cityhash_c2;
+		a3 = cityhash_rotate32(cityhash_fetch32(s + 12) * cityhash_c1, 17) * cityhash_c2;
+		a4 = cityhash_fetch32(s + 16);
 		h ^= a0;
 		h = cityhash_rotate32(h, 18);
 		h = h * 5 + cityhash_c3;

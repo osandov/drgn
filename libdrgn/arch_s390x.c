@@ -439,7 +439,7 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 			it->pagetable[level].offset = offset;
 		}
 
-		uint64_t entry = it->pagetable[level].entries[index];
+		entry = it->pagetable[level].entries[index];
 		if (drgn_platform_bswap(&prog->platform))
 			entry = bswap_64(entry);
 

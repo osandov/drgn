@@ -392,12 +392,12 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 			  type->little_endian);
 		if (type->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
 		    && type->bit_size % 8 != 0) {
-			int8_t *p;
+			int8_t *dst_p;
 			if (type->little_endian)
-				p = (int8_t *)dst + size - 1;
+				dst_p = (int8_t *)dst + size - 1;
 			else
-				p = (int8_t *)dst;
-			*p = truncate_signed8(*p, type->bit_size % 8);
+				dst_p = (int8_t *)dst;
+			*dst_p = truncate_signed8(*dst_p, type->bit_size % 8);
 		}
 	} else if (drgn_object_encoding_is_complete(type->encoding)) {
 		if (type->encoding == DRGN_OBJECT_ENCODING_FLOAT
