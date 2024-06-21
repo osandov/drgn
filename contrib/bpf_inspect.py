@@ -22,25 +22,6 @@ BpfAttachType = enum_type_to_class(prog.type("enum bpf_attach_type"), "BpfAttach
 BpfLinkType = enum_type_to_class(prog.type("enum bpf_link_type"), "BpfLinkType")
 
 
-def get_btf_name(btf, btf_id):
-    type_ = btf.types[btf_id]
-    if type_.name_off < btf.hdr.str_len:
-        return btf.strings[type_.name_off].address_of_().string_().decode()
-    return ""
-
-
-def get_prog_btf_name(bpf_prog):
-    aux = bpf_prog.aux
-    if aux.btf:
-        # func_info[0] points to BPF program function itself.
-        return get_btf_name(aux.btf, aux.func_info[0].type_id)
-    return ""
-
-
-def get_bpf_prog_name(bpf_prog):
-    return get_prog_btf_name(bpf_prog) or bpf_prog.aux.name.string_().decode()
-
-
 def bpf_attach_type_to_tramp(attach_type):
     # bpf_tramp_prog_type is available since linux kernel 5.5, this code should
     # be called only after checking for bpf_prog.aux.trampoline to be present
@@ -60,138 +41,198 @@ def bpf_attach_type_to_tramp(attach_type):
     return BpfProgTrampType.BPF_TRAMP_REPLACE
 
 
-def get_bpf_linked_func(bpf_prog):
-    kind = bpf_attach_type_to_tramp(bpf_prog.expected_attach_type)
+class BpfTramp(object):
 
-    linked_prog = bpf_prog.aux.linked_prog
-    linked_prog_id = linked_prog.aux.id.value_()
-    linked_btf_id = bpf_prog.aux.attach_btf_id.value_()
-    linked_name = (
-        f"{get_bpf_prog_name(linked_prog)}->"
-        f"{get_btf_name(linked_prog.aux.btf, linked_btf_id)}()"
-    )
+    def __init__(self, tr):
+        self.tr = tr
 
-    return f"{linked_prog_id}->{linked_btf_id}: {kind.name} {linked_name}"
+    def get_progs(self):
+        if not self.tr:
+            return
 
+        if self.tr.extension_prog:
+            yield self.tr.extension_prog
+            return
 
-def get_bpf_prog_attach_func(bpf_prog):
-    try:
-        func_ = bpf_prog.aux.attach_func_name
-        if func_:
-            return func_.string_().decode()
-    except LookupError:
-        pass
-
-    return ""
+        try:
+            for head in self.tr.progs_hlist:
+                for tramp_aux in hlist_for_each_entry(
+                    "struct bpf_prog_aux", head, "tramp_hlist"
+                ):
+                    yield tramp_aux.prog
+        except LookupError:
+            return
 
 
-def get_tramp_progs(tr):
-    if not tr:
-        return
+class BpfProg(object):
 
-    if tr.extension_prog:
-        yield tr.extension_prog
-        return
+    def __init__(self, bpf_prog):
+        self.prog = bpf_prog
 
-    try:
-        for head in tr.progs_hlist:
-            for tramp_aux in hlist_for_each_entry(
-                "struct bpf_prog_aux", head, "tramp_hlist"
-            ):
-                yield tramp_aux.prog
-    except LookupError:
-        return
+    @staticmethod
+    def __get_btf_name(btf, btf_id):
+        type_ = btf.types[btf_id]
+        if type_.name_off < btf.hdr.str_len:
+            return btf.strings[type_.name_off].address_of_().string_().decode()
+        return ""
 
+    def get_btf_name(self):
+        aux = self.prog.aux
+        if aux.btf:
+            # func_info[0] points to BPF program function itself.
+            return self.__get_btf_name(aux.btf, aux.func_info[0].type_id)
+        return ""
 
-def get_bpf_tramp_progs(bpf_prog):
-    try:
-        # Trampoline was changed to dst_trampoline since Linux kernel commit
-        # 3aac1ead5eb6 ("bpf: Move prog->aux->linked_prog and trampoline into
-        # bpf_link on attach") (in v5.10).
-        # Try to get dst_trampoline first.
-        tr = bpf_prog.aux.member_("dst_trampoline")
-    except LookupError:
-        pass
+    def get_prog_name(self):
+        return self.get_btf_name() or self.prog.aux.name.string_().decode()
 
-    try:
-        tr = bpf_prog.aux.member_("trampoline") if not tr else tr
-    except LookupError:
-        # Trampoline is available since Linux kernel commit
-        # fec56f5890d9 ("bpf: Introduce BPF trampoline") (in v5.5).
-        # Skip trampoline if current kernel doesn't support it.
-        return
+    def get_linked_func(self):
+        kind = bpf_attach_type_to_tramp(self.prog.expected_attach_type)
 
-    return get_tramp_progs(tr)
+        linked_prog = self.prog.aux.linked_prog
+        linked_prog_id = linked_prog.aux.id.value_()
+        linked_btf_id = self.prog.aux.attach_btf_id.value_()
 
+        linked_name = (
+            f"{BpfProg(linked_prog).get_prog_name()}->"
+            f"{self.__get_btf_name(linked_prog.aux.btf, linked_btf_id)}()"
+        )
 
-def inspect_bpf_prog(bpf_prog):
-    id_ = bpf_prog.aux.id.value_()
-    type_ = BpfProgType(bpf_prog.type).name
-    name = get_bpf_prog_name(bpf_prog)
+        return f"{linked_prog_id}->{linked_btf_id}: {kind.name} {linked_name}"
 
-    return f"{id_:>6}: {type_:32} {name:32}"
+    def get_attach_func(self):
+        try:
+            func_ = self.prog.aux.attach_func_name
+            if func_:
+                return func_.string_().decode()
+        except LookupError:
+            pass
+
+        return ""
+
+    def get_tramp_progs(self):
+        try:
+            # Trampoline was changed to dst_trampoline since Linux kernel commit
+            # 3aac1ead5eb6 ("bpf: Move prog->aux->linked_prog and trampoline into
+            # bpf_link on attach") (in v5.10).
+            # Try to get dst_trampoline first.
+            tr = self.prog.aux.member_("dst_trampoline")
+        except LookupError:
+            pass
+
+        try:
+            tr = self.prog.aux.member_("trampoline") if not tr else tr
+        except LookupError:
+            # Trampoline is available since Linux kernel commit
+            # fec56f5890d9 ("bpf: Introduce BPF trampoline") (in v5.5).
+            # Skip trampoline if current kernel doesn't support it.
+            return
+
+        return BpfTramp(tr).get_progs()
+
+    def __repr__(self):
+        id_ = self.prog.aux.id.value_()
+        type_ = BpfProgType(self.prog.type).name
+        name = self.get_prog_name()
+
+        return f"{id_:>6}: {type_:32} {name:32}"
 
 
 def list_bpf_progs():
-    for bpf_prog in bpf_prog_for_each(prog):
-        print(inspect_bpf_prog(bpf_prog))
+    for bpf_prog_ in bpf_prog_for_each(prog):
+        bpf_prog = BpfProg(bpf_prog_)
+        print(f"{bpf_prog}")
 
-        linked_progs = get_bpf_tramp_progs(bpf_prog)
+        linked_progs = bpf_prog.get_tramp_progs()
         if linked_progs:
             for linked_prog in linked_progs:
-                print(f"\tlinked: {inspect_bpf_prog(linked_prog)}")
+                print(f"\tlinked: {BpfProg(linked_prog)}")
 
 
 def __list_bpf_progs(args):
     list_bpf_progs()
 
 
+class BpfMap(object):
+
+    def __init__(self, bpf_map):
+        self.map = bpf_map
+
+    def __repr__(self):
+        id_ = self.map.id.value_()
+        type_ = BpfMapType(self.map.map_type).name
+        name = self.map.name.string_().decode()
+
+        return f"{id_:>6}: {type_:32} {name:32}"
+
+
 def list_bpf_maps():
     for map_ in bpf_map_for_each(prog):
-        id_ = map_.id.value_()
-        type_ = BpfMapType(map_.map_type).name
-        name = map_.name.string_().decode()
-
-        print(f"{id_:>6}: {type_:32} {name}")
+        bpf_map = BpfMap(map_)
+        print(f"{bpf_map}")
 
 
 def __list_bpf_maps(args):
     list_bpf_maps()
 
 
-def inspect_bpf_tracing_link(link):
-    tracing_link = drgn.cast("struct bpf_tracing_link *", link)
-    tgt_prog = tracing_link.tgt_prog
-    linked_progs = get_tramp_progs(tracing_link.trampoline)
-    return (tgt_prog, linked_progs)
+class BpfLink(object):
+
+    def __init__(self, bpf_link):
+        self.link = bpf_link
+
+    def __repr__(self):
+        id_ = self.link.id.value_()
+        type_ = BpfLinkType(self.link.type).name
+
+        return f"{id_:>6}: {type_:32}"
 
 
-def show_bpf_tracing_link_details(link):
-    tgt_prog, linked_progs = inspect_bpf_tracing_link(link)
+class BpfTracingLink(BpfLink):
 
-    if tgt_prog:
-        print(f"\ttarget: {inspect_bpf_prog(tgt_prog)}")
+    def __init__(self, link):
+        super().__init__(link)
+        self.tracing = drgn.cast("struct bpf_tracing_link *", link)
 
-    if linked_progs:
-        for linked_prog in linked_progs:
-            print(f"\tlinked: {inspect_bpf_prog(linked_prog)}")
+    def get_tgt_prog(self):
+        return self.tracing.tgt_prog
+
+    def get_linked_progs(self):
+        return BpfTramp(self.tracing.trampoline).get_progs()
+
+    def __repr__(self):
+        tgt_prog = self.get_tgt_prog()
+        linked_progs = self.get_linked_progs()
+
+        tgt_prog_str = f"target: {BpfProg(tgt_prog)}" if tgt_prog else ""
+        linked_progs_str = (
+            "\n".join(f"linked: {BpfProg(linked_prog)}" for linked_prog in linked_progs)
+            if linked_progs
+            else ""
+        )
+
+        return "\n\t".join(x for x in [tgt_prog_str, linked_progs_str] if x)
 
 
 def show_bpf_link_details(link):
     if link.type == BpfLinkType.BPF_LINK_TYPE_TRACING:
-        show_bpf_tracing_link_details(link)
+        r = BpfTracingLink(link).__repr__()
+    else:
+        r = None
+
+    if r:
+        print(f"\t{r}")
 
 
 def list_bpf_links(show_details=False):
     for link in bpf_link_for_each(prog):
-        id_ = link.id.value_()
-        type_ = BpfLinkType(link.type).name
-        prog_ = inspect_bpf_prog(link.prog)
+        bpf_link = BpfLink(link)
+        bpf_prog = BpfProg(link.prog)
 
-        print(f"{id_:>6}: {type_:32}")
+        print(f"{bpf_link}")
 
-        attach_func = get_bpf_prog_attach_func(link.prog)
-        print(f"\tprog:   {prog_} {attach_func}")
+        attach_func = bpf_prog.get_attach_func()
+        print(f"\tprog:   {bpf_prog} {attach_func}")
 
         if not show_details:
             continue
