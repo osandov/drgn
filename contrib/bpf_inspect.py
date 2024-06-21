@@ -134,8 +134,11 @@ class BpfProg(object):
         id_ = self.prog.aux.id.value_()
         type_ = BpfProgType(self.prog.type).name
         name = self.get_prog_name()
+        tail_call_reachable = self.prog.aux.tail_call_reachable.value_()
 
-        return f"{id_:>6}: {type_:32} {name:32}"
+        tail_call_desc = " tail_call_reachable" if tail_call_reachable else ""
+
+        return f"{id_:>6}: {type_:32} {name:32}{tail_call_desc}"
 
 
 def list_bpf_progs():
@@ -227,12 +230,14 @@ def show_bpf_link_details(link):
 def list_bpf_links(show_details=False):
     for link in bpf_link_for_each(prog):
         bpf_link = BpfLink(link)
-        bpf_prog = BpfProg(link.prog)
-
         print(f"{bpf_link}")
 
+        bpf_prog = BpfProg(link.prog)
+        print(f"\tprog:   {bpf_prog}")
+
         attach_func = bpf_prog.get_attach_func()
-        print(f"\tprog:   {bpf_prog} {attach_func}")
+        if attach_func:
+            print(f"\tattach:   {attach_func}")
 
         if not show_details:
             continue
