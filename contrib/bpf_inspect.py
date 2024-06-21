@@ -217,9 +217,43 @@ class BpfTracingLink(BpfLink):
         return "\n\t".join(x for x in [tgt_prog_str, linked_progs_str] if x)
 
 
+class BpfXdpLink(BpfLink):
+
+    def __init__(self, link):
+        super().__init__(link)
+        self.xdp = drgn.cast("struct bpf_xdp_link *", link)
+
+    def get_dev(self):
+        return self.xdp.dev
+
+    XDP_FLAGS_SKB_MODE = 1<<1
+    XDP_FLAGS_DRV_MODE = 1<<2
+    XDP_FLAGS_HW_MODE = 1<<3
+
+    def get_mode(self):
+        flags = self.xdp.flags.value_()
+        if flags & self.XDP_FLAGS_HW_MODE:
+            return "HARDWARE"
+        if flags & self.XDP_FLAGS_DRV_MODE:
+            return "DRIVER"
+        if flags & self.XDP_FLAGS_SKB_MODE:
+            return "GENERIC"
+        return "UNKNOWN"
+
+    def __repr__(self):
+        dev = self.get_dev()
+        mode = self.get_mode()
+
+        ifname, ifindex = dev.name.string_().decode(), dev.ifindex.value_()
+        return f"{"netdev:":<9} {ifname}({ifindex})" + \
+            f"\n\t{"mode:":<9} {mode}"
+
+
 def show_bpf_link_details(link):
     if link.type == BpfLinkType.BPF_LINK_TYPE_TRACING:
         r = BpfTracingLink(link).__repr__()
+    elif link.type == BpfLinkType.BPF_LINK_TYPE_XDP:
+        r = BpfXdpLink(link).__repr__()
     else:
         r = None
 
