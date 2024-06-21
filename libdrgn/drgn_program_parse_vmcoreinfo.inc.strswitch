@@ -86,7 +86,7 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 		@case "NUMBER(phys_base)"@
 		{
 			err = parse_vmcoreinfo_u64(value, newline, 0,
-						   &prog->vmcoreinfo.phys_base);;
+						   &prog->vmcoreinfo.phys_base);
 			if (err)
 				return err;
 			break;
