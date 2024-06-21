@@ -11,10 +11,18 @@ The ``drgn.helpers.common.memory`` module provides helpers for working with memo
 import operator
 import os
 import typing
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import drgn
-from drgn import FaultError, IntegerLike, PlatformFlags, Program, SymbolKind, cast
+from drgn import (
+    FaultError,
+    IntegerLike,
+    Object,
+    PlatformFlags,
+    Program,
+    SymbolKind,
+    cast,
+)
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.mm import (
@@ -39,7 +47,69 @@ _SYMBOL_KIND_STR = {
 }
 
 
-def _identify_kernel_address(prog: Program, addr: int) -> Optional[str]:
+def _identify_kernel_vmap(
+    prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
+) -> Optional[str]:
+    va = find_vmap_area(prog, addr)
+    if not va:
+        return None
+
+    vm = va.vm.read_()
+    if not vm:
+        return None
+
+    task: Optional[Object]
+    # The cached and uncached cases are separate so that we can avoid creating
+    # a large cache and stop early in the uncached case.
+    if cache is None:
+        for task in for_each_task(prog):
+            try:
+                if task.stack_vm_area == vm:
+                    break
+            except AttributeError:
+                # CONFIG_VMAP_STACK must be disabled.
+                break
+            except FaultError:
+                continue
+        else:
+            task = None
+    else:
+        try:
+            stack_vm_area_to_task = cache["stack_vm_area_to_task"]
+        except KeyError:
+            stack_vm_area_to_task = {}
+            for task in for_each_task(prog):
+                try:
+                    stack_vm_area_to_task[task.stack_vm_area.value_()] = task
+                except AttributeError:
+                    # CONFIG_VMAP_STACK must be disabled.
+                    break
+                except FaultError:
+                    continue
+            cache["stack_vm_area_to_task"] = stack_vm_area_to_task
+        task = stack_vm_area_to_task.get(vm.value_())
+
+    if task is not None:
+        return (
+            f"vmap stack: {task.pid.value_()}"
+            f" ({os.fsdecode(task.comm.string_())})"
+            f" +{hex(addr - task.stack.value_())}"
+        )
+
+    caller = ""
+    caller_value = vm.caller.value_()
+    try:
+        caller_sym = prog.symbol(caller_value)
+    except LookupError:
+        pass
+    else:
+        caller = f" caller {caller_sym.name}+{hex(caller_value - caller_sym.address)}"
+    return f"vmap: {hex(va.va_start)}-{hex(va.va_end)}{caller}"
+
+
+def _identify_kernel_address(
+    prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
+) -> Optional[str]:
     try:
         direct_map_start = pfn_to_virt(prog["min_low_pfn"]).value_()
         direct_map_end = (pfn_to_virt(prog["max_low_pfn"]) + prog["PAGE_SIZE"]).value_()
@@ -69,40 +139,14 @@ def _identify_kernel_address(prog: Program, addr: int) -> Optional[str]:
                 maybe_free = "" if slab_info.allocated else "free "
                 return f"{maybe_free}slab object: {cache_name}+{hex(addr - slab_info.address)}"
     else:
-        va = find_vmap_area(prog, addr)
-        if va:
-            caller = ""
-            vm = va.vm.read_()
-            if vm:
-                for task in for_each_task(prog):
-                    try:
-                        try:
-                            stack_vm_area = task.stack_vm_area
-                        except AttributeError:
-                            # CONFIG_VMAP_STACK must be disabled.
-                            break
-                        if stack_vm_area == vm:
-                            return (
-                                f"vmap stack: {task.pid.value_()}"
-                                f" ({os.fsdecode(task.comm.string_())})"
-                                f" +{hex(addr - task.stack.value_())}"
-                            )
-                    except FaultError:
-                        pass
-
-                caller_value = vm.caller.value_()
-                try:
-                    caller_sym = prog.symbol(caller_value)
-                except LookupError:
-                    pass
-                else:
-                    caller = f" caller {caller_sym.name}+{hex(caller_value - caller_sym.address)}"
-            return f"vmap: {hex(va.va_start)}-{hex(va.va_end)}{caller}"
+        return _identify_kernel_vmap(prog, addr, cache)
     return None
 
 
 @takes_program_or_default
-def identify_address(prog: Program, addr: IntegerLike) -> Optional[str]:
+def identify_address(
+    prog: Program, addr: IntegerLike, *, cache: Optional[Dict[Any, Any]] = None
+) -> Optional[str]:
     """
     Try to identify what an address refers to.
 
@@ -132,6 +176,10 @@ def identify_address(prog: Program, addr: IntegerLike) -> Optional[str]:
     This may recognize other types of addresses in the future.
 
     :param addr: ``void *``
+    :param cache: Opaque cache used to amortize expensive lookups. If you're
+        going to call this function many times in a short period, create an
+        empty dictionary and pass the same dictionary as *cache* to each call.
+        Don't reuse it indefinitely or you may get stale results.
     :return: Identity as string, or ``None`` if the address is unrecognized.
     """
     addr = operator.index(addr)
@@ -147,7 +195,7 @@ def identify_address(prog: Program, addr: IntegerLike) -> Optional[str]:
 
     if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
         # Linux kernel-specific identification:
-        return _identify_kernel_address(prog, addr)
+        return _identify_kernel_address(prog, addr, cache)
     return None
 
 
@@ -201,9 +249,10 @@ def print_annotated_memory(
         line_format = "{:08x}: {:08x}{}"
         print("ADDRESS   VALUE")
 
+    cache: Dict[Any, Any] = {}
     for offset in range(0, len(mem), word_size):
         value = int.from_bytes(mem[offset : offset + word_size], byteorder)
-        identified = identify_address(prog, value)
+        identified = identify_address(prog, value, cache=cache)
         if identified is None:
             identified = ""
         else:
