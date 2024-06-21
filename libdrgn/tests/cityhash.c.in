@@ -1,10 +1,13 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-#include <assert.h>
-#include <stdlib.h>
+#include <stdint.h>
 
-#include "cityhash.h"
+#include "test_util.h"
+#include "../cityhash.h"
+
+// Test vectors taken from
+// https://github.com/google/cityhash/blob/master/src/city-test.cc
 
 #define NUM_VECTORS 300
 
@@ -614,15 +617,15 @@ static const uint32_t vectors32[NUM_VECTORS] = {
 	UINT32_C(0x5398210c),
 };
 
-int main(int argc, char **argv)
+#suite cityhash
+
+#test cityhash
 {
 	static const uint64_t k0 = UINT64_C(0xc3a5c85c97cb3127);
 	uint8_t data[1 << 20];
 	uint64_t a = 9;
 	uint64_t b = 777;
-	size_t i;
-
-	for (i = 0; i < sizeof(data); i++) {
+	for (size_t i = 0; i < sizeof(data); i++) {
 		a += b;
 		b += a;
 		a = (a ^ (a >> 41)) * k0;
@@ -630,15 +633,12 @@ int main(int argc, char **argv)
 		data[i] = b >> 37;
 	}
 
-	for (i = 0; i < NUM_VECTORS - 1; i++) {
-		if (cityhash64(&data[i * i], i) != vectors64[i])
-			return EXIT_FAILURE;
-		if (cityhash32(&data[i * i], i) != vectors32[i])
-			return EXIT_FAILURE;
+	for (size_t i = 0; i < NUM_VECTORS - 1; i++) {
+		ck_assert_uint_eq(cityhash64(&data[i * i], i), vectors64[i]);
+		ck_assert_uint_eq(cityhash32(&data[i * i], i), vectors32[i]);
 	}
-	if (cityhash64(data, sizeof(data)) != vectors64[NUM_VECTORS - 1])
-		return EXIT_FAILURE;
-	if (cityhash32(data, sizeof(data)) != vectors32[NUM_VECTORS - 1])
-		return EXIT_FAILURE;
-	return EXIT_SUCCESS;
+	ck_assert_uint_eq(cityhash64(data, sizeof(data)),
+			  vectors64[NUM_VECTORS - 1]);
+	ck_assert_uint_eq(cityhash32(data, sizeof(data)),
+			  vectors32[NUM_VECTORS - 1]);
 }

@@ -216,7 +216,8 @@ examples_load_debug_info_LDADD = libdrgnimpl.la
 # Python unit tests instead.
 TESTS = $(check_PROGRAMS)
 
-check_PROGRAMS = tests/language_c \
+check_PROGRAMS = tests/cityhash \
+		 tests/language_c \
 		 tests/lexer \
 		 tests/path
 
@@ -234,6 +235,9 @@ test_cflags = $(AM_CFLAGS) $(check_CFLAGS)
 test_cppflags = $(AM_CPPFLAGS) -iquote $(srcdir)/tests
 test_ldadd = $(check_LIBS) libdrgnimpl.la
 
+tests_cityhash_CFLAGS = $(test_cflags)
+tests_cityhash_CPPFLAGS = $(test_cppflags)
+tests_cityhash_LDADD = $(test_ldadd)
 tests_language_c_CFLAGS = $(test_cflags)
 tests_language_c_CPPFLAGS = $(test_cppflags)
 tests_language_c_LDADD = $(test_ldadd)
