@@ -1011,7 +1011,7 @@ static bool table##_rehash(struct table *table, size_t orig_chunk_count,	\
 	table##_entry_type *orig_entries;					\
 	if (table##_vector_policy) {						\
 		orig_entries = table->vector;					\
-		table->vector = new_chunks + entries_offset;			\
+		table->vector = (void *)((char *)new_chunks + entries_offset);	\
 		if (table##_size(table) > 0) {					\
 			memcpy(table->vector, orig_entries,			\
 			       table##_size(table) *				\
