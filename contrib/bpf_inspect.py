@@ -118,7 +118,7 @@ class BpfProg(object):
             # Try to get dst_trampoline first.
             tr = self.prog.aux.member_("dst_trampoline")
         except LookupError:
-            pass
+            tr = None
 
         try:
             tr = self.prog.aux.member_("trampoline") if not tr else tr
