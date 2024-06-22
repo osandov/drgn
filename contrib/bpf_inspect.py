@@ -8,11 +8,13 @@ import sys
 import drgn
 import argparse
 
+from drgn import container_of
 from drgn.helpers.common.type import enum_type_to_class
 from drgn.helpers.linux import (
     bpf_map_for_each,
     bpf_prog_for_each,
     bpf_link_for_each,
+    list_for_each_entry,
     hlist_for_each_entry,
 )
 
@@ -42,7 +44,6 @@ def bpf_attach_type_to_tramp(attach_type):
 
 
 class BpfTramp(object):
-
     def __init__(self, tr):
         self.tr = tr
 
@@ -65,7 +66,6 @@ class BpfTramp(object):
 
 
 class BpfProg(object):
-
     def __init__(self, bpf_prog):
         self.prog = bpf_prog
 
@@ -157,9 +157,21 @@ def __list_bpf_progs(args):
 
 
 class BpfMap(object):
-
     def __init__(self, bpf_map):
         self.map = bpf_map
+
+    @staticmethod
+    def inspect_owner(owner):
+        type_ = BpfProgType(owner.type).name
+        jited = " JITed" if owner.jited.value_() else ""
+        return f"{type_:32}{jited}"
+
+    def get_owner(self):
+        try:
+            owner = self.map.member_("owner")
+            return self.inspect_owner(owner)
+        except LookupError:
+            return ""
 
     def __repr__(self):
         id_ = self.map.id.value_()
@@ -169,18 +181,79 @@ class BpfMap(object):
         return f"{id_:>6}: {type_:32} {name:32}"
 
 
-def list_bpf_maps():
+class BpfProgArrayMap(BpfMap):
+    def __init__(self, bpf_map):
+        super().__init__(bpf_map)
+        self.prog_array = container_of(bpf_map, "struct bpf_array", "map")
+
+    def get_owner(self):
+        try:
+            owner = self.prog_array.aux.member_("owner")
+            return super().inspect_owner(owner)
+        except LookupError:
+            return ""
+
+    def get_prog_array(self):
+        for i in range(0, self.map.max_entries):
+            prog_ = self.prog_array.ptrs[i]
+            if prog_:
+                yield i, drgn.cast("struct bpf_prog *", prog_)
+
+    def get_poke_progs(self):
+        for poke in list_for_each_entry(
+            "struct prog_poke_elem",
+            self.prog_array.aux.poke_progs.address_of_(),
+            "list",
+        ):
+            yield poke.aux.prog
+
+    def __repr__(self):
+        owner = self.get_owner()
+        owner = super().get_owner() if not owner else owner
+        array = self.get_prog_array()
+        poke_progs = self.get_poke_progs()
+
+        owner_str = f"{"owner:":9} {owner}" if owner else ""
+        array_str = (
+            "\n\t".join(
+                f"{f"idx[{index:>3}]:":9} {BpfProg(prog)}" for index, prog in array
+            )
+            if array
+            else ""
+        )
+        poke_progs_str = (
+            "\n\t".join(f"{"poke:":9} {BpfProg(poke)}" for poke in poke_progs)
+            if poke_progs
+            else ""
+        )
+
+        return "\n\t".join(x for x in [owner_str, array_str, poke_progs_str] if x)
+
+
+def show_bpf_map_details(bpf_map):
+    if bpf_map.map_type == BpfMapType.BPF_MAP_TYPE_PROG_ARRAY:
+        r = BpfProgArrayMap(bpf_map).__repr__()
+    else:
+        r = None
+
+    if r:
+        print(f"\t{r}")
+
+
+def list_bpf_maps(show_details=False):
     for map_ in bpf_map_for_each(prog):
         bpf_map = BpfMap(map_)
         print(f"{bpf_map}")
 
+        if show_details:
+            show_bpf_map_details(map_)
+
 
 def __list_bpf_maps(args):
-    list_bpf_maps()
+    list_bpf_maps(args.show_details)
 
 
 class BpfLink(object):
-
     def __init__(self, bpf_link):
         self.link = bpf_link
 
@@ -192,7 +265,6 @@ class BpfLink(object):
 
 
 class BpfTracingLink(BpfLink):
-
     def __init__(self, link):
         super().__init__(link)
         self.tracing = drgn.cast("struct bpf_tracing_link *", link)
@@ -218,7 +290,6 @@ class BpfTracingLink(BpfLink):
 
 
 class BpfXdpLink(BpfLink):
-
     def __init__(self, link):
         super().__init__(link)
         self.xdp = drgn.cast("struct bpf_xdp_link *", link)
@@ -226,9 +297,9 @@ class BpfXdpLink(BpfLink):
     def get_dev(self):
         return self.xdp.dev
 
-    XDP_FLAGS_SKB_MODE = 1<<1
-    XDP_FLAGS_DRV_MODE = 1<<2
-    XDP_FLAGS_HW_MODE = 1<<3
+    XDP_FLAGS_SKB_MODE = 1 << 1
+    XDP_FLAGS_DRV_MODE = 1 << 2
+    XDP_FLAGS_HW_MODE = 1 << 3
 
     def get_mode(self):
         flags = self.xdp.flags.value_()
@@ -245,8 +316,7 @@ class BpfXdpLink(BpfLink):
         mode = self.get_mode()
 
         ifname, ifindex = dev.name.string_().decode(), dev.ifindex.value_()
-        return f"{"netdev:":<9} {ifname}({ifindex})" + \
-            f"\n\t{"mode:":<9} {mode}"
+        return f"{"netdev:":<9} {ifname}({ifindex})" + f"\n\t{"mode:":<9} {mode}"
 
 
 def show_bpf_link_details(link):
@@ -273,10 +343,8 @@ def list_bpf_links(show_details=False):
         if attach_func:
             print(f"\tattach:   {attach_func}")
 
-        if not show_details:
-            continue
-
-        show_bpf_link_details(link)
+        if show_details:
+            show_bpf_link_details(link)
 
 
 def __list_bpf_links(args):
@@ -319,6 +387,9 @@ def main():
 
     map_parser = subparsers.add_parser("map", aliases=["m"], help="list BPF maps")
     map_parser.set_defaults(func=__list_bpf_maps)
+    map_parser.add_argument(
+        "--show-details", action="store_true", help="show map internal details"
+    )
 
     link_parser = subparsers.add_parser("link", aliases=["l"], help="list BPF links")
     link_parser.set_defaults(func=__list_bpf_links)
