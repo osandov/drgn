@@ -191,6 +191,7 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	}
 
 	if (prog->vmcoreinfo.raw) {
+#if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 4, 1)
 		char *vmcoreinfo = memdup(prog->vmcoreinfo.raw, prog->vmcoreinfo.raw_size);
 		if (!vmcoreinfo) {
 			err = &drgn_enomem;
@@ -212,6 +213,11 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 						kdump_get_err(ctx));
 			goto err;
 		}
+#else
+		err = drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+					"overriding vmcoreinfo is not supported in libkdumpfile < 0.4.1");
+		goto err;
+#endif
 	} else {
 #if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 4, 1)
 		char *vmcoreinfo;
