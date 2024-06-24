@@ -97,7 +97,8 @@ for pybin in /opt/python/cp*/bin; do
 	if build_for_python "$pybin/python"; then
 		"$pybin/pip" install drgn --no-index -f /tmp/manylinux_wheels/
 		"$pybin/drgn" --version
-		"$pybin/python" setup.py test
+		"$pybin/pip" install pytest
+		"$pybin/pytest"
 	fi
 done
 
