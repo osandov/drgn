@@ -82,6 +82,11 @@ build_for_python() {
 for pybin in /opt/python/cp*/bin; do
 	if build_for_python "$pybin/python"; then
 		"$pybin/pip" wheel . --no-deps -w /tmp/wheels/
+		# When multiple python builds of the same version are present,
+		# (e.g. cp313-cp313 and cp313-cp313t) the build system does not
+		# understand the difference between them and uses the same build
+		# directory. This will result in bad builds for one of the two.
+		rm -rf build
 	fi
 done
 
