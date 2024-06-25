@@ -94,6 +94,9 @@ class BpfProg(object):
     def __init__(self, bpf_prog):
         self.prog = bpf_prog
 
+    def is_subprog(self):
+        return self.prog.aux.func_idx.value_() != 0
+
     @staticmethod
     def __get_btf_name(btf, btf_id):
         type_ = btf.types[btf_id]
@@ -108,12 +111,25 @@ class BpfProg(object):
             return self.__get_btf_name(aux.btf, aux.func_info[0].type_id)
         return ""
 
+    def get_ksym_name(self):
+        try:
+            ksym = self.prog.aux.member_("ksym")
+            return ksym.name.string_().decode()[26:]
+        except LookupError:
+            return ""
+
     def get_prog_name(self):
+        if self.is_subprog():
+            return self.get_ksym_name() or self.prog.aux.name.string_().decode()
         return self.get_btf_name() or self.prog.aux.name.string_().decode()
 
     def get_used_maps(self):
         for i in range(0, self.prog.aux.used_map_cnt.value_()):
             yield BpfMap(self.prog.aux.used_maps[i])
+
+    def get_subprogs(self):
+        for i in range(0, self.prog.aux.func_cnt.value_()):
+            yield i, BpfProg(self.prog.aux.func[i])
 
     def get_linked_func(self):
         kind = bpf_attach_type_to_tramp(self.prog.expected_attach_type)
@@ -185,6 +201,9 @@ def list_bpf_progs(show_details=False):
 
         for map_ in bpf_prog.get_used_maps():
             print(f"\t{"used map:":9} {map_}")
+
+        for index, subprog in bpf_prog.get_subprogs():
+            print(f"\t{f"func[{index:>2}]:":9} {subprog}")
 
 
 def __list_bpf_progs(args):
