@@ -65,6 +65,31 @@ class BpfTramp(object):
             return
 
 
+class BpfMap(object):
+    def __init__(self, bpf_map):
+        self.map = bpf_map
+
+    @staticmethod
+    def inspect_owner(owner):
+        type_ = BpfProgType(owner.type).name
+        jited = " JITed" if owner.jited.value_() else ""
+        return f"{type_:32}{jited}"
+
+    def get_owner(self):
+        try:
+            owner = self.map.member_("owner")
+            return self.inspect_owner(owner)
+        except LookupError:
+            return ""
+
+    def __repr__(self):
+        id_ = self.map.id.value_()
+        type_ = BpfMapType(self.map.map_type).name
+        name = self.map.name.string_().decode()
+
+        return f"{id_:>6}: {type_:32} {name:32}"
+
+
 class BpfProg(object):
     def __init__(self, bpf_prog):
         self.prog = bpf_prog
@@ -85,6 +110,10 @@ class BpfProg(object):
 
     def get_prog_name(self):
         return self.get_btf_name() or self.prog.aux.name.string_().decode()
+
+    def get_used_maps(self):
+        for i in range(0, self.prog.aux.used_map_cnt.value_()):
+            yield BpfMap(self.prog.aux.used_maps[i])
 
     def get_linked_func(self):
         kind = bpf_attach_type_to_tramp(self.prog.expected_attach_type)
@@ -141,44 +170,25 @@ class BpfProg(object):
         return f"{id_:>6}: {type_:32} {name:32}{tail_call_desc}"
 
 
-def list_bpf_progs():
+def list_bpf_progs(show_details=False):
     for bpf_prog_ in bpf_prog_for_each(prog):
         bpf_prog = BpfProg(bpf_prog_)
         print(f"{bpf_prog}")
+
+        if not show_details:
+            continue
 
         linked_progs = bpf_prog.get_tramp_progs()
         if linked_progs:
             for linked_prog in linked_progs:
                 print(f"\tlinked: {BpfProg(linked_prog)}")
 
+        for map_ in bpf_prog.get_used_maps():
+            print(f"\t{"used map:":9} {map_}")
+
 
 def __list_bpf_progs(args):
-    list_bpf_progs()
-
-
-class BpfMap(object):
-    def __init__(self, bpf_map):
-        self.map = bpf_map
-
-    @staticmethod
-    def inspect_owner(owner):
-        type_ = BpfProgType(owner.type).name
-        jited = " JITed" if owner.jited.value_() else ""
-        return f"{type_:32}{jited}"
-
-    def get_owner(self):
-        try:
-            owner = self.map.member_("owner")
-            return self.inspect_owner(owner)
-        except LookupError:
-            return ""
-
-    def __repr__(self):
-        id_ = self.map.id.value_()
-        type_ = BpfMapType(self.map.map_type).name
-        name = self.map.name.string_().decode()
-
-        return f"{id_:>6}: {type_:32} {name:32}"
+    list_bpf_progs(args.show_details)
 
 
 class BpfProgArrayMap(BpfMap):
@@ -384,6 +394,9 @@ def main():
 
     prog_parser = subparsers.add_parser("prog", aliases=["p"], help="list BPF programs")
     prog_parser.set_defaults(func=__list_bpf_progs)
+    prog_parser.add_argument(
+        "--show-details", action="store_true", help="show program internal details"
+    )
 
     map_parser = subparsers.add_parser("map", aliases=["m"], help="list BPF maps")
     map_parser.set_defaults(func=__list_bpf_maps)
