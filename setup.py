@@ -11,6 +11,7 @@ import re
 import shlex
 import subprocess
 import sys
+import sysconfig
 
 from setuptools import Command, find_packages, setup
 from setuptools.command.build_ext import build_ext as _build_ext
@@ -53,6 +54,22 @@ class build_ext(_build_ext):
     boolean_options = ["inplace"]
 
     help_options = []
+
+    def finalize_options(self):
+        default_build_temp = self.build_temp is None
+        super().finalize_options()
+        if default_build_temp and sysconfig.get_config_var("Py_GIL_DISABLED"):
+            # Python 3.13's free-threading builds are not ABI compatible with
+            # the standard ones, but sys.implementation.cache_tag, which
+            # distutils uses to set the default temporary directory, is not
+            # different. This means that the build_temp directory is shared
+            # between these two builds. Since drgn's build_ext allows
+            # incremental builds, this means that build artifacts can be
+            # mistakenly shared between builds, causing runtime errors. To avoid
+            # this, add a "t" suffix for free-threading builds. This isn't
+            # necessary for the build_lib directory, since the final build
+            # product does include the "t" in its filename.
+            self.build_temp += "t"
 
     def _run_autoreconf(self):
         if out_of_date(
