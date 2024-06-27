@@ -8,6 +8,7 @@
 #include <omp.h> // IWYU pragma: export
 
 extern int drgn_num_threads;
+void drgn_init_num_threads(void);
 #else
 static inline int omp_get_thread_num(void)
 {
@@ -15,6 +16,9 @@ static inline int omp_get_thread_num(void)
 }
 
 #define drgn_num_threads 1
+static inline void drgn_init_num_threads(void)
+{
+}
 #endif
 
 #endif /* DRGN_OPENMP_H */

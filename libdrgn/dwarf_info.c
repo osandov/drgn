@@ -368,6 +368,7 @@ bool drgn_dwarf_index_state_init(struct drgn_dwarf_index_state *state,
 				 struct drgn_debug_info *dbinfo)
 {
 	state->dbinfo = dbinfo;
+	drgn_init_num_threads();
 	state->cus = malloc_array(drgn_num_threads, sizeof(*state->cus));
 	if (!state->cus)
 		return false;
