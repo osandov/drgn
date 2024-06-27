@@ -214,6 +214,7 @@ static const char c_keywords[] =
 		ck_assert_ptr_nonnull(err);
 		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
 		ck_assert(strstr(err->message, "invalid template arguments"));
+		drgn_error_destroy(err);
 		drgn_lexer_deinit(&lexer.lexer);
 	}
 }
@@ -236,6 +237,7 @@ static const char c_keywords[] =
 		ck_assert_ptr_nonnull(err);
 		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
 		ck_assert(strstr(err->message, "invalid character"));
+		drgn_error_destroy(err);
 		drgn_lexer_deinit(&lexer.lexer);
 	}
 }
@@ -264,6 +266,7 @@ static const char c_keywords[] =
 		ck_assert_ptr_nonnull(err);
 		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
 		ck_assert(strstr(err->message, "invalid number"));
+		drgn_error_destroy(err);
 		drgn_lexer_deinit(&lexer.lexer);
 	}
 }
@@ -280,6 +283,7 @@ static const char c_keywords[] =
 		ck_assert_ptr_nonnull(err);
 		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
 		ck_assert(strstr(err->message, "invalid character"));
+		drgn_error_destroy(err);
 		drgn_lexer_deinit(&lexer.lexer);
 	}
 }
