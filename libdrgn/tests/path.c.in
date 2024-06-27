@@ -76,7 +76,7 @@ static void assert_path_iterator_impl(const struct nstring *in_components,
 		p = stpcpy(p, in_components[i].str);
 		*(p++) = '/';
 	}
-	*p = '\0';
+	p[-1] = '\0';
 
 	struct nstring components[64];
 	// Iterate over all possible combinations. Bit i of mask indicates
