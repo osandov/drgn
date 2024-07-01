@@ -1,0 +1,231 @@
+0.0.27 (Released June TODO, 2024)
+====================================
+
+These are some of the highlights of drgn 0.0.27. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.0.27>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+
+Finding the Type Member at an Offset
+------------------------------------
+
+This release added :func:`~drgn.helpers.common.type.member_at_offset()`, which
+returns the name of the member at an offset in a type::
+
+    >>> prog.type('struct list_head')
+    struct list_head {
+            struct list_head *next;
+            struct list_head *prev;
+    }
+    >>> member_at_offset(prog.type('struct list_head'), 0)
+    'next'
+    >>> member_at_offset(prog.type('struct list_head'), 8)
+    'prev'
+
+It also handles more complicated cases, like nested structures, arrays, unions,
+and padding.
+
+It is particularly useful in combination with
+:func:`~drgn.helpers.common.memory.identify_address()` or
+:func:`~drgn.helpers.linux.slab.slab_object_info()`::
+
+    >>> identify_address(0xffff984fc7cc6708)
+    'slab object: fuse_inode+0x188'
+    >>> member_at_offset(prog.type("struct fuse_inode"), 0x188)
+    'inode.i_data.i_pages.xa_head'
+
+(Note that in some cases, the slab cache name isn't identical to the type name.
+Slab merging also complicates this; see
+:func:`~drgn.helpers.linux.slab.slab_cache_is_merged()`. In those cases, this
+trick requires some extra effort.)
+
+Identifying Memory
+------------------
+
+This release added
+:func:`~drgn.helpers.common.memory.print_annotated_memory()`, which dumps a
+range of memory, annotating values that can be identified::
+
+    >>> print_annotated_memory(0xffff985163300698, 64)
+    ADDRESS           VALUE
+    ffff985163300698: ffff984f415456a0 [slab object: mnt_cache+0x20]
+    ffff9851633006a0: ffff984f587b7840 [slab object: dentry+0x0]
+    ffff9851633006a8: ffff984f404bfa38 [slab object: inode_cache+0x0]
+    ffff9851633006b0: ffffffff8b4890c0 [object symbol: signalfd_fops+0x0]
+    ffff9851633006b8: 0000000000000000
+    ffff9851633006c0: ffff984f9307c078 [slab object: lsm_file_cache+0x0]
+    ffff9851633006c8: ffff984f8afe3980 [slab object: kmalloc-8+0x0]
+    ffff9851633006d0: ffff984f414730f0 [slab object: ep_head+0x0]
+
+(This is similar to :func:`~drgn.helpers.common.stack.print_annotated_stack()`
+but for arbitrary memory ranges.)
+
+:func:`~drgn.helpers.common.memory.identify_address()` (used by
+:func:`~drgn.helpers.common.memory.print_annotated_memory()` and
+:func:`~drgn.helpers.common.stack.print_annotated_stack()`) can now also
+identify vmap addresses and vmap kernel stacks::
+
+    >>> print(identify_address(0xffffffffc0536540))
+    vmap: 0xffffffffc0536000-0xffffffffc0545000 caller load_module+0x811
+    >>> print(identify_address(0xffffbb88e2283f58))
+    vmap stack: 2220305 (python3) +0x3f58
+
+Configurable Type and Object Finders
+------------------------------------
+
+.. currentmodule:: drgn
+
+drgn already supported registering custom callbacks that could satisfy type and
+object lookups: :meth:`Program.add_type_finder()` and
+:meth:`Program.add_object_finder()`. However, there was no way to disable
+previously added callbacks or control the order in which they are called. This
+release adds an interface for doing so.
+
+:meth:`Program.registered_object_finders()` returns the set of registered
+object finders::
+
+    >>> prog.registered_object_finders()
+    {'dwarf', 'linux'}
+
+:meth:`Program.enabled_object_finders()` returns the list of enabled
+object finders in the order that they are called::
+
+    >>> prog.enabled_object_finders()
+    ['linux', 'dwarf']
+
+:meth:`Program.register_object_finder()` registers and optionally enables
+a finder::
+
+    >>> def my_object_finder(prog, name, flags, filename):
+    ...     ...
+    ...
+    >>> prog.register_object_finder("foo", my_object_finder)
+    >>> prog.registered_object_finders()
+    {'foo', 'dwarf', 'linux'}
+    >>> prog.enabled_object_finders()
+    ['linux', 'dwarf']
+    >>> def my_object_finder2(prog, name, flags, filename):
+    ...     ...
+    ...
+    >>> prog.register_object_finder("bar", my_object_finder2, enable_index=0)
+    >>> prog.registered_object_finders()
+    {'foo', 'dwarf', 'bar', 'linux'}
+    >>> prog.enabled_object_finders()
+    ['bar', 'linux', 'dwarf']
+
+:meth:`Program.set_enabled_object_finders()` sets the list of enabled
+finders. This can enable, disable, and reorder finders.
+
+.. code::
+
+    >>> prog.set_enabled_object_finders(['dwarf', 'foo'])
+    >>> prog.enabled_object_finders()
+    ['dwarf', 'foo']
+
+Type finders have equivalent methods: :meth:`Program.registered_type_finders`,
+:meth:`Program.enabled_type_finders`, :meth:`Program.register_type_finder`, and
+:meth:`Program.set_enabled_type_finders`.
+
+The old interface is now deprecated.
+
+Symbol Finders
+--------------
+
+Previously, symbols could only be looked up using the ELF symbol table. In this
+release, Stephen Brennan added support for custom symbol finders:
+:meth:`Program.registered_symbol_finders`,
+:meth:`Program.enabled_symbol_finders`, :meth:`Program.register_symbol_finder`,
+and :meth:`Program.set_enabled_symbol_finders`.
+
+.. currentmodule:: None
+
+``contrib`` Directory
+---------------------
+
+A few new scripts were added to the ``contrib`` directory, and others were
+updated.
+
+``contrib/search_kernel_memory.py``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This script does a brute force search through kernel RAM for a given byte
+string and prints all of the addresses where it is found. It's useful as a last
+resort for finding what is referencing an object, for example.
+
+.. code::
+
+    >>> folio = stack_trace(task)[5]["folio"]
+    >>> search_memory(prog, folio.value_().to_bytes(8, "little"))
+    0xffff8882f67539e8 vmap stack: 2232297 (io_thread) +0x39e8
+    0xffff8882f6753a18 vmap stack: 2232297 (io_thread) +0x3a18
+    0xffff8882f6753a60 vmap stack: 2232297 (io_thread) +0x3a60
+    0xffff8882f6753ac8 vmap stack: 2232297 (io_thread) +0x3ac8
+    0xffff888300405530 slab object: kmalloc-16+0x0
+    0xffff8883b8c6ca38
+
+``contrib/gcore.py``
+^^^^^^^^^^^^^^^^^^^^
+
+This script creates a core dump of a live process. This works even if the
+process is stuck in D state (Uninterruptible Sleep), which normally causes
+debuggers attempting to attach to the process to hang, too. The generated core
+dump can be debugged with GDB, LLDB, or even drgn.
+
+By default, ``gcore.py`` reads the task's memory through ``/proc/$pid/mem``.
+However, if ``mmap_lock``/``mmap_sem`` is stuck, then this will also hang. If
+the ``--no-procfs`` flag is used, drgn bypasses this, too, by reading the
+process's page tables and reading the memory directly. This has a couple of big
+downsides: paged out memory will be skipped, and it's a lot slower. But if the
+task is badly stuck in memory management, ``--no-procfs`` is a great escape
+hatch.
+
+``gcore.py`` can also extract userspace core dumps out of a kernel core dump,
+but note that `makedumpfile(8) <https://linux.die.net/man/8/makedumpfile>`_ is
+normally configured to filter out userspace memory.
+
+``contrib/negdentdelete.py``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+`Negative dentries <https://lwn.net/Articles/890025/>`_ are a cache of failed
+filename lookups. They can take up a lot of memory, and it's difficult to get
+rid of them by normal means. Stephen Brennan contributed a script that can be
+used to get rid of negative dentries in a directory.
+
+``contrib/btrfs_tree.py``
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This script contains work-in-progress helpers for reading Btrfs metadata. It
+was added in drgn 0.0.23, but this release expanded and improved it. It will
+likely be adapted into proper helpers in a future release.
+
+This script was used to investigate a bug, culminating in Linux kernel commit
+`9d274c19a71b ("btrfs: fix crash on racing fsync and size-extending write into
+prealloc")
+<https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=9d274c19a71b3a276949933859610721a453946b>`_.
+
+``contrib/bpf_inspect.py``
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Leon Hwang made many improvements to this script, including adding more
+detailed information, new commands, and updating it for recent kernels.
+
+Linux 6.9 and 6.10 Support
+--------------------------
+
+Changes in Linux 6.9 and 6.10 broke a few drgn helpers. Here are some errors
+you might see with older versions of drgn that are fixed in this release.
+
+From :func:`~drgn.helpers.linux.stackdepot.stack_depot_fetch()`::
+
+    AttributeError: 'union handle_parts' has no member 'pool_index'
+
+From :func:`~drgn.helpers.linux.block.for_each_disk()`::
+
+    AttributeError: 'struct block_device' has no member 'bd_partno'
+
+Additionally,
+:func:`~drgn.helpers.linux.slab.slab_cache_for_each_allocated_object()`,
+:func:`~drgn.helpers.linux.slab.slab_object_info()`, and
+:func:`~drgn.helpers.linux.slab.find_containing_slab_cache()` may fail to find
+anything.
