@@ -1,4 +1,4 @@
-0.0.27 (Released June TODO, 2024)
+0.0.27 (Released July 1st, 2024)
 ====================================
 
 These are some of the highlights of drgn 0.0.27. See the `GitHub release
