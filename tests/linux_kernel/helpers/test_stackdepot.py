@@ -8,6 +8,7 @@ from tests.linux_kernel import skip_unless_have_test_kmod
 from tests.linux_kernel.test_stack_trace import LinuxKernelStackTraceTestCase
 
 
+@skip_unless_have_test_kmod
 class TestStackDepot(LinuxKernelStackTraceTestCase):
     @classmethod
     def setUpClass(cls):
