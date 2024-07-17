@@ -1377,3 +1377,15 @@ def totalram_pages(prog: Program) -> int:
         return prog["_totalram_pages"].counter.value_()
     except KeyError:
         return prog["totalram_pages"].value_()
+
+
+@takes_program_or_default
+def in_direct_map(prog: Program, addr: IntegerLike) -> bool:
+    """
+    Return True if an address is within the kernel's direct memory mapping
+    :param addr: address to check
+    """
+    addr = operator.index(addr)
+    start_addr = pfn_to_virt(prog["min_low_pfn"]).value_()
+    end_addr = (pfn_to_virt(prog["max_low_pfn"]) + prog["PAGE_SIZE"]).value_()
+    return start_addr <= addr < end_addr

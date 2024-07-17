@@ -39,8 +39,8 @@ from drgn.helpers.linux.mm import (
     _get_PageSlab_impl,
     compound_head,
     for_each_page,
+    in_direct_map,
     page_to_virt,
-    pfn_to_virt,
     virt_to_page,
 )
 from drgn.helpers.linux.percpu import per_cpu_ptr
@@ -464,12 +464,6 @@ def slab_cache_for_each_allocated_object(
 def _find_containing_slab(
     prog: Program, addr: int
 ) -> Optional[Tuple[Object, Object, Object]]:
-    start_addr = pfn_to_virt(prog["min_low_pfn"]).value_()
-    end_addr = (pfn_to_virt(prog["max_low_pfn"]) + prog["PAGE_SIZE"]).value_()
-    if addr < start_addr or addr >= end_addr:
-        # Not a directly mapped address
-        return None
-
     page = virt_to_page(prog, addr)
 
     try:
@@ -516,6 +510,8 @@ def slab_object_info(prog: Program, addr: IntegerLike) -> "Optional[SlabObjectIn
         if not.
     """
     addr = operator.index(addr)
+    if not in_direct_map(prog, addr):
+        return None
     result = _find_containing_slab(prog, addr)
     if result is None:
         return None
@@ -568,6 +564,8 @@ def find_containing_slab_cache(prog: Program, addr: IntegerLike) -> Object:
     :return: ``struct kmem_cache *`` containing *addr*, or ``NULL`` if *addr*
         is not from a slab cache.
     """
+    if not in_direct_map(prog, addr):
+        return NULL(prog, "struct kmem_cache *")
     result = _find_containing_slab(prog, operator.index(addr))
     if result is None:
         return NULL(prog, "struct kmem_cache *")

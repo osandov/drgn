@@ -14,26 +14,12 @@ import typing
 from typing import Any, Dict, Optional
 
 import drgn
-from drgn import (
-    FaultError,
-    IntegerLike,
-    Object,
-    PlatformFlags,
-    Program,
-    SymbolKind,
-    cast,
-)
+from drgn import FaultError, IntegerLike, Object, PlatformFlags, Program, SymbolKind
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.prog import takes_program_or_default
-from drgn.helpers.linux.mm import (
-    PageSlab,
-    compound_head,
-    find_vmap_area,
-    pfn_to_virt,
-    virt_to_page,
-)
+from drgn.helpers.linux.mm import find_vmap_area, in_direct_map
 from drgn.helpers.linux.pid import for_each_task
-from drgn.helpers.linux.slab import _get_slab_cache_helper, _get_slab_type
+from drgn.helpers.linux.slab import _find_containing_slab, _get_slab_cache_helper
 
 __all__ = (
     "identify_address",
@@ -111,27 +97,17 @@ def _identify_kernel_address(
     prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
 ) -> Optional[str]:
     try:
-        direct_map_start = pfn_to_virt(prog["min_low_pfn"]).value_()
-        direct_map_end = (pfn_to_virt(prog["max_low_pfn"]) + prog["PAGE_SIZE"]).value_()
-        in_direct_map = direct_map_start <= addr < direct_map_end
+        direct_map = in_direct_map(prog, addr)
     except NotImplementedError:
         # Virtual address translation isn't implemented for this
         # architecture.
-        in_direct_map = False
-    if in_direct_map:
-        page = virt_to_page(prog, addr)
+        direct_map = False
 
-        try:
-            head_page = compound_head(page)
-            is_slab = PageSlab(head_page)
-        except FaultError:
-            return None
-
-        if is_slab:
-            slab = cast(_get_slab_type(prog), head_page)
-            slab_info = _get_slab_cache_helper(slab.slab_cache).object_info(
-                head_page, slab, addr
-            )
+    if direct_map:
+        result = _find_containing_slab(prog, addr)
+        if result is not None:
+            slab_cache, page, slab = result
+            slab_info = _get_slab_cache_helper(slab_cache).object_info(page, slab, addr)
             if slab_info:
                 cache_name = escape_ascii_string(
                     slab_info.slab_cache.name.string_(), escape_backslash=True
