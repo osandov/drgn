@@ -92,7 +92,11 @@ class TestPrintAnnotatedMemory(LinuxKernelTestCase):
                 self.prog["drgn_test_small_slab_objects"].address_,
                 sizeof(self.prog["drgn_test_small_slab_objects"]),
             )
-        self.assertIn("slab object: drgn_test_small+0x0", f.getvalue())
+        # For CONFIG_SLOB, we cannot find slab objects. However,
+        # print_annotated_memory() should still function with no error. So we
+        # don't skip the test here: just skip the assertion.
+        if not self.prog["drgn_test_slob"]:
+            self.assertIn("slab object: drgn_test_small+0x0", f.getvalue())
 
 
 class TestPrintAnnotatedStack(LinuxKernelTestCase):
