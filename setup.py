@@ -191,7 +191,7 @@ class test(Command):
     def finalize_options(self):
         self.kernels = [kernel for kernel in self.extra_kernels.split(",") if kernel]
         if self.kernel:
-            flavors = KERNEL_FLAVORS if self.all_kernel_flavors else [""]
+            flavors = KERNEL_FLAVORS if self.all_kernel_flavors else ["default"]
             self.kernels.extend(
                 kernel + ".*" + flavor
                 for kernel in SUPPORTED_KERNEL_VERSIONS
