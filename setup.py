@@ -164,6 +164,12 @@ class test(Command):
             f"({', '.join(SUPPORTED_KERNEL_VERSIONS)})",
         ),
         (
+            "flavor=",
+            "f",
+            "when combined with -K, run Linux kernel tests on a specific flavor "
+            f"({', '.join(KERNEL_FLAVORS)}) instead of the default flavor",
+        ),
+        (
             "all-kernel-flavors",
             "F",
             "when combined with -K, run Linux kernel tests on all supported flavors "
@@ -184,6 +190,7 @@ class test(Command):
 
     def initialize_options(self):
         self.kernel = False
+        self.flavor = "default"
         self.all_kernel_flavors = False
         self.extra_kernels = ""
         self.vmtest_dir = None
@@ -191,7 +198,7 @@ class test(Command):
     def finalize_options(self):
         self.kernels = [kernel for kernel in self.extra_kernels.split(",") if kernel]
         if self.kernel:
-            flavors = KERNEL_FLAVORS if self.all_kernel_flavors else ["default"]
+            flavors = KERNEL_FLAVORS if self.all_kernel_flavors else [self.flavor]
             self.kernels.extend(
                 kernel + ".*" + flavor
                 for kernel in SUPPORTED_KERNEL_VERSIONS
