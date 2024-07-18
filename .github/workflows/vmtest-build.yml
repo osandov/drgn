@@ -41,3 +41,4 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       test_all_python_versions: true
+      test_all_kernel_flavors: true
