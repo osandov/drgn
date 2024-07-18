@@ -14,3 +14,4 @@ jobs:
     if: ${{ github.event.action != 'labeled' || github.event.label.name == 'test-all-python-versions' }}
     with:
       test_all_python_versions: ${{ contains(github.event.pull_request.labels.*.name, 'test-all-python-versions') }}
+      test_all_kernel_flavors: ${{ contains(github.event.pull_request.labels.*.name, 'test-all-kernel-flavors') }}

@@ -11,10 +11,20 @@ on:
         type: boolean
         default: false
         required: true
+      test_all_kernel_flavors:
+        description: "Run tests on all kernel flavors"
+        type: boolean
+        default: false
+        required: true
   workflow_call:
     inputs:
       test_all_python_versions:
         description: "Run tests on all Python versions"
+        type: boolean
+        default: false
+        required: true
+      test_all_kernel_flavors:
+        description: "Run tests on all kernel flavors"
         type: boolean
         default: false
         required: true
@@ -62,7 +72,7 @@ jobs:
         if: ${{ env.USE_PRE_COMMIT == '1' }}
         run: pre-commit run --all-files mypy
       - name: Build and test with ${{ matrix.cc }}
-        run: CONFIGURE_FLAGS="--enable-compiler-warnings=error" python setup.py test -K
+        run: CONFIGURE_FLAGS="--enable-compiler-warnings=error" python setup.py test -K ${{ inputs.test_all_kernel_flavors && '-F' || '' }}
 
   lint:
     runs-on: ubuntu-latest
