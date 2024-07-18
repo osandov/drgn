@@ -9,6 +9,7 @@ import os.path
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import sysconfig
@@ -263,7 +264,9 @@ fi
         from vmtest.config import ARCHITECTURES, Kernel, local_kernel
         from vmtest.download import DownloadCompiler, DownloadKernel, download_in_thread
 
-        if os.getenv("GITHUB_ACTIONS") == "true":
+        in_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
+
+        if in_github_actions:
 
             @contextlib.contextmanager
             def github_workflow_group(title):
@@ -292,7 +295,16 @@ fi
                         to_download.append(
                             DownloadKernel(ARCHITECTURES["x86_64"], pattern)
                         )
-            with download_in_thread(Path(self.vmtest_dir), to_download) as downloads:
+
+            # Downloading too many files before they can be used for testing runs the
+            # risk of filling up the limited disk space is Github Actions. Set a limit
+            # of no more than 5 files which can be downloaded ahead of time. This is a
+            # magic number which is inexact, but works well enough.
+            max_pending_kernels = 5 if in_github_actions else 0
+
+            with download_in_thread(
+                Path(self.vmtest_dir), to_download, max_pending_kernels
+            ) as downloads:
                 downloads_it = iter(downloads)
 
                 if to_download:
@@ -334,6 +346,12 @@ fi
                         logger.info("Passed: %s", ", ".join(passed))
                     if failed:
                         logger.error("Failed: %s", ", ".join(failed))
+
+                    # Github Actions has limited disk space. Once tested, we
+                    # will not use the kernel again, so delete it.
+                    if in_github_actions:
+                        logger.info("Deleting kernel %s", kernel.release)
+                        shutil.rmtree(kernel.path)
         except urllib.error.HTTPError as e:
             if e.code == 403:
                 print(e, file=sys.stderr)

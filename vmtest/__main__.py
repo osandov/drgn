@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 from typing import Dict, List, TextIO
@@ -243,7 +244,19 @@ if __name__ == "__main__":
 
     progress = _ProgressPrinter(sys.stderr)
 
-    with download_in_thread(args.directory, to_download) as downloads:
+    in_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
+
+    # Downloading too many files before they can be used for testing runs the
+    # risk of filling up the limited disk space is Github Actions. Set a limit
+    # of no more than 5 files which can be downloaded ahead of time. This is a
+    # magic number which is inexact, but works well enough.
+    # Note that Github Actions does not run vmtest via this script currently,
+    # but may in the future.
+    max_pending_kernels = 5 if in_github_actions else 0
+
+    with download_in_thread(
+        args.directory, to_download, max_pending_kernels
+    ) as downloads:
         for arch in architectures:
             if arch is HOST_ARCHITECTURE:
                 subprocess.check_call(
@@ -337,4 +350,7 @@ fi
             except LostVMError as e:
                 print("error:", e, file=sys.stderr)
                 status = -1
+
+            if in_github_actions:
+                shutil.rmtree(kernel.path)
             progress.update(kernel.arch.name, kernel.release, status == 0)
