@@ -3,7 +3,6 @@
 
 """Helper for opening a file as root and transmitting it via unix socket"""
 import array
-import os
 from pathlib import Path
 import pickle
 import socket
@@ -11,6 +10,31 @@ import subprocess
 import sys
 import tempfile
 from typing import Union
+
+_OPEN_VIA_SUDO_COMMAND = r"""
+import array
+import os
+import pickle
+import socket
+import sys
+
+sockpath = sys.argv[1]
+filename = sys.argv[2]
+flags = int(sys.argv[3])
+mode = int(sys.argv[4])
+
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+sock.connect(sockpath)
+try:
+    fd = os.open(filename, flags, mode)
+    fds = array.array("i", [fd])
+    sock.sendmsg(
+        [b"success"],
+        [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fds)],
+    )
+except Exception as e:
+    sock.sendmsg([pickle.dumps(e)])
+"""
 
 
 def open_via_sudo(
@@ -31,7 +55,8 @@ def open_via_sudo(
                     f"[sudo] password for %p to open {path}: ",
                     sys.executable,
                     "-B",
-                    __file__,
+                    "-c",
+                    _OPEN_VIA_SUDO_COMMAND,
                     sockpath,
                     path,
                     str(flags),
@@ -48,26 +73,3 @@ def open_via_sudo(
                     fds.frombytes(data)
                     return fds[0]
             raise pickle.loads(msg)
-
-
-def main() -> None:
-    sockpath = sys.argv[1]
-    filename = sys.argv[2]
-    flags = int(sys.argv[3])
-    mode = int(sys.argv[4])
-
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-    sock.connect(sockpath)
-    try:
-        fd = os.open(filename, flags, mode)
-        fds = array.array("i", [fd])
-        sock.sendmsg(
-            [b"success"],
-            [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fds)],
-        )
-    except Exception as e:
-        sock.sendmsg([pickle.dumps(e)])
-
-
-if __name__ == "__main__":
-    main()
