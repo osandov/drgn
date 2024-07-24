@@ -52,20 +52,28 @@ class TestIdentifyAddress(LinuxKernelTestCase):
 
     @skip_unless_have_test_kmod
     def test_identify_vmap(self):
-        self.assertTrue(
-            identify_address(self.prog["drgn_test_vmalloc_va"]).startswith("vmap: 0x")
-        )
+        for cache in (None, {}):
+            with self.subTest("uncached" if cache is None else "cached"):
+                self.assertTrue(
+                    identify_address(
+                        self.prog["drgn_test_vmalloc_va"], cache=cache
+                    ).startswith("vmap: 0x")
+                )
 
     @skip_unless_have_test_kmod
     def test_identify_vmap_stack(self):
         if not self.prog["drgn_test_vmap_stack_enabled"]:
             self.skipTest("kernel does not use vmap stacks (CONFIG_VMAP_STACK)")
-        self.assertEqual(
-            identify_address(
-                self.prog, self.prog["drgn_test_kthread"].stack.value_() + 1234
-            ),
-            f"vmap stack: {self.prog['drgn_test_kthread'].pid.value_()} (drgn_test_kthre) +0x4d2",
-        )
+        for cache in (None, {}):
+            with self.subTest("uncached" if cache is None else "cached"):
+                self.assertEqual(
+                    identify_address(
+                        self.prog,
+                        self.prog["drgn_test_kthread"].stack.value_() + 1234,
+                        cache=cache,
+                    ),
+                    f"vmap stack: {self.prog['drgn_test_kthread'].pid.value_()} (drgn_test_kthre) +0x4d2",
+                )
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod

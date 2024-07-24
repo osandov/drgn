@@ -54,6 +54,7 @@ def _identify_kernel_vmap(
                     break
             except AttributeError:
                 # CONFIG_VMAP_STACK must be disabled.
+                task = None
                 break
             except FaultError:
                 continue
