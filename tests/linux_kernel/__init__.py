@@ -73,7 +73,7 @@ class LinuxKernelTestCase(TestCase):
                 else:
                     # Load modules that are used by test cases.
                     subprocess.check_call(
-                        ["modprobe", "-a", "configs", "loop"]
+                        ["modprobe", "-a", "btrfs", "configs", "loop"]
                     )
                     try:
                         cls._load_debug_info(prog)

@@ -216,6 +216,31 @@ class TestFsRefs(LinuxKernelTestCase):
                     ),
                 )
 
+    @skip_unless_have_test_disk
+    def test_super_block_on_block_device(self):
+        disk = os.environ["DRGN_TEST_DISK"]
+        for fstype, mkfs in (
+            ("ext2", ("mke2fs", "-qF")),
+            ("btrfs", ("mkfs.btrfs", "-qf")),
+        ):
+            with self.subTest(fstype=fstype):
+                subprocess.check_call([*mkfs, disk])
+
+                with contextlib.ExitStack() as exit_stack:
+                    mount(disk, self._tmp, fstype)
+                    exit_stack.callback(umount, self._tmp)
+
+                    self.assertIn(
+                        f"mount {self._tmp} ",
+                        self.run_and_capture(
+                            "--check",
+                            "mounts",
+                            "--dereference",
+                            "--super-block-on-block-device",
+                            str(disk),
+                        ),
+                    )
+
     def test_binfmt_misc(self):
         for mnt in iter_mounts():
             if mnt.fstype == "binfmt_misc":
