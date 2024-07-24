@@ -12,6 +12,7 @@ import pickle
 import re
 import signal
 import socket
+import subprocess
 import sys
 import time
 import traceback
@@ -70,13 +71,10 @@ class LinuxKernelTestCase(TestCase):
                         "(run with env DRGN_RUN_LINUX_KERNEL_TESTS=1 to force)"
                     )
                 else:
-                    # Some of the tests use the loop module. Open loop-control
-                    # so that it is loaded.
-                    try:
-                        with open("/dev/loop-control", "r"):
-                            pass
-                    except FileNotFoundError:
-                        pass
+                    # Load modules that are used by test cases.
+                    subprocess.check_call(
+                        ["modprobe", "-a", "configs", "loop"]
+                    )
                     try:
                         cls._load_debug_info(prog)
                         LinuxKernelTestCase.prog = prog

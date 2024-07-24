@@ -90,9 +90,7 @@ umount -n -l /mnt
 # Load kernel modules.
 mkdir -p "/lib/modules/$RELEASE"
 mount --bind {kernel_dir} "/lib/modules/$RELEASE"
-for module in configs rng_core virtio_rng; do
-	modprobe "$module"
-done
+modprobe -a rng_core virtio_rng
 
 # Create static device nodes.
 grep -v '^#' "/lib/modules/$RELEASE/modules.devname" |
