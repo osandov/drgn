@@ -4,6 +4,7 @@
 
 """List the paths of all descendants of a cgroup v2"""
 
+import argparse
 from contextlib import contextmanager
 import os
 import sys
@@ -35,16 +36,6 @@ def open_dir(*args, **kwds):
         os.close(fd)
 
 
-def get_cgroup():
-    if len(sys.argv) == 1:
-        return prog["cgrp_dfl_root"].cgrp
-    task = find_task(prog, os.getpid())
-    with open_dir(sys.argv[1], os.O_RDONLY) as fd:
-        file_ = fget(task, fd)
-        kn = cast("struct kernfs_node *", file_.f_path.dentry.d_inode.i_private)
-        return cast("struct cgroup *", kn.priv)
-
-
 def print_cgroup_bpf_progs(cgrp):
     cgroup_printed = False
     for attach_type in BpfAttachType:
@@ -62,12 +53,46 @@ def print_cgroup_bpf_progs(cgrp):
             )
 
 
-css = get_cgroup().self.address_of_()
+def get_cgroup(path):
+    task = find_task(prog, os.getpid())
+    try:
+        with open_dir(path, os.O_RDONLY) as fd:
+            file_ = fget(task, fd)
+            kn = cast("struct kernfs_node *", file_.f_path.dentry.d_inode.i_private)
+            return cast("struct cgroup *", kn.priv)
+    except FileNotFoundError as e:
+        raise argparse.ArgumentTypeError(e)
 
-for pos in css_for_each_descendant_pre(css):
-    if not pos.flags & prog["CSS_ONLINE"]:
-        continue
-    if sys.argv[-1] == "bpf":
-        print_cgroup_bpf_progs(pos.cgroup)
-    else:
+
+def cmd_tree(cgroup):
+    css = cgroup.self.address_of_()
+
+    for pos in css_for_each_descendant_pre(css):
+        if not pos.flags & prog["CSS_ONLINE"]:
+            continue
         print(cgroup_path(pos.cgroup).decode())
+
+
+def cmd_bpf(cgroup):
+    css = cgroup.self.address_of_()
+
+    for pos in css_for_each_descendant_pre(css):
+        if not pos.flags & prog["CSS_ONLINE"]:
+            continue
+        print_cgroup_bpf_progs(pos.cgroup)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=["tree", "bpf"])
+    parser.add_argument("cgroups", help="Cgroups", nargs="*", type=get_cgroup)
+    args = parser.parse_args()
+
+    if len(args.cgroups) == 0:
+        args.cgroups.append(prog["cgrp_dfl_root"].cgrp)
+
+    for cg in args.cgroups:
+        if len(args.cgroups) > 1:
+            print(cg.kn.name.string_())
+        locals()["cmd_" + args.command](cg)
+
