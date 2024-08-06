@@ -8,6 +8,7 @@ import argparse
 from contextlib import contextmanager
 import os
 import sys
+from collections import Counter
 
 from drgn import cast
 from drgn.helpers.common.type import enum_type_to_class
@@ -25,6 +26,11 @@ BpfAttachType = enum_type_to_class(
     exclude=("__MAX_BPF_ATTACH_TYPE",),
 )
 
+CgroupSubsysId = enum_type_to_class(
+    prog.type("enum cgroup_subsys_id"),
+    "CgroupSubsysId",
+    exclude=("CGROUP_SUBSYS_COUNT",),
+)
 
 @contextmanager
 def open_dir(*args, **kwds):
@@ -82,9 +88,41 @@ def cmd_bpf(cgroup):
         print_cgroup_bpf_progs(pos.cgroup)
 
 
+def cmd_stat(cgroup):
+    stat = Counter()
+    stat_dying = Counter()
+
+    for ssid in CgroupSubsysId:
+        css = cgroup.subsys[ssid.value]
+        # XXX if subsys of offlined or cgroup rmdir'd under our hands we won't see its subtree
+        if not css:
+            continue
+        for pos in css_for_each_descendant_pre(css):
+            stat[ssid] +=1
+            if not pos.flags & prog["CSS_ONLINE"]:
+                stat_dying[ssid] += 1
+
+    for ssid in CgroupSubsysId:
+        if stat[ssid.value] == 0:
+            continue
+        print("nr_{:<30} {:>4}".format(
+            ssid.name,
+            stat[ssid.value]
+            )
+        )
+    for ssid in CgroupSubsysId:
+        if stat_dying[ssid.value] == 0:
+            continue
+        print("nr_dying_{:<24} {:>4}".format(
+            ssid.name,
+            stat_dying[ssid.value]
+            )
+        )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["tree", "bpf"])
+    parser.add_argument("command", choices=["tree", "bpf", "stat"])
     parser.add_argument("cgroups", help="Cgroups", nargs="*", type=get_cgroup)
     args = parser.parse_args()
 
