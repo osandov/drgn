@@ -159,13 +159,12 @@ def _css_for_each_impl(
         pos = next_fn(pos, css)
         if not pos:
             break
-        if pos.flags & pos.prog_["CSS_ONLINE"]:
-            yield pos
+        yield pos
 
 
 def css_for_each_child(css: Object) -> Iterator[Object]:
     """
-    Iterate through children of the given css.
+    Iterate through children (offline included) of the given css.
 
     :param css: ``struct cgroup_subsys_state *``
     :return: Iterator of ``struct cgroup_subsys_state *`` objects.
@@ -175,7 +174,7 @@ def css_for_each_child(css: Object) -> Iterator[Object]:
 
 def css_for_each_descendant_pre(css: Object) -> Iterator[Object]:
     """
-    Iterate through the given css's descendants in pre-order.
+    Iterate through the given css's descendants (offline included) in pre-order.
 
     :param css: ``struct cgroup_subsys_state *``
     :return: Iterator of ``struct cgroup_subsys_state *`` objects.
