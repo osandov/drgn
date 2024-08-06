@@ -65,6 +65,8 @@ def print_cgroup_bpf_progs(cgrp):
 css = get_cgroup().self.address_of_()
 
 for pos in css_for_each_descendant_pre(css):
+    if not pos.flags & prog["CSS_ONLINE"]:
+        continue
     if sys.argv[-1] == "bpf":
         print_cgroup_bpf_progs(pos.cgroup)
     else:
