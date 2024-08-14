@@ -167,16 +167,54 @@ def d_path(vfsmnt: Object, dentry: Object) -> bytes:
     ...
 
 
+@overload
+def d_path(dentry: Object) -> bytes:
+    """
+    Return the full path of a dentry.
+
+    Since a mount is not provided, this arbitrarily selects a mount to determine
+    the path.
+
+    :param dentry: ``struct dentry *``
+    """
+    ...
+
+
 def d_path(  # type: ignore  # Need positional-only arguments.
-    path_or_vfsmnt: Object, dentry: Optional[Object] = None
+    arg1: Object, arg2: Optional[Object] = None
 ) -> bytes:
-    if dentry is None:
-        vfsmnt = path_or_vfsmnt.mnt
-        dentry = path_or_vfsmnt.dentry.read_()
+    if arg2 is None:
+        try:
+            mnt = container_of(arg1.mnt, "struct mount", "mnt")
+            dentry = arg1.dentry.read_()
+        except AttributeError:
+            # Select an arbitrary mount from this dentry's super block. We
+            # choose the first non-internal mount. Internal mounts exist for
+            # kernel filesystems (e.g. debugfs) and they are mounted at "/".
+            # Paths from these mounts aren't usable in userspace and they're
+            # confusing. If there's no other option, we will use the first
+            # internal mount we encountered.
+            #
+            # The MNT_INTERNAL flag is defined as a macro in the kernel source.
+            # Introduced in 2.6.34 and has not been modified since.
+            MNT_INTERNAL = 0x4000
+            internal_mnt = None
+            dentry = arg1
+            for mnt in list_for_each_entry(
+                "struct mount", dentry.d_sb.s_mounts.address_of_(), "mnt_instance"
+            ):
+                if mnt.mnt.mnt_flags & MNT_INTERNAL:
+                    internal_mnt = internal_mnt or mnt
+                    continue
+                break
+            else:
+                if internal_mnt is not None:
+                    mnt = internal_mnt
+                else:
+                    raise ValueError("Could not find a mount for this dentry")
     else:
-        vfsmnt = path_or_vfsmnt
-        dentry = dentry.read_()
-    mnt = container_of(vfsmnt, "struct mount", "mnt")
+        mnt = container_of(arg1, "struct mount", "mnt")
+        dentry = arg2.read_()
 
     d_op = dentry.d_op.read_()
     if d_op and d_op.d_dname:
