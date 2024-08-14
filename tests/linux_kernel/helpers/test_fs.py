@@ -42,6 +42,20 @@ class TestFs(LinuxKernelTestCase):
         task = find_task(self.prog, os.getpid())
         self.assertEqual(d_path(task.fs.pwd.address_of_()), os.fsencode(os.getcwd()))
 
+    def test_d_path_dentry_only(self):
+        # This test could fail if we are running inside a container or if we are
+        # in a bind mount.
+        task = find_task(self.prog, os.getpid())
+        self.assertEqual(d_path(task.fs.pwd.dentry), os.fsencode(os.getcwd()))
+
+    def test_d_path_no_internal_mount(self):
+        if not os.path.isdir("/sys/kernel/tracing"):
+            self.skipTest("The /sys/kernel/tracing directory is not mounted")
+        path = path_lookup(self.prog, "/sys/kernel/tracing/trace_pipe")
+        # The first mount for this super block is usually MNT_INTERNAL, but we
+        # don't want that one. Ensure we skip it.
+        self.assertEqual(d_path(path.dentry), b"/sys/kernel/tracing/trace_pipe")
+
     def test_dentry_path(self):
         pwd = os.fsencode(os.getcwd())
         task = find_task(self.prog, os.getpid())
