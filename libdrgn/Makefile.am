@@ -116,6 +116,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 symbol.h \
 			 type.c \
 			 type.h \
+			 util.c \
 			 util.h \
 			 vector.h
 

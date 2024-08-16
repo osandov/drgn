@@ -211,4 +211,15 @@ static inline uint64_t uint_max(int n)
 #define add_to_possibly_null_pointer(ptr, i)	\
 	((typeof(ptr))((uintptr_t)(ptr) + (i) * sizeof(*(ptr))))
 
+/**
+ * Similar to qsort_r (passes @a arg to @a compar) but **not** reentrant
+ *
+ * The qsort_r() function's main feature is that it is reentrant, but also adds
+ * the convenience of including an argument to the callback function.
+ * Unfortunately it is a glibc extension. This provides a similar API but it is
+ * only thread-safe, not reentrant. See qsort_r(3) for details.
+ */
+void qsort_arg(void *base, size_t nmemb, size_t size,
+	       int (*compar)(const void *, const void *, void*), void *arg);
+
 #endif /* DRGN_UTIL_H */
