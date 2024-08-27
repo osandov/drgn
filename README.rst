@@ -95,6 +95,12 @@ drgn can be installed using the package manager on some Linux distributions.
 
     $ sudo apt install python3-drgn
 
+* Gentoo
+
+  .. code-block:: console
+
+      $ sudo emerge dev-debug/drgn
+
 * openSUSE
 
   .. code-block:: console
