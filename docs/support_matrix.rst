@@ -25,7 +25,7 @@ of this support is:
     * - s390x
       - ✓
       - ✓
-      - ✓
+      - ✓ (currently broken on Linux ≥ 6.10)
     * - ppc64
       - ✓
       - ✓
@@ -70,7 +70,7 @@ currently fully supported are:
 
 .. Keep this in sync with vmtest/config.py.
 
-- 6.0-6.10
+- 6.0-6.11
 - 5.10-5.19
 - 5.4
 - 4.19
