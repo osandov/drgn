@@ -1530,11 +1530,6 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 	struct drgn_error *err;
 	struct drgn_type *underlying_type = drgn_underlying_type(obj->type);
 
-	if (drgn_type_kind(underlying_type) == DRGN_TYPE_VOID) {
-		return drgn_error_create(DRGN_ERROR_TYPE,
-					 "cannot format void object");
-	}
-
 	/*
 	 * Pointers are special because they can have an asterisk prefix if
 	 * we're dereferencing them.
@@ -1570,6 +1565,9 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 	}
 
 	SWITCH_ENUM(drgn_type_kind(underlying_type),
+	case DRGN_TYPE_VOID:
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "cannot format void object");
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
 		return c_format_int_object(obj, flags, sb);
@@ -1589,7 +1587,6 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 					     multi_line_columns, flags, sb);
 	case DRGN_TYPE_FUNCTION:
 		return c_format_function_object(obj, sb);
-	case DRGN_TYPE_VOID:
 	case DRGN_TYPE_TYPEDEF:
 	case DRGN_TYPE_POINTER:
 	)

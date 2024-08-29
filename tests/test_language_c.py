@@ -2223,9 +2223,8 @@ class TestPrettyPrintObject(MockProgramTestCase):
         self.assertEqual(str(obj), "(void (void))0xffff0000")
 
     def test_absent(self):
-        self.assertRaises(TypeError, str, Object(self.prog, "void"))
-
         for type_ in [
+            "void",
             "int",
             "char",
             "_Bool",
