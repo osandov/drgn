@@ -5,7 +5,7 @@ import struct
 from typing import List, NamedTuple, Optional, Sequence
 import zlib
 
-from tests.elf import ET, PT, SHF, SHN, SHT, STB, STT, STV
+from _drgn_util.elf import ET, PT, SHF, SHN, SHT, STB, STT, STV
 
 
 class ElfSection:

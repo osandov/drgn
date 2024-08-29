@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 import tempfile
 
+from _drgn_util.elf import ET, PT, SHT, STB, STT
 from drgn import Program, Symbol, SymbolBinding, SymbolKind
 from tests import TestCase
 from tests.dwarfwriter import dwarf_sections
-from tests.elf import ET, PT, SHT, STB, STT
 from tests.elfwriter import ElfSection, ElfSymbol, create_elf_file
 
 
