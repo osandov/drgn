@@ -38,6 +38,11 @@ if sys.version_info < (3, 10):
 else:
     from typing import TypeAlias
 
+if sys.version_info < (3, 12):
+    from typing_extensions import Buffer
+else:
+    from collections.abc import Buffer
+
 # This is effectively typing.SupportsIndex without @typing.runtime_checkable
 # (both of which are only available since Python 3.8), with a more
 # self-explanatory name.
@@ -1534,13 +1539,16 @@ class Object:
         cls,
         prog: Program,
         type: Union[str, Type],
-        bytes: bytes,
+        bytes: Buffer,
         *,
         bit_offset: IntegerLike = 0,
         bit_field_size: Optional[IntegerLike] = None,
     ) -> Object:
         """
         Return a value object from its binary representation.
+
+        >>> print(Object.from_bytes_(prog, "int", b"\x10\x00\x00\x00"))
+        (int)16
 
         :param prog: Program to create the object in.
         :param type: Type of the object.
