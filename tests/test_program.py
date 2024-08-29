@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest.mock
 
+from _drgn_util.elf import ET, PT
 from drgn import (
     Architecture,
     FaultError,
@@ -35,7 +36,6 @@ from tests import (
     TestCase,
     mock_program,
 )
-from tests.elf import ET, PT
 from tests.elfwriter import ElfSection, create_elf_file
 
 
