@@ -778,7 +778,7 @@ static DrgnObject *DrgnObject_from_bytes(PyTypeObject *type, PyObject *args,
 	Py_buffer bytes;
 	struct index_arg bit_offset = {};
 	struct index_arg bit_field_size = { .allow_none = true, .is_none = true };
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!Oy*|O&O&:from_bytes_",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!Oy*|$O&O&:from_bytes_",
 					 keywords, &Program_type, &prog,
 					 &type_obj, &bytes, index_converter,
 					 &bit_offset, index_converter,
