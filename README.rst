@@ -181,6 +181,12 @@ First, install dependencies:
   <https://aur.archlinux.org/packages/libkdumpfile/>`__ from the AUR or from
   source if you want support for the makedumpfile format.
 
+* Gentoo
+
+  .. code-block:: console
+
+      $ sudo emerge --noreplace --oneshot dev-build/autoconf dev-build/automake dev-libs/check dev-libs/elfutils sys-devel/gcc dev-vcs/git dev-libs/libkdumpfile dev-build/libtool dev-build/make dev-python/pip virtual/pkgconfig dev-lang/python dev-python/setuptools
+
 * openSUSE
 
   .. code-block:: console
