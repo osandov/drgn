@@ -28,7 +28,13 @@
 enum { DW_ACCESS_DEFINITIONS };
 
 #define DW_ADDR_DEFINITIONS \
-	X(DW_ADDR_none, 0x0)
+	X(DW_ADDR_none, 0x0) \
+	X(DW_ADDR_TI_PTR8, 0x8) \
+	X(DW_ADDR_TI_PTR16, 0x10) \
+	X(DW_ADDR_TI_PTR22, 0x16) \
+	X(DW_ADDR_TI_PTR23, 0x17) \
+	X(DW_ADDR_TI_PTR24, 0x18) \
+	X(DW_ADDR_TI_PTR32, 0x20)
 enum { DW_ADDR_DEFINITIONS };
 
 #define DW_AT_DEFINITIONS \
@@ -163,7 +169,9 @@ enum { DW_ADDR_DEFINITIONS };
 	X(DW_AT_ghs_using_declaration, 0x808) \
 	X(DW_AT_HP_block_index, 0x2000) \
 	X(DW_AT_lo_user, 0x2000) \
+	X(DW_AT_TI_veneer, 0x2000) \
 	X(DW_AT_MIPS_fde, 0x2001) \
+	X(DW_AT_TI_symbol_name, 0x2001) \
 	X(DW_AT_MIPS_loop_begin, 0x2002) \
 	X(DW_AT_MIPS_tail_loop_begin, 0x2003) \
 	X(DW_AT_MIPS_epilog_begin, 0x2004) \
@@ -174,12 +182,16 @@ enum { DW_ADDR_DEFINITIONS };
 	X(DW_AT_MIPS_abstract_name, 0x2009) \
 	X(DW_AT_MIPS_clone_origin, 0x200a) \
 	X(DW_AT_MIPS_has_inlines, 0x200b) \
+	X(DW_AT_TI_version, 0x200b) \
 	X(DW_AT_MIPS_stride_byte, 0x200c) \
+	X(DW_AT_TI_asm, 0x200c) \
 	X(DW_AT_MIPS_stride_elem, 0x200d) \
 	X(DW_AT_MIPS_ptr_dopetype, 0x200e) \
+	X(DW_AT_TI_skeletal, 0x200e) \
 	X(DW_AT_MIPS_allocatable_dopetype, 0x200f) \
 	X(DW_AT_MIPS_assumed_shape_dopetype, 0x2010) \
 	X(DW_AT_MIPS_assumed_size, 0x2011) \
+	X(DW_AT_TI_interrupt, 0x2011) \
 	X(DW_AT_HP_unmodifiable, 0x2001) \
 	X(DW_AT_HP_prologue, 0x2005) \
 	X(DW_AT_HP_epilogue, 0x2008) \
@@ -355,6 +367,7 @@ enum { DW_ADDR_DEFINITIONS };
 	X(DW_AT_APPLE_property, 0x3fed) \
 	X(DW_AT_APPLE_objc_direct, 0x3fee) \
 	X(DW_AT_APPLE_sdk, 0x3fef) \
+	X(DW_AT_APPLE_origin, 0x3ff0) \
 	X(DW_AT_hi_user, 0x3fff)
 enum { DW_AT_DEFINITIONS };
 
@@ -407,8 +420,8 @@ enum { DW_ATE_DEFINITIONS };
 	X(DW_CC_nocall, 0x3) \
 	X(DW_CC_pass_by_reference, 0x4) \
 	X(DW_CC_pass_by_value, 0x5) \
-	X(DW_CC_lo_user, 0x40) \
 	X(DW_CC_GNU_renesas_sh, 0x40) \
+	X(DW_CC_lo_user, 0x40) \
 	X(DW_CC_GNU_borland_fastcall_i386, 0x41) \
 	X(DW_CC_ALTIUM_interrupt, 0x65) \
 	X(DW_CC_ALTIUM_near_system_stack, 0x66) \
@@ -464,8 +477,10 @@ enum { DW_CC_DEFINITIONS };
 	X(DW_CFA_val_offset, 0x14) \
 	X(DW_CFA_val_offset_sf, 0x15) \
 	X(DW_CFA_val_expression, 0x16) \
+	X(DW_CFA_TI_soffset_extended, 0x1c) \
 	X(DW_CFA_lo_user, 0x1c) \
 	X(DW_CFA_MIPS_advance_loc8, 0x1d) \
+	X(DW_CFA_TI_def_cfa_soffset, 0x1d) \
 	X(DW_CFA_GNU_window_save, 0x2d) \
 	X(DW_CFA_AARCH64_negate_ra_state, 0x2d) \
 	X(DW_CFA_GNU_args_size, 0x2e) \
@@ -595,6 +610,9 @@ enum { DW_ID_DEFINITIONS };
 	X(DW_IDX_GNU_internal, 0x2000) \
 	X(DW_IDX_lo_user, 0x2000) \
 	X(DW_IDX_GNU_external, 0x2001) \
+	X(DW_IDX_GNU_main, 0x2002) \
+	X(DW_IDX_GNU_language, 0x2003) \
+	X(DW_IDX_GNU_linkage_name, 0x2004) \
 	X(DW_IDX_hi_user, 0x3fff)
 enum { DW_IDX_DEFINITIONS };
 
@@ -656,6 +674,15 @@ enum { DW_INL_DEFINITIONS };
 	X(DW_LANG_Assembly, 0x31) \
 	X(DW_LANG_C_sharp, 0x32) \
 	X(DW_LANG_Mojo, 0x33) \
+	X(DW_LANG_GLSL, 0x34) \
+	X(DW_LANG_GLSL_ES, 0x35) \
+	X(DW_LANG_HLSL, 0x36) \
+	X(DW_LANG_OpenCL_CPP, 0x37) \
+	X(DW_LANG_CPP_for_OpenCL, 0x38) \
+	X(DW_LANG_SYCL, 0x39) \
+	X(DW_LANG_Ruby, 0x40) \
+	X(DW_LANG_Move, 0x41) \
+	X(DW_LANG_Hylo, 0x42) \
 	X(DW_LANG_lo_user, 0x8000) \
 	X(DW_LANG_Mips_Assembler, 0x8001) \
 	X(DW_LANG_Upc, 0x8765) \
@@ -1070,8 +1097,14 @@ enum { DW_SECT_DEFINITIONS };
 	X(DW_TAG_call_site_parameter, 0x49) \
 	X(DW_TAG_skeleton_unit, 0x4a) \
 	X(DW_TAG_immutable_type, 0x4b) \
+	X(DW_TAG_TI_far_type, 0x4080) \
 	X(DW_TAG_lo_user, 0x4080) \
 	X(DW_TAG_MIPS_loop, 0x4081) \
+	X(DW_TAG_TI_near_type, 0x4081) \
+	X(DW_TAG_TI_assign_register, 0x4082) \
+	X(DW_TAG_TI_ioport_type, 0x4083) \
+	X(DW_TAG_TI_restrict_type, 0x4084) \
+	X(DW_TAG_TI_onchip_type, 0x4085) \
 	X(DW_TAG_HP_array_descriptor, 0x4090) \
 	X(DW_TAG_format_label, 0x4101) \
 	X(DW_TAG_function_template, 0x4102) \
