@@ -5,8 +5,8 @@ import array
 import ctypes
 from typing import NamedTuple
 
+from _drgn_util.platform import SYS
 from tests.linux_kernel import _check_ctypes_syscall, _syscall
-from util import SYS
 
 # enum bpf_cmd
 BPF_MAP_CREATE = 0

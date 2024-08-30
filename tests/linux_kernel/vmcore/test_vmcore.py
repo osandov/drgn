@@ -1,10 +1,10 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn import ProgramFlags
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel.vmcore import LinuxVMCoreTestCase
-from util import NORMALIZED_MACHINE_NAME
 
 
 class TestVMCore(LinuxVMCoreTestCase):

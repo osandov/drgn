@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn import NULL, FaultError
 from drgn.helpers.linux.mm import (
     PFN_PHYS,
@@ -59,7 +60,6 @@ from tests.linux_kernel import (
     skip_unless_have_full_mm_support,
     skip_unless_have_test_kmod,
 )
-from util import NORMALIZED_MACHINE_NAME
 
 
 class TestMm(LinuxKernelTestCase):

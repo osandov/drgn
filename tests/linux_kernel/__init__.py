@@ -19,9 +19,9 @@ import traceback
 from typing import NamedTuple
 import unittest
 
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME, SYS
 import drgn
 from tests import TestCase
-from util import NORMALIZED_MACHINE_NAME, SYS
 
 
 class LinuxKernelTestCase(TestCase):
