@@ -4,6 +4,7 @@
 import os
 import unittest
 
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn import Object, Program, reinterpret
 from tests import assertReprPrettyEqualsStr, modifyenv
 from tests.linux_kernel import (
@@ -12,7 +13,6 @@ from tests.linux_kernel import (
     skip_unless_have_stack_tracing,
     skip_unless_have_test_kmod,
 )
-from util import NORMALIZED_MACHINE_NAME
 
 
 @skip_unless_have_stack_tracing

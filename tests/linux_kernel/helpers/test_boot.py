@@ -4,9 +4,9 @@
 import re
 import unittest
 
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn.helpers.linux.boot import pgtable_l5_enabled
 from tests.linux_kernel import LinuxKernelTestCase
-from util import NORMALIZED_MACHINE_NAME
 
 
 class TestBoot(LinuxKernelTestCase):

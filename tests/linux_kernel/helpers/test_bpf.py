@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn.helpers.linux.bpf import (
     bpf_btf_for_each,
     bpf_link_for_each,
@@ -34,7 +35,6 @@ from tests.linux_kernel.bpf import (
     bpf_prog_load,
 )
 from tests.linux_kernel.helpers.test_cgroup import tmp_cgroups
-from util import NORMALIZED_MACHINE_NAME
 
 
 class TestBpf(LinuxKernelTestCase):

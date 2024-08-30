@@ -29,7 +29,8 @@ from typing import (
 )
 import urllib.request
 
-from util import NORMALIZED_MACHINE_NAME, KernelVersion
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME
+from util import KernelVersion
 from vmtest.config import (
     ARCHITECTURES,
     HOST_ARCHITECTURE,

@@ -6,7 +6,7 @@ import os
 import re
 import subprocess
 
-from util import NORMALIZED_MACHINE_NAME, SYS
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME, SYS
 
 KEXEC_FILE_ON_CRASH = 2
 KEXEC_FILE_NO_INITRAMFS = 4

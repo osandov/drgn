@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Dict, Mapping, NamedTuple, Sequence
 
-from util import NORMALIZED_MACHINE_NAME
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
@@ -232,7 +232,7 @@ KERNEL_FLAVORS = OrderedDict(
 
 class Architecture(NamedTuple):
     # Architecture name. This matches the names used by
-    # util.NORMALIZED_MACHINE_NAME and qemu-system-$arch_name.
+    # _drgn_util.platform.NORMALIZED_MACHINE_NAME and qemu-system-$arch_name.
     name: str
     # Value of ARCH variable to build the Linux kernel.
     kernel_arch: str
