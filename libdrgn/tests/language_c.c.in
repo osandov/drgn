@@ -41,7 +41,7 @@ static void assert_lexes(const char *s, const struct test_token *tokens,
 #define assert_lexes_cpp(s, tokens) assert_lexes(s, tokens, true)
 
 static const char c_keywords[] =
-	"void char short int long signed unsigned _Bool float double _Complex "
+	"void char short int long signed unsigned _Bool float double "
 	"const restrict volatile _Atomic struct union class enum";
 
 #test lexer_empty
@@ -86,7 +86,6 @@ static const char c_keywords[] =
 		{ C_TOKEN_BOOL, "_Bool" },
 		{ C_TOKEN_FLOAT, "float" },
 		{ C_TOKEN_DOUBLE, "double" },
-		{ C_TOKEN_COMPLEX, "_Complex" },
 		{ C_TOKEN_CONST, "const" },
 		{ C_TOKEN_RESTRICT, "restrict" },
 		{ C_TOKEN_VOLATILE, "volatile" },
@@ -116,7 +115,6 @@ static const char c_keywords[] =
 		{ C_TOKEN_BOOL, "_Bool" },
 		{ C_TOKEN_FLOAT, "float" },
 		{ C_TOKEN_DOUBLE, "double" },
-		{ C_TOKEN_COMPLEX, "_Complex" },
 		{ C_TOKEN_CONST, "const" },
 		{ C_TOKEN_RESTRICT, "restrict" },
 		{ C_TOKEN_VOLATILE, "volatile" },

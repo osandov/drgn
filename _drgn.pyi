@@ -2401,9 +2401,6 @@ class TypeKind(enum.Enum):
     FLOAT = ...
     """Floating-point type."""
 
-    COMPLEX = ...
-    """Complex type."""
-
     STRUCT = ...
     """Structure type."""
 

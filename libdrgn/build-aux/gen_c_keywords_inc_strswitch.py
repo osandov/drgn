@@ -5,7 +5,6 @@
 C_KEYWORDS = (
     "_Atomic",
     "_Bool",
-    "_Complex",
     "char",
     "class",
     "const",
