@@ -1118,6 +1118,22 @@ class TestOperators(MockProgramTestCase):
         self.assertTrue(Object(self.prog, "int [0]", address=0x1234))
         self.assertFalse(Object(self.prog, "int [2]", address=0))
 
+    def test_bool_functions(self):
+        self.assertTrue(
+            Object(
+                self.prog,
+                self.prog.function_type(self.prog.type("void"), ()),
+                address=0x1234,
+            )
+        )
+        self.assertFalse(
+            Object(
+                self.prog,
+                self.prog.function_type(self.prog.type("void"), ()),
+                address=0,
+            )
+        )
+
     def test_cast_array(self):
         obj = Object(self.prog, "int []", address=0xFFFF0000)
         self.assertIdentical(

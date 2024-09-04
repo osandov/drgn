@@ -3251,7 +3251,9 @@ static struct drgn_error *c_op_bool(const struct drgn_object *obj, bool *ret)
 	struct drgn_type *underlying_type;
 
 	underlying_type = drgn_underlying_type(obj->type);
-	if (drgn_type_kind(underlying_type) == DRGN_TYPE_ARRAY) {
+	switch (drgn_type_kind(underlying_type)) {
+	case DRGN_TYPE_ARRAY:
+	case DRGN_TYPE_FUNCTION:
 		SWITCH_ENUM(obj->kind) {
 		case DRGN_OBJECT_VALUE:
 			*ret = true;
@@ -3264,6 +3266,8 @@ static struct drgn_error *c_op_bool(const struct drgn_object *obj, bool *ret)
 		default:
 			UNREACHABLE();
 		}
+	default:
+		break;
 	}
 
 	if (!drgn_type_is_scalar(underlying_type)) {
