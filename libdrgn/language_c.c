@@ -3252,8 +3252,18 @@ static struct drgn_error *c_op_bool(const struct drgn_object *obj, bool *ret)
 
 	underlying_type = drgn_underlying_type(obj->type);
 	if (drgn_type_kind(underlying_type) == DRGN_TYPE_ARRAY) {
-		*ret = true;
-		return NULL;
+		SWITCH_ENUM(obj->kind) {
+		case DRGN_OBJECT_VALUE:
+			*ret = true;
+			return NULL;
+		case DRGN_OBJECT_REFERENCE:
+			*ret = obj->address != 0;
+			return NULL;
+		case DRGN_OBJECT_ABSENT:
+			return &drgn_error_object_absent;
+		default:
+			UNREACHABLE();
+		}
 	}
 
 	if (!drgn_type_is_scalar(underlying_type)) {

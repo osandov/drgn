@@ -1315,8 +1315,6 @@ class TestConversions(MockProgramTestCase):
         self.assertTrue(Object(self.prog, "int *", value=0xFFFF0000))
         self.assertFalse(Object(self.prog, "int *", value=0x0))
 
-        self.assertTrue(Object(self.prog, "int []", address=0))
-
         self.assertRaisesRegex(
             TypeError,
             "cannot convert 'struct point' to bool",

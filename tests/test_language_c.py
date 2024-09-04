@@ -1113,6 +1113,11 @@ class TestCommonRealType(MockProgramTestCase):
 
 
 class TestOperators(MockProgramTestCase):
+    def test_bool_arrays(self):
+        self.assertTrue(Object(self.prog, "int [2]", [0, 0]))
+        self.assertTrue(Object(self.prog, "int [0]", address=0x1234))
+        self.assertFalse(Object(self.prog, "int [2]", address=0))
+
     def test_cast_array(self):
         obj = Object(self.prog, "int []", address=0xFFFF0000)
         self.assertIdentical(
