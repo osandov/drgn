@@ -3171,10 +3171,8 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 		break;
 	}
 	case DRGN_TYPE_FUNCTION: {
-		struct drgn_qualified_type function_type = {
-			.type = type_ret->underlying_type,
-			.qualifiers = type_ret->qualifiers,
-		};
+		struct drgn_qualified_type function_type =
+			drgn_operand_type_qualified(type_ret);
 		uint8_t address_size;
 		err = drgn_program_address_size(drgn_object_program(obj),
 						&address_size);

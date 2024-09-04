@@ -103,6 +103,16 @@ struct drgn_operand_type {
 	uint64_t bit_field_size;
 };
 
+/** Convert a @ref drgn_operand_type to a @ref drgn_qualified_type. */
+static inline struct drgn_qualified_type
+drgn_operand_type_qualified(const struct drgn_operand_type *type)
+{
+	return (struct drgn_qualified_type){
+		.type = type->type,
+		.qualifiers = type->qualifiers,
+	};
+}
+
 /** Get the @ref drgn_operand_type of a @ref drgn_object. */
 static inline struct drgn_operand_type
 drgn_object_operand_type(const struct drgn_object *obj)

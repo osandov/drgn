@@ -1410,20 +1410,14 @@ struct drgn_error *drgn_error_binary_op(const char *op_name,
 					struct drgn_operand_type *rhs_type)
 {
 	struct drgn_error *err;
-	struct drgn_qualified_type lhs_qualified_type = {
-		.type = lhs_type->type,
-		.qualifiers = lhs_type->qualifiers,
-	};
-	struct drgn_qualified_type rhs_qualified_type = {
-		.type = rhs_type->type,
-		.qualifiers = rhs_type->qualifiers,
-	};
 	_cleanup_free_ char *lhs_type_name = NULL;
-	err = drgn_format_type_name(lhs_qualified_type, &lhs_type_name);
+	err = drgn_format_type_name(drgn_operand_type_qualified(lhs_type),
+				    &lhs_type_name);
 	if (err)
 		return err;
 	_cleanup_free_ char *rhs_type_name = NULL;
-	err = drgn_format_type_name(rhs_qualified_type, &rhs_type_name);
+	err = drgn_format_type_name(drgn_operand_type_qualified(rhs_type),
+				    &rhs_type_name);
 	if (err)
 		return err;
 	return drgn_error_format(DRGN_ERROR_TYPE,
@@ -1436,12 +1430,9 @@ struct drgn_error *drgn_error_unary_op(const char *op_name,
 				       struct drgn_operand_type *type)
 {
 	struct drgn_error *err;
-	struct drgn_qualified_type qualified_type = {
-		.type = type->type,
-		.qualifiers = type->qualifiers,
-	};
 	_cleanup_free_ char *type_name = NULL;
-	err = drgn_format_type_name(qualified_type, &type_name);
+	err = drgn_format_type_name(drgn_operand_type_qualified(type),
+				    &type_name);
 	if (err)
 		return err;
 	return drgn_error_format(DRGN_ERROR_TYPE,
@@ -1830,16 +1821,13 @@ err:
 	return err;
 
 type_error:;
-	struct drgn_qualified_type from_qualified_type = {
-		.type = obj_type->type,
-		.qualifiers = obj_type->qualifiers,
-	};
 	_cleanup_free_ char *to_type_name = NULL;
 	err = drgn_format_type_name(qualified_type, &to_type_name);
 	if (err)
 		return err;
 	_cleanup_free_ char *from_type_name = NULL;
-	err = drgn_format_type_name(from_qualified_type, &from_type_name);
+	err = drgn_format_type_name(drgn_operand_type_qualified(obj_type),
+				    &from_type_name);
 	if (err)
 		return err;
 	return drgn_error_format(DRGN_ERROR_TYPE, "cannot convert '%s' to '%s'",
