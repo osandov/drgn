@@ -1168,6 +1168,26 @@ class TestOperators(MockProgramTestCase):
             cast("void", Object(self.prog, "int [2]")), Object(self.prog, "void")
         )
 
+    def test_cast_to_bool(self):
+        self.assertIdentical(
+            cast("_Bool", Object(self.prog, "int", 0)),
+            Object(self.prog, "_Bool", False),
+        )
+        for value in (1, -1, 2, 256, 32767):
+            with self.subTest(value=value):
+                self.assertIdentical(
+                    cast("_Bool", Object(self.prog, "int", value)),
+                    Object(self.prog, "_Bool", True),
+                )
+        self.assertIdentical(
+            cast("_Bool", Object(self.prog, "void *", 0)),
+            Object(self.prog, "_Bool", False),
+        )
+        self.assertIdentical(
+            cast("_Bool", Object(self.prog, "void *", 1)),
+            Object(self.prog, "_Bool", True),
+        )
+
     def _test_arithmetic(
         self, op, lhs, rhs, result, integral=True, floating_point=False
     ):

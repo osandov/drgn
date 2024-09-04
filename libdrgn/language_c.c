@@ -3232,6 +3232,13 @@ static struct drgn_error *c_op_cast(struct drgn_object *res,
 	case DRGN_TYPE_VOID:
 		drgn_object_set_absent_internal(res, &type);
 		return NULL;
+	case DRGN_TYPE_BOOL: {
+		bool truthy;
+		err = drgn_object_bool(obj, &truthy);
+		if (err)
+			return err;
+		return drgn_object_set_unsigned_internal(res, &type, truthy);
+	}
 	default:
 		break;
 	}
