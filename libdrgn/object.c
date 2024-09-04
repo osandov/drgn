@@ -94,7 +94,7 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 	}
 
 	struct drgn_type *compatible_type = underlying_type;
-	SWITCH_ENUM(drgn_type_kind(compatible_type),
+	SWITCH_ENUM(drgn_type_kind(compatible_type)) {
 	case DRGN_TYPE_ENUM:
 		if (!drgn_type_is_complete(compatible_type)) {
 			ret->encoding = DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER;
@@ -161,7 +161,9 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 		break;
 	// This is already the underlying type, so it can't be a typedef.
 	case DRGN_TYPE_TYPEDEF:
-	)
+	default:
+		UNREACHABLE();
+	}
 
 	if (bit_field_size != 0
 	    && drgn_type_kind(compatible_type) != DRGN_TYPE_INT
@@ -450,7 +452,7 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 	address &= address_mask;
 	bit_offset %= 8;
 	if (bit_offset != 0) {
-		SWITCH_ENUM(type->encoding,
+		SWITCH_ENUM(type->encoding) {
 		case DRGN_OBJECT_ENCODING_SIGNED:
 		case DRGN_OBJECT_ENCODING_UNSIGNED:
 		case DRGN_OBJECT_ENCODING_SIGNED_BIG:
@@ -463,7 +465,9 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 		case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
 			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "non-scalar must be byte-aligned");
-		)
+		default:
+			UNREACHABLE();
+		}
 	}
 	if (type->bit_size > UINT64_MAX - bit_offset) {
 		return drgn_error_format(DRGN_ERROR_OVERFLOW,
@@ -516,7 +520,7 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 					 "objects are from different programs");
 	}
 
-	SWITCH_ENUM(obj->kind,
+	SWITCH_ENUM(obj->kind) {
 	case DRGN_OBJECT_VALUE:
 		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER
 		    || obj->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
@@ -554,7 +558,9 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 		drgn_object_reinit_copy(res, obj);
 		res->kind = DRGN_OBJECT_ABSENT;
 		break;
-	)
+	default:
+		UNREACHABLE();
+	}
 	return NULL;
 }
 
@@ -573,7 +579,7 @@ drgn_object_slice(struct drgn_object *res, const struct drgn_object *obj,
 	if (err)
 		return err;
 
-	SWITCH_ENUM(obj->kind,
+	SWITCH_ENUM(obj->kind) {
 	case DRGN_OBJECT_VALUE: {
 		uint64_t bit_end;
 		if (__builtin_add_overflow(bit_offset, type.bit_size, &bit_end)
@@ -612,7 +618,9 @@ drgn_object_slice(struct drgn_object *res, const struct drgn_object *obj,
 							  + (bit_offset % 8));
 	case DRGN_OBJECT_ABSENT:
 		return &drgn_error_object_absent;
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -752,7 +760,7 @@ drgn_object_read(struct drgn_object *res, const struct drgn_object *obj)
 {
 	struct drgn_error *err;
 
-	SWITCH_ENUM(obj->kind,
+	SWITCH_ENUM(obj->kind) {
 	case DRGN_OBJECT_VALUE:
 		return drgn_object_copy(res, obj);
 	case DRGN_OBJECT_REFERENCE: {
@@ -771,7 +779,9 @@ drgn_object_read(struct drgn_object *res, const struct drgn_object *obj)
 	}
 	case DRGN_OBJECT_ABSENT:
 		return &drgn_error_object_absent;
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -780,7 +790,7 @@ drgn_object_read_value(const struct drgn_object *obj, union drgn_value *value,
 {
 	struct drgn_error *err;
 
-	SWITCH_ENUM(obj->kind,
+	SWITCH_ENUM(obj->kind) {
 	case DRGN_OBJECT_VALUE:
 		*ret = &obj->value;
 		return NULL;
@@ -791,7 +801,9 @@ drgn_object_read_value(const struct drgn_object *obj, union drgn_value *value,
 		return err;
 	case DRGN_OBJECT_ABSENT:
 		return &drgn_error_object_absent;
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -804,7 +816,7 @@ drgn_object_read_bytes(const struct drgn_object *obj, void *buf)
 						  obj->type);
 	}
 
-	SWITCH_ENUM(obj->kind,
+	SWITCH_ENUM(obj->kind) {
 	case DRGN_OBJECT_VALUE:
 		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER
 		    || obj->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
@@ -891,7 +903,9 @@ drgn_object_read_bytes(const struct drgn_object *obj, void *buf)
 	}
 	case DRGN_OBJECT_ABSENT:
 		return &drgn_error_object_absent;
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 static struct drgn_error *
@@ -1032,7 +1046,7 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 		} else {
 			max_size = SIZE_MAX;
 		}
-		SWITCH_ENUM(obj->kind,
+		SWITCH_ENUM(obj->kind) {
 		case DRGN_OBJECT_VALUE: {
 			const char *buf;
 			uint64_t value_size;
@@ -1058,7 +1072,9 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 			break;
 		case DRGN_OBJECT_ABSENT:
 			return &drgn_error_object_absent;
-		)
+		default:
+			UNREACHABLE();
+		}
 		break;
 	default:
 		return drgn_type_error("string() argument must be an array or pointer, not '%s'",
@@ -1494,7 +1510,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 					 "objects are from different programs");
 	}
 
-	SWITCH_ENUM(obj->kind,
+	SWITCH_ENUM(obj->kind) {
 	case DRGN_OBJECT_VALUE:
 		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 					 "cannot take address of value");
@@ -1502,7 +1518,9 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 		break;
 	case DRGN_OBJECT_ABSENT:
 		return &drgn_error_object_absent;
-	)
+	default:
+		UNREACHABLE();
+	}
 
 	if (obj->is_bit_field || obj->bit_offset) {
 		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
@@ -1723,7 +1741,7 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 	case DRGN_OBJECT_ENCODING_BUFFER:
 	case DRGN_OBJECT_ENCODING_NONE:
 	case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
-		SWITCH_ENUM(ptr->kind,
+		SWITCH_ENUM(ptr->kind) {
 		case DRGN_OBJECT_VALUE:
 			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 						 "cannot get address of value");
@@ -1732,7 +1750,9 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 			return NULL;
 		case DRGN_OBJECT_ABSENT:
 			return &drgn_error_object_absent;
-		)
+		default:
+			UNREACHABLE();
+		}
 	default:
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "invalid operand type for pointer arithmetic");

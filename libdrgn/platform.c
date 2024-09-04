@@ -57,7 +57,7 @@ drgn_platform_create(enum drgn_architecture arch,
 	const struct drgn_architecture_info *arch_info;
 	struct drgn_platform *platform;
 
-	SWITCH_ENUM_DEFAULT(arch,
+	SWITCH_ENUM(arch) {
 	case DRGN_ARCH_UNKNOWN:
 		arch_info = &arch_info_unknown;
 		break;
@@ -91,7 +91,7 @@ drgn_platform_create(enum drgn_architecture arch,
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "invalid architecture");
-	)
+	}
 	if (flags == DRGN_PLATFORM_DEFAULT_FLAGS) {
 		if (arch == DRGN_ARCH_UNKNOWN) {
 			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,

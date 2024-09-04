@@ -34,7 +34,7 @@ int init_type_kind_set(void)
 
 static inline const char *type_kind_to_str(enum drgn_type_kind kind)
 {
-	SWITCH_ENUM(kind,
+	SWITCH_ENUM(kind) {
 	case DRGN_TYPE_VOID:
 		return "TypeKind.VOID";
 	case DRGN_TYPE_INT:
@@ -59,7 +59,9 @@ static inline const char *type_kind_to_str(enum drgn_type_kind kind)
 		return "TypeKind.ARRAY";
 	case DRGN_TYPE_FUNCTION:
 		return "TypeKind.FUNCTION";
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 static PyObject *TypeKindSet_repr(TypeKindSet *self)

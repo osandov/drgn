@@ -447,7 +447,7 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 		if (err)
 			return set_drgn_error(err);
 
-		SWITCH_ENUM(object_type.encoding,
+		SWITCH_ENUM(object_type.encoding) {
 		case DRGN_OBJECT_ENCODING_BUFFER:
 			if (buffer_object_from_value(&obj->obj, &object_type,
 						     value_obj) == -1)
@@ -518,7 +518,9 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 			err = drgn_error_incomplete_type("cannot create value with %s type",
 							 qualified_type.type);
 			break;
-		)
+		default:
+			UNREACHABLE();
+		}
 	} else {
 		if (!qualified_type.type) {
 			PyErr_SetString(PyExc_ValueError,
@@ -734,7 +736,7 @@ static DrgnObject *DrgnObject_address_of(DrgnObject *self)
 static DrgnObject *DrgnObject_read(DrgnObject *self)
 {
 	struct drgn_error *err;
-	SWITCH_ENUM(self->obj.kind,
+	SWITCH_ENUM(self->obj.kind) {
 	case DRGN_OBJECT_VALUE:
 		Py_INCREF(self);
 		return self;
@@ -750,7 +752,9 @@ static DrgnObject *DrgnObject_read(DrgnObject *self)
 	}
 	case DRGN_OBJECT_ABSENT:
 		return set_drgn_error(&drgn_error_object_absent);
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 static PyObject *DrgnObject_to_bytes(DrgnObject *self)
@@ -841,7 +845,7 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 	if (append_format(parts, "Object(prog, %R", tmp) == -1)
 		return NULL;
 
-	SWITCH_ENUM(self->obj.kind,
+	SWITCH_ENUM(self->obj.kind) {
 	case DRGN_OBJECT_VALUE: {
 		if (append_string(parts, ", value=") == -1)
 			return NULL;
@@ -870,7 +874,9 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 	}
 	case DRGN_OBJECT_ABSENT:
 		break;
-	)
+	default:
+		UNREACHABLE();
+	}
 
 	if (self->obj.is_bit_field &&
 	    append_format(parts, ", bit_field_size=%llu",
@@ -1006,13 +1012,15 @@ static PyObject *DrgnObject_get_address(DrgnObject *self, void *arg)
 
 static PyObject *DrgnObject_get_bit_offset(DrgnObject *self, void *arg)
 {
-	SWITCH_ENUM(self->obj.kind,
+	SWITCH_ENUM(self->obj.kind) {
 	case DRGN_OBJECT_REFERENCE:
 		return PyLong_FromUint8(self->obj.bit_offset);
 	case DRGN_OBJECT_VALUE:
 	case DRGN_OBJECT_ABSENT:
 		Py_RETURN_NONE;
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 static PyObject *DrgnObject_get_bit_field_size(DrgnObject *self, void *arg)
@@ -1129,7 +1137,7 @@ static int DrgnObject_bool(DrgnObject *self)
 static PyObject *DrgnObject_int(DrgnObject *self)
 {
 	struct drgn_error *err;
-	SWITCH_ENUM(self->obj.encoding,
+	SWITCH_ENUM(self->obj.encoding) {
 	case DRGN_OBJECT_ENCODING_SIGNED:
 	case DRGN_OBJECT_ENCODING_UNSIGNED:
 	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
@@ -1148,13 +1156,15 @@ static PyObject *DrgnObject_int(DrgnObject *self)
 	case DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER:
 		return set_error_type_name("cannot convert '%s' to int",
 					   drgn_object_qualified_type(&self->obj));
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 static PyObject *DrgnObject_float(DrgnObject *self)
 {
 	struct drgn_error *err;
-	SWITCH_ENUM(self->obj.encoding,
+	SWITCH_ENUM(self->obj.encoding) {
 	case DRGN_OBJECT_ENCODING_FLOAT: {
 		double fvalue;
 		err = drgn_object_read_float(&self->obj, &fvalue);
@@ -1183,12 +1193,14 @@ static PyObject *DrgnObject_float(DrgnObject *self)
 	case DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER:
 		return set_error_type_name("cannot convert '%s' to float",
 					   drgn_object_qualified_type(&self->obj));
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 static PyObject *DrgnObject_index(DrgnObject *self)
 {
-	SWITCH_ENUM(self->obj.encoding,
+	SWITCH_ENUM(self->obj.encoding) {
 	case DRGN_OBJECT_ENCODING_SIGNED:
 	case DRGN_OBJECT_ENCODING_UNSIGNED:
 	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
@@ -1201,7 +1213,9 @@ static PyObject *DrgnObject_index(DrgnObject *self)
 	case DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER:
 		return set_error_type_name("'%s' object cannot be interpreted as an integer",
 					   drgn_object_qualified_type(&self->obj));
-	)
+	default:
+		UNREACHABLE();
+	}
 }
 
 static PyObject *DrgnObject_round(DrgnObject *self, PyObject *args,

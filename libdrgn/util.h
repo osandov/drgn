@@ -39,28 +39,18 @@
 /**
  * Switch statement with an enum controlling expression that must have a case
  * for every enumeration value and a default case.
+ *
+ * m4/my_c_switch_enum.m4 checks whether this works and defines a stub version
+ * if not. Keep this definition in sync with the check.
  */
-#define SWITCH_ENUM_DEFAULT(expr, ...) {			\
-	_Pragma("GCC diagnostic push");				\
-	_Pragma("GCC diagnostic error \"-Wswitch-enum\"");	\
-	_Pragma("GCC diagnostic error \"-Wswitch-default\"");	\
-	switch (expr)  {					\
-	__VA_ARGS__						\
-	}							\
-	_Pragma("GCC diagnostic pop");				\
-}
-
-/**
- * Switch statement with an enum controlling expression that must have a case
- * for every enumeration value. The expression is assumed to have a valid
- * enumeration value. Cases which are assumed not to be possible can be placed
- * at the end of the statement.
- */
-#define SWITCH_ENUM(expr, ...)		\
-	SWITCH_ENUM_DEFAULT(expr,	\
-	__VA_ARGS__			\
-	default: UNREACHABLE();		\
-	)
+#ifndef SWITCH_ENUM
+#define SWITCH_ENUM(expr)					\
+	_Pragma("GCC diagnostic push")				\
+	_Pragma("GCC diagnostic error \"-Wswitch-enum\"")	\
+	_Pragma("GCC diagnostic error \"-Wswitch-default\"")	\
+	switch (expr)						\
+	_Pragma("GCC diagnostic pop")
+#endif
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)

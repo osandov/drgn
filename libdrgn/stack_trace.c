@@ -973,7 +973,7 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 {
 	struct drgn_error *err;
 	bool little_endian = drgn_platform_is_little_endian(&prog->platform);
-	SWITCH_ENUM(rule->kind,
+	SWITCH_ENUM(rule->kind) {
 	case DRGN_CFI_RULE_UNDEFINED:
 		return &drgn_not_found;
 	case DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET: {
@@ -1031,7 +1031,9 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 		copy_lsbytes(buf, size, little_endian, &rule->constant,
 			     sizeof(rule->constant), HOST_LITTLE_ENDIAN);
 		return NULL;
-	)
+	default:
+		UNREACHABLE();
+	}
 	/*
 	 * If we couldn't read from memory, leave the register unknown instead
 	 * of failing hard.
