@@ -197,6 +197,17 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 				   uint64_t address, uint64_t bit_offset);
 
 /**
+ * Like @ref drgn_object_set_absent() but @ref drgn_object_type() was already
+ * called.
+ */
+static inline void
+drgn_object_set_absent_internal(struct drgn_object *res,
+				const struct drgn_object_type *type)
+{
+	drgn_object_reinit(res, type, DRGN_OBJECT_ABSENT);
+}
+
+/**
  * Binary operator implementation.
  *
  * Operator implementations with this type convert @p lhs and @p rhs to @p
@@ -347,7 +358,7 @@ drgn_unary_op_impl drgn_op_not_impl;
  * address of @p obj is used.
  */
 struct drgn_error *drgn_op_cast(struct drgn_object *res,
-				struct drgn_qualified_type qualified_type,
+				const struct drgn_object_type *type,
 				const struct drgn_object *obj,
 				const struct drgn_operand_type *obj_type);
 

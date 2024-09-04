@@ -1160,6 +1160,14 @@ class TestOperators(MockProgramTestCase):
             cast("void *", func), Object(self.prog, "void *", value=0xFFFF0000)
         )
 
+    def test_cast_to_void(self):
+        self.assertIdentical(
+            cast("void", Object(self.prog, "int", 0)), Object(self.prog, "void")
+        )
+        self.assertIdentical(
+            cast("void", Object(self.prog, "int [2]")), Object(self.prog, "void")
+        )
+
     def _test_arithmetic(
         self, op, lhs, rhs, result, integral=True, floating_point=False
     ):

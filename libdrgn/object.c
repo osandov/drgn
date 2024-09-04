@@ -505,7 +505,7 @@ drgn_object_set_absent(struct drgn_object *res,
 	err = drgn_object_type(qualified_type, bit_field_size, &type);
 	if (err)
 		return err;
-	drgn_object_reinit(res, &type, DRGN_OBJECT_ABSENT);
+	drgn_object_set_absent_internal(res, &type);
 	return NULL;
 }
 
@@ -1751,23 +1751,18 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 }
 
 struct drgn_error *drgn_op_cast(struct drgn_object *res,
-				struct drgn_qualified_type qualified_type,
+				const struct drgn_object_type *type,
 				const struct drgn_object *obj,
 				const struct drgn_operand_type *obj_type)
 {
 	struct drgn_error *err;
 
-	struct drgn_object_type type;
-	err = drgn_object_type(qualified_type, 0, &type);
-	if (err)
-		goto err;
-
 	bool is_pointer = (drgn_type_kind(obj_type->underlying_type) ==
 			   DRGN_TYPE_POINTER);
-	switch (type.encoding) {
+	switch (type->encoding) {
 	case DRGN_OBJECT_ENCODING_BUFFER:
 		return drgn_qualified_type_error("cannot cast to '%s'",
-						 qualified_type);
+						 drgn_object_type_qualified(type));
 	case DRGN_OBJECT_ENCODING_SIGNED: {
 		union {
 			int64_t svalue;
@@ -1776,24 +1771,24 @@ struct drgn_error *drgn_op_cast(struct drgn_object *res,
 		if (is_pointer) {
 			err = pointer_operand(obj, &tmp.uvalue);
 		} else {
-			err = drgn_object_convert_signed(obj, type.bit_size,
+			err = drgn_object_convert_signed(obj, type->bit_size,
 							 &tmp.svalue);
 		}
 		if (err)
 			goto err;
-		return drgn_object_set_signed_internal(res, &type, tmp.svalue);
+		return drgn_object_set_signed_internal(res, type, tmp.svalue);
 	}
 	case DRGN_OBJECT_ENCODING_UNSIGNED: {
 		uint64_t uvalue;
 		if (is_pointer) {
 			err = pointer_operand(obj, &uvalue);
 		} else {
-			err = drgn_object_convert_unsigned(obj, type.bit_size,
+			err = drgn_object_convert_unsigned(obj, type->bit_size,
 							   &uvalue);
 		}
 		if (err)
 			goto err;
-		return drgn_object_set_unsigned_internal(res, &type, uvalue);
+		return drgn_object_set_unsigned_internal(res, type, uvalue);
 	}
 	case DRGN_OBJECT_ENCODING_FLOAT: {
 		if (is_pointer)
@@ -1803,12 +1798,12 @@ struct drgn_error *drgn_op_cast(struct drgn_object *res,
 		err = drgn_object_convert_float(obj, &fvalue);
 		if (err)
 			goto err;
-		return drgn_object_set_float_internal(res, &type, fvalue);
+		return drgn_object_set_float_internal(res, type, fvalue);
 	}
 	default:
-		if (!drgn_object_encoding_is_complete(type.encoding)) {
+		if (!drgn_object_encoding_is_complete(type->encoding)) {
 			return drgn_error_incomplete_type("cannot cast to %s type",
-							  type.type);
+							  type->type);
 		}
 		goto type_error;
 	}
@@ -1823,7 +1818,7 @@ err:
 type_error:
 	return drgn_2_qualified_types_error("cannot convert '%s' to '%s'",
 					    drgn_operand_type_qualified(obj_type),
-					    qualified_type);
+					    drgn_object_type_qualified(type));
 }
 
 /*

@@ -3222,11 +3222,25 @@ static struct drgn_error *c_op_cast(struct drgn_object *res,
 				    const struct drgn_object *obj)
 {
 	struct drgn_error *err;
-	struct drgn_operand_type type;
-	err = c_operand_type(obj, &type, NULL, NULL);
+
+	struct drgn_object_type type;
+	err = drgn_object_type(qualified_type, 0, &type);
 	if (err)
 		return err;
-	return drgn_op_cast(res, qualified_type, obj, &type);
+
+	switch (drgn_type_kind(type.underlying_type)) {
+	case DRGN_TYPE_VOID:
+		drgn_object_set_absent_internal(res, &type);
+		return NULL;
+	default:
+		break;
+	}
+
+	struct drgn_operand_type obj_type;
+	err = c_operand_type(obj, &obj_type, NULL, NULL);
+	if (err)
+		return err;
+	return drgn_op_cast(res, &type, obj, &obj_type);
 }
 
 /*
