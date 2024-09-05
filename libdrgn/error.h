@@ -85,6 +85,19 @@ drgn_qualified_type_error(const char *format,
 	__attribute__((__returns_nonnull__));
 
 /**
+ * Create a @ref drgn_error with two qualified type names.
+ *
+ * @param[in] format Format string for the type error. Must contain two `%s`,
+ * which will be replaced with the two type names, and no other conversion
+ * specifications.
+ */
+struct drgn_error *
+drgn_2_qualified_types_error(const char *format,
+			     struct drgn_qualified_type qualified_type1,
+			     struct drgn_qualified_type qualified_type2)
+	__attribute__((__returns_nonnull__));
+
+/**
  * Create a @ref drgn_error for an incomplete type.
  *
  * @sa drgn_type_error().

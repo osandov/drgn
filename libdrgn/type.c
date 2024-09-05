@@ -1224,6 +1224,23 @@ drgn_qualified_type_error(const char *format,
 	return drgn_error_format(DRGN_ERROR_TYPE, format, name);
 }
 
+struct drgn_error *
+drgn_2_qualified_types_error(const char *format,
+			     struct drgn_qualified_type qualified_type1,
+			     struct drgn_qualified_type qualified_type2)
+{
+	struct drgn_error *err;
+	_cleanup_free_ char *name1 = NULL;
+	err = drgn_format_type_name(qualified_type1, &name1);
+	if (err)
+		return err;
+	_cleanup_free_ char *name2 = NULL;
+	err = drgn_format_type_name(qualified_type2, &name2);
+	if (err)
+		return err;
+	return drgn_error_format(DRGN_ERROR_TYPE, format, name1, name2);
+}
+
 struct drgn_error *drgn_error_incomplete_type(const char *format,
 					      struct drgn_type *type)
 {

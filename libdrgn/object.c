@@ -1820,18 +1820,10 @@ err:
 	}
 	return err;
 
-type_error:;
-	_cleanup_free_ char *to_type_name = NULL;
-	err = drgn_format_type_name(qualified_type, &to_type_name);
-	if (err)
-		return err;
-	_cleanup_free_ char *from_type_name = NULL;
-	err = drgn_format_type_name(drgn_operand_type_qualified(obj_type),
-				    &from_type_name);
-	if (err)
-		return err;
-	return drgn_error_format(DRGN_ERROR_TYPE, "cannot convert '%s' to '%s'",
-				 from_type_name, to_type_name);
+type_error:
+	return drgn_2_qualified_types_error("cannot convert '%s' to '%s'",
+					    drgn_operand_type_qualified(obj_type),
+					    qualified_type);
 }
 
 /*
