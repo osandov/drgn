@@ -1690,18 +1690,48 @@ def NULL(prog: Program, type: Union[str, Type]) -> Object:
 
 def cast(type: Union[str, Type], obj: Object) -> Object:
     """
-    Get the value of the given object casted to another type.
+    Get the value of an object explicitly casted to another type.
 
-    Objects with a scalar type (integer, boolean, enumerated, floating-point,
-    or pointer) can be casted to a different scalar type. Other objects can
-    only be casted to the same type. This always results in a value object. See
-    also :func:`drgn.reinterpret()`.
+    This uses the programming language's rules for explicit conversions, like
+    the cast operator.
 
     >>> cast("unsigned int", Object(prog, "float", 2.0))
     (unsigned int)2
+    >>> cast("void *", Object(prog, "int", 0))
+    (void *)0x0
+
+    See also :func:`implicit_convert()` for implicit conversions (which usually
+    do stricter type checking) and :func:`reinterpret()` for reinterpreting the
+    raw memory of an object.
 
     :param type: Type to cast to.
     :param obj: Object to cast.
+    :return: Casted object. This is always a value object.
+    :raises TypeError: if casting *obj* to *type* is not allowed
+    """
+    ...
+
+def implicit_convert(type: Union[str, Type], obj: Object) -> Object:
+    """
+    Get the value of an object implicitly converted to another type.
+
+    This uses the programming language's rules for implicit conversions, like
+    when assigning to a variable or passing arguments to a function call.
+
+    >>> implicit_convert("unsigned int", Object(prog, "float", 2.0))
+    (unsigned int)2
+    >>> implicit_convert("void *", Object(prog, "int", 0))
+    Traceback (most recent call last):
+      ...
+    TypeError: cannot convert 'int' to incompatible type 'void *'
+
+    See also :func:`cast()` for explicit conversions and :func:`reinterpret()`
+    for reinterpreting the raw memory of an object.
+
+    :param type: Type to convert to.
+    :param obj: Object to convert.
+    :return: Converted object. This is always a value object.
+    :raises TypeError: if converting *obj* to *type* is not allowed
     """
     ...
 
@@ -1710,15 +1740,24 @@ def reinterpret(type: Union[str, Type], obj: Object) -> Object:
     Get the representation of an object reinterpreted as another type.
 
     This reinterprets the raw memory of the object, so an object can be
-    reinterpreted as any other type. Reinterpreting a reference results in a
-    reference, and reinterpreting a value results in a value. See also
-    :func:`drgn.cast()`.
+    reinterpreted as any other type.
 
     >>> reinterpret("unsigned int", Object(prog, "float", 2.0))
     (unsigned int)1073741824
 
+    .. note::
+
+        You usually want :func:`cast()` or :func:`implicit_convert()` instead,
+        which convert the *value* of an object instead of its in-memory
+        representation.
+
     :param type: Type to reinterpret as.
     :param obj: Object to reinterpret.
+    :return: Reinterpreted object. If *obj* is a reference object, then this is
+        a reference object. If *obj* is a value object, then this is a value
+        object.
+    :raises OutOfBoundsError: if *obj* is a value object and *type* is larger
+        than *obj*
     """
     ...
 

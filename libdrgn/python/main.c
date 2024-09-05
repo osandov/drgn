@@ -143,6 +143,8 @@ static PyMethodDef drgn_methods[] = {
 	 drgn_offsetof_DOC},
 	{"cast", (PyCFunction)cast, METH_VARARGS | METH_KEYWORDS,
 	 drgn_cast_DOC},
+	{"implicit_convert", (PyCFunction)implicit_convert,
+	 METH_VARARGS | METH_KEYWORDS, drgn_implicit_convert_DOC},
 	{"reinterpret", (PyCFunction)reinterpret, METH_VARARGS | METH_KEYWORDS,
 	 drgn_reinterpret_DOC},
 	{"container_of", (PyCFunction)DrgnObject_container_of,

@@ -289,6 +289,7 @@ static inline Program *DrgnObject_prog(DrgnObject *obj)
 }
 PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds);
+DrgnObject *implicit_convert(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
 				    PyObject *kwds);

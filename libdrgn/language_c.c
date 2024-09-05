@@ -3144,6 +3144,165 @@ ret2:
 	return NULL;
 }
 
+static struct drgn_error *
+c_types_compatible_impl(struct drgn_qualified_type qualified_type1,
+			struct drgn_qualified_type qualified_type2,
+			bool *ret)
+{
+	struct drgn_error *err;
+
+	// The types must have the same qualifiers.
+	if (qualified_type1.qualifiers != qualified_type2.qualifiers) {
+		*ret = false;
+		return NULL;
+	}
+
+	struct drgn_type *type1 = drgn_underlying_type(qualified_type1.type);
+	struct drgn_type *type2 = drgn_underlying_type(qualified_type2.type);
+
+	// If the type descriptors are the same, then the types are definitely
+	// compatible.
+	if (type1 == type2)
+		return NULL;
+
+	if (drgn_type_kind(type1) != drgn_type_kind(type2)) {
+		// Enum types are compatible with their compatible integer type.
+		// but not with different enum types with the same compatible
+		// integer type.
+		if (drgn_type_kind(type1) == DRGN_TYPE_ENUM) {
+			qualified_type1.type = drgn_type_type(type1).type;
+			if (qualified_type1.type) {
+				return c_types_compatible_impl(qualified_type1,
+							       qualified_type2,
+							       ret);
+			}
+		} else if (drgn_type_kind(type2) == DRGN_TYPE_ENUM) {
+			qualified_type2.type = drgn_type_type(type2).type;
+			if (qualified_type2.type) {
+				return c_types_compatible_impl(qualified_type1,
+							       qualified_type2,
+							       ret);
+			}
+		}
+		*ret = false;
+		return NULL;
+	}
+
+	SWITCH_ENUM(drgn_type_kind(type1)) {
+	case DRGN_TYPE_VOID:
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_BOOL:
+	case DRGN_TYPE_FLOAT:
+		// These types are deduplicated, so if they were compatible they
+		// would have had the same type descriptor.
+		*ret = false;
+		return NULL;
+	case DRGN_TYPE_STRUCT:
+	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS: {
+		// It's expensive to check all of the members, so we do a sloppy
+		// check: if the tag and size are the same, then the types are
+		// _probably_ compatible.
+		if (drgn_type_is_complete(type1) && drgn_type_is_complete(type2)
+		    && drgn_type_size(type1) != drgn_type_size(type2)) {
+			*ret = false;
+			return NULL;
+		}
+		const char *tag1 = drgn_type_tag(type1);
+		const char *tag2 = drgn_type_tag(type2);
+		if ((!tag1 != !tag2) || (tag1 && strcmp(tag1, tag2) != 0))
+			*ret = false;
+		return NULL;
+	}
+	case DRGN_TYPE_ENUM: {
+		// We do a similar sloppy check here: if the tag and compatible
+		// type are the same, then the types are _probably_ compatible.
+		if (drgn_type_is_complete(type1) && drgn_type_is_complete(type2)
+		    && drgn_underlying_type(drgn_type_type(type1).type)
+		       != drgn_underlying_type(drgn_type_type(type2).type)) {
+			*ret = false;
+			return NULL;
+		}
+		const char *tag1 = drgn_type_tag(type1);
+		const char *tag2 = drgn_type_tag(type2);
+		if ((!tag1 != !tag2) || (tag1 && strcmp(tag1, tag2) != 0))
+			*ret = false;
+		return NULL;
+	}
+	case DRGN_TYPE_POINTER:
+		// The types are compatible iff their referenced types are
+		// compatible.
+		return c_types_compatible_impl(drgn_type_type(type1),
+					       drgn_type_type(type2), ret);
+	case DRGN_TYPE_ARRAY:
+		// The types are compatible iff their element types are
+		// compatible and, if both types are complete, their lengths are
+		// equal.
+		if (drgn_type_is_complete(type1) && drgn_type_is_complete(type2)
+		    && drgn_type_length(type1) != drgn_type_length(type2)) {
+			*ret = false;
+			return NULL;
+		}
+		return c_types_compatible_impl(drgn_type_type(type1),
+					       drgn_type_type(type2), ret);
+	case DRGN_TYPE_FUNCTION: {
+		// The types are compatible iff their return types are
+		// compatible, they have the same number of parameters, their
+		// corresponding parameter types are compatible, and neither is
+		// variadic or both are variadic.
+		//
+		// This is expensive, but there's no good shortcut like for
+		// structs and enums.
+		size_t num_parameters = drgn_type_num_parameters(type1);
+		if (num_parameters != drgn_type_num_parameters(type2)
+		    || drgn_type_is_variadic(type1)
+		       != drgn_type_is_variadic(type2)) {
+			*ret = false;
+			return NULL;
+		}
+		err = c_types_compatible_impl(drgn_type_type(type1),
+					      drgn_type_type(type2),
+					      ret);
+		if (err || !*ret)
+			return err;
+		struct drgn_type_parameter *parameters1 =
+			drgn_type_parameters(type1);
+		struct drgn_type_parameter *parameters2 =
+			drgn_type_parameters(type2);
+		for (size_t i = 0; i < num_parameters; i++) {
+			struct drgn_qualified_type parameter_type1;
+			err = drgn_parameter_type(&parameters1[i],
+						  &parameter_type1);
+			if (err)
+				return err;
+			struct drgn_qualified_type parameter_type2;
+			err = drgn_parameter_type(&parameters2[i],
+						  &parameter_type2);
+			if (err)
+				return err;
+			err = c_types_compatible_impl(parameter_type1,
+						      parameter_type2, ret);
+			if (err || !*ret)
+				return err;
+		}
+		return NULL;
+	}
+	// This is already the underlying type, so it can't be a typedef.
+	case DRGN_TYPE_TYPEDEF:
+	default:
+		UNREACHABLE();
+	}
+}
+
+static struct drgn_error *
+c_types_compatible(struct drgn_qualified_type qualified_type1,
+		   struct drgn_qualified_type qualified_type2,
+		   bool *ret)
+{
+	*ret = true;
+	return c_types_compatible_impl(qualified_type1, qualified_type2, ret);
+}
+
 static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 					 struct drgn_operand_type *type_ret,
 					 bool *is_pointer_ret,
@@ -3248,6 +3407,123 @@ static struct drgn_error *c_op_cast(struct drgn_object *res,
 	if (err)
 		return err;
 	return drgn_op_cast(res, &type, obj, &obj_type);
+}
+
+static struct drgn_error *
+c_op_implicit_convert(struct drgn_object *res,
+		      struct drgn_qualified_type qualified_type,
+		      const struct drgn_object *obj)
+{
+	struct drgn_error *err;
+
+	struct drgn_object_type type;
+	err = drgn_object_type(qualified_type, 0, &type);
+	if (err)
+		return err;
+
+	if (drgn_type_kind(type.underlying_type) == DRGN_TYPE_BOOL) {
+		bool truthy;
+		err = drgn_object_bool(obj, &truthy);
+		if (err)
+			return err;
+		return drgn_object_set_unsigned_internal(res, &type, truthy);
+	}
+
+	struct drgn_operand_type obj_type;
+	err = c_operand_type(obj, &obj_type, NULL, NULL);
+	if (err)
+		return err;
+
+	SWITCH_ENUM(drgn_type_kind(type.underlying_type)) {
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_FLOAT:
+	case DRGN_TYPE_ENUM:
+		switch (drgn_type_kind(obj_type.underlying_type)) {
+		case DRGN_TYPE_INT:
+		case DRGN_TYPE_BOOL:
+		case DRGN_TYPE_FLOAT:
+		case DRGN_TYPE_ENUM:
+			break;
+		default:
+			goto incompatible_type_error;
+		}
+		break;
+	case DRGN_TYPE_STRUCT:
+	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS: {
+		struct drgn_qualified_type unqualified_type1 = {
+			.type = type.underlying_type,
+		};
+		struct drgn_qualified_type unqualified_type2 = {
+			.type = obj_type.underlying_type,
+		};
+		bool compatible;
+		err = c_types_compatible(unqualified_type1, unqualified_type2,
+					 &compatible);
+		if (err)
+			return err;
+		if (!compatible)
+			goto incompatible_type_error;
+		return drgn_object_slice_internal(res, obj, &type, 0, 0);
+	}
+	case DRGN_TYPE_POINTER: {
+		if (drgn_type_kind(obj_type.underlying_type)
+		    != DRGN_TYPE_POINTER)
+			goto incompatible_type_error;
+
+		struct drgn_qualified_type referenced_type =
+			drgn_type_type(type.underlying_type);
+		referenced_type.type =
+			drgn_underlying_type(referenced_type.type);
+		struct drgn_qualified_type obj_referenced_type =
+			drgn_type_type(obj_type.underlying_type);
+		obj_referenced_type.type =
+			drgn_underlying_type(obj_referenced_type.type);
+
+		// The type pointed to by the left must have all of the
+		// qualifiers of the type pointed to by the right:
+		// (lhs.qualifiers & rhs.qualifiers) == rhs.qualifiers.
+		// We mask here and do the equality test below or in
+		// c_types_compatible().
+		referenced_type.qualifiers &= obj_referenced_type.qualifiers;
+
+		// The type pointed to by the left and the type pointed to by
+		// the right must be compatible, or at least one must be void.
+		if (drgn_type_kind(referenced_type.type) == DRGN_TYPE_VOID
+		    || drgn_type_kind(obj_referenced_type.type) == DRGN_TYPE_VOID) {
+			if (referenced_type.qualifiers
+			    != obj_referenced_type.qualifiers)
+				goto incompatible_type_error;
+		} else {
+			bool compatible;
+			err = c_types_compatible(referenced_type, obj_referenced_type,
+						 &compatible);
+			if (err)
+				return err;
+			if (!compatible)
+				goto incompatible_type_error;
+		}
+		break;
+	}
+	case DRGN_TYPE_VOID:
+	case DRGN_TYPE_ARRAY:
+	case DRGN_TYPE_FUNCTION:
+		return drgn_qualified_type_error("cannot convert to '%s'",
+						 qualified_type);
+	// We handled bool earlier.
+	case DRGN_TYPE_BOOL:
+	// This is already the underlying type, so it can't be a typedef.
+	case DRGN_TYPE_TYPEDEF:
+	default:
+		UNREACHABLE();
+	}
+
+	return drgn_op_cast(res, &type, obj, &obj_type);
+
+incompatible_type_error:
+	return drgn_2_qualified_types_error("cannot convert '%s' to incompatible type '%s'",
+					    drgn_object_qualified_type(obj),
+					    qualified_type);
 }
 
 /*
@@ -3532,6 +3808,7 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_c = {
 	.bool_literal = c_bool_literal,
 	.float_literal = c_float_literal,
 	.op_cast = c_op_cast,
+	.op_implicit_convert = c_op_implicit_convert,
 	.op_bool = c_op_bool,
 	.op_cmp = c_op_cmp,
 	.op_add = c_op_add,
@@ -3562,6 +3839,7 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_cpp = {
 	.bool_literal = c_bool_literal,
 	.float_literal = c_float_literal,
 	.op_cast = c_op_cast,
+	.op_implicit_convert = c_op_implicit_convert,
 	.op_bool = c_op_bool,
 	.op_cmp = c_op_cmp,
 	.op_add = c_op_add,

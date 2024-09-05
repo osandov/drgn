@@ -99,6 +99,7 @@ Objects
 .. drgndoc:: Object
 .. drgndoc:: NULL
 .. drgndoc:: cast
+.. drgndoc:: implicit_convert
 .. drgndoc:: reinterpret
 .. drgndoc:: container_of
 

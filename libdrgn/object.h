@@ -207,6 +207,12 @@ drgn_object_set_absent_internal(struct drgn_object *res,
 	drgn_object_reinit(res, type, DRGN_OBJECT_ABSENT);
 }
 
+struct drgn_error *
+drgn_object_slice_internal(struct drgn_object *res,
+			   const struct drgn_object *obj,
+			   const struct drgn_object_type *type,
+			   uint64_t bit_offset, uint64_t bit_field_size);
+
 /**
  * Binary operator implementation.
  *

@@ -2083,22 +2083,41 @@ struct drgn_error *drgn_format_object(const struct drgn_object *obj,
  */
 
 /**
- * Set a @ref drgn_object to the value of an object casted to a another type.
+ * Set a @ref drgn_object to the value of an object explicitly casted to a
+ * another type.
  *
- * Objects with a scalar type can be casted to a different scalar type. Other
- * objects can only be casted to the same type. @p res is always set to a value
- * object.
+ * This uses the programming language's rules for explicit conversions, like the
+ * cast operator.
  *
- * @sa drgn_object_reinterpret()
+ * @sa drgn_object_implicit_convert(), drgn_object_reinterpret()
  *
- * @param[out] res Object to set.
+ * @param[out] res Object to set. Always set to a value object.
  * @param[in] qualified_type New type.
- * @param[in] obj Object to read.
+ * @param[in] obj Object to cast.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_object_cast(struct drgn_object *res,
 				    struct drgn_qualified_type qualified_type,
 				    const struct drgn_object *obj);
+
+/**
+ * Set a @ref drgn_object to the value of an object implicitly converted to a
+ * another type.
+ *
+ * This uses the programming language's rules for implicit conversions, like
+ * when assigning to a variable or passing arguments to a function call.
+ *
+ * @sa drgn_object_cast(), drgn_object_reinterpret()
+ *
+ * @param[out] res Object to set. Always set to a value object.
+ * @param[in] qualified_type New type.
+ * @param[in] obj Object to convert.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_object_implicit_convert(struct drgn_object *res,
+			     struct drgn_qualified_type qualified_type,
+			     const struct drgn_object *obj);
 
 /**
  * Set a @ref drgn_object to the representation of an object reinterpreted as
@@ -2107,12 +2126,10 @@ struct drgn_error *drgn_object_cast(struct drgn_object *res,
  * This reinterprets the raw memory of the object, so an object can be
  * reinterpreted as any other type.
  *
- * If @c obj is a value, then @c res is set to a value; if @c obj is a
- * reference, then @c res is set to a reference.
+ * @sa drgn_object_cast(), drgn_object_implicit_convert()
  *
- * @sa drgn_object_cast()
- *
- * @param[out] res Object to set.
+ * @param[out] res Object to set. If @p obj is a value, set to a value. If @p
+ * obj is a reference, set to a reference.
  * @param[in] qualified_type New type.
  * @param[in] obj Object to reinterpret.
  * @return @c NULL on success, non-@c NULL on error.

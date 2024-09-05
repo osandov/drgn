@@ -1632,58 +1632,38 @@ PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds)
 				     prog_obj, type_obj, 0);
 }
 
-DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds)
-{
-	static char *keywords[] = {"type", "obj", NULL};
-	struct drgn_error *err;
-	struct drgn_qualified_type qualified_type;
-	PyObject *type_obj;
-	DrgnObject *obj;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO!:cast", keywords,
-					 &type_obj, &DrgnObject_type, &obj))
-		return NULL;
-
-	if (Program_type_arg(DrgnObject_prog(obj), type_obj, false,
-			     &qualified_type) == -1)
-		return NULL;
-
-	_cleanup_pydecref_ DrgnObject *res =
-		DrgnObject_alloc(DrgnObject_prog(obj));
-	if (!res)
-		return NULL;
-
-	err = drgn_object_cast(&res->obj, qualified_type, &obj->obj);
-	if (err)
-		return set_drgn_error(err);
-	return_ptr(res);
+#define DrgnObject_CAST_OP(op)							\
+DrgnObject *op(PyObject *self, PyObject *args, PyObject *kwds)			\
+{										\
+	static char *keywords[] = {"type", "obj", NULL};			\
+	struct drgn_error *err;							\
+	PyObject *type_obj;							\
+	DrgnObject *obj;							\
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO!:" #op, keywords,	\
+					 &type_obj, &DrgnObject_type, &obj))	\
+		return NULL;							\
+										\
+	struct drgn_qualified_type qualified_type;				\
+	if (Program_type_arg(DrgnObject_prog(obj), type_obj, false,		\
+			     &qualified_type) == -1)				\
+		return NULL;							\
+										\
+	_cleanup_pydecref_ DrgnObject *res =					\
+		DrgnObject_alloc(DrgnObject_prog(obj));				\
+	if (!res)								\
+		return NULL;							\
+										\
+	err = drgn_object_##op(&res->obj, qualified_type, &obj->obj);		\
+	if (err)								\
+		return set_drgn_error(err);					\
+	return_ptr(res);							\
 }
 
-DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds)
-{
-	static char *keywords[] = {"type", "obj", NULL};
-	struct drgn_error *err;
-	PyObject *type_obj;
-	struct drgn_qualified_type qualified_type;
-	DrgnObject *obj;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO!:reinterpret",
-					 keywords, &type_obj, &DrgnObject_type,
-					 &obj))
-		return NULL;
+DrgnObject_CAST_OP(cast)
+DrgnObject_CAST_OP(implicit_convert)
+DrgnObject_CAST_OP(reinterpret)
 
-	if (Program_type_arg(DrgnObject_prog(obj), type_obj, false,
-			     &qualified_type) == -1)
-		return NULL;
-
-	_cleanup_pydecref_ DrgnObject *res =
-		DrgnObject_alloc(DrgnObject_prog(obj));
-	if (!res)
-		return NULL;
-
-	err = drgn_object_reinterpret(&res->obj, qualified_type, &obj->obj);
-	if (err)
-		return set_drgn_error(err);
-	return_ptr(res);
-}
+#undef DrgnObject_CAST_OP
 
 DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
 				    PyObject *kwds)
