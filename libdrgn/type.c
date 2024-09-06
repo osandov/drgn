@@ -369,18 +369,23 @@ struct drgn_type *drgn_void_type(struct drgn_program *prog,
 }
 
 static struct drgn_error *
-drgn_byte_order_to_little_endian(struct drgn_program *prog,
-				 enum drgn_byte_order byte_order, bool *ret)
+drgn_type_init_byte_order(struct drgn_type *type,
+			  enum drgn_byte_order byte_order)
 {
+	struct drgn_error *err;
+	bool little_endian;
 	SWITCH_ENUM(byte_order) {
 	case DRGN_BIG_ENDIAN:
-		*ret = false;
-		return NULL;
-	case DRGN_LITTLE_ENDIAN:
-		*ret = true;
 		return NULL;
 	case DRGN_PROGRAM_ENDIAN:
-		return drgn_program_is_little_endian(prog, ret);
+		err = drgn_program_is_little_endian(type->_program,
+						    &little_endian);
+		if (err || !little_endian)
+			return err;
+		fallthrough;
+	case DRGN_LITTLE_ENDIAN:
+		type->_flags |= DRGN_TYPE_FLAG_LITTLE_ENDIAN;
+		return NULL;
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "invalid byte order");
@@ -406,16 +411,15 @@ struct drgn_error *drgn_int_type_create(struct drgn_program *prog,
 
 	struct drgn_type key = {
 		._kind = DRGN_TYPE_INT,
-		._is_complete = true,
 		._primitive = primitive,
+		._flags = (DRGN_TYPE_FLAG_IS_COMPLETE
+			   | (is_signed ? DRGN_TYPE_FLAG_IS_SIGNED : 0)),
 		._name = name,
 		._size = size,
-		._is_signed = is_signed,
 		._program = prog,
 		._language = lang ? lang : drgn_program_language(prog),
 	};
-	err = drgn_byte_order_to_little_endian(prog, byte_order,
-					       &key._little_endian);
+	err = drgn_type_init_byte_order(&key, byte_order);
 	if (err)
 		return err;
 	return find_or_create_type(&key, ret);
@@ -437,15 +441,14 @@ struct drgn_error *drgn_bool_type_create(struct drgn_program *prog,
 
 	struct drgn_type key = {
 		._kind = DRGN_TYPE_BOOL,
-		._is_complete = true,
 		._primitive = primitive,
+		._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
 		._name = name,
 		._size = size,
 		._program = prog,
 		._language = lang ? lang : drgn_program_language(prog),
 	};
-	err = drgn_byte_order_to_little_endian(prog, byte_order,
-					       &key._little_endian);
+	err = drgn_type_init_byte_order(&key, byte_order);
 	if (err)
 		return err;
 	return find_or_create_type(&key, ret);
@@ -467,15 +470,14 @@ struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
 
 	struct drgn_type key = {
 		._kind = DRGN_TYPE_FLOAT,
-		._is_complete = true,
 		._primitive = primitive,
+		._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
 		._name = name,
 		._size = size,
 		._program = prog,
 		._language = lang ? lang : drgn_program_language(prog),
 	};
-	err = drgn_byte_order_to_little_endian(prog, byte_order,
-					       &key._little_endian);
+	err = drgn_type_init_byte_order(&key, byte_order);
 	if (err)
 		return err;
 	return find_or_create_type(&key, ret);
@@ -586,8 +588,8 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 	    && drgn_type_template_parameter_vector_empty(&builder->template_builder.parameters)) {
 		struct drgn_type key = {
 			._kind = builder->kind,
-			._is_complete = is_complete,
 			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			._flags = is_complete ? DRGN_TYPE_FLAG_IS_COMPLETE : 0,
 			._tag = tag,
 			._size = size,
 			._program = prog,
@@ -607,8 +609,8 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 	drgn_type_template_parameter_vector_shrink_to_fit(&builder->template_builder.parameters);
 
 	type->_kind = builder->kind;
-	type->_is_complete = is_complete;
 	type->_primitive = DRGN_NOT_PRIMITIVE_TYPE;
+	type->_flags = is_complete ? DRGN_TYPE_FLAG_IS_COMPLETE : 0;
 	type->_tag = tag;
 	type->_size = size;
 	drgn_type_member_vector_steal(&builder->members, &type->_members,
@@ -682,8 +684,8 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 	if (drgn_type_enumerator_vector_empty(&builder->enumerators)) {
 		struct drgn_type key = {
 			._kind = DRGN_TYPE_ENUM,
-			._is_complete = true,
 			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
 			._tag = tag,
 			._type = compatible_type,
 			._program = builder->prog,
@@ -704,8 +706,8 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 	drgn_type_enumerator_vector_shrink_to_fit(&builder->enumerators);
 
 	type->_kind = DRGN_TYPE_ENUM;
-	type->_is_complete = true;
 	type->_primitive = DRGN_NOT_PRIMITIVE_TYPE;
+	type->_flags = DRGN_TYPE_FLAG_IS_COMPLETE;
 	type->_tag = tag;
 	type->_type = compatible_type;
 	type->_qualifiers = 0;
@@ -725,7 +727,6 @@ drgn_incomplete_enum_type_create(struct drgn_program *prog, const char *tag,
 {
 	struct drgn_type key = {
 		._kind = DRGN_TYPE_ENUM,
-		._is_complete = false,
 		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
 		._tag = tag,
 		._program = prog,
@@ -755,8 +756,8 @@ drgn_typedef_type_create(struct drgn_program *prog, const char *name,
 
 	struct drgn_type key = {
 		._kind = DRGN_TYPE_TYPEDEF,
-		._is_complete = drgn_type_is_complete(aliased_type.type),
 		._primitive = primitive,
+		._flags = aliased_type.type->_flags & DRGN_TYPE_FLAG_IS_COMPLETE,
 		._name = name,
 		._type = aliased_type.type,
 		._qualifiers = aliased_type.qualifiers,
@@ -782,16 +783,15 @@ drgn_pointer_type_create(struct drgn_program *prog,
 
 	struct drgn_type key = {
 		._kind = DRGN_TYPE_POINTER,
-		._is_complete = true,
 		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+		._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
 		._size = size,
 		._type = referenced_type.type,
 		._qualifiers = referenced_type.qualifiers,
 		._program = prog,
 		._language = lang ? lang : drgn_program_language(prog),
 	};
-	err = drgn_byte_order_to_little_endian(prog, byte_order,
-					       &key._little_endian);
+	err = drgn_type_init_byte_order(&key, byte_order);
 	if (err)
 		return err;
 	return find_or_create_type(&key, ret);
@@ -810,8 +810,8 @@ drgn_array_type_create(struct drgn_program *prog,
 
 	struct drgn_type key = {
 		._kind = DRGN_TYPE_ARRAY,
-		._is_complete = true,
 		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+		._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
 		._length = length,
 		._type = element_type.type,
 		._qualifiers = element_type.qualifiers,
@@ -834,7 +834,6 @@ drgn_incomplete_array_type_create(struct drgn_program *prog,
 
 	struct drgn_type key = {
 		._kind = DRGN_TYPE_ARRAY,
-		._is_complete = false,
 		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
 		._type = element_type.type,
 		._qualifiers = element_type.qualifiers,
@@ -900,11 +899,11 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 	    && drgn_type_template_parameter_vector_empty(&builder->template_builder.parameters)) {
 		struct drgn_type key = {
 			._kind = DRGN_TYPE_FUNCTION,
-			._is_complete = true,
 			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			._flags = (DRGN_TYPE_FLAG_IS_COMPLETE
+				   | (is_variadic ? DRGN_TYPE_FLAG_IS_VARIADIC : 0)),
 			._type = return_type.type,
 			._qualifiers = return_type.qualifiers,
-			._is_variadic = is_variadic,
 			._program = prog,
 			._language = lang ? lang : drgn_program_language(prog),
 		};
@@ -922,14 +921,14 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 	drgn_type_template_parameter_vector_shrink_to_fit(&builder->template_builder.parameters);
 
 	type->_kind = DRGN_TYPE_FUNCTION;
-	type->_is_complete = true;
 	type->_primitive = DRGN_NOT_PRIMITIVE_TYPE;
+	type->_flags = (DRGN_TYPE_FLAG_IS_COMPLETE
+			| (is_variadic ? DRGN_TYPE_FLAG_IS_VARIADIC : 0));
 	type->_type = return_type.type;
 	type->_qualifiers = return_type.qualifiers;
 	drgn_type_parameter_vector_steal(&builder->parameters,
 					 &type->_parameters,
 					 &type->_num_parameters);
-	type->_is_variadic = is_variadic;
 	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
 						  &type->_template_parameters,
 						  &type->_num_template_parameters);
@@ -1050,10 +1049,23 @@ drgn_type_with_byte_order(struct drgn_type **type,
 		return NULL;
 	}
 	bool little_endian;
-	err = drgn_byte_order_to_little_endian(drgn_type_program(*underlying_type),
-					       byte_order, &little_endian);
-	if (err)
-		return err;
+	SWITCH_ENUM(byte_order) {
+		case DRGN_BIG_ENDIAN:
+			little_endian = false;
+			break;
+		case DRGN_LITTLE_ENDIAN:
+			little_endian = true;
+			break;
+		case DRGN_PROGRAM_ENDIAN:
+			err = drgn_program_is_little_endian(drgn_type_program(*underlying_type),
+							    &little_endian);
+			if (err)
+				return err;
+			break;
+		default:
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "invalid byte order");
+	}
 	if (type_little_endian == little_endian)
 		return NULL;
 	return drgn_type_with_byte_order_impl(type, underlying_type,
@@ -1248,8 +1260,8 @@ void drgn_program_init_types(struct drgn_program *prog)
 	for (size_t i = 0; i < array_size(prog->void_types); i++) {
 		struct drgn_type *type = &prog->void_types[i];
 		type->_kind = DRGN_TYPE_VOID;
-		type->_is_complete = false;
 		type->_primitive = DRGN_C_TYPE_VOID;
+		type->_flags = 0;
 		type->_program = prog;
 		type->_language = drgn_languages[i];
 	}

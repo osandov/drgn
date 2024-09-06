@@ -20,14 +20,21 @@
 
 #include "drgn.h" // IWYU pragma: export
 
+enum drgn_type_flags {
+	DRGN_TYPE_FLAG_IS_COMPLETE = 1 << 0,
+	DRGN_TYPE_FLAG_IS_SIGNED = 1 << 1,
+	DRGN_TYPE_FLAG_LITTLE_ENDIAN = 1 << 2,
+	DRGN_TYPE_FLAG_IS_VARIADIC = 1 << 3,
+};
+
 // Don't access this directly. Use the getter functions.
 struct drgn_type {
 	/** @privatesection */
 	enum drgn_type_kind _kind;
-	bool _is_complete;
 	enum drgn_primitive_type _primitive;
 	// These are the qualifiers for the wrapped type, not this type.
 	enum drgn_qualifiers _qualifiers;
+	enum drgn_type_flags _flags;
 	struct drgn_program *_program;
 	const struct drgn_language *_language;
 	// This mess of unions is used to make this as compact as
@@ -41,15 +48,12 @@ struct drgn_type {
 		uint64_t _size;
 		uint64_t _length;
 		size_t _num_enumerators;
-		bool _is_variadic;
 	};
 	union {
-		bool _is_signed;
 		size_t _num_members;
 		struct drgn_type *_type;
 	};
 	union {
-		bool _little_endian;
 		struct drgn_type_member *_members;
 		struct drgn_type_enumerator *_enumerators;
 		struct drgn_type_parameter *_parameters;
@@ -73,7 +77,7 @@ enum drgn_primitive_type drgn_type_primitive(struct drgn_type *type)
 DRGN_ACCESSOR_LINKAGE
 bool drgn_type_is_complete(struct drgn_type *type)
 {
-	return type->_is_complete;
+	return type->_flags & DRGN_TYPE_FLAG_IS_COMPLETE;
 }
 
 DRGN_ACCESSOR_LINKAGE
@@ -106,14 +110,14 @@ DRGN_ACCESSOR_LINKAGE
 bool drgn_type_is_signed(struct drgn_type *type)
 {
 	assert(drgn_type_has_is_signed(type));
-	return type->_is_signed;
+	return type->_flags & DRGN_TYPE_FLAG_IS_SIGNED;
 }
 
 DRGN_ACCESSOR_LINKAGE
 bool drgn_type_little_endian(struct drgn_type *type)
 {
 	assert(drgn_type_has_little_endian(type));
-	return type->_little_endian;
+	return type->_flags & DRGN_TYPE_FLAG_LITTLE_ENDIAN;
 }
 
 DRGN_ACCESSOR_LINKAGE
@@ -186,7 +190,7 @@ DRGN_ACCESSOR_LINKAGE
 bool drgn_type_is_variadic(struct drgn_type *type)
 {
 	assert(drgn_type_has_is_variadic(type));
-	return type->_is_variadic;
+	return type->_flags & DRGN_TYPE_FLAG_IS_VARIADIC;
 }
 
 DRGN_ACCESSOR_LINKAGE
