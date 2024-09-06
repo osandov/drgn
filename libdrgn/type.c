@@ -267,9 +267,6 @@ drgn_type_dedupe_hash_pair(struct drgn_type * const *entry)
 		hash = hash_combine(hash, drgn_type_is_signed(type));
 	if (drgn_type_has_little_endian(type))
 		hash = hash_combine(hash, drgn_type_little_endian(type));
-	const char *tag;
-	if (drgn_type_has_tag(type) && (tag = drgn_type_tag(type)))
-		hash = hash_combine(hash, hash_c_string(tag));
 	if (drgn_type_has_type(type)) {
 		struct drgn_qualified_type qualified_type =
 			drgn_type_type(type);
@@ -278,8 +275,6 @@ drgn_type_dedupe_hash_pair(struct drgn_type * const *entry)
 	}
 	if (drgn_type_has_length(type))
 		hash = hash_combine(hash, drgn_type_length(type));
-	if (drgn_type_has_is_variadic(type))
-		hash = hash_combine(hash, drgn_type_is_variadic(type));
 	return hash_pair_from_avalanching_hash(hash);
 }
 
@@ -304,12 +299,6 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 	if (drgn_type_has_little_endian(a) &&
 	    drgn_type_little_endian(a) != drgn_type_little_endian(b))
 		return false;
-	if (drgn_type_has_tag(a)) {
-		const char *tag_a = drgn_type_tag(a);
-		const char *tag_b = drgn_type_tag(b);
-		if ((!tag_a != !tag_b) || (tag_a && strcmp(tag_a, tag_b) != 0))
-			return false;
-	}
 	if (drgn_type_has_type(a)) {
 		struct drgn_qualified_type type_a = drgn_type_type(a);
 		struct drgn_qualified_type type_b = drgn_type_type(b);
@@ -320,16 +309,11 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 	if (drgn_type_has_length(a) &&
 	    drgn_type_length(a) != drgn_type_length(b))
 		return false;
-	if (drgn_type_has_is_variadic(a) &&
-	    drgn_type_is_variadic(a) != drgn_type_is_variadic(b))
-		return false;
 	return true;
 }
 
-/*
- * We don't deduplicate types with members, parameters, template parameters, or
- * enumerators, so the hash and comparison functions ignore those.
- */
+// We don't deduplicate struct, union, class, enum, or function types, so the
+// hash and comparison functions ignore attributes exclusive to those types.
 DEFINE_HASH_SET_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash_pair,
 			  drgn_type_dedupe_eq);
 
@@ -570,7 +554,6 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 			  const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
-	struct drgn_error *err;
 	struct drgn_program *prog = builder->template_builder.prog;
 
 	if (!is_complete) {
@@ -582,23 +565,6 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "size of incomplete type must be zero");
 		}
-	}
-
-	if (drgn_type_member_vector_empty(&builder->members)
-	    && drgn_type_template_parameter_vector_empty(&builder->template_builder.parameters)) {
-		struct drgn_type key = {
-			._kind = builder->kind,
-			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			._flags = is_complete ? DRGN_TYPE_FLAG_IS_COMPLETE : 0,
-			._tag = tag,
-			._size = size,
-			._program = prog,
-			._language = lang ? lang : drgn_program_language(prog),
-		};
-		err = find_or_create_type(&key, ret);
-		if (!err)
-			drgn_type_member_vector_deinit(&builder->members);
-		return err;
 	}
 
 	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
@@ -670,8 +636,6 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 					 const struct drgn_language *lang,
 					 struct drgn_type **ret)
 {
-	struct drgn_error *err;
-
 	if (drgn_type_program(compatible_type) != builder->prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "type is from different program");
@@ -679,23 +643,6 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 	if (drgn_type_kind(compatible_type) != DRGN_TYPE_INT) {
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "compatible type of enum type must be integer type");
-	}
-
-	if (drgn_type_enumerator_vector_empty(&builder->enumerators)) {
-		struct drgn_type key = {
-			._kind = DRGN_TYPE_ENUM,
-			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
-			._tag = tag,
-			._type = compatible_type,
-			._program = builder->prog,
-			._language =
-				lang ? lang : drgn_program_language(builder->prog),
-		};
-		err = find_or_create_type(&key, ret);
-		if (!err)
-			drgn_type_enumerator_vector_deinit(&builder->enumerators);
-		return err;
 	}
 
 	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
@@ -725,14 +672,18 @@ drgn_incomplete_enum_type_create(struct drgn_program *prog, const char *tag,
 				 const struct drgn_language *lang,
 				 struct drgn_type **ret)
 {
-	struct drgn_type key = {
+	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
+	if (!type || !drgn_typep_vector_append(&prog->created_types, &type))
+		return &drgn_enomem;
+	*type = (struct drgn_type){
 		._kind = DRGN_TYPE_ENUM,
 		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
 		._tag = tag,
 		._program = prog,
 		._language = lang ? lang : drgn_program_language(prog),
 	};
-	return find_or_create_type(&key, ret);
+	*ret = no_cleanup_ptr(type);
+	return NULL;
 }
 
 struct drgn_error *
@@ -887,30 +838,11 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 			  bool is_variadic, const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
-	struct drgn_error *err;
 	struct drgn_program *prog = builder->template_builder.prog;
 
 	if (drgn_type_program(return_type.type) != prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "type is from different program");
-	}
-
-	if (drgn_type_parameter_vector_empty(&builder->parameters)
-	    && drgn_type_template_parameter_vector_empty(&builder->template_builder.parameters)) {
-		struct drgn_type key = {
-			._kind = DRGN_TYPE_FUNCTION,
-			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			._flags = (DRGN_TYPE_FLAG_IS_COMPLETE
-				   | (is_variadic ? DRGN_TYPE_FLAG_IS_VARIADIC : 0)),
-			._type = return_type.type,
-			._qualifiers = return_type.qualifiers,
-			._program = prog,
-			._language = lang ? lang : drgn_program_language(prog),
-		};
-		err = find_or_create_type(&key, ret);
-		if (!err)
-			drgn_type_parameter_vector_deinit(&builder->parameters);
-		return err;
 	}
 
 	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
