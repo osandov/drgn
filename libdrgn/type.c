@@ -567,26 +567,33 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 		}
 	}
 
-	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
-	if (!type || !drgn_typep_vector_append(&prog->created_types, &type))
-		return &drgn_enomem;
-
 	drgn_type_member_vector_shrink_to_fit(&builder->members);
 	drgn_type_template_parameter_vector_shrink_to_fit(&builder->template_builder.parameters);
 
-	type->_kind = builder->kind;
-	type->_primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_flags = is_complete ? DRGN_TYPE_FLAG_IS_COMPLETE : 0;
-	type->_tag = tag;
-	type->_size = size;
-	drgn_type_member_vector_steal(&builder->members, &type->_members,
+	_cleanup_free_ struct drgn_compound_type *type = malloc(sizeof(*type));
+	if (!type || !drgn_typep_vector_append(&prog->created_types,
+					       (struct drgn_type **)&type))
+		return &drgn_enomem;
+	*type = (struct drgn_compound_type){
+		.templated = {
+			.type = {
+				._kind = builder->kind,
+				._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+				._flags = is_complete ? DRGN_TYPE_FLAG_IS_COMPLETE : 0,
+				._tag = tag,
+				._size = size,
+				._program = prog,
+				._language = lang ? lang : drgn_program_language(prog),
+			},
+		},
+	};
+	drgn_type_member_vector_steal(&builder->members,
+				      &type->templated.type._members,
 				      &type->_num_members);
 	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
-						  &type->_template_parameters,
-						  &type->_num_template_parameters);
-	type->_program = prog;
-	type->_language = lang ? lang : drgn_program_language(prog);
-	*ret = no_cleanup_ptr(type);
+						  &type->templated._template_parameters,
+						  &type->templated._num_template_parameters);
+	*ret = &no_cleanup_ptr(type)->templated.type;
 	return NULL;
 }
 
@@ -645,25 +652,28 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 					 "compatible type of enum type must be integer type");
 	}
 
-	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
-	if (!type ||
-	    !drgn_typep_vector_append(&builder->prog->created_types, &type))
-		return &drgn_enomem;
-
 	drgn_type_enumerator_vector_shrink_to_fit(&builder->enumerators);
 
-	type->_kind = DRGN_TYPE_ENUM;
-	type->_primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_flags = DRGN_TYPE_FLAG_IS_COMPLETE;
-	type->_tag = tag;
-	type->_type = compatible_type;
-	type->_qualifiers = 0;
+	_cleanup_free_ struct drgn_enum_type *type = malloc(sizeof(*type));
+	if (!type || !drgn_typep_vector_append(&builder->prog->created_types,
+					       (struct drgn_type **)&type))
+		return &drgn_enomem;
+	*type = (struct drgn_enum_type){
+		.type = {
+			._kind = DRGN_TYPE_ENUM,
+			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
+			._tag = tag,
+			._type = compatible_type,
+			._qualifiers = 0,
+			._program = builder->prog,
+			._language = lang ? lang : drgn_program_language(builder->prog),
+		},
+	};
 	drgn_type_enumerator_vector_steal(&builder->enumerators,
-					  &type->_enumerators,
+					  &type->type._enumerators,
 					  &type->_num_enumerators);
-	type->_program = builder->prog;
-	type->_language = lang ? lang : drgn_program_language(builder->prog);
-	*ret = no_cleanup_ptr(type);
+	*ret = &no_cleanup_ptr(type)->type;
 	return NULL;
 }
 
@@ -672,17 +682,20 @@ drgn_incomplete_enum_type_create(struct drgn_program *prog, const char *tag,
 				 const struct drgn_language *lang,
 				 struct drgn_type **ret)
 {
-	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
-	if (!type || !drgn_typep_vector_append(&prog->created_types, &type))
+	_cleanup_free_ struct drgn_enum_type *type = malloc(sizeof(*type));
+	if (!type || !drgn_typep_vector_append(&prog->created_types,
+					       (struct drgn_type **)&type))
 		return &drgn_enomem;
-	*type = (struct drgn_type){
-		._kind = DRGN_TYPE_ENUM,
-		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
-		._tag = tag,
-		._program = prog,
-		._language = lang ? lang : drgn_program_language(prog),
+	*type = (struct drgn_enum_type){
+		.type = {
+			._kind = DRGN_TYPE_ENUM,
+			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			._tag = tag,
+			._program = prog,
+			._language = lang ? lang : drgn_program_language(prog),
+		},
 	};
-	*ret = no_cleanup_ptr(type);
+	*ret = &no_cleanup_ptr(type)->type;
 	return NULL;
 }
 
@@ -845,28 +858,32 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 					 "type is from different program");
 	}
 
-	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
-	if (!type ||!drgn_typep_vector_append(&prog->created_types, &type))
-		return &drgn_enomem;
-
 	drgn_type_parameter_vector_shrink_to_fit(&builder->parameters);
 	drgn_type_template_parameter_vector_shrink_to_fit(&builder->template_builder.parameters);
 
-	type->_kind = DRGN_TYPE_FUNCTION;
-	type->_primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_flags = (DRGN_TYPE_FLAG_IS_COMPLETE
-			| (is_variadic ? DRGN_TYPE_FLAG_IS_VARIADIC : 0));
-	type->_type = return_type.type;
-	type->_qualifiers = return_type.qualifiers;
+	_cleanup_free_ struct drgn_templated_type *type = malloc(sizeof(*type));
+	if (!type ||!drgn_typep_vector_append(&prog->created_types,
+					      (struct drgn_type **)&type))
+		return &drgn_enomem;
+	*type = (struct drgn_templated_type){
+		.type = {
+			._kind = DRGN_TYPE_FUNCTION,
+			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			._flags = (DRGN_TYPE_FLAG_IS_COMPLETE
+				   | (is_variadic ? DRGN_TYPE_FLAG_IS_VARIADIC : 0)),
+			._type = return_type.type,
+			._qualifiers = return_type.qualifiers,
+			._program = prog,
+			._language = lang ? lang : drgn_program_language(prog),
+		},
+	};
 	drgn_type_parameter_vector_steal(&builder->parameters,
-					 &type->_parameters,
-					 &type->_num_parameters);
+					 &type->type._parameters,
+					 &type->type._num_parameters);
 	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
 						  &type->_template_parameters,
 						  &type->_num_template_parameters);
-	type->_program = prog;
-	type->_language = lang ? lang : drgn_program_language(prog);
-	*ret = no_cleanup_ptr(type);
+	*ret = &no_cleanup_ptr(type)->type;
 	return NULL;
 }
 

@@ -27,6 +27,10 @@ enum drgn_type_flags {
 	DRGN_TYPE_FLAG_IS_VARIADIC = 1 << 3,
 };
 
+// Common part of all types. In order to keep it as compact as possible, it uses
+// a few unions and can be embedded in one of the structs below for types that
+// need more.
+//
 // Don't access this directly. Use the getter functions.
 struct drgn_type {
 	/** @privatesection */
@@ -37,29 +41,37 @@ struct drgn_type {
 	enum drgn_type_flags _flags;
 	struct drgn_program *_program;
 	const struct drgn_language *_language;
-	// This mess of unions is used to make this as compact as
-	// possible. Use the provided helpers and don't think about it.
 	union {
 		const char *_name;
 		const char *_tag;
-		size_t _num_parameters;
+		struct drgn_type_parameter *_parameters;
 	};
 	union {
 		uint64_t _size;
 		uint64_t _length;
-		size_t _num_enumerators;
-	};
-	union {
-		size_t _num_members;
-		struct drgn_type *_type;
-	};
-	union {
-		struct drgn_type_member *_members;
 		struct drgn_type_enumerator *_enumerators;
-		struct drgn_type_parameter *_parameters;
+		size_t _num_parameters;
 	};
+	union {
+		struct drgn_type *_type;
+		struct drgn_type_member *_members;
+	};
+};
+
+struct drgn_templated_type {
+	struct drgn_type type;
 	struct drgn_type_template_parameter *_template_parameters;
 	size_t _num_template_parameters;
+};
+
+struct drgn_compound_type {
+	struct drgn_templated_type templated;
+	size_t _num_members;
+};
+
+struct drgn_enum_type {
+	struct drgn_type type;
+	size_t _num_enumerators;
 };
 
 DRGN_ACCESSOR_LINKAGE
@@ -138,7 +150,7 @@ DRGN_ACCESSOR_LINKAGE
 size_t drgn_type_num_members(struct drgn_type *type)
 {
 	assert(drgn_type_has_members(type));
-	return type->_num_members;
+	return ((struct drgn_compound_type *)type)->_num_members;
 }
 
 DRGN_ACCESSOR_LINKAGE
@@ -162,7 +174,7 @@ DRGN_ACCESSOR_LINKAGE
 size_t drgn_type_num_enumerators(struct drgn_type *type)
 {
 	assert(drgn_type_has_enumerators(type));
-	return type->_num_enumerators;
+	return ((struct drgn_enum_type *)type)->_num_enumerators;
 }
 
 DRGN_ACCESSOR_LINKAGE
@@ -198,14 +210,14 @@ struct drgn_type_template_parameter *
 drgn_type_template_parameters(struct drgn_type *type)
 {
 	assert(drgn_type_has_template_parameters(type));
-	return type->_template_parameters;
+	return ((struct drgn_templated_type *)type)->_template_parameters;
 }
 
 DRGN_ACCESSOR_LINKAGE
 size_t drgn_type_num_template_parameters(struct drgn_type *type)
 {
 	assert(drgn_type_has_template_parameters(type));
-	return type->_num_template_parameters;
+	return ((struct drgn_templated_type *)type)->_num_template_parameters;
 }
 
 #endif /* DRGN_INTERNAL_H */
