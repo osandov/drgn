@@ -16,7 +16,6 @@
 #include <stdint.h>
 // IWYU pragma: end_exports
 
-#include <assert.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -370,11 +369,25 @@ struct drgn_qualified_type {
 	enum drgn_qualifiers qualifiers;
 };
 
-static inline struct drgn_program *
-drgn_type_program(struct drgn_type *type);
+#ifndef DRGN_ACCESSOR_LINKAGE
+#define DRGN_ACCESSOR_LINKAGE extern
+#endif
 
-static inline const struct drgn_language *
-drgn_type_language(struct drgn_type *type);
+/**
+ * @ingroup Types
+ *
+ * Get the program that a @ref drgn_type is from.
+ */
+DRGN_ACCESSOR_LINKAGE
+struct drgn_program *drgn_type_program(struct drgn_type *type);
+
+/**
+ * @ingroup Types
+ *
+ * Get the language of a type.
+ */
+DRGN_ACCESSOR_LINKAGE
+const struct drgn_language *drgn_type_language(struct drgn_type *type);
 
 /**
  * @defgroup Platforms Platforms
@@ -2393,8 +2406,8 @@ union drgn_lazy_object {
  * field @c foo, there is a @c drgn_type_kind_has_foo() helper which returns
  * whether the given kind of type has the field @c foo; a @c drgn_type_has_foo()
  * helper which does the same but takes a type; and a @c drgn_type_foo() helper
- * which returns the field. For members, enumerators, and parameters, there is
- * also a @c drgn_type_num_foo() helper.
+ * which returns the field. For members, enumerators, parameters, and template
+ * parameters, there is also a @c drgn_type_num_foo() helper.
  *
  * @{
  */
@@ -2490,63 +2503,21 @@ struct drgn_type_template_parameter {
 };
 
 /**
- * Language-agnostic type descriptor.
+ * @struct drgn_type
  *
- * This structure should not be accessed directly; see @ref Types.
+ * Type descriptor.
+ *
+ * Access it with the getters in @ref Types.
  */
-struct drgn_type {
-	/** @privatesection */
-	struct {
-		enum drgn_type_kind kind;
-		bool is_complete;
-		enum drgn_primitive_type primitive;
-		/* These are the qualifiers for the wrapped type, not this type. */
-		enum drgn_qualifiers qualifiers;
-		struct drgn_program *program;
-		const struct drgn_language *language;
-		/*
-		 * This mess of unions is used to make this as compact as possible. Use
-		 * the provided helpers and don't think about it.
-		 */
-		union {
-			const char *name;
-			const char *tag;
-			size_t num_parameters;
-		};
-		union {
-			uint64_t size;
-			uint64_t length;
-			size_t num_enumerators;
-			bool is_variadic;
-		};
-		union {
-			bool is_signed;
-			size_t num_members;
-			struct drgn_type *type;
-		};
-		union {
-			bool little_endian;
-			struct drgn_type_member *members;
-			struct drgn_type_enumerator *enumerators;
-			struct drgn_type_parameter *parameters;
-		};
-		struct drgn_type_template_parameter *template_parameters;
-		size_t num_template_parameters;
-	} _private;
-};
+struct drgn_type;
 
 /** Get the kind of a type. */
-static inline enum drgn_type_kind drgn_type_kind(struct drgn_type *type)
-{
-	return type->_private.kind;
-}
+DRGN_ACCESSOR_LINKAGE
+enum drgn_type_kind drgn_type_kind(struct drgn_type *type);
 
 /** Get the primitive type corresponding to a @ref drgn_type. */
-static inline enum drgn_primitive_type
-drgn_type_primitive(struct drgn_type *type)
-{
-	return type->_private.primitive;
-}
+DRGN_ACCESSOR_LINKAGE
+enum drgn_primitive_type drgn_type_primitive(struct drgn_type *type);
 
 /**
  * Get whether a type is complete (i.e., the type definition is known).
@@ -2555,23 +2526,8 @@ drgn_type_primitive(struct drgn_type *type)
  * union, class, enumerated, and array types, as well as typedef types where the
  * underlying type is one of those. Otherwise, it is always @c true.
  */
-static inline bool drgn_type_is_complete(struct drgn_type *type)
-{
-	return type->_private.is_complete;
-}
-
-static inline struct drgn_program *
-drgn_type_program(struct drgn_type *type)
-{
-	return type->_private.program;
-}
-
-/** Get the language of a type. */
-static inline const struct drgn_language *
-drgn_type_language(struct drgn_type *type)
-{
-	return type->_private.language;
-}
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_is_complete(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has a name. This is true for integer, boolean,
@@ -2592,11 +2548,8 @@ static inline bool drgn_type_has_name(struct drgn_type *type)
 /**
  * Get the name of a type. @ref drgn_type_has_name() must be true for this type.
  */
-static inline const char *drgn_type_name(struct drgn_type *type)
-{
-	assert(drgn_type_has_name(type));
-	return type->_private.name;
-}
+DRGN_ACCESSOR_LINKAGE
+const char *drgn_type_name(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has a size. This is true for integer, boolean,
@@ -2621,11 +2574,8 @@ static inline bool drgn_type_has_size(struct drgn_type *type)
  * Get the size of a type in bytes. @ref drgn_type_has_size() must be true for
  * this type.
  */
-static inline uint64_t drgn_type_size(struct drgn_type *type)
-{
-	assert(drgn_type_has_size(type));
-	return type->_private.size;
-}
+DRGN_ACCESSOR_LINKAGE
+uint64_t drgn_type_size(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has a signedness. This is true for integer types.
@@ -2643,11 +2593,8 @@ static inline bool drgn_type_has_is_signed(struct drgn_type *type)
  * Get the signedness of a type. @ref drgn_type_has_is_signed() must be true for
  * this type.
  */
-static inline bool drgn_type_is_signed(struct drgn_type *type)
-{
-	assert(drgn_type_has_is_signed(type));
-	return type->_private.is_signed;
-}
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_is_signed(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has a byte order. This is true for integer,
@@ -2673,11 +2620,8 @@ static inline bool drgn_type_has_little_endian(struct drgn_type *type)
  *
  * @return @c true if the type is little-endian, @c false if it is big-endian.
  */
-static inline bool drgn_type_little_endian(struct drgn_type *type)
-{
-	assert(drgn_type_has_little_endian(type));
-	return type->_private.little_endian;
-}
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_little_endian(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has a tag. This is true for structure, union,
@@ -2698,11 +2642,8 @@ static inline bool drgn_type_has_tag(struct drgn_type *type)
 /**
  * Get the tag of a type. @ref drgn_type_has_tag() must be true for this type.
  */
-static inline const char *drgn_type_tag(struct drgn_type *type)
-{
-	assert(drgn_type_has_tag(type));
-	return type->_private.tag;
-}
+DRGN_ACCESSOR_LINKAGE
+const char *drgn_type_tag(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has members. This is true for structure, union,
@@ -2723,20 +2664,14 @@ static inline bool drgn_type_has_members(struct drgn_type *type)
  * Get the members of a type. @ref drgn_type_has_members() must be true for this
  * type.
  */
-static inline struct drgn_type_member *drgn_type_members(struct drgn_type *type)
-{
-	assert(drgn_type_has_members(type));
-	return type->_private.members;
-}
+DRGN_ACCESSOR_LINKAGE
+struct drgn_type_member *drgn_type_members(struct drgn_type *type);
 /**
  * Get the number of members of a type. @ref drgn_type_has_members() must be
  * true for this type. If the type is incomplete, this is always zero.
  */
-static inline size_t drgn_type_num_members(struct drgn_type *type)
-{
-	assert(drgn_type_has_members(type));
-	return type->_private.num_members;
-}
+DRGN_ACCESSOR_LINKAGE
+size_t drgn_type_num_members(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has a wrapped type. This is true for enumerated,
@@ -2769,15 +2704,8 @@ static inline bool drgn_type_has_type(struct drgn_type *type)
  *
  * For a function type, this is the return type.
  */
-static inline struct drgn_qualified_type
-drgn_type_type(struct drgn_type *type)
-{
-	assert(drgn_type_has_type(type));
-	return (struct drgn_qualified_type){
-		.type = type->_private.type,
-		.qualifiers = type->_private.qualifiers,
-	};
-}
+DRGN_ACCESSOR_LINKAGE
+struct drgn_qualified_type drgn_type_type(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has enumerators. This is true for enumerated
@@ -2796,21 +2724,14 @@ static inline bool drgn_type_has_enumerators(struct drgn_type *type)
  * Get the enumerators of a type. @ref drgn_type_has_enumerators() must be true
  * for this type.
  */
-static inline struct drgn_type_enumerator *
-drgn_type_enumerators(struct drgn_type *type)
-{
-	assert(drgn_type_has_enumerators(type));
-	return type->_private.enumerators;
-}
+DRGN_ACCESSOR_LINKAGE
+struct drgn_type_enumerator *drgn_type_enumerators(struct drgn_type *type);
 /**
  * Get the number of enumerators of a type. @ref drgn_type_has_enumerators()
  * must be true for this type. If the type is incomplete, this is always zero.
  */
-static inline size_t drgn_type_num_enumerators(struct drgn_type *type)
-{
-	assert(drgn_type_has_enumerators(type));
-	return type->_private.num_enumerators;
-}
+DRGN_ACCESSOR_LINKAGE
+size_t drgn_type_num_enumerators(struct drgn_type *type);
 
 /** Get whether a kind of type has a length. This is true for array types. */
 static inline bool drgn_type_kind_has_length(enum drgn_type_kind kind)
@@ -2826,11 +2747,8 @@ static inline bool drgn_type_has_length(struct drgn_type *type)
  * Get the length of a type. @ref drgn_type_has_length() must be true for this
  * type. If the type is incomplete, this is always zero.
  */
-static inline uint64_t drgn_type_length(struct drgn_type *type)
-{
-	assert(drgn_type_has_length(type));
-	return type->_private.length;
-}
+DRGN_ACCESSOR_LINKAGE
+uint64_t drgn_type_length(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has parameters. This is true for function types.
@@ -2848,20 +2766,14 @@ static inline bool drgn_type_has_parameters(struct drgn_type *type)
  * Get the parameters of a type. @ref drgn_type_has_parameters() must be true
  * for this type.
  */
-static inline struct drgn_type_parameter *drgn_type_parameters(struct drgn_type *type)
-{
-	assert(drgn_type_has_parameters(type));
-	return type->_private.parameters;
-}
+DRGN_ACCESSOR_LINKAGE
+struct drgn_type_parameter *drgn_type_parameters(struct drgn_type *type);
 /**
  * Get the number of parameters of a type. @ref drgn_type_has_parameters() must
  * be true for this type.
  */
-static inline size_t drgn_type_num_parameters(struct drgn_type *type)
-{
-	assert(drgn_type_has_parameters(type));
-	return type->_private.num_parameters;
-}
+DRGN_ACCESSOR_LINKAGE
+size_t drgn_type_num_parameters(struct drgn_type *type);
 
 /**
  * Get whether a kind of type can be variadic. This is true for function types.
@@ -2879,11 +2791,8 @@ static inline bool drgn_type_has_is_variadic(struct drgn_type *type)
  * Get whether a type is variadic. @ref drgn_type_has_is_variadic() must be true
  * for this type.
  */
-static inline bool drgn_type_is_variadic(struct drgn_type *type)
-{
-	assert(drgn_type_has_is_variadic(type));
-	return type->_private.is_variadic;
-}
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_is_variadic(struct drgn_type *type);
 
 /** Get whether a kind of type can have template parameters. */
 static inline bool
@@ -2894,33 +2803,24 @@ drgn_type_kind_has_template_parameters(enum drgn_type_kind kind)
 		kind == DRGN_TYPE_CLASS ||
 		kind == DRGN_TYPE_FUNCTION);
 }
-
 /** Get whether a type can have template parameters. */
 static inline bool drgn_type_has_template_parameters(struct drgn_type *type)
 {
 	return drgn_type_kind_has_template_parameters(drgn_type_kind(type));
 }
-
 /**
  * Get the template parameters of a type. @ref
  * drgn_type_has_template_parameters() must be true for this type.
  */
-static inline struct drgn_type_template_parameter *
-drgn_type_template_parameters(struct drgn_type *type)
-{
-	assert(drgn_type_has_template_parameters(type));
-	return type->_private.template_parameters;
-}
-
+DRGN_ACCESSOR_LINKAGE
+struct drgn_type_template_parameter *
+drgn_type_template_parameters(struct drgn_type *type);
 /**
  * Get the number of template parameters of a type. @ref
  * drgn_type_has_template_parameters() must be true for this type.
  */
-static inline size_t drgn_type_num_template_parameters(struct drgn_type *type)
-{
-	assert(drgn_type_has_template_parameters(type));
-	return type->_private.num_template_parameters;
-}
+DRGN_ACCESSOR_LINKAGE
+size_t drgn_type_num_template_parameters(struct drgn_type *type);
 
 /**
  * Get the object corresponding to a @ref drgn_type_member.

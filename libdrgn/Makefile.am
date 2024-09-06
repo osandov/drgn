@@ -36,6 +36,7 @@ noinst_LTLIBRARIES = libdrgnimpl.la
 libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 $(ARCH_DEFS_INCS) \
 			 $(STRSWITCH_INCS) \
+			 accessors.c \
 			 arch_arm.c \
 			 arch_i386.c \
 			 arch_riscv.c \
