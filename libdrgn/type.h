@@ -500,8 +500,8 @@ static inline struct drgn_type *drgn_underlying_type(struct drgn_type *type)
  */
 static inline bool drgn_enum_type_is_signed(struct drgn_type *type)
 {
-	assert(type->_private.type);
-	return drgn_type_is_signed(type->_private.type);
+	assert(type->_type);
+	return drgn_type_is_signed(type->_type);
 }
 
 /**

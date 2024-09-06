@@ -338,7 +338,7 @@ DEFINE_VECTOR_FUNCTIONS(drgn_typep_vector);
 static struct drgn_error *find_or_create_type(struct drgn_type *key,
 					      struct drgn_type **ret)
 {
-	struct drgn_program *prog = key->_private.program;
+	struct drgn_program *prog = key->_program;
 	struct hash_pair hp = drgn_dedupe_type_set_hash(&key);
 	struct drgn_dedupe_type_set_iterator it =
 		drgn_dedupe_type_set_search_hashed(&prog->dedupe_types, &key,
@@ -405,19 +405,17 @@ struct drgn_error *drgn_int_type_create(struct drgn_program *prog,
 		primitive = DRGN_NOT_PRIMITIVE_TYPE;
 
 	struct drgn_type key = {
-		{
-			.kind = DRGN_TYPE_INT,
-			.is_complete = true,
-			.primitive = primitive,
-			.name = name,
-			.size = size,
-			.is_signed = is_signed,
-			.program = prog,
-			.language = lang ? lang : drgn_program_language(prog),
-		}
+		._kind = DRGN_TYPE_INT,
+		._is_complete = true,
+		._primitive = primitive,
+		._name = name,
+		._size = size,
+		._is_signed = is_signed,
+		._program = prog,
+		._language = lang ? lang : drgn_program_language(prog),
 	};
 	err = drgn_byte_order_to_little_endian(prog, byte_order,
-					       &key._private.little_endian);
+					       &key._little_endian);
 	if (err)
 		return err;
 	return find_or_create_type(&key, ret);
@@ -438,18 +436,16 @@ struct drgn_error *drgn_bool_type_create(struct drgn_program *prog,
 		primitive = DRGN_NOT_PRIMITIVE_TYPE;
 
 	struct drgn_type key = {
-		{
-			.kind = DRGN_TYPE_BOOL,
-			.is_complete = true,
-			.primitive = primitive,
-			.name = name,
-			.size = size,
-			.program = prog,
-			.language = lang ? lang : drgn_program_language(prog),
-		}
+		._kind = DRGN_TYPE_BOOL,
+		._is_complete = true,
+		._primitive = primitive,
+		._name = name,
+		._size = size,
+		._program = prog,
+		._language = lang ? lang : drgn_program_language(prog),
 	};
 	err = drgn_byte_order_to_little_endian(prog, byte_order,
-					       &key._private.little_endian);
+					       &key._little_endian);
 	if (err)
 		return err;
 	return find_or_create_type(&key, ret);
@@ -470,18 +466,16 @@ struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
 		primitive = DRGN_NOT_PRIMITIVE_TYPE;
 
 	struct drgn_type key = {
-		{
-			.kind = DRGN_TYPE_FLOAT,
-			.is_complete = true,
-			.primitive = primitive,
-			.name = name,
-			.size = size,
-			.program = prog,
-			.language = lang ? lang : drgn_program_language(prog),
-		}
+		._kind = DRGN_TYPE_FLOAT,
+		._is_complete = true,
+		._primitive = primitive,
+		._name = name,
+		._size = size,
+		._program = prog,
+		._language = lang ? lang : drgn_program_language(prog),
 	};
 	err = drgn_byte_order_to_little_endian(prog, byte_order,
-					       &key._private.little_endian);
+					       &key._little_endian);
 	if (err)
 		return err;
 	return find_or_create_type(&key, ret);
@@ -591,16 +585,13 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 	if (drgn_type_member_vector_empty(&builder->members)
 	    && drgn_type_template_parameter_vector_empty(&builder->template_builder.parameters)) {
 		struct drgn_type key = {
-			{
-				.kind = builder->kind,
-				.is_complete = is_complete,
-				.primitive = DRGN_NOT_PRIMITIVE_TYPE,
-				.tag = tag,
-				.size = size,
-				.program = prog,
-				.language =
-					lang ? lang : drgn_program_language(prog),
-			}
+			._kind = builder->kind,
+			._is_complete = is_complete,
+			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			._tag = tag,
+			._size = size,
+			._program = prog,
+			._language = lang ? lang : drgn_program_language(prog),
 		};
 		err = find_or_create_type(&key, ret);
 		if (!err)
@@ -615,19 +606,18 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 	drgn_type_member_vector_shrink_to_fit(&builder->members);
 	drgn_type_template_parameter_vector_shrink_to_fit(&builder->template_builder.parameters);
 
-	type->_private.kind = builder->kind;
-	type->_private.is_complete = is_complete;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.tag = tag;
-	type->_private.size = size;
-	drgn_type_member_vector_steal(&builder->members,
-				      &type->_private.members,
-				      &type->_private.num_members);
+	type->_kind = builder->kind;
+	type->_is_complete = is_complete;
+	type->_primitive = DRGN_NOT_PRIMITIVE_TYPE;
+	type->_tag = tag;
+	type->_size = size;
+	drgn_type_member_vector_steal(&builder->members, &type->_members,
+				      &type->_num_members);
 	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
-						  &type->_private.template_parameters,
-						  &type->_private.num_template_parameters);
-	type->_private.program = prog;
-	type->_private.language = lang ? lang : drgn_program_language(prog);
+						  &type->_template_parameters,
+						  &type->_num_template_parameters);
+	type->_program = prog;
+	type->_language = lang ? lang : drgn_program_language(prog);
 	*ret = no_cleanup_ptr(type);
 	return NULL;
 }
@@ -691,16 +681,14 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 
 	if (drgn_type_enumerator_vector_empty(&builder->enumerators)) {
 		struct drgn_type key = {
-			{
-				.kind = DRGN_TYPE_ENUM,
-				.is_complete = true,
-				.primitive = DRGN_NOT_PRIMITIVE_TYPE,
-				.tag = tag,
-				.type = compatible_type,
-				.program = builder->prog,
-				.language =
-					lang ? lang : drgn_program_language(builder->prog),
-			}
+			._kind = DRGN_TYPE_ENUM,
+			._is_complete = true,
+			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			._tag = tag,
+			._type = compatible_type,
+			._program = builder->prog,
+			._language =
+				lang ? lang : drgn_program_language(builder->prog),
 		};
 		err = find_or_create_type(&key, ret);
 		if (!err)
@@ -715,18 +703,17 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 
 	drgn_type_enumerator_vector_shrink_to_fit(&builder->enumerators);
 
-	type->_private.kind = DRGN_TYPE_ENUM;
-	type->_private.is_complete = true;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.tag = tag;
-	type->_private.type = compatible_type;
-	type->_private.qualifiers = 0;
+	type->_kind = DRGN_TYPE_ENUM;
+	type->_is_complete = true;
+	type->_primitive = DRGN_NOT_PRIMITIVE_TYPE;
+	type->_tag = tag;
+	type->_type = compatible_type;
+	type->_qualifiers = 0;
 	drgn_type_enumerator_vector_steal(&builder->enumerators,
-					  &type->_private.enumerators,
-					  &type->_private.num_enumerators);
-	type->_private.program = builder->prog;
-	type->_private.language =
-		lang ? lang : drgn_program_language(builder->prog);
+					  &type->_enumerators,
+					  &type->_num_enumerators);
+	type->_program = builder->prog;
+	type->_language = lang ? lang : drgn_program_language(builder->prog);
 	*ret = no_cleanup_ptr(type);
 	return NULL;
 }
@@ -737,14 +724,12 @@ drgn_incomplete_enum_type_create(struct drgn_program *prog, const char *tag,
 				 struct drgn_type **ret)
 {
 	struct drgn_type key = {
-		{
-			.kind = DRGN_TYPE_ENUM,
-			.is_complete = false,
-			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			.tag = tag,
-			.program = prog,
-			.language = lang ? lang : drgn_program_language(prog),
-		}
+		._kind = DRGN_TYPE_ENUM,
+		._is_complete = false,
+		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+		._tag = tag,
+		._program = prog,
+		._language = lang ? lang : drgn_program_language(prog),
 	};
 	return find_or_create_type(&key, ret);
 }
@@ -769,16 +754,14 @@ drgn_typedef_type_create(struct drgn_program *prog, const char *name,
 		primitive = DRGN_NOT_PRIMITIVE_TYPE;
 
 	struct drgn_type key = {
-		{
-			.kind = DRGN_TYPE_TYPEDEF,
-			.is_complete = drgn_type_is_complete(aliased_type.type),
-			.primitive = primitive,
-			.name = name,
-			.type = aliased_type.type,
-			.qualifiers = aliased_type.qualifiers,
-			.program = prog,
-			.language = lang ? lang : drgn_program_language(prog),
-		}
+		._kind = DRGN_TYPE_TYPEDEF,
+		._is_complete = drgn_type_is_complete(aliased_type.type),
+		._primitive = primitive,
+		._name = name,
+		._type = aliased_type.type,
+		._qualifiers = aliased_type.qualifiers,
+		._program = prog,
+		._language = lang ? lang : drgn_program_language(prog),
 	};
 	return find_or_create_type(&key, ret);
 }
@@ -798,19 +781,17 @@ drgn_pointer_type_create(struct drgn_program *prog,
 	}
 
 	struct drgn_type key = {
-		{
-			.kind = DRGN_TYPE_POINTER,
-			.is_complete = true,
-			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			.size = size,
-			.type = referenced_type.type,
-			.qualifiers = referenced_type.qualifiers,
-			.program = prog,
-			.language = lang ? lang : drgn_program_language(prog),
-		}
+		._kind = DRGN_TYPE_POINTER,
+		._is_complete = true,
+		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+		._size = size,
+		._type = referenced_type.type,
+		._qualifiers = referenced_type.qualifiers,
+		._program = prog,
+		._language = lang ? lang : drgn_program_language(prog),
 	};
 	err = drgn_byte_order_to_little_endian(prog, byte_order,
-					       &key._private.little_endian);
+					       &key._little_endian);
 	if (err)
 		return err;
 	return find_or_create_type(&key, ret);
@@ -828,16 +809,14 @@ drgn_array_type_create(struct drgn_program *prog,
 	}
 
 	struct drgn_type key = {
-		{
-			.kind = DRGN_TYPE_ARRAY,
-			.is_complete = true,
-			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			.length = length,
-			.type = element_type.type,
-			.qualifiers = element_type.qualifiers,
-			.program = prog,
-			.language = lang ? lang : drgn_program_language(prog),
-		}
+		._kind = DRGN_TYPE_ARRAY,
+		._is_complete = true,
+		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+		._length = length,
+		._type = element_type.type,
+		._qualifiers = element_type.qualifiers,
+		._program = prog,
+		._language = lang ? lang : drgn_program_language(prog),
 	};
 	return find_or_create_type(&key, ret);
 }
@@ -854,15 +833,13 @@ drgn_incomplete_array_type_create(struct drgn_program *prog,
 	}
 
 	struct drgn_type key = {
-		{
-			.kind = DRGN_TYPE_ARRAY,
-			.is_complete = false,
-			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			.type = element_type.type,
-			.qualifiers = element_type.qualifiers,
-			.program = prog,
-			.language = lang ? lang : drgn_program_language(prog),
-		}
+		._kind = DRGN_TYPE_ARRAY,
+		._is_complete = false,
+		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+		._type = element_type.type,
+		._qualifiers = element_type.qualifiers,
+		._program = prog,
+		._language = lang ? lang : drgn_program_language(prog),
 	};
 	return find_or_create_type(&key, ret);
 }
@@ -922,17 +899,14 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 	if (drgn_type_parameter_vector_empty(&builder->parameters)
 	    && drgn_type_template_parameter_vector_empty(&builder->template_builder.parameters)) {
 		struct drgn_type key = {
-			{
-				.kind = DRGN_TYPE_FUNCTION,
-				.is_complete = true,
-				.primitive = DRGN_NOT_PRIMITIVE_TYPE,
-				.type = return_type.type,
-				.qualifiers = return_type.qualifiers,
-				.is_variadic = is_variadic,
-				.program = prog,
-				.language =
-					lang ? lang : drgn_program_language(prog),
-			}
+			._kind = DRGN_TYPE_FUNCTION,
+			._is_complete = true,
+			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			._type = return_type.type,
+			._qualifiers = return_type.qualifiers,
+			._is_variadic = is_variadic,
+			._program = prog,
+			._language = lang ? lang : drgn_program_language(prog),
 		};
 		err = find_or_create_type(&key, ret);
 		if (!err)
@@ -947,20 +921,20 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 	drgn_type_parameter_vector_shrink_to_fit(&builder->parameters);
 	drgn_type_template_parameter_vector_shrink_to_fit(&builder->template_builder.parameters);
 
-	type->_private.kind = DRGN_TYPE_FUNCTION;
-	type->_private.is_complete = true;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.type = return_type.type;
-	type->_private.qualifiers = return_type.qualifiers;
+	type->_kind = DRGN_TYPE_FUNCTION;
+	type->_is_complete = true;
+	type->_primitive = DRGN_NOT_PRIMITIVE_TYPE;
+	type->_type = return_type.type;
+	type->_qualifiers = return_type.qualifiers;
 	drgn_type_parameter_vector_steal(&builder->parameters,
-					 &type->_private.parameters,
-					 &type->_private.num_parameters);
-	type->_private.is_variadic = is_variadic;
+					 &type->_parameters,
+					 &type->_num_parameters);
+	type->_is_variadic = is_variadic;
 	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
-						  &type->_private.template_parameters,
-						  &type->_private.num_template_parameters);
-	type->_private.program = prog;
-	type->_private.language = lang ? lang : drgn_program_language(prog);
+						  &type->_template_parameters,
+						  &type->_num_template_parameters);
+	type->_program = prog;
+	type->_language = lang ? lang : drgn_program_language(prog);
 	*ret = no_cleanup_ptr(type);
 	return NULL;
 }
@@ -1273,11 +1247,11 @@ void drgn_program_init_types(struct drgn_program *prog)
 {
 	for (size_t i = 0; i < array_size(prog->void_types); i++) {
 		struct drgn_type *type = &prog->void_types[i];
-		type->_private.kind = DRGN_TYPE_VOID;
-		type->_private.is_complete = false;
-		type->_private.primitive = DRGN_C_TYPE_VOID;
-		type->_private.program = prog;
-		type->_private.language = drgn_languages[i];
+		type->_kind = DRGN_TYPE_VOID;
+		type->_is_complete = false;
+		type->_primitive = DRGN_C_TYPE_VOID;
+		type->_program = prog;
+		type->_language = drgn_languages[i];
 	}
 	drgn_dedupe_type_set_init(&prog->dedupe_types);
 	drgn_typep_vector_init(&prog->created_types);
