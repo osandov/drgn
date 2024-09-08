@@ -10,7 +10,7 @@
 
 #include "cfi.h"
 #include "debug_info.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "dwarf_constants.h"
 #include "dwarf_info.h"
 #include "elf_file.h"

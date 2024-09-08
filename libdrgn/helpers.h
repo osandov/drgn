@@ -16,7 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "drgn.h"
+#include "drgn_internal.h"
 
 struct drgn_object;
 struct drgn_program;

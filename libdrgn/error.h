@@ -12,7 +12,7 @@
 #ifndef DRGN_ERROR_H
 #define DRGN_ERROR_H
 
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "pp.h"
 
 /**

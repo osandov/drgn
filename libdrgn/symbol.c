@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "symbol.h"
 #include "util.h"
 

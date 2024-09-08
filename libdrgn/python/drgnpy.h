@@ -12,7 +12,7 @@
 
 #include "docstrings.h"
 #include "../cleanup.h"
-#include "../drgn.h"
+#include "../drgn_internal.h"
 // IWYU pragma: end_exports
 
 #include "../hash_table.h"

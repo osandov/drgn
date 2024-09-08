@@ -4,7 +4,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "error.h"
 #include "helpers.h"
 #include "minmax.h"

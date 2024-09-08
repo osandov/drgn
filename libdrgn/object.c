@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "cleanup.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "error.h"
 #include "language.h"
 #include "minmax.h"

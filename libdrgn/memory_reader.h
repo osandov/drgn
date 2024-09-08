@@ -13,7 +13,7 @@
 #define DRGN_MEMORY_READER_H
 
 #include "binary_search_tree.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 
 /**
  * @ingroup Internals

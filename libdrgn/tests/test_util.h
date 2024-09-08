@@ -6,7 +6,7 @@
 
 #include <check.h>
 
-#include "../drgn.h"
+#include "../drgn_internal.h"
 #include "../pp.h"
 
 #define drgn_ck_no_err(err) drgn_ck_no_err_impl(err, PP_UNIQUE(_err))

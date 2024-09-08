@@ -19,7 +19,7 @@
 #include "binary_buffer.h"
 #include "cleanup.h"
 #include "debug_info.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "elf_file.h"
 #include "error.h"
 #include "hash_table.h"

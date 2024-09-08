@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "error.h"
 #include "string_builder.h"
 #include "util.h"

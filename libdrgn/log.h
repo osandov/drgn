@@ -12,7 +12,7 @@
 #ifndef DRGN_LOG_H
 #define DRGN_LOG_H
 
-#include "drgn.h"
+#include "drgn_internal.h"
 
 /**
  * @ingroup Internals

@@ -10,7 +10,7 @@
 #include <string.h>
 
 #include "array.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "elf_file.h"
 #include "error.h"
 #include "minmax.h"

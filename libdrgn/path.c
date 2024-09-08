@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "dwarf_constants.h"
 #include "path.h"
 #include "util.h"

@@ -4,7 +4,7 @@
 #ifndef DRGN_LINUX_KERNEL_H
 #define DRGN_LINUX_KERNEL_H
 
-#include "drgn.h"
+#include "drgn_internal.h"
 
 struct drgn_debug_info_load_state;
 

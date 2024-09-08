@@ -7,7 +7,7 @@
 #include <gelf.h>
 
 #include "cleanup.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "handler.h"
 #include "vector.h"
 

@@ -18,7 +18,7 @@
 #include <libelf.h>
 
 #include "cfi.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "dwarf_info.h"
 #include "hash_table.h"
 #include "object.h"

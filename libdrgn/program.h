@@ -19,7 +19,7 @@
 #endif
 
 #include "debug_info.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "handler.h"
 #include "hash_table.h"
 #include "language.h"

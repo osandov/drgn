@@ -21,7 +21,7 @@
 #include <elfutils/libdw.h>
 
 #include "cfi.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "hash_table.h"
 #include "vector.h"
 

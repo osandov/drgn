@@ -12,7 +12,7 @@
 #ifndef DRGN_LAZY_OBJECT_H
 #define DRGN_LAZY_OBJECT_H
 
-#include "drgn.h"
+#include "drgn_internal.h"
 
 /**
  * @ingroup Internals

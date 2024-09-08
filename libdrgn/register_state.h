@@ -17,7 +17,7 @@
 #include <string.h>
 
 #include "cfi.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "platform.h"
 #include "program.h"
 #include "serialize.h"

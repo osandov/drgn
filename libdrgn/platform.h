@@ -16,7 +16,7 @@
 #include <inttypes.h>
 
 #include "cfi.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "util.h"
 
 struct drgn_orc_entry;

@@ -12,7 +12,7 @@
 #ifndef DRGN_LANGUAGE_H
 #define DRGN_LANGUAGE_H
 
-#include "drgn.h"
+#include "drgn_internal.h"
 
 /**
  * @ingroup Internals

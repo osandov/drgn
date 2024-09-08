@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "cleanup.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 #include "error.h"
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"

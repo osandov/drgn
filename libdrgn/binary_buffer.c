@@ -6,7 +6,7 @@
 #include <stdlib.h>
 
 #include "binary_buffer.h"
-#include "drgn.h"
+#include "drgn_internal.h"
 
 static struct drgn_error *binary_buffer_error_vat(struct binary_buffer *bb,
 						  const char *pos,
