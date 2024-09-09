@@ -29,7 +29,7 @@
  * libdrgn provides the functionality of the
  * [drgn](https://github.com/osandov/drgn) programmable debugger as a library.
  * It implements the main drgn abstractions: @ref Programs, @ref Types, @ref
- * Objects, and @ref StackTraces. See [Modules](modules.html) for detailed
+ * Objects, and @ref StackTraces. See [Topics](topics.html) for detailed
  * documentation.
  *
  * @subsection ThreadSafety Thread Safety
