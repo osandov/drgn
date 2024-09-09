@@ -12,7 +12,6 @@
 #ifndef DRGN_PROGRAM_H
 #define DRGN_PROGRAM_H
 
-#include <elfutils/libdwfl.h>
 #include <libelf.h>
 #include <sys/types.h>
 #ifdef WITH_LIBKDUMPFILE
@@ -27,11 +26,9 @@
 #include "memory_reader.h"
 #include "platform.h"
 #include "pp.h"
-#include "symbol.h"
 #include "type.h"
 #include "vector.h"
 
-struct drgn_type_finder;
 struct drgn_object_finder;
 struct drgn_symbol_finder;
 

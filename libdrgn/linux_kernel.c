@@ -1,7 +1,6 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-#include <byteswap.h>
 #include <dirent.h>
 #include <elf.h>
 #include <elfutils/libdwelf.h>

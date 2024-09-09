@@ -4,6 +4,7 @@
 #include <byteswap.h>
 #include <elf.h>
 #include <endian.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cleanup.h"

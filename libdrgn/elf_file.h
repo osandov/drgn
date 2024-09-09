@@ -12,10 +12,12 @@
 #ifndef DRGN_ELF_FILE_H
 #define DRGN_ELF_FILE_H
 
+#include <elf.h>
 #include <elfutils/libdw.h>
 #include <libelf.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "binary_buffer.h"
 #include "elf_sections.h" // IWYU pragma: export

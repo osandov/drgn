@@ -13,7 +13,6 @@
 #define DRGN_ORC_INFO_H
 
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
 #include "cfi.h"

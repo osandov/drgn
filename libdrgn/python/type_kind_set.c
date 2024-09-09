@@ -3,6 +3,7 @@
 
 #include "drgnpy.h"
 #include "../bitops.h"
+#include "../util.h"
 
 static PyObject *collections_abc_Set;
 

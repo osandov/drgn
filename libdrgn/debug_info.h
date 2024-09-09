@@ -12,6 +12,7 @@
 #ifndef DRGN_DEBUG_INFO_H
 #define DRGN_DEBUG_INFO_H
 
+#include <elfutils/libdw.h>
 #include <elfutils/libdwfl.h>
 #include <elfutils/version.h>
 #include <libelf.h>

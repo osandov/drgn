@@ -16,7 +16,6 @@
 // IWYU pragma: end_exports
 
 #include "../hash_table.h"
-#include "../hash_table.h"
 #include "../pp.h"
 #include "../program.h"
 

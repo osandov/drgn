@@ -5,7 +5,6 @@
 #include <math.h>
 
 #include "drgnpy.h"
-#include "../cleanup.h"
 #include "../error.h"
 #include "../object.h"
 #include "../serialize.h"

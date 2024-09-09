@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <elf.h>
 #include <elfutils/libdw.h>
+#include <elfutils/libdwfl.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <gelf.h>
@@ -28,6 +29,7 @@
 #include "linux_kernel.h"
 #include "memory_reader.h"
 #include "minmax.h"
+#include "object.h"
 #include "program.h"
 #include "symbol.h"
 #include "util.h"

@@ -4,7 +4,6 @@
 #include <inttypes.h>
 
 #include "drgnpy.h"
-#include "../symbol.h"
 
 PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj)
 {

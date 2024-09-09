@@ -5,12 +5,13 @@
 #include "../bitops.h"
 #include "../error.h"
 #include "../hash_table.h"
+#include "../linux_kernel.h"
 #include "../log.h"
 #include "../program.h"
 #include "../string_builder.h"
+#include "../symbol.h"
 #include "../util.h"
 #include "../vector.h"
-#include "../linux_kernel.h"
 
 DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq);
 

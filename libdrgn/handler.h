@@ -10,7 +10,8 @@
 #ifndef DRGN_HANDLER_H
 #define DRGN_HANDLER_H
 
-#include <stdint.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
 // This should be embedded as the first member in a structure containing the
 // handler implementation.

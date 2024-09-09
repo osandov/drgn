@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "drgn.h"
+#include "handler.h"
 #include "type.h"
 
 /**

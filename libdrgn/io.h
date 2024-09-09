@@ -10,6 +10,7 @@
 #ifndef DRGN_IO_H
 #define DRGN_IO_H
 
+#include <stddef.h>
 #include <sys/types.h>
 
 /**

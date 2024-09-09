@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <assert.h>
+#include <elf.h>
 #include <elfutils/libdw.h>
-#include <elfutils/libdwfl.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "cfi.h"
-#include "cleanup.h"
 #include "debug_info.h"
 #include "drgn.h"
 #include "dwarf_constants.h"
