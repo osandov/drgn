@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "binary_search.h"
 #include "debug_info.h" // IWYU pragma: associated
 #include "elf_file.h"
 #include "error.h"
@@ -456,24 +457,19 @@ drgn_module_find_orc_cfi(struct drgn_module *module, uint64_t pc,
 	}
 
 	uint64_t unbiased_pc = pc - module->debug_file_bias;
-	/*
-	 * We don't know the maximum program counter covered by the ORC data,
-	 * but the last entry seems to always be a terminator, so it doesn't
-	 * matter. All addresses beyond the max will fall into the last entry.
-	 */
-	if (!module->orc.num_entries || unbiased_pc < drgn_orc_pc(module, 0))
+	#define less_than_orc_pc(a, b)	\
+		(*(a) < drgn_orc_pc(module, (b) - module->orc.pc_offsets))
+	size_t i = binary_search_gt(module->orc.pc_offsets,
+				    module->orc.num_entries, &unbiased_pc,
+				    less_than_orc_pc);
+	#undef less_than_orc_pc
+	// We can tell when the program counter is below the minimum program
+	// counter included in the ORC data, but we don't know the maximum. The
+	// last entry seems to always be a terminator, so it doesn't matter. All
+	// addresses beyond the max will fall into the last entry.
+	if (i == 0)
 		return &drgn_not_found;
-	unsigned int lo = 0, hi = module->orc.num_entries, found = 0;
-	while (lo < hi) {
-		unsigned int mid = lo + (hi - lo) / 2;
-		if (drgn_orc_pc(module, mid) <= unbiased_pc) {
-			found = mid;
-			lo = mid + 1;
-		} else {
-			hi = mid;
-		}
-	}
-	return module->debug_file->platform.arch->orc_to_cfi(&module->orc.entries[found],
+	return module->debug_file->platform.arch->orc_to_cfi(&module->orc.entries[i - 1],
 							     row_ret,
 							     interrupted_ret,
 							     ret_addr_regno_ret);

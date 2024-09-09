@@ -13,6 +13,7 @@
 
 #include "array.h"
 #include "binary_buffer.h"
+#include "binary_search.h"
 #include "cleanup.h"
 #include "debug_info.h" // IWYU pragma: associated
 #include "dwarf_constants.h"
@@ -1687,18 +1688,14 @@ drgn_dwarf_index_find_cu(struct drgn_debug_info *dbinfo, uintptr_t die_addr)
 {
 	struct drgn_dwarf_index_cu *cus =
 		drgn_dwarf_index_cu_vector_begin(&dbinfo->dwarf.index_cus);
-	size_t lo = 0;
-	size_t hi = drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus);
-	while (lo < hi) {
-		size_t mid = lo + (hi - lo) / 2;
-		if (die_addr < (uintptr_t)cus[mid].buf)
-			hi = mid;
-		else
-			lo = mid + 1;
-	}
+	#define less_than_cu_buf(a, b) (*(a) < (uintptr_t)(b)->buf)
+	size_t i = binary_search_gt(cus,
+				    drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus),
+				    &die_addr, less_than_cu_buf);
+	#undef less_than_cu_buf
 	// We don't check that the address is within bounds because this can
 	// only be called with a valid address.
-	return &cus[lo - 1];
+	return &cus[i - 1];
 }
 
 // If there wasn't already an error, merge src into dst, and return an error if
@@ -6722,20 +6719,16 @@ static struct drgn_error *drgn_parse_dwarf_cfi(struct drgn_dwarf_cfi *cfi,
 static struct drgn_dwarf_fde *drgn_find_dwarf_fde(struct drgn_dwarf_cfi *cfi,
 						  uint64_t unbiased_pc)
 {
-	/* Binary search for the containing FDE. */
-	size_t lo = 0, hi = cfi->num_fdes;
-	while (lo < hi) {
-		size_t mid = lo + (hi - lo) / 2;
-		struct drgn_dwarf_fde *fde = &cfi->fdes[mid];
-		if (unbiased_pc < fde->initial_location)
-			hi = mid;
-		else if (unbiased_pc - fde->initial_location >=
-			 fde->address_range)
-			lo = mid + 1;
-		else
-			return fde;
-	}
-	return NULL;
+	#define less_than_initial_location(a, b) (*(a) < (b)->initial_location)
+	size_t i = binary_search_gt(cfi->fdes, cfi->num_fdes, &unbiased_pc,
+				    less_than_initial_location);
+	#undef less_than_initial_location
+	if (i == 0
+	    || (unbiased_pc - cfi->fdes[i - 1].initial_location
+		>= cfi->fdes[i - 1].address_range))
+		return NULL;
+	return &cfi->fdes[i - 1];
+
 }
 
 static struct drgn_error *
