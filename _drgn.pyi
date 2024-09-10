@@ -218,7 +218,7 @@ class Program:
             the given file
         """
         ...
-    def symbol(self, address_or_name: Union[IntegerLike, str]) -> Symbol:
+    def symbol(self, __address_or_name: Union[IntegerLike, str]) -> Symbol:
         """
         Get a symbol containing the given address, or a symbol with the given
         name.
@@ -233,15 +233,14 @@ class Program:
         returned arbitrarily. To retrieve all matching symbols, use
         :meth:`symbols()`.
 
-        :param address_or_name: Address or name to search for. This parameter
-            is positional-only.
+        :param address_or_name: Address or name to search for.
         :raises LookupError: if no symbol contains the given address or matches
             the given name
         """
         ...
     def symbols(
         self,
-        address_or_name: Union[None, IntegerLike, str] = None,
+        __address_or_name: Union[None, IntegerLike, str] = None,
     ) -> List[Symbol]:
         """
         Get a list of global and local symbols, optionally matching a name or
@@ -253,8 +252,7 @@ class Program:
         in the program are returned. In all cases, the symbols are returned in
         an unspecified order.
 
-        :param address_or_name: Address or name to search for. This parameter
-            is positional-only.
+        :param address_or_name: Address or name to search for.
         """
         ...
     def stack_trace(
@@ -309,8 +307,7 @@ class Program:
         """
         ...
     @overload
-    # type is positional-only.
-    def type(self, type: Type) -> Type:
+    def type(self, __type: Type) -> Type:
         """
         Return the given type.
 
@@ -1037,8 +1034,7 @@ def get_default_prog() -> Program:
     """
     ...
 
-# prog is positional-only.
-def set_default_prog(prog: Optional[Program]) -> None:
+def set_default_prog(__prog: Optional[Program]) -> None:
     """
     Set the default program for the current thread.
 
@@ -2542,8 +2538,7 @@ class Qualifiers(enum.Flag):
     ATOMIC = ...
     """Atomic type."""
 
-# type_or_obj is positional-only.
-def sizeof(type_or_obj: Union[Type, Object]) -> int:
+def sizeof(__type_or_obj: Union[Type, Object]) -> int:
     """
     Get the size of a :class:`Type` or :class:`Object` in bytes.
 
