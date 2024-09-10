@@ -58,8 +58,16 @@ struct drgn_type {
 	};
 };
 
-struct drgn_templated_type {
+struct drgn_extended_type {
 	struct drgn_type type;
+	// This is a layer violation; it'd be cleaner to have an opaque context
+	// and callback table that could be passed when constructing a type. But
+	// for now, we're only supporting this for DWARF.
+	uintptr_t _die_addr;
+};
+
+struct drgn_templated_type {
+	struct drgn_extended_type extended;
 	struct drgn_type_template_parameter *_template_parameters;
 	size_t _num_template_parameters;
 };
@@ -70,7 +78,7 @@ struct drgn_compound_type {
 };
 
 struct drgn_enum_type {
-	struct drgn_type type;
+	struct drgn_extended_type extended;
 	size_t _num_enumerators;
 };
 
@@ -218,6 +226,33 @@ size_t drgn_type_num_template_parameters(struct drgn_type *type)
 {
 	assert(drgn_type_has_template_parameters(type));
 	return ((struct drgn_templated_type *)type)->_num_template_parameters;
+}
+
+static inline bool drgn_type_kind_has_die_addr(enum drgn_type_kind kind)
+{
+	return (kind == DRGN_TYPE_STRUCT ||
+		kind == DRGN_TYPE_UNION ||
+		kind == DRGN_TYPE_CLASS ||
+		kind == DRGN_TYPE_ENUM ||
+		kind == DRGN_TYPE_FUNCTION);
+}
+
+static inline bool drgn_type_has_die_addr(struct drgn_type *type)
+{
+	return drgn_type_kind_has_die_addr(drgn_type_kind(type));
+}
+
+static inline uintptr_t drgn_type_die_addr(struct drgn_type *type)
+{
+	assert(drgn_type_has_die_addr(type));
+	return ((struct drgn_extended_type *)type)->_die_addr;
+}
+
+static inline void drgn_type_init_die_addr(struct drgn_type *type,
+					   uintptr_t die_addr)
+{
+	assert(drgn_type_has_die_addr(type));
+	((struct drgn_extended_type *)type)->_die_addr = die_addr;
 }
 
 #endif /* DRGN_INTERNAL_H */

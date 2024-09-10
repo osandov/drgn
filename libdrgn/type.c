@@ -576,24 +576,26 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 		return &drgn_enomem;
 	*type = (struct drgn_compound_type){
 		.templated = {
-			.type = {
-				._kind = builder->kind,
-				._primitive = DRGN_NOT_PRIMITIVE_TYPE,
-				._flags = is_complete ? DRGN_TYPE_FLAG_IS_COMPLETE : 0,
-				._tag = tag,
-				._size = size,
-				._program = prog,
-				._language = lang ? lang : drgn_program_language(prog),
+			.extended = {
+				.type = {
+					._kind = builder->kind,
+					._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+					._flags = is_complete ? DRGN_TYPE_FLAG_IS_COMPLETE : 0,
+					._tag = tag,
+					._size = size,
+					._program = prog,
+					._language = lang ? lang : drgn_program_language(prog),
+				},
 			},
 		},
 	};
 	drgn_type_member_vector_steal(&builder->members,
-				      &type->templated.type._members,
+				      &type->templated.extended.type._members,
 				      &type->_num_members);
 	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
 						  &type->templated._template_parameters,
 						  &type->templated._num_template_parameters);
-	*ret = &no_cleanup_ptr(type)->templated.type;
+	*ret = &no_cleanup_ptr(type)->templated.extended.type;
 	return NULL;
 }
 
@@ -659,21 +661,23 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 					       (struct drgn_type **)&type))
 		return &drgn_enomem;
 	*type = (struct drgn_enum_type){
-		.type = {
-			._kind = DRGN_TYPE_ENUM,
-			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
-			._tag = tag,
-			._type = compatible_type,
-			._qualifiers = 0,
-			._program = builder->prog,
-			._language = lang ? lang : drgn_program_language(builder->prog),
+		.extended = {
+			.type = {
+				._kind = DRGN_TYPE_ENUM,
+				._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+				._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
+				._tag = tag,
+				._type = compatible_type,
+				._qualifiers = 0,
+				._program = builder->prog,
+				._language = lang ? lang : drgn_program_language(builder->prog),
+			},
 		},
 	};
 	drgn_type_enumerator_vector_steal(&builder->enumerators,
-					  &type->type._enumerators,
+					  &type->extended.type._enumerators,
 					  &type->_num_enumerators);
-	*ret = &no_cleanup_ptr(type)->type;
+	*ret = &no_cleanup_ptr(type)->extended.type;
 	return NULL;
 }
 
@@ -687,15 +691,17 @@ drgn_incomplete_enum_type_create(struct drgn_program *prog, const char *tag,
 					       (struct drgn_type **)&type))
 		return &drgn_enomem;
 	*type = (struct drgn_enum_type){
-		.type = {
-			._kind = DRGN_TYPE_ENUM,
-			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			._tag = tag,
-			._program = prog,
-			._language = lang ? lang : drgn_program_language(prog),
+		.extended = {
+			.type = {
+				._kind = DRGN_TYPE_ENUM,
+				._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+				._tag = tag,
+				._program = prog,
+				._language = lang ? lang : drgn_program_language(prog),
+			},
 		},
 	};
-	*ret = &no_cleanup_ptr(type)->type;
+	*ret = &no_cleanup_ptr(type)->extended.type;
 	return NULL;
 }
 
@@ -866,24 +872,26 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 					      (struct drgn_type **)&type))
 		return &drgn_enomem;
 	*type = (struct drgn_templated_type){
-		.type = {
-			._kind = DRGN_TYPE_FUNCTION,
-			._primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			._flags = (DRGN_TYPE_FLAG_IS_COMPLETE
-				   | (is_variadic ? DRGN_TYPE_FLAG_IS_VARIADIC : 0)),
-			._type = return_type.type,
-			._qualifiers = return_type.qualifiers,
-			._program = prog,
-			._language = lang ? lang : drgn_program_language(prog),
+		.extended = {
+			.type = {
+				._kind = DRGN_TYPE_FUNCTION,
+				._primitive = DRGN_NOT_PRIMITIVE_TYPE,
+				._flags = (DRGN_TYPE_FLAG_IS_COMPLETE
+					   | (is_variadic ? DRGN_TYPE_FLAG_IS_VARIADIC : 0)),
+				._type = return_type.type,
+				._qualifiers = return_type.qualifiers,
+				._program = prog,
+				._language = lang ? lang : drgn_program_language(prog),
+			},
 		},
 	};
 	drgn_type_parameter_vector_steal(&builder->parameters,
-					 &type->type._parameters,
-					 &type->type._num_parameters);
+					 &type->extended.type._parameters,
+					 &type->extended.type._num_parameters);
 	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
 						  &type->_template_parameters,
 						  &type->_num_template_parameters);
-	*ret = &no_cleanup_ptr(type)->type;
+	*ret = &no_cleanup_ptr(type)->extended.type;
 	return NULL;
 }
 
