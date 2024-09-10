@@ -280,14 +280,12 @@ class Formatter:
         need_blank_line = bool(lines)
 
         def visit_arg(
-            arg: ast.arg, default: Optional[ast.expr] = None, prefix: str = ""
+            arg: ast.arg, default: Optional[ast.expr] = None, name: Optional[str] = None
         ) -> None:
             nonlocal need_comma, need_blank_line
             if need_comma:
                 signature.append(", ")
-            if prefix:
-                signature.append(prefix)
-            signature.append(arg.arg)
+            signature.append(arg.arg if name is None else name)
 
             default_sep = "="
             if arg.annotation:
@@ -311,25 +309,55 @@ class Formatter:
                 )
             need_comma = True
 
-        posonlyargs = getattr(node.args, "posonlyargs", [])
-        num_posargs = len(posonlyargs) + len(node.args.args)
-        for i, arg in enumerate(posonlyargs + node.args.args):
+        try:
+            posargs = node.args.posonlyargs + node.args.args
+            num_posonlyargs = len(node.args.posonlyargs)
+        except AttributeError:
+            posargs = node.args.args
+            num_posonlyargs = 0
+
+        # Type checkers treat parameters with names that begin but don't end
+        # with __ as positional-only:
+        # https://typing.readthedocs.io/en/latest/spec/historical.html#positional-only-parameters
+        # We translate those to the PEP 570 syntax.
+        def _is_posonly(arg: ast.arg) -> bool:
+            return arg.arg.startswith("__") and not arg.arg.endswith("__")
+
+        num_pep_570_posonlyargs = num_posonlyargs
+        if (
+            num_posonlyargs == 0
+            and classes
+            and not node.has_decorator("staticmethod")
+            and len(posargs) > 1
+            and _is_posonly(posargs[1])
+        ):
+            num_posonlyargs = 2
+        while num_posonlyargs < len(posargs) and _is_posonly(posargs[num_posonlyargs]):
+            num_posonlyargs += 1
+
+        for i, arg in enumerate(posargs):
             default: Optional[ast.expr]
-            if i >= num_posargs - len(node.args.defaults):
+            if i >= len(posargs) - len(node.args.defaults):
                 default = node.args.defaults[
-                    i - (num_posargs - len(node.args.defaults))
+                    i - (len(posargs) - len(node.args.defaults))
                 ]
             else:
                 default = None
             if i == 0 and classes and not node.has_decorator("staticmethod"):
                 # Skip self for methods and cls for class methods.
                 continue
-            visit_arg(arg, default)
-            if i == len(posonlyargs) - 1:
+            visit_arg(
+                arg,
+                default,
+                name=arg.arg[2:]
+                if num_pep_570_posonlyargs <= i < num_posonlyargs
+                else arg.arg,
+            )
+            if i == num_posonlyargs - 1:
                 signature.append(", /")
 
         if node.args.vararg:
-            visit_arg(node.args.vararg, prefix="*")
+            visit_arg(node.args.vararg, name="*" + node.args.vararg.arg)
 
         if node.args.kwonlyargs:
             if not node.args.vararg:
@@ -341,7 +369,7 @@ class Formatter:
                 visit_arg(arg, node.args.kw_defaults[i])
 
         if node.args.kwarg:
-            visit_arg(node.args.kwarg, prefix="**")
+            visit_arg(node.args.kwarg, name="**" + node.args.kwarg.arg)
 
         signature.append(")")
 
