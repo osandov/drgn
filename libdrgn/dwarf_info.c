@@ -1682,7 +1682,7 @@ static inline int drgn_dwarf_index_cu_cmp(const void *_a, const void *_b)
 	return (a > b) - (a < b);
 }
 
-// die_addr must be from an indexed CU.
+// Returns NULL if die_addr is not from an indexed CU.
 static struct drgn_dwarf_index_cu *
 drgn_dwarf_index_find_cu(struct drgn_debug_info *dbinfo, uintptr_t die_addr)
 {
@@ -1693,8 +1693,8 @@ drgn_dwarf_index_find_cu(struct drgn_debug_info *dbinfo, uintptr_t die_addr)
 				    drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus),
 				    &die_addr, less_than_cu_buf);
 	#undef less_than_cu_buf
-	// We don't check that the address is within bounds because this can
-	// only be called with a valid address.
+	if (i == 0 || die_addr - (uintptr_t)cus[i - 1].buf >= cus[i - 1].len)
+		return NULL;
 	return &cus[i - 1];
 }
 
