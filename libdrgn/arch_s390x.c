@@ -490,6 +490,7 @@ const struct drgn_architecture_info arch_info_s390 = {
 	.name = "s390",
 	.arch = DRGN_ARCH_S390,
 	.default_flags = 0,
+	.scalar_alignment = { 1, 2, 4, 8, 8 },
 	.register_by_name = drgn_register_by_name_unknown,
 	.apply_elf_reloc = apply_elf_reloc_s390,
 };

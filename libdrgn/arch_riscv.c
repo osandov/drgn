@@ -115,6 +115,7 @@ const struct drgn_architecture_info arch_info_riscv64 = {
 	.arch = DRGN_ARCH_RISCV64,
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
+	.scalar_alignment = { 1, 2, 4, 8, 16 },
 	.register_by_name = drgn_register_by_name_unknown,
 	.apply_elf_reloc = apply_elf_reloc_riscv,
 };
@@ -122,6 +123,7 @@ const struct drgn_architecture_info arch_info_riscv64 = {
 const struct drgn_architecture_info arch_info_riscv32 = {
 	.name = "RISC-V 32",
 	.arch = DRGN_ARCH_RISCV32,
+	.scalar_alignment = { 1, 2, 4, 8, 16 },
 	.default_flags = DRGN_PLATFORM_IS_LITTLE_ENDIAN,
 	.register_by_name = drgn_register_by_name_unknown,
 	.apply_elf_reloc = apply_elf_reloc_riscv,

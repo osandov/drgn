@@ -464,6 +464,7 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 	.arch = DRGN_ARCH_AARCH64,
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
+	.scalar_alignment = { 1, 2, 4, 8, 16 },
 	DRGN_ARCHITECTURE_REGISTERS,
 	.default_dwarf_cfi_row = &default_dwarf_cfi_row_aarch64,
 	.demangle_cfi_registers = demangle_cfi_registers_aarch64,

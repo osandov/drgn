@@ -163,6 +163,7 @@ typedef struct drgn_error *
  *     - @ref name
  *     - @ref arch
  *     - @ref default_flags
+ *     - @ref scalar_alignment
  *     - @ref register_by_name
  * - Add an `extern` declaration of `arch_info_foo` to `libdrgn/platform.h`.
  * - Handle the architecture in @ref drgn_platform_from_kdump(), @ref
@@ -250,6 +251,19 @@ struct drgn_architecture_info {
 	 * elsewhere (like from an ELF file).
 	 */
 	enum drgn_platform_flags default_flags;
+	/**
+	 * Default alignment of scalar types by size.
+	 *
+	 * `scalar_alignment[i]` is the default alignment of a scalar type with
+	 * 2<sup>i</sup> &le; `sizeof(type)` < 2<sup>i+1</sup>.
+	 *
+	 * This may not be enough to get the correct alignment of some
+	 * implementation-defined extended types, but for now it's good enough.
+	 *
+	 * You can generate this for a new architecture using
+	 * `scripts/scalar_alignment.c`.
+	 */
+	unsigned char scalar_alignment[5];
 	/**
 	 * Registers visible to the public API.
 	 *
