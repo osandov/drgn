@@ -2,21 +2,26 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from drgn import (
+    Architecture,
     Language,
     Object,
+    Platform,
     PrimitiveType,
+    Program,
     Qualifiers,
     TypeEnumerator,
     TypeKind,
     TypeMember,
     TypeParameter,
     TypeTemplateParameter,
+    alignof,
     offsetof,
     sizeof,
 )
 from tests import (
     DEFAULT_LANGUAGE,
     MockProgramTestCase,
+    TestCase,
     assertReprPrettyEqualsStr,
     mock_program,
 )
@@ -1255,3 +1260,77 @@ class TestTypeTemplateParameter(MockProgramTestCase):
 
         p = TypeTemplateParameter(lambda: None)
         self.assertRaises(TypeError, repr, p)
+
+
+class TestAlignof(TestCase):
+    def setUp(self):
+        self.prog = Program(Platform(Architecture.X86_64))
+
+    def test_scalar(self):
+        self.assertEqual(alignof(self.prog.int_type("char", 1, True)), 1)
+        self.assertEqual(alignof(self.prog.int_type("short", 2, True)), 2)
+        self.assertEqual(alignof(self.prog.int_type("int", 4, True)), 4)
+        self.assertEqual(alignof(self.prog.int_type("long long", 8, True)), 8)
+        self.assertEqual(alignof(self.prog.int_type("__int128", 16, True)), 16)
+        self.assertEqual(alignof(self.prog.bool_type("_Bool", 1)), 1)
+        self.assertEqual(alignof(self.prog.float_type("float", 4)), 4)
+        self.assertEqual(alignof(self.prog.float_type("double", 8)), 8)
+        self.assertEqual(alignof(self.prog.float_type("long double", 16)), 16)
+        self.assertEqual(alignof(self.prog.pointer_type(self.prog.void_type())), 8)
+
+    def test_empty_struct(self):
+        self.assertEqual(alignof(self.prog.struct_type(None, 0, ())), 1)
+
+    def test_struct(self):
+        self.assertEqual(
+            alignof(
+                self.prog.struct_type(
+                    None,
+                    16,
+                    (
+                        TypeMember(self.prog.int_type("int", 4, True), "i", 0),
+                        TypeMember(self.prog.int_type("long long", 8, True), "ll", 64),
+                    ),
+                )
+            ),
+            8,
+        )
+
+    def test_union(self):
+        self.assertEqual(
+            alignof(
+                self.prog.struct_type(
+                    None,
+                    8,
+                    (
+                        TypeMember(self.prog.int_type("int", 4, True), "i"),
+                        TypeMember(self.prog.int_type("long long", 8, True), "ll"),
+                    ),
+                )
+            ),
+            8,
+        )
+
+    def test_enum(self):
+        self.assertEqual(
+            alignof(self.prog.enum_type(None, self.prog.int_type("int", 4, True), ())),
+            4,
+        )
+
+    def test_typedef(self):
+        self.assertEqual(
+            alignof(self.prog.typedef_type("INT", self.prog.int_type("int", 4, True))),
+            4,
+        )
+
+    def test_array(self):
+        self.assertEqual(
+            alignof(self.prog.array_type(self.prog.int_type("int", 4, True), 8)), 4
+        )
+
+    def test_incomplete_type(self):
+        self.assertRaises(TypeError, alignof, self.prog.void_type())
+
+    def test_cycle(self):
+        type = self.prog.struct_type(None, 8, (TypeMember(lambda: type, "foo"),))
+        self.assertRaises(RecursionError, alignof, type)

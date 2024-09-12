@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "array.h"
+#include "bitops.h"
 #include "cleanup.h"
 #include "error.h"
 #include "hash_table.h"
@@ -1146,6 +1147,92 @@ struct drgn_error *drgn_type_bit_size(struct drgn_type *type, uint64_t *ret)
 					 "type bit size is too large");
 	}
 	return NULL;
+}
+
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_type_alignof(struct drgn_qualified_type qualified_type,
+				     uint64_t *ret)
+{
+
+	struct drgn_error *err;
+
+	drgn_recursion_guard(1000, "maximum type depth exceeded in alignof()");
+
+	// The C standard says that "the size, representation, and alignment of
+	// an atomic type need not be the same as those of the corresponding
+	// unqualified type", so we take the qualified type to be future-proof.
+	struct drgn_type *type = qualified_type.type;
+	if (!drgn_type_is_complete(type)) {
+		return drgn_error_incomplete_type("cannot get alignment of %s type",
+						  type);
+	}
+
+	// Check if the type has explicit alignment.
+	if (drgn_type_has_die_addr(type)) {
+		err = drgn_dwarf_type_alignment(type, ret);
+		if (err != &drgn_not_found)
+			return err;
+	}
+
+	SWITCH_ENUM(drgn_type_kind(type)) {
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_BOOL:
+	case DRGN_TYPE_FLOAT:
+	case DRGN_TYPE_POINTER: {
+		struct drgn_program *prog = drgn_type_program(type);
+		if (!prog->has_platform) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "program alignment requirements are not known");
+		}
+		const struct drgn_architecture_info *arch = prog->platform.arch;
+		uint64_t size = drgn_type_size(type);
+		int i;
+		if (size == 0)
+			i = 0;
+		else if (size >= (1 << array_size(arch->scalar_alignment)))
+			i = array_size(arch->scalar_alignment) - 1;
+		else
+			i = ilog2(size);
+		if (arch->scalar_alignment[i] == 0) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "program alignment requirements are not known");
+		}
+		*ret = arch->scalar_alignment[i];
+		return NULL;
+	}
+	case DRGN_TYPE_STRUCT:
+	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS: {
+		uint64_t alignment = 1;
+		struct drgn_type_member *members = drgn_type_members(type);
+		size_t num_members = drgn_type_num_members(type);
+		for (size_t i = 0; i < num_members; i++) {
+			struct drgn_qualified_type member_type;
+			err = drgn_member_type(&members[i], &member_type, NULL);
+			if (err)
+				return err;
+			uint64_t member_alignment;
+			err = drgn_type_alignof(member_type, &member_alignment);
+			if (err)
+				return err;
+			if (member_alignment > alignment)
+				alignment = member_alignment;
+		}
+		*ret = alignment;
+		return NULL;
+	}
+	case DRGN_TYPE_ENUM:
+	case DRGN_TYPE_TYPEDEF:
+	case DRGN_TYPE_ARRAY:
+		return drgn_type_alignof(drgn_type_type(type), ret);
+	case DRGN_TYPE_FUNCTION:
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "cannot get alignment of function type");
+	// void is handled by the drgn_type_is_complete() check.
+	case DRGN_TYPE_VOID:
+	default:
+		UNREACHABLE();
+	}
 }
 
 struct drgn_error *drgn_type_error(const char *format, struct drgn_type *type)

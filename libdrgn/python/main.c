@@ -112,6 +112,24 @@ static PyObject *sizeof_(PyObject *self, PyObject *arg)
 	return PyLong_FromUint64(size);
 }
 
+static PyObject *alignof_(PyObject *self, PyObject *arg)
+{
+	struct drgn_error *err;
+	if (!PyObject_TypeCheck(arg, &DrgnType_type)) {
+		return PyErr_Format(PyExc_TypeError, "expected Type not %s",
+				    Py_TYPE(arg)->tp_name);
+	}
+	struct drgn_qualified_type qualified_type = {
+		.type = ((DrgnType *)arg)->type,
+		.qualifiers = ((DrgnType *)arg)->qualifiers,
+	};
+	uint64_t size;
+	err = drgn_type_alignof(qualified_type, &size);
+	if (err)
+		return set_drgn_error(err);
+	return PyLong_FromUint64(size);
+}
+
 static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	struct drgn_error *err;
@@ -139,6 +157,7 @@ static PyMethodDef drgn_methods[] = {
 	{"NULL", (PyCFunction)DrgnObject_NULL, METH_VARARGS | METH_KEYWORDS,
 	 drgn_NULL_DOC},
 	{"sizeof", (PyCFunction)sizeof_, METH_O, drgn_sizeof_DOC},
+	{"alignof", (PyCFunction)alignof_, METH_O, drgn_alignof_DOC},
 	{"offsetof", (PyCFunction)offsetof_, METH_VARARGS | METH_KEYWORDS,
 	 drgn_offsetof_DOC},
 	{"cast", (PyCFunction)cast, METH_VARARGS | METH_KEYWORDS,

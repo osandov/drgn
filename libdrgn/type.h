@@ -556,6 +556,9 @@ bool drgn_type_is_scalar(struct drgn_type *type);
 struct drgn_error *drgn_type_bit_size(struct drgn_type *type,
 				      uint64_t *ret);
 
+struct drgn_error *drgn_dwarf_type_alignment(struct drgn_type *type,
+					     uint64_t *ret);
+
 /** Initialize type-related fields in a @ref drgn_program. */
 void drgn_program_init_types(struct drgn_program *prog);
 /** Deinitialize type-related fields in a @ref drgn_program. */

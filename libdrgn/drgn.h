@@ -2912,6 +2912,18 @@ drgn_template_parameter_object(struct drgn_type_template_parameter *parameter,
 struct drgn_error *drgn_type_sizeof(struct drgn_type *type, uint64_t *ret);
 
 /**
+ * Get the alignment requirement of a type.
+ *
+ * This corresponds to @c _Alignof() in C.
+ *
+ * @param[in] type Type.
+ * @param[out] ret Returned alignment.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_type_alignof(struct drgn_qualified_type qualified_type,
+				     uint64_t *ret);
+
+/**
  * Get the offset in bytes of a member from the start of a structure, union, or
  * class type.
  *

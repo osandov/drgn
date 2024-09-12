@@ -134,6 +134,7 @@ Types
 .. drgndoc:: TypeKindSet
 .. drgndoc:: PrimitiveType
 .. drgndoc:: Qualifiers
+.. drgndoc:: alignof
 .. drgndoc:: offsetof
 
 .. _api-type-constructors:

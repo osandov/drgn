@@ -3982,6 +3982,35 @@ static int dwarf_flag_integrate(Dwarf_Die *die, unsigned int name, bool *ret)
 	return dwarf_formflag(attr, ret);
 }
 
+struct drgn_error *drgn_dwarf_type_alignment(struct drgn_type *type,
+					     uint64_t *ret)
+{
+	uintptr_t die_addr = drgn_type_die_addr(type);
+	if (!die_addr)
+		return &drgn_not_found;
+	struct drgn_dwarf_index_cu *cu =
+		drgn_dwarf_index_find_cu(&drgn_type_program(type)->dbinfo,
+					 die_addr);
+	if (!cu) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "DIE from unknown DWARF CU");
+	}
+	Dwarf_Die die = {
+		.addr = (void *)die_addr,
+		.cu = cu->libdw_cu,
+	};
+	Dwarf_Attribute attr_mem, *attr;
+	if (!(attr = dwarf_attr_integrate(&die, DW_AT_alignment, &attr_mem)))
+		return &drgn_not_found;
+	Dwarf_Word alignment;
+	if (dwarf_formudata(attr, &alignment) || alignment <= 0) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "invalid DW_AT_alignment");
+	}
+	*ret = alignment;
+	return NULL;
+}
+
 /**
  * Parse a type from a DWARF debugging information entry.
  *

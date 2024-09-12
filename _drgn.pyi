@@ -2548,6 +2548,19 @@ def sizeof(__type_or_obj: Union[Type, Object]) -> int:
     """
     ...
 
+def alignof(__type: Type) -> int:
+    """
+    Get the alignment requirement (in bytes) of a :class:`Type`.
+
+    This corresponds to |alignof()|_ in C.
+
+    .. |alignof()| replace:: ``_Alignof()``
+    .. _alignof(): https://en.cppreference.com/w/c/language/_Alignof
+
+    :raises TypeError: if *type* is a function type or an incomplete type
+    """
+    ...
+
 def offsetof(type: Type, member: str) -> int:
     """
     Get the offset (in bytes) of a member in a :class:`Type`.

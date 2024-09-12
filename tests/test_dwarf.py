@@ -21,6 +21,7 @@ from drgn import (
     TypeMember,
     TypeParameter,
     TypeTemplateParameter,
+    alignof,
 )
 from tests import (
     DEFAULT_LANGUAGE,
@@ -4310,6 +4311,35 @@ class TestTypes(TestCase):
             prog.type("INT"),
             prog.typedef_type("INT", prog.int_type("int", 4, True)),
         )
+
+    def test_alignment(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "cacheline"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 64),
+                        DwarfAttrib(DW_AT.alignment, DW_FORM.data1, 64),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                ),
+                                DwarfAttrib(DW_AT.alignment, DW_FORM.data1, 64),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+            )
+        )
+        self.assertEqual(alignof(prog.type("TEST")), 64)
 
 
 class TestObjects(TestCase):
