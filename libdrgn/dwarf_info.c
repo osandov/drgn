@@ -186,7 +186,6 @@ void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo)
 	drgn_dwarf_index_cu_vector_init(&dbinfo->dwarf.index_cus);
 	drgn_dwarf_type_map_init(&dbinfo->dwarf.types);
 	drgn_dwarf_type_map_init(&dbinfo->dwarf.cant_be_incomplete_array_types);
-	dbinfo->dwarf.depth = 0;
 }
 
 static void drgn_dwarf_index_cu_deinit(struct drgn_dwarf_index_cu *cu)
@@ -5942,10 +5941,7 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 			      bool *is_incomplete_array_ret,
 			      struct drgn_qualified_type *ret)
 {
-	if (dbinfo->dwarf.depth >= 1000) {
-		return drgn_error_create(DRGN_ERROR_RECURSION,
-					 "maximum DWARF type parsing depth exceeded");
-	}
+	drgn_recursion_guard(1000, "maximum DWARF type parsing depth exceeded");
 
 	/* If the DIE has a type unit signature, follow it. */
 	Dwarf_Die definition_die;
@@ -6004,7 +6000,6 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 		return err;
 
 	ret->qualifiers = 0;
-	dbinfo->dwarf.depth++;
 	entry.value.is_incomplete_array = false;
 	switch (dwarf_tag(die)) {
 	case DW_TAG_const_type:
@@ -6085,7 +6080,6 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 					dwarf_tag(die));
 		break;
 	}
-	dbinfo->dwarf.depth--;
 	if (err)
 		return err;
 

@@ -1,0 +1,43 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include "test_util.h"
+#include "../error.h"
+
+static struct drgn_error *no_recursion_allowed(int *counter)
+{
+	drgn_recursion_guard(0, "recursive call detected");
+	(*counter)++;
+	return no_recursion_allowed(counter);
+}
+
+static struct drgn_error *limited_recursion_allowed(int *counter)
+{
+	drgn_recursion_guard(10, "maximum recursion depth exceeded");
+	(*counter)++;
+	return limited_recursion_allowed(counter);
+}
+
+#suite recursion_guard
+
+#test no_recursion
+{
+	int counter = 0;
+	struct drgn_error *err = no_recursion_allowed(&counter);
+	ck_assert_ptr_nonnull(err);
+	ck_assert_int_eq(err->code, DRGN_ERROR_RECURSION);
+	ck_assert_str_eq(err->message, "recursive call detected");
+	drgn_error_destroy(err);
+	ck_assert_int_eq(counter, 1);
+}
+
+#test limited_recursion
+{
+	int counter = 0;
+	struct drgn_error *err = limited_recursion_allowed(&counter);
+	ck_assert_ptr_nonnull(err);
+	ck_assert_int_eq(err->code, DRGN_ERROR_RECURSION);
+	ck_assert_str_eq(err->message, "maximum recursion depth exceeded");
+	drgn_error_destroy(err);
+	ck_assert_int_eq(counter, 11);
+}

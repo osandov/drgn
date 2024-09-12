@@ -219,7 +219,8 @@ TESTS = $(check_PROGRAMS)
 check_PROGRAMS = tests/cityhash \
 		 tests/language_c \
 		 tests/lexer \
-		 tests/path
+		 tests/path \
+		 tests/recursion_guard
 
 EXTRA_DIST += $(addsuffix .c.in,$(check_PROGRAMS))
 
@@ -247,6 +248,9 @@ tests_lexer_LDADD = $(test_ldadd)
 tests_path_CFLAGS = $(test_cflags)
 tests_path_CPPFLAGS = $(test_cppflags)
 tests_path_LDADD = $(test_ldadd)
+tests_recursion_guard_CFLAGS = $(test_cflags)
+tests_recursion_guard_CPPFLAGS = $(test_cppflags)
+tests_recursion_guard_LDADD = $(test_ldadd)
 
 # Don't delete test-suite.log on failure.
 .PRECIOUS: $(TEST_SUITE_LOG)

@@ -13,6 +13,7 @@
 #define DRGN_ERROR_H
 
 #include "drgn.h"
+#include "pp.h"
 
 /**
  * @ingroup Internals
@@ -119,6 +120,40 @@ struct drgn_error *drgn_error_unary_op(const char *op_name,
 /** Create a @ref drgn_error for a failed symbol lookup. */
 struct drgn_error *drgn_error_symbol_not_found(uint64_t address)
 	__attribute__((__returns_nonnull__));
+
+/**
+ * Scope guard that counts recursive calls and returns with a @ref
+ * DRGN_ERROR_RECURSION error if the recursion depth exceeds a limit.
+ *
+ * ```
+ * struct drgn_error *my_recursive_function(int n)
+ * {
+ *         drgn_recursion_guard(1000, "maximum recursion depth exceeded");
+ *         if (n <= 0)
+ *                 return NULL;
+ *         return my_recursive_function(n - 1);
+ * }
+ * ```
+ *
+ * @param[in] limit Maximum recursion depth. For example, 0 means that the
+ * function may be called but may not make any recursive calls.
+ * @param[in] message Error message if limit is exceeded.
+ */
+#define drgn_recursion_guard(limit, message)	\
+	drgn_recursion_guard_impl(limit, message, PP_UNIQUE(recursion_count))
+
+static inline void drgn_recursion_guard_cleanup(int **guard)
+{
+	(**guard)--;
+}
+
+#define drgn_recursion_guard_impl(limit, message, unique_recursion_count)	\
+	static _Thread_local int unique_recursion_count = 0;			\
+	if (unique_recursion_count > (limit))					\
+		return drgn_error_create(DRGN_ERROR_RECURSION, (message));	\
+	unique_recursion_count++;						\
+	__attribute__((__cleanup__(drgn_recursion_guard_cleanup), __unused__))	\
+	int *PP_UNIQUE(recursion_count_ptr) = &unique_recursion_count
 
 /** @} */
 
