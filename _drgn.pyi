@@ -2555,7 +2555,7 @@ def offsetof(type: Type, member: str) -> int:
     This corresponds to |offsetof()|_ in C.
 
     .. |offsetof()| replace:: ``offsetof()``
-    .. _offsetof(): https://en.cppreference.com/w/cpp/types/offsetof
+    .. _offsetof(): https://en.cppreference.com/w/c/types/offsetof
 
     :param type: Structure, union, or class type.
     :param member: Name of member. May include one or more member references
