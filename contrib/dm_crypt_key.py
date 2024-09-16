@@ -87,8 +87,15 @@ def main():
         )
         child_tfm = cryptd_ctx.child
         xts_ctx = aes_xts_ctx(cryptd_ctx.child)
-        crypt_aes_ctx = xts_ctx.crypt_ctx
-        tweak_aes_ctx = xts_ctx.tweak_ctx
+        try:
+            crypt_aes_ctx = xts_ctx.crypt_ctx
+            tweak_aes_ctx = xts_ctx.tweak_ctx
+        except AttributeError:
+            # Before Linux kernel commit d148736ff17d ("crypto: x86/aesni -
+            # Correct the data type in struct aesni_xts_ctx") (in v6.7), the
+            # AES contexts were arrays that we need to cast.
+            crypt_aes_ctx = cast("struct crypto_aes_ctx *", xts_ctx.raw_crypt_ctx)
+            tweak_aes_ctx = cast("struct crypto_aes_ctx *", xts_ctx.raw_tweak_ctx)
     elif is_function(exit, "xts_exit_tfm"):
         xts_ctx = cast("struct xts_tfm_ctx *", crypto_skcipher_ctx(tfm))
         lskcipher_tfm = cast(
