@@ -189,10 +189,9 @@ struct drgn_dwarf_info {
 	 */
 	struct drgn_dwarf_base_type_map base_types;
 	/**
-	 * Map from the address of a (usually non-defining) DIE to the address
-	 * of a DIE with a DW_AT_specification attribute that references it.
-	 * This is used to resolve DIEs with DW_AT_declaration to their
-	 * definition.
+	 * Map from the address of a DIE to the address of a top-level DIE with
+	 * a `DW_AT_specification` or `DW_AT_abstract_origin` attribute that
+	 * refers to it.
 	 */
 	struct drgn_dwarf_specification_map specifications;
 	/** Indexed compilation units. */

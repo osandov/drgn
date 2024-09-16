@@ -317,7 +317,14 @@ enum drgn_dwarf_index_abbrev_insn {
 	 * The byte after INSN_END contains the DIE flags, which are a bitmask
 	 * of flags combined with the drgn_dwarf_index_tag.
 	 */
-	INSN_DIE_FLAG_TAG_MASK = 0x3f,
+	INSN_DIE_FLAG_TAG_MASK = 0x1f,
+	/*
+	 * DIE has a DW_AT_inline attribute (which may be DW_INL_not_inlined or
+	 * DW_INL_declared_not_inlined). We use this to decide whether to look
+	 * for a concrete out-of-line instance of an abstract instance root, so
+	 * false positives are okay.
+	 */
+	INSN_DIE_FLAG_MAYBE_INLINED = 0x20,
 	/* DIE is a declaration. */
 	INSN_DIE_FLAG_DECLARATION = 0x40,
 	/* DIE has children. */
@@ -899,7 +906,7 @@ dw_at_specification_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %#" PRIx64 " for DW_AT_specification",
+					   "unknown attribute form %#" PRIx64 " for DW_AT_specification or DW_AT_abstract_origin",
 					   form);
 	}
 }
@@ -964,10 +971,15 @@ read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 		} else if (name == DW_AT_declaration && should_index) {
 			err = dw_at_declaration_to_insn(&buffer->bb, form,
 							&insn, &die_flags);
-		} else if (name == DW_AT_specification && should_index) {
+		} else if (should_index
+			   && (name == DW_AT_specification
+			       || (tag == DW_TAG_subprogram
+				   && name == DW_AT_abstract_origin))) {
 			err = dw_at_specification_to_insn(cu, &buffer->bb, form,
 							  &insn);
 		} else {
+			if (tag == DW_TAG_subprogram && name == DW_AT_inline)
+				die_flags |= INSN_DIE_FLAG_MAYBE_INLINED;
 			err = dw_form_to_insn(cu, &buffer->bb, form, &insn);
 		}
 		if (err)
@@ -1096,8 +1108,8 @@ static struct drgn_error *read_indirect_insn(struct drgn_dwarf_index_cu *cu,
 }
 
 /*
- * First pass: index DIEs with DW_AT_specification. This recurses into
- * namespaces.
+ * First pass: index DIEs with DW_AT_specification and DW_AT_abstract_origin.
+ * This recurses into namespaces.
  */
 static struct drgn_error *
 index_cu_first_pass(struct drgn_dwarf_specification_map *specifications,
@@ -1333,12 +1345,13 @@ skip:
 }
 
 /**
- * Find a definition corresponding to a declaration DIE.
+ * Find the address of a top-level DIE with a @c DW_AT_specification or @c
+ * DW_AT_abstract_origin attribute that refers to the given DIE address.
  *
- * This finds the address of a DIE with a @c DW_AT_specification attribute that
- * refers to the given address.
+ * This can be used to find the definition of a declaration or the concrete
+ * out-of-line instance of an abstract instance root.
  *
- * @param[in] die_addr The address of the declaration DIE.
+ * @param[in] die_addr Address of a DIE.
  * @param[out] ret Returned address of the definition DIE.
  * @return @c true if a definition DIE was found, @c false if not (in which case
  * `*ret` is not modified).
@@ -1649,6 +1662,11 @@ skip:
 								die_addr,
 								&die_addr))
 					goto next;
+			}
+
+			if (insn & INSN_DIE_FLAG_MAYBE_INLINED) {
+				drgn_dwarf_find_definition(dbinfo, die_addr,
+							   &die_addr);
 			}
 
 			if (!index_die(map, base_types, name, tag, die_addr))

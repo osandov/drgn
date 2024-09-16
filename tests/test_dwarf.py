@@ -31,7 +31,17 @@ from tests import (
     identical,
 )
 import tests.assembler as assembler
-from tests.dwarf import DW_AT, DW_ATE, DW_END, DW_FORM, DW_LANG, DW_OP, DW_TAG, DW_UT
+from tests.dwarf import (
+    DW_AT,
+    DW_ATE,
+    DW_END,
+    DW_FORM,
+    DW_INL,
+    DW_LANG,
+    DW_OP,
+    DW_TAG,
+    DW_UT,
+)
 from tests.dwarfwriter import (
     DwarfAttrib,
     DwarfDie,
@@ -4455,7 +4465,10 @@ class TestObjects(TestCase):
                     (
                         DwarfDie(
                             DW_TAG.formal_parameter,
-                            (DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),),
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
                         ),
                     ),
                 ),
@@ -4467,7 +4480,7 @@ class TestObjects(TestCase):
                 prog,
                 prog.function_type(
                     prog.int_type("int", 4, True),
-                    (TypeParameter(prog.int_type("int", 4, True)),),
+                    (TypeParameter(prog.int_type("int", 4, True), "x"),),
                     False,
                 ),
                 address=0x7FC3EB9B1C30,
@@ -4493,6 +4506,67 @@ class TestObjects(TestCase):
         )
         self.assertIdentical(
             prog.object("abort"), Object(prog, prog.function_type(prog.void_type(), ()))
+        )
+
+    def test_function_concrete_out_of_line_instance(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                *labeled_int_die,
+                DwarfLabel("abstract_instance_root"),
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "abs"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                        DwarfAttrib(DW_AT.inline, DW_FORM.data1, DW_INL.inlined),
+                    ),
+                    (
+                        DwarfLabel("abstract_instance_parameter"),
+                        DwarfDie(
+                            DW_TAG.formal_parameter,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (
+                        DwarfAttrib(
+                            DW_AT.abstract_origin,
+                            DW_FORM.ref4,
+                            "abstract_instance_root",
+                        ),
+                        DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, 0x7FC3EB9B1C30),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.formal_parameter,
+                            (
+                                DwarfAttrib(
+                                    DW_AT.abstract_origin,
+                                    DW_FORM.ref4,
+                                    "abstract_instance_parameter",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertIdentical(
+            prog["abs"],
+            Object(
+                prog,
+                prog.function_type(
+                    prog.int_type("int", 4, True),
+                    (TypeParameter(prog.int_type("int", 4, True), "x"),),
+                    False,
+                ),
+                address=0x7FC3EB9B1C30,
+            ),
         )
 
     def test_variable(self):
