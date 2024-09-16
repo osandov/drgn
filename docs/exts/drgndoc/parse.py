@@ -111,7 +111,10 @@ class Class:
         self.attrs = attrs
 
     def has_docstring(self) -> bool:
-        return self.docstring is not None
+        if self.docstring is not None:
+            return True
+        init = self.attrs.get("__init__")
+        return isinstance(init, Function) and init.has_docstring()
 
 
 class FunctionSignature:
