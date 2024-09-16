@@ -764,7 +764,11 @@ class TestLiteral(MockProgramTestCase):
             pass
 
         self.assertRaisesRegex(
-            TypeError, "cannot create Foo literal", Object, self.prog, value=Foo()
+            TypeError,
+            "literal must be int, float, or bool, not 'Foo'",
+            Object,
+            self.prog,
+            value=Foo(),
         )
 
 

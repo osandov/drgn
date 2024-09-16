@@ -428,7 +428,7 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 			return NULL;
 		} else if (ret) {
 			PyErr_Format(PyExc_TypeError,
-				     "cannot create %s literal",
+				     "literal must be int, float, or bool, not '%s'",
 				     Py_TYPE(value_obj)->tp_name);
 			return NULL;
 		}
