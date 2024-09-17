@@ -1182,6 +1182,161 @@ int drgn_test_function(int x)
 	return x + 1;
 }
 
+// kmodify
+
+enum drgn_kmodify_enum {
+	DRGN_KMODIFY_ONE = 1,
+	DRGN_KMODIFY_TWO,
+	DRGN_KMODIFY_THREE,
+};
+
+struct drgn_kmodify_test_struct {
+	void *v;
+	int *i;
+};
+struct drgn_kmodify_test_struct *drgn_kmodify_test_ptr =
+	&(struct drgn_kmodify_test_struct){};
+
+char drgn_kmodify_test_memory[16];
+
+int drgn_kmodify_test_int;
+int *drgn_kmodify_test_int_ptr;
+
+#define DEFINE_KMODIFY_TEST_RETURN(name, return_type, return_value)	\
+int drgn_kmodify_test_##name##_called = 0;				\
+return_type drgn_kmodify_test_##name(void);				\
+return_type drgn_kmodify_test_##name(void)				\
+{									\
+	drgn_kmodify_test_##name##_called++;				\
+	return (return_value);						\
+}
+
+#define DEFINE_KMODIFY_TEST_ARGS(name, parameters, condition)	\
+int drgn_kmodify_test_##name##_called = 0;			\
+void drgn_kmodify_test_##name parameters;			\
+void drgn_kmodify_test_##name parameters			\
+{								\
+	if (condition)						\
+		drgn_kmodify_test_##name##_called++;		\
+}
+
+DEFINE_KMODIFY_TEST_ARGS(void_return, (void), 1)
+DEFINE_KMODIFY_TEST_RETURN(signed_char_return, signed char, -66)
+DEFINE_KMODIFY_TEST_RETURN(unsigned_char_return, unsigned char, 200)
+DEFINE_KMODIFY_TEST_RETURN(short_return, short, -666)
+DEFINE_KMODIFY_TEST_RETURN(unsigned_short_return, unsigned short, 7777)
+DEFINE_KMODIFY_TEST_RETURN(int_return, int, -12345)
+DEFINE_KMODIFY_TEST_RETURN(unsigned_int_return, unsigned int, 54321U)
+DEFINE_KMODIFY_TEST_RETURN(long_return, long, -2468013579L)
+DEFINE_KMODIFY_TEST_RETURN(unsigned_long_return, unsigned long, 4000000000UL)
+DEFINE_KMODIFY_TEST_RETURN(long_long_return, long long, -9080706050403020100LL)
+DEFINE_KMODIFY_TEST_RETURN(unsigned_long_long_return, unsigned long long,
+			   12345678909876543210ULL)
+DEFINE_KMODIFY_TEST_RETURN(pointer_return, struct drgn_kmodify_test_struct *,
+			   drgn_kmodify_test_ptr)
+DEFINE_KMODIFY_TEST_RETURN(enum_return, enum drgn_kmodify_enum,
+			   DRGN_KMODIFY_TWO)
+
+DEFINE_KMODIFY_TEST_ARGS(
+	signed_args,
+	(signed char c, short s, int i, long l, long long ll),
+	(c == -66 && s == -666 && i == -12345 && l == -2468013579L && ll == -9080706050403020100LL)
+)
+DEFINE_KMODIFY_TEST_ARGS(
+	unsigned_args,
+	(unsigned char c, unsigned short s, unsigned int i, unsigned long l, unsigned long long ll),
+	(c == 200 && s == 7777 && i == 54321 && l == 4000000000UL && ll == 12345678909876543210ULL)
+)
+
+DEFINE_KMODIFY_TEST_ARGS(
+	many_args,
+	(char c,
+	 signed char sc, short ss, int si, long sl, long long sll,
+	 unsigned char uc, unsigned short us, unsigned int ui, unsigned long ul, unsigned long long ull),
+	(c == 48
+	 && sc == -66 && ss == -666 && si == -12345 && sl == -2468013579L && sll == -9080706050403020100LL
+	 && uc == 200 && us == 7777 && ui == 54321 && ul == 4000000000UL && ull == 12345678909876543210ULL)
+)
+
+DEFINE_KMODIFY_TEST_ARGS(
+	enum_args,
+	(enum drgn_kmodify_enum a1, enum drgn_kmodify_enum *a2),
+	({
+		int match = a1 == DRGN_KMODIFY_ONE && *a2 == DRGN_KMODIFY_TWO;
+		*a2 = DRGN_KMODIFY_THREE;
+		match;
+	})
+)
+
+DEFINE_KMODIFY_TEST_ARGS(
+	pointer_args,
+	(struct drgn_kmodify_test_struct *ptr),
+	(ptr == drgn_kmodify_test_ptr)
+)
+
+char *drgn_kmodify_test_char_str = "Hello";
+signed char *drgn_kmodify_test_signed_char_str = ", ";
+unsigned char *drgn_kmodify_test_unsigned_char_str = "world";
+const char *drgn_kmodify_test_const_char_str = "!";
+DEFINE_KMODIFY_TEST_ARGS(
+	string_args,
+	(char *c, signed char *sc, unsigned char *uc, const char *cc),
+	(strcmp(c, drgn_kmodify_test_char_str) == 0 &&
+	 strcmp(sc, drgn_kmodify_test_signed_char_str) == 0 &&
+	 strcmp(uc, drgn_kmodify_test_unsigned_char_str) == 0 &&
+	 strcmp(cc, drgn_kmodify_test_const_char_str) == 0)
+)
+
+DEFINE_KMODIFY_TEST_ARGS(
+	integer_out_params,
+	(signed char *c, short *s, int *i, long *l, long long *ll),
+	({
+		int match = *c == -66 && *s == -666 && *i == -12345 && *l == -2468013579L && *ll == -9080706050403020100LL;
+		*c = 33;
+		*s = 333;
+		*i = 23456;
+		*l = 2222222222L;
+		*ll = 9090909090909090909LL;
+		match;
+	})
+)
+
+DEFINE_KMODIFY_TEST_ARGS(
+	array_out_params,
+	(long arr[3]),
+	({
+		int match = arr[0] == 1 && arr[1] == 2 && arr[2] == 3;
+		arr[0] = 2;
+		arr[1] = 3;
+		arr[2] = 5;
+		match;
+	})
+)
+
+DEFINE_KMODIFY_TEST_ARGS(
+	many_out_params,
+	(char *c,
+	 signed char *sc, short *ss, int *si, long *sl, long long *sll,
+	 unsigned char *uc, unsigned short *us, unsigned int *ui, unsigned long *ul, unsigned long long *ull),
+	({
+		int match = (*c == 48
+			     && *sc == -66 && *ss == -666 && *si == -12345 && *sl == -2468013579L && *sll == -9080706050403020100LL
+			     && *uc == 200 && *us == 7777 && *ui == 54321 && *ul == 4000000000UL && *ull == 12345678909876543210ULL);
+		*c /= 3;
+		*sc /= 3;
+		*ss /= 3;
+		*si /= 3;
+		*sl /= 3;
+		*sll /= 3;
+		*uc /= 3;
+		*us /= 3;
+		*ui /= 3;
+		*ul /= 3;
+		*ull /= 3;
+		match;
+	})
+)
+
 static void drgn_test_exit(void)
 {
 	drgn_test_slab_exit();
