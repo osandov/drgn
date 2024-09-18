@@ -997,7 +997,7 @@ def write_object(
         (``*ptr = value``). If ``False``, then write to the pointer itself
         (``ptr = value``). This is a common source of confusion, so it is
         required if *object* is a pointer.
-    :raises ValueError: is *object* is not a reference object (i.e., its
+    :raises ValueError: if *object* is not a reference object (i.e., its
         address is not known)
     :raises TypeError: if *object* is a pointer and *dereference* is not given
     :raises TypeError: if *object* is not a pointer and *dereference* is
@@ -1109,13 +1109,12 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
     :param args: Function arguments. :class:`int`, :class:`float`, and
         :class:`bool` arguments are converted as "literals" with
         ``Object(prog, value=...)``. :class:`str` and :class:`bytes` arguments
-        are automatically converted to a ``char`` array object.
-        :class:`pass_pointer` arguments are copied to the kernel, passed by
-        pointer, and copied back.
+        are converted to ``char`` array objects. :class:`pass_pointer`
+        arguments are copied to the kernel, passed by pointer, and copied back.
     :return: Function return value.
     :raises TypeError: if the passed arguments have incorrect types for the
         function
-    :raises ObjectAbsentError: if function cannot be called because it is
+    :raises ObjectAbsentError: if the function cannot be called because it is
         inlined
     :raises LookupError: if a function with the given name is not found
         (possibly because it is actually a function-like macro)
