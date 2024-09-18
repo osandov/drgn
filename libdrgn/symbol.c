@@ -34,26 +34,6 @@ LIBDRGN_PUBLIC void drgn_symbols_destroy(struct drgn_symbol **syms,
 	free(syms);
 }
 
-void drgn_symbol_from_elf(const char *name, uint64_t address,
-			  const GElf_Sym *elf_sym, struct drgn_symbol *ret)
-{
-	ret->name = name;
-	ret->name_lifetime = DRGN_LIFETIME_STATIC;
-	ret->lifetime = DRGN_LIFETIME_OWNED;
-	ret->address = address;
-	ret->size = elf_sym->st_size;
-	int binding = GELF_ST_BIND(elf_sym->st_info);
-	if (binding <= STB_WEAK || binding == STB_GNU_UNIQUE)
-		ret->binding = binding + 1;
-	else
-		ret->binding = DRGN_SYMBOL_BINDING_UNKNOWN;
-	int type = GELF_ST_TYPE(elf_sym->st_info);
-	if (type <= STT_TLS || type == STT_GNU_IFUNC)
-		ret->kind = type;
-	else
-		ret->kind = DRGN_SYMBOL_KIND_UNKNOWN;
-}
-
 struct drgn_error *
 drgn_symbol_copy(struct drgn_symbol *dst, struct drgn_symbol *src)
 {
@@ -140,6 +120,56 @@ drgn_symbol_result_builder_add(struct drgn_symbol_result_builder *builder,
 		return false;
 	}
 	return true;
+}
+
+static void drgn_symbol_from_elf(const char *name, uint64_t address,
+				 const GElf_Sym *elf_sym,
+				 struct drgn_symbol *ret)
+{
+	ret->name = name;
+	ret->name_lifetime = DRGN_LIFETIME_STATIC;
+	ret->lifetime = DRGN_LIFETIME_OWNED;
+	ret->address = address;
+	ret->size = elf_sym->st_size;
+	int binding = GELF_ST_BIND(elf_sym->st_info);
+	if (binding <= STB_WEAK || binding == STB_GNU_UNIQUE)
+		ret->binding = binding + 1;
+	else
+		ret->binding = DRGN_SYMBOL_BINDING_UNKNOWN;
+	int type = GELF_ST_TYPE(elf_sym->st_info);
+	if (type <= STT_TLS || type == STT_GNU_IFUNC)
+		ret->kind = type;
+	else
+		ret->kind = DRGN_SYMBOL_KIND_UNKNOWN;
+}
+
+struct drgn_symbol *
+drgn_symbol_result_builder_add_from_elf(struct drgn_symbol_result_builder *builder,
+					const char *name, uint64_t address,
+					const GElf_Sym *elf_sym)
+{
+	if (builder->one) {
+		if (builder->single) {
+			assert(builder->single->name_lifetime
+			       == DRGN_LIFETIME_STATIC);
+		} else {
+			builder->single = malloc(sizeof(*builder->single));
+			if (!builder->single)
+				return NULL;
+		}
+		drgn_symbol_from_elf(name, address, elf_sym, builder->single);
+		return builder->single;
+	} else {
+		struct drgn_symbol *sym = malloc(sizeof(*sym));
+		if (!sym)
+			return NULL;
+		drgn_symbol_from_elf(name, address, elf_sym, sym);
+		if (!symbolp_vector_append(&builder->vector, &sym)) {
+			free(sym);
+			return NULL;
+		}
+		return sym;
+	}
 }
 
 LIBDRGN_PUBLIC size_t

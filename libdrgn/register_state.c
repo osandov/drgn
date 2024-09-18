@@ -1,7 +1,6 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-#include <elfutils/libdwfl.h>
 #include <limits.h>
 
 #include "debug_info.h"
@@ -105,14 +104,8 @@ void drgn_register_state_set_pc(struct drgn_program *prog,
 	pc &= drgn_platform_address_mask(&prog->platform);
 	regs->_pc = pc;
 	drgn_register_state_set_known(regs, 0);
-	Dwfl_Module *dwfl_module = dwfl_addrmodule(prog->dbinfo.dwfl,
+	regs->module = drgn_module_find_by_address(prog,
 						   pc - !regs->interrupted);
-	if (dwfl_module) {
-		void **userdatap;
-		dwfl_module_info(dwfl_module, &userdatap, NULL, NULL,
-				 NULL, NULL, NULL, NULL);
-		regs->module = *userdatap;
-	}
 }
 
 struct optional_uint64

@@ -10,8 +10,10 @@
 #ifndef DRGN_CLEANUP_H
 #define DRGN_CLEANUP_H
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #define _cleanup_(x) __attribute__((__cleanup__(x)))
@@ -37,6 +39,14 @@ static inline void closep(int *fd)
 {
 	if (*fd >= 0)
 		close(*fd);
+}
+
+/** Call @c closedir() when the variable goes out of scope. */
+#define _cleanup_closedir_ _cleanup_(closedirp)
+static inline void closedirp(DIR **dirp)
+{
+	if (*dirp)
+		closedir(*dirp);
 }
 
 /**

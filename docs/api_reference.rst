@@ -7,7 +7,7 @@ Programs
 --------
 
 .. drgndoc:: Program
-    :exclude: (void|int|bool|float|struct|union|class|enum|typedef|pointer|array|function)_type
+    :exclude: (void|int|bool|float|struct|union|class|enum|typedef|pointer|array|function)_type|(main|shared_library|vdso|relocatable|linux_kernel_loadable|extra)_module
 .. drgndoc:: ProgramFlags
 .. drgndoc:: FindObjectFlags
 
@@ -158,6 +158,44 @@ can be used just like types obtained from :meth:`Program.type()`.
 .. drgndoc:: Program.pointer_type
 .. drgndoc:: Program.array_type
 .. drgndoc:: Program.function_type
+
+Modules
+-------
+
+.. drgndoc:: Module
+.. drgndoc:: MainModule
+.. drgndoc:: SharedLibraryModule
+.. drgndoc:: VdsoModule
+.. drgndoc:: RelocatableModule
+.. drgndoc:: ExtraModule
+.. drgndoc:: ModuleFileStatus
+.. drgndoc:: WantedSupplementaryFile
+.. drgndoc:: SupplementaryFileKind
+
+.. _api-module-constructors:
+
+Module Lookups/Constructors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For each module type, there is a corresponding method to create a module of
+that type or find one that was previously created::
+
+    >>> prog.extra_module("foo", 1234)
+    Traceback (most recent call last):
+      ...
+    LookupError: module not found
+    >>> prog.extra_module("foo", 1234, create=True)
+    (prog.extra_module(name='foo', id=0x4d2), True)
+    >>> prog.extra_module("foo", 1234)
+    >>> prog.extra_module("foo", 1234, create=True)
+    (prog.extra_module(name='foo', id=0x4d2), False)
+
+.. drgndoc:: Program.main_module
+.. drgndoc:: Program.shared_library_module
+.. drgndoc:: Program.vdso_module
+.. drgndoc:: Program.relocatable_module
+.. drgndoc:: Program.linux_kernel_loadable_module
+.. drgndoc:: Program.extra_module
 
 Miscellaneous
 -------------

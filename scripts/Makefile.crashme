@@ -1,0 +1,69 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# Makefile used to generate tests/resources/crashme*
+
+.PHONY: all cores clean
+
+.DELETE_ON_ERROR:
+
+EXECUTABLES := crashme crashme_pie crashme_static crashme_static_pie
+CORES := $(addsuffix .core, $(EXECUTABLES)) $(addsuffix _no_headers.core, $(EXECUTABLES))
+BINARIES := crashme.so $(EXECUTABLES) crashme.so.dwz crashme.dwz crashme.alt
+ZSTD_BINARIES := $(addsuffix .zst, $(BINARIES))
+ZSTD_CORES := $(addsuffix .zst, $(CORES))
+
+all: $(BINARIES) cores $(ZSTD_BINARIES) $(ZSTD_CORES)
+
+clean:
+	rm -f $(BINARIES) $(CORES) $(ZSTD_BINARIES) $(ZSTD_CORES)
+
+crashme.so: crashme.c
+	gcc -g -Os -fpic -shared $< -o $@
+
+crashme: main.c crashme.so
+	gcc -g -Os -fno-pie -no-pie $< -o $@ -L . -l:crashme.so -Wl,-rpath,$(CURDIR)
+
+crashme_pie: main.c crashme.so
+	gcc -g -Os -fpie -pie $< -o $@ -L . -l:crashme.so -Wl,-rpath,$(CURDIR)
+
+crashme_static: main.c crashme.c
+	musl-gcc -g -Os -fno-pie -static $^ -o $@
+
+crashme_static_pie: main.c crashme.c
+	musl-gcc -g -Os -fpie -static-pie $^ -o $@
+
+crashme.so.dwz crashme.dwz crashme.alt &: crashme.so crashme
+	cp crashme.so crashme.so.dwz
+	cp crashme crashme.dwz
+	dwz -m crashme.alt -r crashme.so.dwz crashme.dwz
+
+cores: $(CORES)
+
+.NOTPARALLEL: cores
+
+define CORE_COMMAND
+flock /proc/sys/kernel/core_pattern sh -c '\
+set -e; \
+ulimit -c unlimited; \
+echo "$$COREDUMP_FILTER" > /proc/$$$$/coredump_filter; \
+old_pattern=$$(cat /proc/sys/kernel/core_pattern); \
+restore_core_pattern() { \
+	echo "$$old_pattern" > /proc/sys/kernel/core_pattern; \
+}; \
+trap restore_core_pattern EXIT; \
+echo "$$PWD/core.%p" > /proc/sys/kernel/core_pattern; \
+./$< & \
+wait; \
+mv core.$$! $@; \
+chown "$$SUDO_UID":"$$SUDO_GID" $@'
+endef
+
+%.core: %
+	sudo env COREDUMP_FILTER=0x33 $(CORE_COMMAND)
+
+%_no_headers.core: %
+	sudo env COREDUMP_FILTER=0x23 $(CORE_COMMAND)
+
+%.zst: %
+	zstd -19 $< -o $@

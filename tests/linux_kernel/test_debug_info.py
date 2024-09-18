@@ -2,49 +2,89 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import os
-from pathlib import Path
-import unittest
 
-from drgn import Program
+from drgn import Program, RelocatableModule
+from drgn.helpers.linux.module import find_module
 from tests import modifyenv
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
-KALLSYMS_PATH = Path("/proc/kallsyms")
+
+def iter_proc_modules():
+    try:
+        f = open("/proc/modules", "r")
+    except FileNotFoundError:
+        return
+    with f:
+        for line in f:
+            tokens = line.split()
+            yield tokens[0], int(tokens[5], 16)
 
 
-@unittest.skipUnless(
-    KALLSYMS_PATH.exists(), "kernel does not have kallsyms (CONFIG_KALLSYMS)"
-)
-@skip_unless_have_test_kmod
-class TestModuleDebugInfo(LinuxKernelTestCase):
-    # Arbitrary symbol that we can use to check that the module debug info was
-    # loaded.
-    SYMBOL = "drgn_test_function"
+class TestModule(LinuxKernelTestCase):
+    def test_loaded_modules(self):
+        expected = [("kernel", None), *iter_proc_modules()]
 
-    def setUp(self):
-        super().setUp()
-        with KALLSYMS_PATH.open() as f:
-            for line in f:
-                tokens = line.split()
-                if tokens[2] == self.SYMBOL:
-                    self.symbol_address = int(tokens[0], 16)
-                    break
+        loaded_modules = []
+        for module, _ in self.prog.loaded_modules():
+            if isinstance(module, RelocatableModule):
+                loaded_modules.append((module.name, module.address))
             else:
-                self.fail(f"{self.SYMBOL!r} symbol not found")
+                loaded_modules.append((module.name, None))
 
-    def _test_module_debug_info(self, use_sys_module):
-        old_use_sys_module = int(os.environ.get("DRGN_USE_SYS_MODULE", "1")) != 0
-        with modifyenv({"DRGN_USE_SYS_MODULE": "1" if use_sys_module else "0"}):
-            if old_use_sys_module == use_sys_module:
-                prog = self.prog
+        self.assertCountEqual(loaded_modules, expected)
+
+    @skip_unless_have_test_kmod
+    def test_find(self):
+        self.assertEqual(self.prog.main_module().name, "kernel")
+        for name, address in iter_proc_modules():
+            if name == "drgn_test":
+                self.assertEqual(
+                    self.prog.relocatable_module(name, address).name, "drgn_test"
+                )
+                break
+        else:
+            self.fail("test module not found")
+
+    @skip_unless_have_test_kmod
+    def test_find_by_obj(self):
+        for module in self.prog.modules():
+            if module.name == "drgn_test":
+                break
+        else:
+            self.fail("test module not found")
+
+        module_obj = find_module(self.prog, "drgn_test")
+        self.assertEqual(self.prog.linux_kernel_loadable_module(module_obj), module)
+        self.assertEqual(
+            self.prog.linux_kernel_loadable_module(module_obj, create=True),
+            (module, False),
+        )
+
+    def test_no_sys_module(self):
+        # Test that we get the same modules with and without using /sys/module.
+
+        def module_dict(prog):
+            return {
+                (module.name, module.address): (
+                    module.address_range,
+                    module.build_id,
+                    dict(module.section_addresses),
+                )
+                for module, _ in prog.loaded_modules()
+                if isinstance(module, RelocatableModule)
+            }
+
+        use_sys_module = int(os.environ.get("DRGN_USE_SYS_MODULE", "1")) != 0
+
+        with modifyenv({"DRGN_USE_SYS_MODULE": str(int(not use_sys_module))}):
+            prog = Program()
+            prog.set_kernel()
+
+            if use_sys_module:
+                with_sys_module = module_dict(self.prog)
+                without_sys_module = module_dict(prog)
             else:
-                prog = Program()
-                prog.set_kernel()
-                self._load_debug_info(prog)
-            self.assertEqual(prog.symbol(self.SYMBOL).address, self.symbol_address)
+                with_sys_module = module_dict(prog)
+                without_sys_module = module_dict(self.prog)
 
-    def test_module_debug_info_use_proc_and_sys(self):
-        self._test_module_debug_info(True)
-
-    def test_module_debug_info_use_core_dump(self):
-        self._test_module_debug_info(False)
+            self.assertEqual(with_sys_module, without_sys_module)

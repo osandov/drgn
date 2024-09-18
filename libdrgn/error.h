@@ -33,15 +33,16 @@ extern struct drgn_error drgn_stop;
 /** Global @ref DRGN_ERROR_OBJECT_ABSENT error. */
 extern struct drgn_error drgn_error_object_absent;
 
-struct string_builder;
-
 /**
- * Create a @ref drgn_error with a message from a @ref string_builder.
- *
- * This deinitializes the string builder.
+ * Return whether an error is fatal, meaning that it should usually be returned
+ * to the caller instead of being handled or logged.
  */
-struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
-						  struct string_builder *sb);
+static inline bool drgn_error_is_fatal(struct drgn_error *err)
+{
+	return err == &drgn_enomem;
+}
+
+struct string_builder;
 
 /**
  * Append a formatted @ref drgn_error to a @ref string_builder.
@@ -58,10 +59,6 @@ struct drgn_error *drgn_error_libelf(void)
 
 /** Create a @ref drgn_error from the libdw error indicator. */
 struct drgn_error *drgn_error_libdw(void)
-	__attribute__((__returns_nonnull__));
-
-/** Create a @ref drgn_error from the libdwfl error indicator. */
-struct drgn_error *drgn_error_libdwfl(void)
 	__attribute__((__returns_nonnull__));
 
 /**
