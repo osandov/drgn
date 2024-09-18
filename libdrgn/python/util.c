@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <inttypes.h>
 #include <stdarg.h>
 
 #include "drgnpy.h"
@@ -11,6 +12,13 @@ int append_string(PyObject *parts, const char *s)
 	if (!str)
 		return -1;
 	return PyList_Append(parts, str);
+}
+
+int append_u64_hex(PyObject *parts, uint64_t value)
+{
+	char buf[19];
+	snprintf(buf, sizeof(buf), "0x%" PRIx64, value);
+	return append_string(parts, buf);
 }
 
 static int append_formatv(PyObject *parts, const char *format, va_list ap)
@@ -29,6 +37,34 @@ int append_format(PyObject *parts, const char *format, ...)
 	va_start(ap, format);
 	ret = append_formatv(parts, format, ap);
 	va_end(ap);
+	return ret;
+}
+
+int append_attr_repr(PyObject *parts, PyObject *obj, const char *attr_name)
+{
+	PyObject *attr = PyObject_GetAttrString(obj, attr_name);
+	if (!attr)
+		return -1;
+	PyObject *str = PyObject_Repr(attr);
+	Py_DECREF(attr);
+	if (!str)
+		return -1;
+	int ret = PyList_Append(parts, str);
+	Py_DECREF(str);
+	return ret;
+}
+
+int append_attr_str(PyObject *parts, PyObject *obj, const char *attr_name)
+{
+	PyObject *attr = PyObject_GetAttrString(obj, attr_name);
+	if (!attr)
+		return -1;
+	PyObject *str = PyObject_Str(attr);
+	Py_DECREF(attr);
+	if (!str)
+		return -1;
+	int ret = PyList_Append(parts, str);
+	Py_DECREF(str);
 	return ret;
 }
 

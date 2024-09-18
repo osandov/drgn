@@ -691,6 +691,99 @@ class Program:
         """
         ...
 
+    def created_modules(self) -> Iterator[Module]:
+        """DOCTODO"""
+
+    def loaded_modules(self) -> Iterator[Module]:
+        """DOCTODO"""
+        ...
+
+    def main_module(self, name: Path) -> MainModule:
+        """DOCTODO"""
+        ...
+
+    def shared_library_module(
+        self, name: Path, dynamic_address: IntegerLike
+    ) -> SharedLibraryModule:
+        """DOCTODO"""
+        ...
+
+    def vdso_module(self, name: Path, dynamic_address: IntegerLike) -> VdsoModule:
+        """DOCTODO"""
+        ...
+
+    def relocatable_module(self, name: Path, address: IntegerLike) -> RelocatableModule:
+        """DOCTODO"""
+        ...
+
+    def linux_kernel_loadable_module(self, module_obj: Object) -> RelocatableModule:
+        """DOCTODO"""
+        ...
+
+    def extra_module(self, name: Path, id: IntegerLike) -> ExtraModule:
+        """DOCTODO"""
+        ...
+
+    def find_main_module(self) -> MainModule:
+        """DOCTODO"""
+        ...
+
+    def find_shared_library_module(
+        self, name: Path, dynamic_address: IntegerLike
+    ) -> SharedLibraryModule:
+        """DOCTODO"""
+        ...
+
+    def find_vdso_module(self, name: Path, dynamic_address: IntegerLike) -> VdsoModule:
+        """DOCTODO"""
+        ...
+
+    def find_relocatable_module(self, name: Path, address: int) -> RelocatableModule:
+        """DOCTODO"""
+        ...
+
+    def find_extra_module(self, name: Path, id: IntegerLike) -> ExtraModule:
+        """DOCTODO"""
+        ...
+
+    def register_module_debug_info_finder(
+        self,
+        name: str,
+        fn: Callable[[Sequence[Module]], None],
+        *,
+        enable_index: Optional[int] = None,
+    ) -> None:
+        """DOCTODO"""
+        ...
+
+    def registered_module_debug_info_finders(self) -> Set[str]:
+        """
+        Return the names of all registered module debugging symbol finders.
+        """
+        ...
+
+    def set_enabled_module_debug_info_finders(self, names: Sequence[str]) -> None:
+        """
+        Set the list of enabled module debugging symbol finders.
+
+        Finders are called in the same order as the list until a DOCTODO is found.
+
+        Finders that are not in the list are not called.
+
+        :param names: Names of finders to enable, in order.
+        :raises ValueError: if no finder has a given name or the same name is
+            given more than once
+        """
+        ...
+
+    def enabled_module_debug_info_finders(self) -> List[str]:
+        """
+        Return the names of enabled module debugging symbol finders, in order.
+        """
+        ...
+    debug_info_path: Optional[str]
+    """DOCTODO"""
+
     def load_debug_info(
         self,
         paths: Optional[Iterable[Path]] = None,
@@ -718,7 +811,7 @@ class Program:
 
             For the Linux kernel, this tries to load ``vmlinux``.
 
-            This is currently ignored for userspace programs.
+            This is currently ignored for userspace programs. DOCTODO: update
         :raises MissingDebugInfoError: if debugging information was not
             available for some files; other files with debugging information
             are still loaded
@@ -732,6 +825,12 @@ class Program:
 
         This is equivalent to ``load_debug_info(None, True)``.
         """
+        ...
+
+    def load_module_debug_info(
+        self, modules: Iterable[Module]  # TODO: allow passing a single module? varargs?
+    ) -> None:  # TODO: or return list?
+        """DOCTODO"""
         ...
     cache: Dict[Any, Any]
     """
@@ -1104,6 +1203,93 @@ class NoDefaultProgramError(Exception):
     """
 
     ...
+
+class Module:
+    """DOCTODO"""
+
+    prog: Program
+    """DOCTODO"""
+    name: str
+    """DOCTODO"""
+    address_range: Optional[Tuple[int, int]]
+    """DOCTODO"""
+    build_id: Optional[bytes]
+    """DOCTODO"""
+    loaded_file_status: ModuleFileStatus
+    """DOCTODO"""
+    loaded_file_path: Optional[str]
+    """DOCTODO"""
+    loaded_file_bias: Optional[int]
+    """DOCTODO"""
+    debug_file_status: ModuleFileStatus
+    """DOCTODO"""
+    debug_file_path: Optional[str]
+    """DOCTODO"""
+    debug_file_bias: Optional[int]
+    """DOCTODO"""
+    supplementary_debug_file_kind: Optional[SupplementaryFileKind]
+    """DOCTODO"""
+    supplementary_debug_file_path: Optional[str]
+    """DOCTODO"""
+
+    def wants_loaded_file(self) -> bool:
+        """DOCTODO"""
+        ...
+
+    def wants_debug_file(self) -> bool:
+        """DOCTODO"""
+        ...
+
+    def wanted_supplementary_debug_file(
+        self,
+    ) -> Tuple[SupplementaryFileKind, str, str, bytes]:
+        """DOCTODO: debug_file_path, supplementary_path, checksum"""
+        ...
+    # TODO: should any of these be keyword-only?
+    def try_file(
+        self,
+        path: Path,
+        fd: int = -1,
+        force: bool = False,
+    ) -> None:
+        """DOCTODO"""
+        ...
+
+class MainModule(Module):
+    """DOCTODO"""
+
+class SharedLibraryModule(Module):
+    """DOCTODO"""
+
+    dynamic_address: int
+    """DOCTODO"""
+
+class VdsoModule(Module):
+    """DOCTODO"""
+
+    dynamic_address: int
+    """DOCTODO"""
+
+class RelocatableModule(Module):
+    """DOCTODO"""
+
+    address: int
+    """DOCTODO"""
+
+class ExtraModule(Module):
+    """DOCTODO"""
+
+    id: int
+    """DOCTODO"""
+
+class ModuleFileStatus(enum.Enum):
+    """DOCTODO"""
+
+class SupplementaryFileKind(enum.Enum):
+    """DOCTODO"""
+
+    GNU_DEBUGALTLINK = ...
+    """DOCTODO"""
 
 class Thread:
     """A thread in a program."""
