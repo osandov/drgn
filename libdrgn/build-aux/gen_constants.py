@@ -16,6 +16,7 @@ class ConstantClass(NamedTuple):
 CONSTANTS = (
     ConstantClass("Architecture", "Enum", r"DRGN_ARCH_([a-zA-Z0-9_]+)"),
     ConstantClass("FindObjectFlags", "Flag", r"DRGN_FIND_OBJECT_([a-zA-Z0-9_]+)"),
+    ConstantClass("ModuleFileStatus", "Enum", r"DRGN_MODULE_FILE_([a-zA-Z0-9_]+)"),
     ConstantClass(
         "PlatformFlags",
         "Flag",
@@ -27,6 +28,11 @@ CONSTANTS = (
     ),
     ConstantClass(
         "Qualifiers", "Flag", r"DRGN_QUALIFIER_([a-zA-Z0-9_]+)", [("NONE", "0")]
+    ),
+    ConstantClass(
+        "SupplementaryFileKind",
+        "Enum",
+        r"DRGN_SUPPLEMENTARY_FILE_([a-z-A-Z0-9_]+)(?<!DRGN_SUPPLEMENTARY_FILE_NONE)",
     ),
     ConstantClass("SymbolBinding", "Enum", r"DRGN_SYMBOL_BINDING_([a-z-A-Z0-9_]+)"),
     ConstantClass("SymbolKind", "Enum", r"DRGN_SYMBOL_KIND_([a-z-A-Z0-9_]+)"),

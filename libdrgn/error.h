@@ -36,14 +36,6 @@ extern struct drgn_error drgn_error_object_absent;
 struct string_builder;
 
 /**
- * Create a @ref drgn_error with a message from a @ref string_builder.
- *
- * This deinitializes the string builder.
- */
-struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
-						  struct string_builder *sb);
-
-/**
  * Append a formatted @ref drgn_error to a @ref string_builder.
  *
  * @return @c true on success, @c false on error (if we couldn't allocate
@@ -58,10 +50,6 @@ struct drgn_error *drgn_error_libelf(void)
 
 /** Create a @ref drgn_error from the libdw error indicator. */
 struct drgn_error *drgn_error_libdw(void)
-	__attribute__((__returns_nonnull__));
-
-/** Create a @ref drgn_error from the libdwfl error indicator. */
-struct drgn_error *drgn_error_libdwfl(void)
 	__attribute__((__returns_nonnull__));
 
 /**

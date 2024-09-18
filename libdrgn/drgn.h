@@ -819,6 +819,220 @@ struct drgn_error *drgn_program_set_kernel(struct drgn_program *prog);
  */
 struct drgn_error *drgn_program_set_pid(struct drgn_program *prog, pid_t pid);
 
+// TODO: document
+
+enum drgn_module_kind {
+	/**
+	 * Main module. For userspace programs, this is the executable. For the
+	 * Linux kernel, this is `vmlinux`.
+	 */
+	DRGN_MODULE_MAIN,
+	/** Shared library (a.k.a. dynamic library or dynamic shared object). */
+	DRGN_MODULE_SHARED_LIBRARY,
+	/** Virtual Dynamic Shared Object. */
+	DRGN_MODULE_VDSO,
+	/** Linux kernel loadable module. */
+	DRGN_MODULE_LINUX_KERNEL_LOADABLE,
+	/**
+	 * Extra debugging information that is not actually loaded in the
+	 * program.
+	 */
+	DRGN_MODULE_EXTRA, // TODO: DRGN_MODULE_OTHER? DRGN_MODULE_MISC?
+} __attribute__((__packed__));
+
+struct drgn_module;
+
+struct drgn_module_key {
+	enum drgn_module_kind kind;
+	union {
+		struct {
+			const char *name;
+			uint64_t dynamic_address;
+		} shared_library;
+		struct {
+			const char *name;
+			uint64_t dynamic_address;
+		} vdso;
+		struct {
+			const char *name;
+			uint64_t base_address;
+		} linux_kernel_loadable;
+		struct {
+			const char *name;
+			uint64_t id;
+		} extra;
+	};
+};
+
+struct drgn_module *drgn_module_find(struct drgn_program *prog,
+				     const struct drgn_module_key *key);
+
+struct drgn_error *drgn_module_find_or_create_main(struct drgn_program *prog,
+						   const char *name,
+						   struct drgn_module **ret,
+						   bool *new_ret);
+
+struct drgn_error *
+drgn_module_find_or_create_shared_library(struct drgn_program *prog,
+					  const char *name,
+					  uint64_t dynamic_address,
+					  struct drgn_module **ret,
+					  bool *new_ret);
+
+struct drgn_error *drgn_module_find_or_create_vdso(struct drgn_program *prog,
+						   const char *name,
+						   uint64_t dynamic_address,
+						   struct drgn_module **ret,
+						   bool *new_ret);
+
+struct drgn_error *
+drgn_module_find_or_create_linux_kernel_loadable(const struct drgn_object *module_obj,
+						 struct drgn_module **ret,
+						 bool *new_ret);
+
+struct drgn_error *drgn_module_find_or_create_extra(struct drgn_program *prog,
+						    const char *name,
+						    uint64_t id,
+						    struct drgn_module **ret,
+						    bool *new_ret);
+
+struct drgn_program *drgn_module_program(const struct drgn_module *module);
+
+struct drgn_module_key drgn_module_key(const struct drgn_module *module);
+
+enum drgn_module_kind drgn_module_kind(const struct drgn_module *module);
+
+const char *drgn_module_name(const struct drgn_module *module);
+
+bool drgn_module_address_range(const struct drgn_module *module,
+			       uint64_t *start_ret, uint64_t *end_ret);
+
+struct drgn_error *drgn_module_set_address_range(struct drgn_module *module,
+						 uint64_t start, uint64_t end);
+
+const char *drgn_module_build_id(const struct drgn_module *module,
+				 const void **raw_ret, size_t *raw_len_ret);
+
+struct drgn_error *drgn_module_set_build_id(struct drgn_module *module,
+					    const void *build_id,
+					    size_t build_id_len);
+
+enum drgn_module_file_status {
+	DRGN_MODULE_FILE_WANT,
+	DRGN_MODULE_FILE_HAVE,
+	DRGN_MODULE_FILE_DONT_WANT,
+	DRGN_MODULE_FILE_DONT_NEED,
+	DRGN_MODULE_FILE_WANT_SUPPLEMENTARY,
+};
+
+enum drgn_supplementary_file_kind {
+	DRGN_SUPPLEMENTARY_FILE_NONE,
+	DRGN_SUPPLEMENTARY_FILE_GNU_DEBUGALTLINK,
+};
+
+const char *drgn_module_loaded_file_path(const struct drgn_module *module);
+
+uint64_t drgn_module_loaded_file_bias(const struct drgn_module *module);
+
+const char *drgn_module_debug_file_path(const struct drgn_module *module);
+
+uint64_t drgn_module_debug_file_bias(const struct drgn_module *module);
+
+enum drgn_supplementary_file_kind
+drgn_module_supplementary_debug_file_kind(const struct drgn_module *module);
+
+const char *
+drgn_module_supplementary_debug_file_path(const struct drgn_module *module);
+
+// TODO: make sure to call out that this is usually better for finders to use
+// than _status
+bool drgn_module_wants_loaded_file(const struct drgn_module *module);
+
+enum drgn_module_file_status
+drgn_module_loaded_file_status(const struct drgn_module *module);
+
+bool drgn_module_set_loaded_file_status(struct drgn_module *module,
+					enum drgn_module_file_status status);
+
+// TODO: make sure to call out that this is usually better for finders to use
+// than _status
+bool drgn_module_wants_debug_file(const struct drgn_module *module);
+
+enum drgn_module_file_status
+drgn_module_debug_file_status(const struct drgn_module *module);
+
+bool drgn_module_set_debug_file_status(struct drgn_module *module,
+				       enum drgn_module_file_status status);
+
+enum drgn_supplementary_file_kind
+drgn_module_wanted_supplementary_debug_file(struct drgn_module *module,
+					    const char **debug_file_path_ret,
+					    const char **supplementary_path_ret,
+					    const void **checksum_ret,
+					    size_t *checksum_len_ret);
+
+struct drgn_module_file_finder_ops {
+	void (*destroy)(void *arg);
+	struct drgn_error *(*find)(struct drgn_module * const *modules,
+				   size_t num_modules, void *arg);
+};
+
+struct drgn_error *
+drgn_program_register_module_file_finder(struct drgn_program *prog,
+					 const char *name,
+					 const struct drgn_module_file_finder_ops *ops,
+					 void *arg, size_t enable_index);
+
+struct drgn_error *
+drgn_program_registered_module_file_finders(struct drgn_program *prog,
+					    const char ***names_ret,
+					    size_t *count_ret);
+
+struct drgn_error *
+drgn_program_set_enabled_module_file_finders(struct drgn_program *prog,
+					     const char * const *names,
+					     size_t count);
+
+struct drgn_error *
+drgn_program_enabled_module_file_finders(struct drgn_program *prog,
+					 const char ***names_ret,
+					 size_t *count_ret);
+
+const char *drgn_program_debug_info_path(struct drgn_program *prog);
+
+struct drgn_error *drgn_program_set_debug_info_path(struct drgn_program *prog,
+						    const char *path);
+
+// TODO: API for setting debug_directories for standard file finder?
+// TODO: API for setting kernel directory for standard file finder?
+
+// TODO: document
+struct drgn_error *
+drgn_module_try_file(struct drgn_module *module, const char *path, int fd,
+		     bool force);
+
+struct drgn_module_iterator;
+
+void
+drgn_module_iterator_destroy(struct drgn_module_iterator *it);
+
+struct drgn_program *
+drgn_module_iterator_program(const struct drgn_module_iterator *it);
+
+// TODO: new_ret?
+struct drgn_error *drgn_module_iterator_next(struct drgn_module_iterator *it,
+					     struct drgn_module **ret);
+
+// TODO: document. naming?
+struct drgn_error *
+drgn_created_module_iterator_create(struct drgn_program *prog,
+				    struct drgn_module_iterator **ret);
+
+// TODO: document
+struct drgn_error *
+drgn_loaded_module_iterator_create(struct drgn_program *prog,
+				   struct drgn_module_iterator **ret);
+
 /**
  * Load debugging information for a list of executable or library files.
  *
@@ -831,6 +1045,10 @@ struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog,
 						const char **paths, size_t n,
 						bool load_default,
 						bool load_main);
+
+// TODO: documentation
+struct drgn_error *drgn_find_module_files(struct drgn_module **modules,
+					  size_t *num_modules);
 
 /**
  * Create a @ref drgn_program from a core dump file.

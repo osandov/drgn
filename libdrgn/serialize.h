@@ -175,6 +175,112 @@ void serialize_bits(void *buf, uint64_t bit_offset, uint64_t uvalue,
 uint64_t deserialize_bits(const void *buf, uint64_t bit_offset,
 			  uint8_t bit_size, bool little_endian);
 
+// TODO: document these
+// TODO: should these go in their own header instead?
+#include <byteswap.h>
+#include <stdint.h>
+#include <string.h>
+
+#define assign_member(member) do {			\
+	_struct64_dst->member = _struct64_src->member;	\
+} while (0)
+
+#define bswap_member(member) do {				\
+	_Static_assert(sizeof(_struct64_src->member) == 8 ||	\
+		       sizeof(_struct64_src->member) == 4 ||	\
+		       sizeof(_struct64_src->member) == 2 ||	\
+		       sizeof(_struct64_src->member) == 1,	\
+		       "scalar member has invalid size");	\
+	typeof(_struct64_src->member) swapped;			\
+	if (sizeof(_struct64_src->member) == 8) {		\
+		uint64_t x;					\
+		memcpy(&x, &_struct64_src->member, sizeof(x));	\
+		x = bswap_64(x);				\
+		memcpy(&swapped, &x, sizeof(x));		\
+	} else if (sizeof(_struct64_src->member) == 4) {	\
+		uint32_t x;					\
+		memcpy(&x, &_struct64_src->member, sizeof(x));	\
+		x = bswap_32(x);				\
+		memcpy(&swapped, &x, sizeof(x));		\
+	} else if (sizeof(_struct64_src->member) == 2) {	\
+		uint16_t x;					\
+		memcpy(&x, &_struct64_src->member, sizeof(x));	\
+		x = bswap_16(x);				\
+		memcpy(&swapped, &x, sizeof(x));		\
+	} else {						\
+		swapped = _struct64_src->member;		\
+	}							\
+	_struct64_dst->member = swapped;			\
+} while (0)
+
+#define bswap_member_in_place(member) do {			\
+	_Static_assert(sizeof(_struct64_dst->member) == 8 ||	\
+		       sizeof(_struct64_dst->member) == 4 ||	\
+		       sizeof(_struct64_dst->member) == 2 ||	\
+		       sizeof(_struct64_dst->member) == 1,	\
+		       "scalar member has invalid size");	\
+	if (sizeof(_struct64_dst->member) == 8) {		\
+		uint64_t x;					\
+		memcpy(&x, &_struct64_dst->member, sizeof(x));	\
+		x = bswap_64(x);				\
+		memcpy(&_struct64_dst->member, &x, sizeof(x));	\
+	} else if (sizeof(_struct64_dst->member) == 4) {	\
+		uint32_t x;					\
+		memcpy(&x, &_struct64_dst->member, sizeof(x));	\
+		x = bswap_32(x);				\
+		memcpy(&_struct64_dst->member, &x, sizeof(x));	\
+	} else if (sizeof(_struct64_dst->member) == 2) {	\
+		uint16_t x;					\
+		memcpy(&x, &_struct64_dst->member, sizeof(x));	\
+		x = bswap_16(x);				\
+		memcpy(&_struct64_dst->member, &x, sizeof(x));	\
+	}							\
+} while (0)
+
+#define memcpy_member(member) do {						\
+	_Static_assert(sizeof(_struct64_dst->member)				\
+		       == sizeof(_struct64_src->member),			\
+		       "64-bit and 32-bit members have different sizes");	\
+	memcpy(&_struct64_dst->member, &_struct64_src->member,			\
+	       sizeof(_struct64_dst->member));					\
+} while (0)
+
+#define ignore_member(member)
+
+// TODO: it's UB if buf is not sufficiently aligned.
+#define copy_struct64(struct64p, buf, type32, visit_members, is_64_bit, bswap)	\
+do {										\
+	__auto_type _struct64_dst = (struct64p);				\
+	if (is_64_bit) {							\
+		if (bswap) {							\
+			typeof(_struct64_dst) _struct64_src = (void *)(buf);	\
+			visit_members(bswap_member, memcpy_member);		\
+		} else {							\
+			memcpy(_struct64_dst, buf, sizeof(*_struct64_dst));	\
+		}								\
+	} else {								\
+		typeof(type32) *_struct64_src = (void *)(buf);			\
+		if (bswap)							\
+			visit_members(bswap_member, memcpy_member);		\
+		else								\
+			visit_members(assign_member, memcpy_member);		\
+	}									\
+} while (0)
+
+#define to_struct64(struct64p, type32, visit_members, is_64_bit, bswap) do {	\
+	__auto_type _struct64_dst = (struct64p);				\
+	if (!(is_64_bit)) {							\
+		__auto_type _struct64_src = &(typeof(type32)){};		\
+		memcpy(_struct64_src, _struct64_dst, sizeof(*_struct64_src));	\
+		if (bswap)							\
+			visit_members(bswap_member, memcpy_member);		\
+		else								\
+			visit_members(assign_member, memcpy_member);		\
+	} else if (bswap) {							\
+		visit_members(bswap_member_in_place, ignore_member);		\
+	}									\
+} while (0)
+
 /** @} */
 
 #endif /* DRGN_SERIALIZE_H */

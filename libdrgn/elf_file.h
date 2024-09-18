@@ -56,11 +56,15 @@ struct drgn_elf_file {
 	/** Module using this file. */
 	struct drgn_module *module;
 	/** Filesystem path to this file. */
-	const char *path;
+	char *path;
+	char *image; // TODO: document
+	int fd; // TODO: document
+	bool is_loadable; // TODO: document
+	bool needs_relocation; // TODO: document
 	/** libelf handle. */
 	Elf *elf;
-	/** libdw handle if we're using DWARF information from this file. */
-	Dwarf *dwarf;
+	// TODO
+	Dwarf *_dwarf;
 	/**
 	 * Platform of this file.
 	 *
@@ -75,6 +79,7 @@ struct drgn_elf_file {
 	Elf_Scn *scns[DRGN_SECTION_INDEX_NUM];
 	/** Data cached for important ELF sections. */
 	Elf_Data *scn_data[DRGN_SECTION_INDEX_NUM_DATA];
+	// TODO: need to populate these
 	/**
 	 * If the file has a debugaltlink file, the debugaltlink file's
 	 * `.debug_info` section data.
@@ -88,15 +93,22 @@ struct drgn_elf_file {
 };
 
 struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
-					const char *path, Elf *elf,
-					struct drgn_elf_file **ret);
+					const char *path, int fd, char *image,
+					Elf *elf, struct drgn_elf_file **ret);
 
 void drgn_elf_file_destroy(struct drgn_elf_file *file);
 
-struct drgn_error *drgn_elf_file_precache_sections(struct drgn_elf_file *file);
-
 struct drgn_error *
-drgn_elf_file_cache_section(struct drgn_elf_file *file, enum drgn_section_index scn);
+drgn_elf_file_apply_relocations(struct drgn_elf_file *file);
+
+// TODO: document
+struct drgn_error *
+drgn_elf_file_read_section(struct drgn_elf_file *file,
+			   enum drgn_section_index scn,
+			   Elf_Data **ret);
+
+struct drgn_error *drgn_elf_file_get_dwarf(struct drgn_elf_file *file,
+					   Dwarf **ret);
 
 static inline bool
 drgn_elf_file_is_little_endian(const struct drgn_elf_file *file)
@@ -119,6 +131,12 @@ static inline uint64_t
 drgn_elf_file_address_mask(const struct drgn_elf_file *file)
 {
 	return drgn_platform_address_mask(&file->platform);
+}
+
+static inline bool drgn_elf_file_has_dwarf(const struct drgn_elf_file *file)
+{
+	return (file->scns[DRGN_SCN_DEBUG_INFO]
+		&& file->scns[DRGN_SCN_DEBUG_ABBREV]);
 }
 
 struct drgn_error *
@@ -157,6 +175,7 @@ drgn_elf_file_section_buffer_init(struct drgn_elf_file_section_buffer *buffer,
 	buffer->data = data;
 }
 
+// TODO: document
 static inline void
 drgn_elf_file_section_buffer_init_index(struct drgn_elf_file_section_buffer *buffer,
 					struct drgn_elf_file *file,
@@ -164,6 +183,20 @@ drgn_elf_file_section_buffer_init_index(struct drgn_elf_file_section_buffer *buf
 {
 	drgn_elf_file_section_buffer_init(buffer, file, file->scns[scn],
 					  file->scn_data[scn]);
+}
+
+// TODO: document
+static inline struct drgn_error *
+drgn_elf_file_section_buffer_read(struct drgn_elf_file_section_buffer *buffer,
+				  struct drgn_elf_file *file,
+				  enum drgn_section_index scn)
+{
+	Elf_Data *data;
+	struct drgn_error *err = drgn_elf_file_read_section(file, scn, &data);
+	if (err)
+		return err;
+	drgn_elf_file_section_buffer_init(buffer, file, file->scns[scn], data);
+	return NULL;
 }
 
 /**

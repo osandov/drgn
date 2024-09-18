@@ -691,6 +691,95 @@ class Program:
         """
         ...
 
+    def created_modules(self) -> Iterator[Module]:
+        """TODO"""
+
+    def loaded_modules(self) -> Iterator[Module]:
+        """TODO"""
+        ...
+
+    def main_module(self, name: Path) -> MainModule:
+        """TODO"""
+        ...
+
+    def shared_library_module(
+        self, name: Path, dynamic_address: IntegerLike
+    ) -> SharedLibraryModule:
+        """TODO"""
+        ...
+
+    def vdso_module(self, name: Path, dynamic_address: IntegerLike) -> VdsoModule:
+        """TODO"""
+        ...
+
+    def linux_kernel_loadable_module(
+        self, module_obj: Object
+    ) -> LinuxKernelLoadableModule:
+        """TODO"""
+        ...
+
+    def extra_module(self, name: Path, id: IntegerLike) -> ExtraModule:
+        """TODO"""
+        ...
+
+    def find_main_module(self) -> MainModule:
+        """TODO"""
+        ...
+
+    def find_shared_library_module(
+        self, name: Path, dynamic_address: IntegerLike
+    ) -> SharedLibraryModule:
+        """TODO"""
+        ...
+
+    def find_vdso_module(self, name: Path, dynamic_address: IntegerLike) -> VdsoModule:
+        """TODO"""
+        ...
+
+    def find_linux_kernel_loadable_module(
+        self, name: Path, base_address: int
+    ) -> LinuxKernelLoadableModule:
+        """TODO"""
+        ...
+
+    def find_extra_module(self, name: Path, id: IntegerLike) -> ExtraModule:
+        """TODO"""
+        ...
+
+    def register_module_file_finder(
+        self,
+        name: str,
+        fn: Callable[[Sequence[Module]], None],
+        *,
+        enable_index: Optional[int] = None,
+    ) -> None:
+        """TODO"""
+        ...
+
+    def registered_module_file_finders(self) -> Set[str]:
+        """Return the names of all registered module file finders."""
+        ...
+
+    def set_enabled_module_file_finders(self, names: Sequence[str]) -> None:
+        """
+        Set the list of enabled module file finders.
+
+        Finders are called in the same order as the list until a TODO is found.
+
+        Finders that are not in the list are not called.
+
+        :param names: Names of finders to enable, in order.
+        :raises ValueError: if no finder has a given name or the same name is
+            given more than once
+        """
+        ...
+
+    def enabled_module_file_finders(self) -> List[str]:
+        """Return the names of enabled module file finders, in order."""
+        ...
+    debug_info_path: Optional[str]
+    """TODO"""
+
     def load_debug_info(
         self,
         paths: Optional[Iterable[Path]] = None,
@@ -732,6 +821,12 @@ class Program:
 
         This is equivalent to ``load_debug_info(None, True)``.
         """
+        ...
+
+    def find_module_files(
+        self, modules: Iterable[Module]
+    ) -> None:  # TODO: or return list?
+        """TODO"""
         ...
     cache: Dict[Any, Any]
     """
@@ -1104,6 +1199,93 @@ class NoDefaultProgramError(Exception):
     """
 
     ...
+
+class Module:
+    """TODO"""
+
+    prog: Program
+    """TODO"""
+    name: str
+    """TODO"""
+    address_range: Optional[Tuple[int, int]]
+    """TODO"""
+    build_id: Optional[bytes]
+    """TODO"""
+    loaded_file_status: ModuleFileStatus
+    """TODO"""
+    loaded_file_path: Optional[str]
+    """TODO"""
+    loaded_file_bias: Optional[int]
+    """TODO"""
+    debug_file_status: ModuleFileStatus
+    """TODO"""
+    debug_file_path: Optional[str]
+    """TODO"""
+    debug_file_bias: Optional[int]
+    """TODO"""
+    supplementary_debug_file_kind: Optional[SupplementaryFileKind]
+    """TODO"""
+    supplementary_debug_file_path: Optional[str]
+    """TODO"""
+
+    def wants_loaded_file(self) -> bool:
+        """TODO"""
+        ...
+
+    def wants_debug_file(self) -> bool:
+        """TODO"""
+        ...
+
+    def wanted_supplementary_debug_file(
+        self,
+    ) -> Tuple[SupplementaryFileKind, str, str, bytes]:
+        """TODO: debug_file_path, supplementary_path, checksum"""
+        ...
+    # TODO: should any of these be keyword-only?
+    def try_file(
+        self,
+        path: Path,
+        fd: int = -1,
+        force: bool = False,
+    ) -> None:
+        """TODO"""
+        ...
+
+class MainModule(Module):
+    """TODO"""
+
+class SharedLibraryModule(Module):
+    """TODO"""
+
+    dynamic_address: int
+    """TODO"""
+
+class VdsoModule(Module):
+    """TODO"""
+
+    dynamic_address: int
+    """TODO"""
+
+class LinuxKernelLoadableModule(Module):
+    """TODO"""
+
+    base_address: int
+    """TODO"""
+
+class ExtraModule(Module):
+    """TODO"""
+
+    id: int
+    """TODO"""
+
+class ModuleFileStatus(enum.Enum):
+    """TODO"""
+
+class SupplementaryFileKind(enum.Enum):
+    """TODO"""
+
+    GNU_DEBUGALTLINK = ...
+    """TODO"""
 
 class Thread:
     """A thread in a program."""
