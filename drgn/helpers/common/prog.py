@@ -35,30 +35,32 @@ if typing.TYPE_CHECKING:
     R_co = TypeVar("R_co", covariant=True)
 
     class TakesProgram(Protocol[P, R_co]):
-        def __call__(self, prog: Program, *args: P.args, **kwargs: P.kwargs) -> R_co:
-            ...
+        def __call__(
+            self, prog: Program, *args: P.args, **kwargs: P.kwargs
+        ) -> R_co: ...
 
     class TakesProgramOrDefault(Protocol[P, R_co]):
         @overload
-        def __call__(self, prog: Program, *args: P.args, **kwargs: P.kwargs) -> R_co:
-            ...
+        def __call__(
+            self, prog: Program, *args: P.args, **kwargs: P.kwargs
+        ) -> R_co: ...
 
         @overload
-        def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co:
-            ...
+        def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co: ...
 
     class TakesObjectOrProgramOrDefault(Protocol[P, R_co]):
         @overload
-        def __call__(self, prog: Program, *args: P.args, **kwargs: P.kwargs) -> R_co:
-            ...
+        def __call__(
+            self, prog: Program, *args: P.args, **kwargs: P.kwargs
+        ) -> R_co: ...
 
         @overload
-        def __call__(self, __obj: Object, *args: P.args, **kwargs: P.kwargs) -> R_co:
-            ...
+        def __call__(
+            self, __obj: Object, *args: P.args, **kwargs: P.kwargs
+        ) -> R_co: ...
 
         @overload
-        def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co:
-            ...
+        def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co: ...
 
 
 def takes_program_or_default(f: "TakesProgram[P, R]") -> "TakesProgramOrDefault[P, R]":

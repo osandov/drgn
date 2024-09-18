@@ -134,6 +134,7 @@ class Program:
         :param name: Object name.
         """
         ...
+
     def __contains__(self, name: str) -> bool:
         """
         Implement ``name in self``. Return whether an object (variable,
@@ -142,6 +143,7 @@ class Program:
         :param name: Object name.
         """
         ...
+
     def variable(self, name: str, filename: Optional[str] = None) -> Object:
         """
         Get the variable with the given name.
@@ -159,6 +161,7 @@ class Program:
             the given file
         """
         ...
+
     def constant(self, name: str, filename: Optional[str] = None) -> Object:
         """
         Get the constant (e.g., enumeration constant) with the given name.
@@ -180,6 +183,7 @@ class Program:
             the given file
         """
         ...
+
     def function(self, name: str, filename: Optional[str] = None) -> Object:
         """
         Get the function with the given name.
@@ -197,6 +201,7 @@ class Program:
             the given file
         """
         ...
+
     def object(
         self,
         name: str,
@@ -218,6 +223,7 @@ class Program:
             the given file
         """
         ...
+
     def symbol(self, __address_or_name: Union[IntegerLike, str]) -> Symbol:
         """
         Get a symbol containing the given address, or a symbol with the given
@@ -238,6 +244,7 @@ class Program:
             the given name
         """
         ...
+
     def symbols(
         self,
         __address_or_name: Union[None, IntegerLike, str] = None,
@@ -255,6 +262,7 @@ class Program:
         :param address_or_name: Address or name to search for.
         """
         ...
+
     def stack_trace(
         self,
         # Object is already IntegerLike, but this explicitly documents that it
@@ -284,6 +292,7 @@ class Program:
             ``struct task_struct *`` object.
         """
         ...
+
     def stack_trace_from_pcs(self, pcs: Sequence[IntegerLike]) -> StackTrace:
         """
         Get a stack trace with the supplied list of program counters.
@@ -291,6 +300,7 @@ class Program:
         :param pcs: List of program counters.
         """
         ...
+
     @overload
     def type(self, name: str, filename: Optional[str] = None) -> Type:
         """
@@ -306,6 +316,7 @@ class Program:
             the given file
         """
         ...
+
     @overload
     def type(self, __type: Type) -> Type:
         """
@@ -327,9 +338,11 @@ class Program:
         :return: The exact same type.
         """
         ...
+
     def threads(self) -> Iterator[Thread]:
         """Get an iterator over all of the threads in the program."""
         ...
+
     def thread(self, tid: IntegerLike) -> Thread:
         """
         Get the thread with the given thread ID.
@@ -338,6 +351,7 @@ class Program:
         :raises LookupError: if no thread has the given thread ID
         """
         ...
+
     def main_thread(self) -> Thread:
         """
         Get the main thread of the program.
@@ -347,6 +361,7 @@ class Program:
         :raises ValueError: if the program is the Linux kernel
         """
         ...
+
     def crashed_thread(self) -> Thread:
         """
         Get the thread that caused the program to crash.
@@ -360,6 +375,7 @@ class Program:
         :raises ValueError: if the program is live (i.e., not a core dump)
         """
         ...
+
     def read(
         self, address: IntegerLike, size: IntegerLike, physical: bool = False
     ) -> bytes:
@@ -382,18 +398,23 @@ class Program:
         :raises ValueError: if *size* is negative
         """
         ...
+
     def read_u8(self, address: IntegerLike, physical: bool = False) -> int:
         """ """
         ...
+
     def read_u16(self, address: IntegerLike, physical: bool = False) -> int:
         """ """
         ...
+
     def read_u32(self, address: IntegerLike, physical: bool = False) -> int:
         """ """
         ...
+
     def read_u64(self, address: IntegerLike, physical: bool = False) -> int:
         """ """
         ...
+
     def read_word(self, address: IntegerLike, physical: bool = False) -> int:
         """
         Read an unsigned integer from the program's memory in the program's
@@ -414,6 +435,7 @@ class Program:
         :raises FaultError: if the address is invalid; see :meth:`read()`
         """
         ...
+
     def add_memory_segment(
         self,
         address: IntegerLike,
@@ -439,6 +461,7 @@ class Program:
             another :ref:`buffer <python:binaryseq>` type.
         """
         ...
+
     def register_type_finder(
         self,
         name: str,
@@ -463,9 +486,11 @@ class Program:
         :raises ValueError: if there is already a finder with the given name
         """
         ...
+
     def registered_type_finders(self) -> Set[str]:
         """Return the names of all registered type finders."""
         ...
+
     def set_enabled_type_finders(self, names: Sequence[str]) -> None:
         """
         Set the list of enabled type finders.
@@ -479,9 +504,11 @@ class Program:
             given more than once
         """
         ...
+
     def enabled_type_finders(self) -> List[str]:
         """Return the names of enabled type finders, in order."""
         ...
+
     def register_object_finder(
         self,
         name: str,
@@ -506,9 +533,11 @@ class Program:
         :raises ValueError: if there is already a finder with the given name
         """
         ...
+
     def registered_object_finders(self) -> Set[str]:
         """Return the names of all registered object finders."""
         ...
+
     def set_enabled_object_finders(self, names: Sequence[str]) -> None:
         """
         Set the list of enabled object finders.
@@ -522,9 +551,11 @@ class Program:
             given more than once
         """
         ...
+
     def enabled_object_finders(self) -> List[str]:
         """Return the names of enabled object finders, in order."""
         ...
+
     def register_symbol_finder(
         self,
         name: str,
@@ -561,9 +592,11 @@ class Program:
         :raises ValueError: if there is already a finder with the given name
         """
         ...
+
     def registered_symbol_finders(self) -> Set[str]:
         """Return the names of all registered symbol finders."""
         ...
+
     def set_enabled_symbol_finders(self, names: Sequence[str]) -> None:
         """
         Set the list of enabled symbol finders.
@@ -580,9 +613,11 @@ class Program:
             given more than once
         """
         ...
+
     def enabled_symbol_finders(self) -> List[str]:
         """Return the names of enabled symbol finders, in order."""
         ...
+
     def add_type_finder(
         self, fn: Callable[[TypeKind, str, Optional[str]], Optional[Type]]
     ) -> None:
@@ -603,6 +638,7 @@ class Program:
         4. The finder is always enabled before any existing finders.
         """
         ...
+
     def add_object_finder(
         self,
         fn: Callable[[Program, str, FindObjectFlags, Optional[str]], Optional[Object]],
@@ -620,6 +656,7 @@ class Program:
         2. The finder is always enabled before any existing finders.
         """
         ...
+
     def set_core_dump(self, path: Union[Path, int]) -> None:
         """
         Set the program to a core dump.
@@ -631,6 +668,7 @@ class Program:
         :param path: Core dump file path or open file descriptor.
         """
         ...
+
     def set_kernel(self) -> None:
         """
         Set the program to the running operating system kernel.
@@ -640,6 +678,7 @@ class Program:
         :meth:`load_default_debug_info()`.
         """
         ...
+
     def set_pid(self, pid: int) -> None:
         """
         Set the program to a running process.
@@ -651,6 +690,7 @@ class Program:
         :param pid: Process ID.
         """
         ...
+
     def load_debug_info(
         self,
         paths: Optional[Iterable[Path]] = None,
@@ -684,6 +724,7 @@ class Program:
             are still loaded
         """
         ...
+
     def load_default_debug_info(self) -> None:
         """
         Load debugging information which can automatically be determined from
@@ -727,6 +768,7 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
+
     def int_type(
         self,
         name: str,
@@ -749,6 +791,7 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
+
     def bool_type(
         self,
         name: str,
@@ -769,6 +812,7 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
+
     def float_type(
         self,
         name: str,
@@ -789,6 +833,7 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
+
     @overload
     def struct_type(
         self,
@@ -811,6 +856,7 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
+
     @overload
     def struct_type(
         self,
@@ -824,6 +870,7 @@ class Program:
     ) -> Type:
         """Create a new incomplete structure type."""
         ...
+
     @overload
     def union_type(
         self,
@@ -840,6 +887,7 @@ class Program:
         this is the same as as :meth:`struct_type()`.
         """
         ...
+
     @overload
     def union_type(
         self,
@@ -853,6 +901,7 @@ class Program:
     ) -> Type:
         """Create a new incomplete union type."""
         ...
+
     @overload
     def class_type(
         self,
@@ -869,6 +918,7 @@ class Program:
         this is the same as as :meth:`struct_type()`.
         """
         ...
+
     @overload
     def class_type(
         self,
@@ -882,6 +932,7 @@ class Program:
     ) -> Type:
         """Create a new incomplete class type."""
         ...
+
     @overload
     def enum_type(
         self,
@@ -902,6 +953,7 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
+
     @overload
     def enum_type(
         self,
@@ -914,6 +966,7 @@ class Program:
     ) -> Type:
         """Create a new incomplete enumerated type."""
         ...
+
     def typedef_type(
         self,
         name: str,
@@ -931,6 +984,7 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
+
     def pointer_type(
         self,
         type: Type,
@@ -952,6 +1006,7 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
+
     def array_type(
         self,
         type: Type,
@@ -969,6 +1024,7 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
+
     def function_type(
         self,
         type: Type,
@@ -1318,6 +1374,7 @@ class Object:
             The default is ``None``, which means the object is not a bit field.
         """
         ...
+
     @overload
     def __init__(self, prog: Program, *, value: Union[int, float, bool]) -> None:
         """
@@ -1330,6 +1387,7 @@ class Object:
         :param value: Value of the literal.
         """
         ...
+
     @overload
     def __init__(
         self,
@@ -1348,6 +1406,7 @@ class Object:
             the object.
         """
         ...
+
     @overload
     def __init__(
         self,
@@ -1406,6 +1465,7 @@ class Object:
         :param name: Attribute name.
         """
         ...
+
     def __getitem__(self, idx: IntegerLike) -> Object:
         """
         Implement ``self[idx]``. Get the array element at the given index.
@@ -1433,6 +1493,7 @@ class Object:
         :raises TypeError: if this object is not a pointer or array
         """
         ...
+
     def __len__(self) -> int:
         """
         Implement ``len(self)``. Get the number of elements in this object.
@@ -1445,6 +1506,7 @@ class Object:
         :raises TypeError: if this object is not an array with complete type
         """
         ...
+
     def value_(self) -> Any:
         """
         Get the value of this object as a Python object.
@@ -1461,6 +1523,7 @@ class Object:
             ``void``)
         """
         ...
+
     def string_(self) -> bytes:
         """
         Read a null-terminated string pointed to by this object.
@@ -1477,6 +1540,7 @@ class Object:
         :raises TypeError: if this object is not a pointer or array
         """
         ...
+
     def member_(self, name: str) -> Object:
         """
         Get a member of this object.
@@ -1496,6 +1560,7 @@ class Object:
             given name
         """
         ...
+
     def address_of_(self) -> Object:
         """
         Get a pointer to this object.
@@ -1510,6 +1575,7 @@ class Object:
         :raises ValueError: if this object is a value
         """
         ...
+
     def read_(self) -> Object:
         """
         Read this object (which may be a reference or a value) and return it as
@@ -1527,9 +1593,11 @@ class Object:
             ``void``)
         """
         ...
+
     def to_bytes_(self) -> bytes:
         """Return the binary representation of this object's value."""
         ...
+
     @classmethod
     def from_bytes_(
         cls,
@@ -1555,6 +1623,7 @@ class Object:
             The default is ``None``, which means the object is not a bit field.
         """
         ...
+
     def format_(
         self,
         *,
@@ -1630,6 +1699,7 @@ class Object:
             value (i.e., for C, zero-initialized). Defaults to ``False``.
         """
         ...
+
     def __iter__(self) -> Iterator[Object]: ...
     def __bool__(self) -> bool: ...
     def __lt__(self, other: Any) -> bool: ...
@@ -1992,6 +2062,7 @@ class StackFrame:
         :param name: Object name.
         """
         ...
+
     def __contains__(self, name: str) -> bool:
         """
         Implement ``name in self``. Return whether an object with the given
@@ -2000,6 +2071,7 @@ class StackFrame:
         :param name: Object name.
         """
         ...
+
     def locals(self) -> List[str]:
         """
         Get a list of the names of all local objects (local variables, function
@@ -2010,6 +2082,7 @@ class StackFrame:
         :meth:`[] <.__getitem__>` operator to check.
         """
         ...
+
     def source(self) -> Tuple[str, int, int]:
         """
         Get the source code location of this frame.
@@ -2018,6 +2091,7 @@ class StackFrame:
         :raises LookupError: if the source code location is not available
         """
         ...
+
     def symbol(self) -> Symbol:
         """
         Get the function symbol at this stack frame.
@@ -2029,6 +2103,7 @@ class StackFrame:
             prog.symbol(frame.pc - (0 if frame.interrupted else 1))
         """
         ...
+
     def register(self, reg: str) -> int:
         """
         Get the value of the given register at this stack frame.
@@ -2038,12 +2113,14 @@ class StackFrame:
         :raises LookupError: if the register value is not known
         """
         ...
+
     def registers(self) -> Dict[str, int]:
         """
         Get the values of all available registers at this stack frame as a
         dictionary with the register names as keys.
         """
         ...
+
     def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
 class Type:
@@ -2169,6 +2246,7 @@ class Type:
     def type_name(self) -> str:
         """Get a descriptive full name of this type."""
         ...
+
     def is_complete(self) -> bool:
         """
         Get whether this type is complete (i.e., the type definition is known).
@@ -2178,6 +2256,7 @@ class Type:
         is always ``True``.
         """
         ...
+
     def qualified(self, qualifiers: Qualifiers) -> Type:
         """
         Get a copy of this type with different qualifiers.
@@ -2187,9 +2266,11 @@ class Type:
         :param qualifiers: New type qualifiers.
         """
         ...
+
     def unqualified(self) -> Type:
         """Get a copy of this type with no qualifiers."""
         ...
+
     def member(self, name: str) -> TypeMember:
         """
         Look up a member in this type by name.
@@ -2206,6 +2287,7 @@ class Type:
             name
         """
         ...
+
     def has_member(self, name: str) -> bool:
         """
         Return whether this type has a member with the given name.
@@ -2217,6 +2299,7 @@ class Type:
         :raises TypeError: if this type is not a structure, union, or class
             type
         """
+
     def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
 class TypeMember:

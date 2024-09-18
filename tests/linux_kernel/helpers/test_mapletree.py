@@ -274,9 +274,11 @@ class TestMapleTree(LinuxKernelTestCase):
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1
         for mt, arange in self.maple_trees("three_levels_dense_1"):
             node_slots = self.prog[
-                "drgn_test_maple_arange64_slots"
-                if arange
-                else "drgn_test_maple_range64_slots"
+                (
+                    "drgn_test_maple_arange64_slots"
+                    if arange
+                    else "drgn_test_maple_range64_slots"
+                )
             ].value_()
             n = 2 * (node_slots - 1) * (maple_range64_slots - 1) + (
                 maple_range64_slots - 1
@@ -297,9 +299,11 @@ class TestMapleTree(LinuxKernelTestCase):
         maple_range64_slots = self.prog["drgn_test_maple_range64_slots"].value_()
         for mt, arange in self.maple_trees("three_levels_dense_1"):
             node_slots = self.prog[
-                "drgn_test_maple_arange64_slots"
-                if arange
-                else "drgn_test_maple_range64_slots"
+                (
+                    "drgn_test_maple_arange64_slots"
+                    if arange
+                    else "drgn_test_maple_range64_slots"
+                )
             ].value_()
             n = 2 * (node_slots - 1) * (maple_range64_slots - 1) + (
                 maple_range64_slots - 1
@@ -314,9 +318,11 @@ class TestMapleTree(LinuxKernelTestCase):
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1
         for mt, arange in self.maple_trees("three_levels_dense_2"):
             node_slots = self.prog[
-                "drgn_test_maple_arange64_slots"
-                if arange
-                else "drgn_test_maple_range64_slots"
+                (
+                    "drgn_test_maple_arange64_slots"
+                    if arange
+                    else "drgn_test_maple_range64_slots"
+                )
             ].value_()
             n = 2 * node_slots * maple_range64_slots
             for i in range(n):
@@ -335,9 +341,11 @@ class TestMapleTree(LinuxKernelTestCase):
         maple_range64_slots = self.prog["drgn_test_maple_range64_slots"].value_()
         for mt, arange in self.maple_trees("three_levels_dense_2"):
             node_slots = self.prog[
-                "drgn_test_maple_arange64_slots"
-                if arange
-                else "drgn_test_maple_range64_slots"
+                (
+                    "drgn_test_maple_arange64_slots"
+                    if arange
+                    else "drgn_test_maple_range64_slots"
+                )
             ].value_()
             n = 2 * node_slots * maple_range64_slots
             self.assertIdentical(
@@ -350,9 +358,11 @@ class TestMapleTree(LinuxKernelTestCase):
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1
         for mt, arange in self.maple_trees("three_levels_ranges_1"):
             node_slots = self.prog[
-                "drgn_test_maple_arange64_slots"
-                if arange
-                else "drgn_test_maple_range64_slots"
+                (
+                    "drgn_test_maple_arange64_slots"
+                    if arange
+                    else "drgn_test_maple_range64_slots"
+                )
             ].value_()
             n = 2 * (node_slots - 1) * (maple_range64_slots - 1) + (
                 maple_range64_slots - 1
@@ -386,9 +396,11 @@ class TestMapleTree(LinuxKernelTestCase):
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1
         for mt, arange in self.maple_trees("three_levels_ranges_1"):
             node_slots = self.prog[
-                "drgn_test_maple_arange64_slots"
-                if arange
-                else "drgn_test_maple_range64_slots"
+                (
+                    "drgn_test_maple_arange64_slots"
+                    if arange
+                    else "drgn_test_maple_range64_slots"
+                )
             ].value_()
             n = 2 * (node_slots - 1) * (maple_range64_slots - 1) + (
                 maple_range64_slots - 1
@@ -407,9 +419,11 @@ class TestMapleTree(LinuxKernelTestCase):
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1
         for mt, arange in self.maple_trees("three_levels_ranges_2"):
             node_slots = self.prog[
-                "drgn_test_maple_arange64_slots"
-                if arange
-                else "drgn_test_maple_range64_slots"
+                (
+                    "drgn_test_maple_arange64_slots"
+                    if arange
+                    else "drgn_test_maple_range64_slots"
+                )
             ].value_()
             n = 2 * node_slots * maple_range64_slots
             for i in range(n):
@@ -441,9 +455,11 @@ class TestMapleTree(LinuxKernelTestCase):
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1
         for mt, arange in self.maple_trees("three_levels_ranges_2"):
             node_slots = self.prog[
-                "drgn_test_maple_arange64_slots"
-                if arange
-                else "drgn_test_maple_range64_slots"
+                (
+                    "drgn_test_maple_arange64_slots"
+                    if arange
+                    else "drgn_test_maple_range64_slots"
+                )
             ].value_()
             n = 2 * node_slots * maple_range64_slots
             self.assertIdentical(

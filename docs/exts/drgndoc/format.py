@@ -349,9 +349,11 @@ class Formatter:
             visit_arg(
                 arg,
                 default,
-                name=arg.arg[2:]
-                if num_pep_570_posonlyargs <= i < num_posonlyargs
-                else arg.arg,
+                name=(
+                    arg.arg[2:]
+                    if num_pep_570_posonlyargs <= i < num_posonlyargs
+                    else arg.arg
+                ),
             )
             if i == num_posonlyargs - 1:
                 signature.append(", /")

@@ -167,9 +167,11 @@ def _write_elf(
             return (
                 (sym.binding << 4) + (sym.type & 0xF),
                 sym.visibility,
-                section_name_to_index[sym.section]
-                if isinstance(sym.section, str)
-                else sym.section,
+                (
+                    section_name_to_index[sym.section]
+                    if isinstance(sym.section, str)
+                    else sym.section
+                ),
                 sym.value,
                 sym.size,
             )
@@ -190,9 +192,11 @@ def _write_elf(
                 sym.size,
                 (sym.binding << 4) + (sym.type & 0xF),
                 sym.visibility,
-                section_name_to_index[sym.section]
-                if isinstance(sym.section, str)
-                else sym.section,
+                (
+                    section_name_to_index[sym.section]
+                    if isinstance(sym.section, str)
+                    else sym.section
+                ),
             )
 
     section_symbols = [
