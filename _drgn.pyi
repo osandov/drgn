@@ -1110,6 +1110,19 @@ class Thread:
 
     tid: Final[int]
     """Thread ID (as defined by :manpage:`gettid(2)`)."""
+    name: Optional[str]
+    """
+    Thread name, or ``None`` if unknown.
+
+    See `PR_SET_NAME
+    <https://man7.org/linux/man-pages/man2/PR_SET_NAME.2const.html>`_ and
+    `/proc/pid/comm
+    <https://man7.org/linux/man-pages/man5/proc_pid_comm.5.html>`_.
+
+    .. note::
+        Linux userspace core dumps only save the name of the main thread, so
+        :attr:`name` will be ``None`` for other threads.
+    """
     object: Final[Object]
     """
     If the program is the Linux kernel, the ``struct task_struct *`` object for

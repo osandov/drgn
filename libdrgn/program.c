@@ -868,6 +868,35 @@ static struct drgn_error *get_prpsinfo_pid(struct drgn_program *prog,
 	return NULL;
 }
 
+static struct drgn_error *get_prpsinfo_fname(struct drgn_program *prog,
+					   const char *data, size_t size,
+					   const char **ret)
+{
+	bool is_64_bit;
+	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
+	if (err)
+		return err;
+	size_t offset = is_64_bit ? 40 : 28;
+	// pr_fname is defined as 16 byte buffer in elf_prpsinfo
+	// https://github.com/torvalds/linux/blob/075dbe9f6e3c21596c5245826a4ee1f1c1676eb8/include/linux/elfcore.h#L73
+#define PR_FNAME_LEN 16
+	if (size < offset + PR_FNAME_LEN) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "NT_PRPSINFO is truncated");
+	}
+	// No need to make a copy: the data returned by elf_getdata_rawchunk()
+	// is valid for the lifetime of the Elf handle, and prog->core is valid for
+	// the lifetime of prog.
+	const char *tmp = data + offset;
+	size_t len = strnlen(tmp, PR_FNAME_LEN);
+	if (len == PR_FNAME_LEN)
+#undef PR_FNAME_LEN
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "pr_fname is not null terminated");
+	*ret = tmp;
+	return NULL;
+}
+
 struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
 					    struct drgn_thread *ret)
 {
@@ -949,6 +978,7 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 	uint32_t first_prstatus_tid;
 	bool found_prpsinfo = false;
 	uint32_t prpsinfo_pid;
+	const char *prpsinfo_fname = NULL;
 
 	if (prog->core_dump_notes_cached)
 		return NULL;
@@ -1011,6 +1041,12 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 						       &prpsinfo_pid);
 				if (err)
 					goto err;
+				err = get_prpsinfo_fname(prog,
+						       (char *)data->d_buf + desc_offset,
+						       nhdr.n_descsz,
+						       &prpsinfo_fname);
+				if (err)
+					goto err;
 				found_prpsinfo = true;
 			} else if (nhdr.n_type == NT_PRSTATUS) {
 				uint32_t tid;
@@ -1042,6 +1078,7 @@ out:
 						       &prpsinfo_pid);
 			/* If the PID isn't found, then this is NULL. */
 			prog->main_thread = it.entry;
+			prog->core_dump_fname_cached = prpsinfo_fname;
 		}
 		if (found_prstatus) {
 			/*
@@ -1487,6 +1524,77 @@ drgn_thread_object(struct drgn_thread *thread, const struct drgn_object **ret)
 	}
 	*ret = &thread->object;
 	return NULL;
+}
+
+static struct drgn_error *
+drgn_thread_name_linux_kernel(struct drgn_thread *thread, char **ret)
+{
+	struct drgn_error *err;
+	DRGN_OBJECT(comm, drgn_object_program(&thread->object));
+	err = drgn_object_member_dereference(&comm, &thread->object, "comm");
+	if (!err)
+		err = drgn_object_read_c_string(&comm, ret);
+	return err;
+}
+
+static struct drgn_error *
+drgn_thread_name_userspace_live(struct drgn_thread *thread, char **ret)
+{
+#define FORMAT "/proc/%" PRIu32 "/comm"
+	char path[sizeof(FORMAT)
+		- sizeof("%" PRIu32)
+		+ max_decimal_length(uint32_t)
+		+ 1];
+	snprintf(path, sizeof(path), FORMAT, thread->tid);
+#undef FORMAT
+	_cleanup_close_ int fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return drgn_error_create_os("open", errno, path);
+	// While userspace threads use 16 byte buffer, kernel threads use a 64 byte buffer
+	// https://github.com/torvalds/linux/blob/075dbe9f6e3c21596c5245826a4ee1f1c1676eb8/fs/proc/array.c#L101
+	char buf[64];
+	ssize_t bytes_read = read_all(fd, buf, sizeof(buf));
+	if (bytes_read < 0)
+		return drgn_error_create_os("read", errno, path);
+
+	if (bytes_read > 0 && buf[bytes_read - 1] == '\n')
+		bytes_read--;
+	char *tmp = strndup(buf, bytes_read);
+	if (!tmp)
+		return &drgn_enomem;
+	*ret = tmp;
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_thread_name_userspace_core(struct drgn_thread *thread, char **ret)
+{
+	struct drgn_error *err = drgn_program_cache_core_dump_notes(thread->prog);
+	if (err)
+		return err;
+	// Core dumps only contain the main thread name so check if this is the main thread.
+	// Otherwise, set ret to NULL which will return None in Python.
+	bool is_main_thread = thread->prog->main_thread && thread->prog->main_thread->tid == thread->tid;
+	if (is_main_thread && thread->prog->core_dump_fname_cached) {
+		char *tmp = strdup(thread->prog->core_dump_fname_cached);
+		if (!tmp)
+			return &drgn_enomem;
+		*ret = tmp;
+	} else {
+		*ret = NULL;
+	}
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_thread_name(struct drgn_thread *thread, char **ret)
+{
+	if (thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		return drgn_thread_name_linux_kernel(thread, ret);
+	else if (thread->prog->flags & DRGN_PROGRAM_IS_LIVE)
+		return drgn_thread_name_userspace_live(thread, ret);
+	else
+		return drgn_thread_name_userspace_core(thread, ret);
 }
 
 struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,

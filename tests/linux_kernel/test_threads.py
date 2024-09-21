@@ -50,3 +50,10 @@ class TestThreads(LinuxKernelTestCase):
             "crashed thread is only defined for core dumps",
             self.prog.crashed_thread,
         )
+
+    def test_thread_name(self):
+        pid = os.getpid()
+        with open(f"/proc/{pid}/comm", "r") as f:
+            comm = f.read().strip()
+        thread = self.prog.thread(pid)
+        self.assertEqual(comm, thread.name)

@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define _cleanup_(x) __attribute__((__cleanup__(x)))
 
@@ -28,6 +29,14 @@ static inline void fclosep(FILE **fp)
 {
 	if (*fp)
 		fclose(*fp);
+}
+
+/** Call @c close() when the variable goes out of scope. */
+#define _cleanup_close_ _cleanup_(closep)
+static inline void closep(int *fd)
+{
+	if (*fd >= 0)
+		close(*fd);
 }
 
 /**

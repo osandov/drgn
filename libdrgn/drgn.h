@@ -3429,6 +3429,15 @@ struct drgn_error *drgn_thread_object(struct drgn_thread *thread,
 struct drgn_error *drgn_thread_stack_trace(struct drgn_thread *thread,
 					   struct drgn_stack_trace **ret);
 
+/**
+ * Get name for the thread represented by @p thread.
+ *
+ * @param[out] ret Returned thread name, or @c NULL if not found. On success, it
+ * should be freed with free(). On error, it is not modified.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_thread_name(struct drgn_thread *thread, char **ret);
+
 /** @} */
 
 #endif /* DRGN_H */
