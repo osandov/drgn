@@ -140,6 +140,7 @@ struct drgn_program {
 	uint64_t aarch64_insn_pac_mask;
 	bool core_dump_notes_cached;
 	bool prefer_orc_unwinder;
+	const char *core_dump_fname_cached;
 
 	/*
 	 * Linux kernel-specific.

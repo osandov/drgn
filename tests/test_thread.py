@@ -34,6 +34,13 @@ class TestLive(TestCase):
             self.prog.crashed_thread,
         )
 
+    def test_thread_name(self):
+        with open(f"/proc/{os.getpid()}/comm", "r") as f:
+            comm = f.read().strip()
+        self.assertEqual(self.prog.main_thread().name, comm)
+        for thread in self.prog.threads():
+            self.assertIsNotNone(thread.name)
+
 
 class TestCoreDump(TestCase):
     TIDS = (
@@ -54,6 +61,8 @@ class TestCoreDump(TestCase):
 
     MAIN_TID = 2265413
     CRASHED_TID = 2265419
+
+    MAIN_THREAD_NAME = "segfault_random"
 
     @classmethod
     def setUpClass(cls):
@@ -79,3 +88,9 @@ class TestCoreDump(TestCase):
 
     def test_crashed_thread(self):
         self.assertEqual(self.prog.crashed_thread().tid, self.CRASHED_TID)
+
+    def test_thread_name(self):
+        self.assertEqual(self.prog.main_thread().name, self.MAIN_THREAD_NAME)
+        for tid in self.TIDS:
+            if tid != self.MAIN_TID:
+                self.assertIsNone(self.prog.thread(tid).name)

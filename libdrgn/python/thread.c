@@ -56,6 +56,18 @@ static DrgnObject *Thread_get_object(Thread *self)
 	return_ptr(ret);
 }
 
+static PyObject *Thread_get_name(Thread *self)
+{
+	_cleanup_free_ char *ret = NULL;
+	struct drgn_error *err = drgn_thread_name(&self->thread, &ret);
+	if (err)
+		return set_drgn_error(err);
+	if (!ret) {
+		Py_RETURN_NONE;
+	}
+	return PyUnicode_DecodeFSDefault(ret);
+}
+
 static PyObject *Thread_stack_trace(Thread *self)
 {
 	struct drgn_error *err;
@@ -72,6 +84,7 @@ static PyObject *Thread_stack_trace(Thread *self)
 static PyGetSetDef Thread_getset[] = {
 	{"tid", (getter)Thread_get_tid, NULL, drgn_Thread_tid_DOC},
 	{"object", (getter)Thread_get_object, NULL, drgn_Thread_object_DOC},
+	{"name", (getter)Thread_get_name, NULL, drgn_Thread_name_DOC},
 	{},
 };
 
