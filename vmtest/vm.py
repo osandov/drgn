@@ -11,7 +11,7 @@ import socket
 import subprocess
 import sys
 import tempfile
-from typing import Optional
+from typing import Any, Optional, Sequence
 
 from util import nproc, out_of_date
 from vmtest.config import HOST_ARCHITECTURE, Kernel, local_kernel
@@ -209,6 +209,7 @@ def run_in_vm(
     root_dir: Optional[Path],
     build_dir: Path,
     *,
+    extra_qemu_options: Sequence[str] = (),
     test_kmod: TestKmodMode = TestKmodMode.NONE,
 ) -> int:
     if root_dir is None:
@@ -343,6 +344,8 @@ def run_in_vm(
                 "-kernel", str(kernel.path / "vmlinuz"),
                 "-append",
                 f"rootfstype=9p rootflags={_9pfs_mount_options} ro console={kernel.arch.qemu_console},115200 panic=-1 crashkernel=256M init={init}",
+
+                *extra_qemu_options,
                 # fmt: on
             ],
             env=env,
@@ -387,6 +390,16 @@ if __name__ == "__main__":
         format="%(asctime)s:%(levelname)s:%(name)s:%(message)s", level=logging.INFO
     )
 
+    class _StringSplitExtendAction(argparse.Action):
+        def __call__(
+            self, parser: Any, namespace: Any, values: Any, option_string: Any = None
+        ) -> None:
+            items = getattr(namespace, self.dest, None)
+            if items is None:
+                setattr(namespace, self.dest, values.split())
+            else:
+                items.extend(values.split())
+
     parser = argparse.ArgumentParser(
         description="run vmtest virtual machine",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -425,6 +438,21 @@ if __name__ == "__main__":
         help="directory to use as root directory in VM (default: / for the host architecture, $directory/$arch/rootfs otherwise)",
     )
     parser.add_argument(
+        "--qemu-options",
+        metavar="OPTIONS",
+        action=_StringSplitExtendAction,
+        default=argparse.SUPPRESS,
+        help="additional options to pass to QEMU, split on spaces. May be given multiple times",
+    )
+    parser.add_argument(
+        "-Xqemu",
+        metavar="OPTION",
+        action="append",
+        dest="qemu_options",
+        default=argparse.SUPPRESS,
+        help="additional option to pass to QEMU (not split on spaces). May be given multiple times",
+    )
+    parser.add_argument(
         "--build-test-kmod",
         dest="test_kmod",
         action="store_const",
@@ -451,14 +479,17 @@ if __name__ == "__main__":
     if not hasattr(args, "kernel"):
         assert HOST_ARCHITECTURE is not None
         args.kernel = DownloadKernel(HOST_ARCHITECTURE, "*")
+    if not hasattr(args, "root_directory"):
+        args.root_directory = None
+    if not hasattr(args, "qemu_options"):
+        args.qemu_options = []
+    if not hasattr(args, "test_kmod"):
+        args.test_kmod = TestKmodMode.NONE
+
     if args.kernel.pattern.startswith(".") or args.kernel.pattern.startswith("/"):
         kernel = local_kernel(args.kernel.arch, Path(args.kernel.pattern))
     else:
         kernel = next(download(args.directory, [args.kernel]))  # type: ignore[assignment]
-    if not hasattr(args, "root_directory"):
-        args.root_directory = None
-    if not hasattr(args, "test_kmod"):
-        args.test_kmod = TestKmodMode.NONE
 
     try:
         command = (
@@ -472,6 +503,7 @@ if __name__ == "__main__":
                 kernel,
                 args.root_directory,
                 args.directory,
+                extra_qemu_options=args.qemu_options,
                 test_kmod=args.test_kmod,
             )
         )
