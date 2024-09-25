@@ -218,13 +218,8 @@ def run_in_vm(
         else:
             root_dir = build_dir / kernel.arch.name / "rootfs"
 
-    if test_kmod == TestKmodMode.NONE:
-        test_kmod_command = ""
-    else:
+    if test_kmod != TestKmodMode.NONE:
         kmod = build_kmod(build_dir, kernel)
-        test_kmod_command = f"export DRGN_TEST_KMOD={shlex.quote(str(kmod))}"
-        if test_kmod == TestKmodMode.INSERT:
-            test_kmod_command += '\ninsmod "$DRGN_TEST_KMOD"'
 
     qemu_exe = "qemu-system-" + kernel.arch.name
     match = re.search(
@@ -289,6 +284,13 @@ def run_in_vm(
             ]
             init = f'/bin/sh -- -c "/bin/mount -t tmpfs tmpfs /tmp && /bin/mkdir /tmp/host && /bin/mount -t 9p -o {_9pfs_mount_options},ro host /tmp/host && . /tmp/host{init_path.resolve()}"'
             host_dir_prefix = "/host"
+
+        if test_kmod == TestKmodMode.NONE:
+            test_kmod_command = ""
+        else:
+            test_kmod_command = f"export DRGN_TEST_KMOD={shlex.quote(host_dir_prefix + str(kmod.resolve()))}"
+            if test_kmod == TestKmodMode.INSERT:
+                test_kmod_command += '\ninsmod "$DRGN_TEST_KMOD"'
 
         with init_path.open("w") as init_file:
             init_file.write(
