@@ -42,7 +42,7 @@ SUPPORTED_KERNEL_VERSIONS = (
 )
 
 KERNEL_ORG_COMPILER_VERSION = "12.2.0"
-VMTEST_KERNEL_VERSION = 30
+VMTEST_KERNEL_VERSION = 31
 
 
 BASE_KCONFIG = """
@@ -293,8 +293,6 @@ ARCHITECTURES = {
             debian_arch="armhf",
             kernel_config="""
                 CONFIG_NR_CPUS=8
-                CONFIG_HIGHMEM=y
-                CONFIG_ARM_LPAE=n
                 # Debian armhf userspace assumes EABI and VFP.
                 CONFIG_AEABI=y
                 CONFIG_VFP=y
@@ -312,8 +310,20 @@ ARCHITECTURES = {
                 CONFIG_STACKPROTECTOR_PER_TASK=n
             """,
             kernel_flavor_configs={
+                "default": """
+                    CONFIG_VMSPLIT_2G=y
+                    CONFIG_HIGHMEM=n
+                    CONFIG_ARM_LPAE=n
+                """,
                 "alternative": """
+                    CONFIG_VMSPLIT_2G=y
+                    CONFIG_HIGHMEM=n
                     CONFIG_ARM_LPAE=y
+                """,
+                "tiny": """
+                    CONFIG_VMSPLIT_3G=y
+                    CONFIG_HIGHMEM=y
+                    CONFIG_ARM_LPAE=n
                 """,
             },
             kernel_org_compiler_name="arm-linux-gnueabi",
