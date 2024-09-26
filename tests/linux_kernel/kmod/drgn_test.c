@@ -867,9 +867,15 @@ static void drgn_test_kthread_fn3(void)
 	// Create some local variables for the test cases to use. Use volatile
 	// to make doubly sure that they aren't optimized out.
 	volatile int a, b, c;
+	volatile struct drgn_test_small_slab_object *slab_object;
+
 	a = 1;
 	b = 2;
 	c = 3;
+	slab_object = drgn_test_small_slab_objects[0];
+
+	// Force slab_object onto the stack.
+	__asm__ __volatile__ ("" : : "r" (&slab_object) : "memory");
 
 #ifdef CONFIG_STACKTRACE
 	drgn_test_num_stack_entries = stack_trace_save(drgn_test_stack_entries,
@@ -899,6 +905,9 @@ static void drgn_test_kthread_fn3(void)
 		schedule();
 		__set_current_state(TASK_RUNNING);
 	}
+
+	// Make sure slab_object stays on the stack.
+	__asm__ __volatile__ ("" : : "r" (&slab_object) : "memory");
 }
 
  __attribute__((__optimize__("O0")))

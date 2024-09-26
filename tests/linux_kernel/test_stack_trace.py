@@ -99,7 +99,7 @@ class TestStackTrace(LinuxKernelStackTraceTestCase):
         stack_trace = self.prog.stack_trace(task)
         for frame in stack_trace:
             if frame.name == "drgn_test_kthread_fn3":
-                self.assertSetEqual(set(frame.locals()), {"a", "b", "c"})
+                self.assertSetEqual(set(frame.locals()), {"a", "b", "c", "slab_object"})
                 break
         else:
             self.fail("Couldn't find drgn_test_kthread_fn3 frame")

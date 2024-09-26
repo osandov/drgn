@@ -11,7 +11,6 @@ from drgn.helpers.linux.mm import pfn_to_virt
 from tests.linux_kernel import (
     HAVE_FULL_MM_SUPPORT,
     LinuxKernelTestCase,
-    fork_and_stop,
     skip_unless_have_full_mm_support,
     skip_unless_have_stack_tracing,
     skip_unless_have_test_kmod,
@@ -111,16 +110,15 @@ class TestPrintAnnotatedStack(LinuxKernelTestCase):
     @skip_unless_have_stack_tracing
     @skip_unless_have_test_kmod
     def test_print_annotated_stack(self):
-        with fork_and_stop() as pid:
-            trace = self.prog.stack_trace(pid)
+        trace = self.prog.stack_trace(self.prog["drgn_test_kthread"])
 
-            f = io.StringIO()
-            with redirect_stdout(f):
-                print_annotated_stack(trace)
+        f = io.StringIO()
+        with redirect_stdout(f):
+            print_annotated_stack(trace)
 
-            printed_trace = f.getvalue()
+        printed_trace = f.getvalue()
 
-            if HAVE_FULL_MM_SUPPORT and not self.prog["drgn_test_slob"]:
-                self.assertIn("slab object: task_struct", printed_trace)
-            self.assertIn("[function symbol: schedule", printed_trace)
-            self.assertIn("schedule at ", printed_trace)
+        if HAVE_FULL_MM_SUPPORT and not self.prog["drgn_test_slob"]:
+            self.assertIn("slab object: drgn_test_small", printed_trace)
+        self.assertIn("[function symbol: schedule", printed_trace)
+        self.assertIn("schedule at ", printed_trace)
