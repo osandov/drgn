@@ -157,30 +157,35 @@ typedef struct drgn_error *
  *
  * - Add a `DRGN_ARCH_FOO` enumerator to @ref drgn_architecture.
  * - Add the constant to `class Architecture` in `_drgn.pyi`.
- * - Create a new `libdrgn/arch_foo.c` file and add it to `libdrgn/Makefile.am`.
+ * - Create a new `libdrgn/arch_foo.c` file and add it to
+ *   `libdrgnimpl_la_SOURCES` in `libdrgn/Makefile.am`.
  * - Define `struct drgn_architecture_info arch_info_foo` in
  *   `libdrgn/arch_foo.c` with the following members:
  *     - @ref name
  *     - @ref arch
  *     - @ref default_flags
  *     - @ref scalar_alignment
- *     - @ref register_by_name
+ *     - @ref register_by_name = @ref drgn_register_by_name_unknown
  * - Add an `extern` declaration of `arch_info_foo` to `libdrgn/platform.h`.
  * - Handle the architecture in @ref drgn_platform_from_kdump(), @ref
  *   drgn_host_platform, @ref drgn_platform_create(), and @ref
  *   drgn_platform_from_elf().
+ * - Update `docs/support_matrix.rst`.
  *
  * To support Linux kernel loadable modules:
  *
  * - Define @ref apply_elf_reloc.
+ * - Update `docs/support_matrix.rst`.
  *
  * To support stack unwinding:
  *
  * - Create a new `libdrgn/arch_foo_defs.py` file. See
  *   `libdrgn/build-aux/gen_arch_inc_strswitch.py`.
+ * - Add `arch_foo_defs.py` to `ARCH_DEFS_PYS` and remove `libdrgn/arch_foo.c`
+ *   from `libdrgnimpl_la_SOURCES` in `libdrgn/Makefile.am`.
  * - Add `#include "arch_foo_defs.inc"` to `libdrgn/arch_foo.c`.
- * - Add `DRGN_ARCHITECTURE_REGISTERS` to `arch_info_foo` (and remove @ref
- *   register_by_name).
+ * - Add `DRGN_ARCHITECTURE_REGISTERS` to `arch_info_foo` and remove @ref
+ *   register_by_name.
  * - Define the following @ref drgn_architecture_info members:
  *     - @ref default_dwarf_cfi_row (use @ref DRGN_CFI_ROW)
  *     - @ref fallback_unwind
@@ -188,6 +193,12 @@ typedef struct drgn_error *
  *     - @ref prstatus_get_initial_registers
  *     - @ref linux_kernel_get_initial_registers
  *     - @ref demangle_cfi_registers (only if needed)
+ * - Implement `drgn_test_get_pt_regs()` in
+ *   `tests/linux_kernel/kmod/drgn_test.c` (usually by copying
+ *   `crash_setup_regs()` from the Linux kernel).
+ * - Add the architecture name to `skip_unless_have_stack_tracing()` in
+ *   `tests/linux_kernel/__init__.py`.
+ * - Update `docs/support_matrix.rst`.
  *
  * To support virtual address translation:
  *
@@ -196,6 +207,9 @@ typedef struct drgn_error *
  *   - @ref linux_kernel_pgtable_iterator_destroy
  *   - @ref linux_kernel_pgtable_iterator_init
  *   - @ref linux_kernel_pgtable_iterator_next
+ * - Add the architecture name to `HAVE_FULL_MM_SUPPORT` in
+ *   `tests/linux_kernel/__init__.py`.
+ * - Update `docs/support_matrix.rst`.
  *
  * This is an example of how the page table iterator members may be used
  * (ignoring error handling):
@@ -353,8 +367,8 @@ struct drgn_architecture_info {
 	 * drgn_register_state_create() with `interrupted = true`, and
 	 * initialize it from @p prstatus.
 	 *
-	 * Refer to `struct elf_prstatus_common` in the Linux kernel source for
-	 * the format, and in particular, the `elf_gregset_t pr_reg` member.
+	 * Refer to `struct elf_prstatus` in the Linux kernel source for the
+	 * format, and in particular, the `elf_gregset_t pr_reg` member.
 	 * `elf_gregset_t` has an architecture-specific layout; on many
 	 * architectures, it is identical to or a prefix of `struct pt_regs`.
 	 * `pr_reg` is typically at offset 112 on 64-bit platforms and 72 on
@@ -376,9 +390,13 @@ struct drgn_architecture_info {
 	 * `interrupted = false` and initialize it from the saved thread
 	 * context.
 	 *
-	 * The context can usually be found in `struct task_struct::thread`
-	 * and/or the thread stack. Refer to this architecture's implementation
-	 * of `switch_to()` in the Linux kernel.
+	 * Refer to this architecture's implementation of `switch_to()` in the
+	 * Linux kernel, which usually saves the context to one of these places:
+	 *
+	 * - `struct thread_struct` (`struct task_struct::thread`).
+	 * - The thread stack (`struct task_struct::stack`).
+	 * - `struct thread_info` (either `struct task_struct::thread_info` or
+	 *   on the stack, see `task_thread_info()` in the Linux kernel).
 	 *
 	 * @param[in] task_obj `struct task_struct` object.
 	 * @param[out] ret Returned registers.

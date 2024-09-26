@@ -125,6 +125,7 @@ def skip_if_highmem(f):
 # good enough for now.
 skip_if_highpte = skip_if_highmem
 
+# Please keep this in sync with docs/support_matrix.rst.
 skip_unless_have_stack_tracing = unittest.skipUnless(
     NORMALIZED_MACHINE_NAME in {"aarch64", "ppc64", "s390x", "x86_64"},
     f"stack tracing is not implemented for {NORMALIZED_MACHINE_NAME}",
