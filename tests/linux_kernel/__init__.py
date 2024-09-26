@@ -97,8 +97,7 @@ skip_unless_have_test_disk = unittest.skipUnless(
     "test requires disk to overwrite; set DRGN_TEST_DISK environment variable (e.g., DRGN_TEST_DISK=/dev/vda)",
 )
 
-# Please keep this in sync with docs/support_matrix.rst and the module
-# docstring in drgn/helpers/linux/mm.py.
+# Please keep this in sync with docs/support_matrix.rst.
 HAVE_FULL_MM_SUPPORT = NORMALIZED_MACHINE_NAME in (
     "aarch64",
     "ppc64",

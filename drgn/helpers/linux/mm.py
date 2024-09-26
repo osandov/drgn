@@ -6,8 +6,22 @@ Memory Management
 -----------------
 
 The ``drgn.helpers.linux.mm`` module provides helpers for working with the
-Linux memory management (MM) subsystem. Only AArch64, ppc64, s390x, and x86-64
-are currently supported.
+Linux memory management (MM) subsystem.
+
+.. _virtual address translation failures:
+
+Helpers that translate virtual addresses or read virtual memory may fail for
+multiple reasons:
+
+1. If the address is invalid.
+2. If the address is swapped or paged out.
+3. If the address is in `high memory
+   <https://docs.kernel.org/mm/highmem.html>`_. High memory is only used for
+   userspace memory by 32-bit systems with a lot of physical memory, and only
+   if ``CONFIG_HIGHMEM`` is enabled.
+
+   3a. If the page table is in high memory. This is only possible if
+   ``CONFIG_HIGHPTE`` is enabled.
 """
 
 import operator
@@ -1046,6 +1060,10 @@ def follow_page(mm: Object, addr: IntegerLike) -> Object:
     :param mm: ``struct mm_struct *``
     :param addr: ``void *``
     :return: ``struct page *``
+    :raises FaultError: if the virtual address
+        :ref:`cannot be translated <virtual address translation failures>`
+    :raises NotImplementedError: if virtual address translation is :ref:`not
+        supported <architecture support matrix>` for this architecture yet
     """
     return phys_to_page(follow_phys(mm, addr))
 
@@ -1062,6 +1080,10 @@ def follow_pfn(mm: Object, addr: IntegerLike) -> Object:
     :param mm: ``struct mm_struct *``
     :param addr: ``void *``
     :return: ``unsigned long``
+    :raises FaultError: if the virtual address
+        :ref:`cannot be translated <virtual address translation failures>`
+    :raises NotImplementedError: if virtual address translation is :ref:`not
+        supported <architecture support matrix>` for this architecture yet
     """
     return PHYS_PFN(follow_phys(mm, addr))
 
@@ -1078,6 +1100,10 @@ def follow_phys(mm: Object, addr: IntegerLike) -> Object:
     :param mm: ``struct mm_struct *``
     :param addr: ``void *``
     :return: ``phys_addr_t``
+    :raises FaultError: if the virtual address
+        :ref:`cannot be translated <virtual address translation failures>`
+    :raises NotImplementedError: if virtual address translation is :ref:`not
+        supported <architecture support matrix>` for this architecture yet
     """
     prog = mm.prog_
     return Object(prog, "phys_addr_t", _linux_helper_follow_phys(prog, mm.pgd, addr))
@@ -1232,6 +1258,10 @@ def access_process_vm(task: Object, address: IntegerLike, size: IntegerLike) -> 
     :param task: ``struct task_struct *``
     :param address: Starting address.
     :param size: Number of bytes to read.
+    :raises FaultError: if the virtual address
+        :ref:`cannot be translated <virtual address translation failures>`
+    :raises NotImplementedError: if virtual address translation is :ref:`not
+        supported <architecture support matrix>` for this architecture yet
     """
     return _linux_helper_read_vm(task.prog_, task.mm.pgd, address, size)
 
@@ -1249,6 +1279,10 @@ def access_remote_vm(mm: Object, address: IntegerLike, size: IntegerLike) -> byt
     :param mm: ``struct mm_struct *``
     :param address: Starting address.
     :param size: Number of bytes to read.
+    :raises FaultError: if the virtual address
+        :ref:`cannot be translated <virtual address translation failures>`
+    :raises NotImplementedError: if virtual address translation is :ref:`not
+        supported <architecture support matrix>` for this architecture yet
     """
     return _linux_helper_read_vm(mm.prog_, mm.pgd, address, size)
 
@@ -1266,6 +1300,10 @@ def cmdline(task: Object) -> Optional[List[bytes]]:
         vim drgn/helpers/linux/mm.py
 
     :param task: ``struct task_struct *``
+    :raises FaultError: if the virtual address containing the command line
+        :ref:`cannot be translated <virtual address translation failures>`
+    :raises NotImplementedError: if virtual address translation is :ref:`not
+        supported <architecture support matrix>` for this architecture yet
     """
     mm = task.mm.read_()
     if not mm:
@@ -1290,6 +1328,10 @@ def environ(task: Object) -> Optional[List[bytes]]:
         LOGNAME=root
 
     :param task: ``struct task_struct *``
+    :raises FaultError: if the virtual address containing the environment
+        :ref:`cannot be translated <virtual address translation failures>`
+    :raises NotImplementedError: if virtual address translation is :ref:`not
+        supported <architecture support matrix>` for this architecture yet
     """
     mm = task.mm.read_()
     if not mm:
