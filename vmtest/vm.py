@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -140,6 +141,7 @@ fi
 cd {cwd}
 {test_kmod}
 set +e
+{stty}
 setsid -c sh -c {command}
 rc=$?
 set -e
@@ -292,6 +294,14 @@ def run_in_vm(
             if test_kmod == TestKmodMode.INSERT:
                 test_kmod_command += '\ninsmod "$DRGN_TEST_KMOD"'
 
+        terminal_size = shutil.get_terminal_size((0, 0))
+        if terminal_size.columns or terminal_size.lines:
+            stty_command = (
+                f"stty cols {terminal_size.columns} rows {terminal_size.lines}"
+            )
+        else:
+            stty_command = ""
+
         with init_path.open("w") as init_file:
             init_file.write(
                 _INIT_TEMPLATE.format(
@@ -302,6 +312,7 @@ def run_in_vm(
                     command=shlex.quote(command),
                     kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
                     test_kmod=test_kmod_command,
+                    stty=stty_command,
                 )
             )
         init_path.chmod(0o755)
