@@ -57,6 +57,8 @@ from tests.linux_kernel import (
     iter_maps,
     mlock,
     prng32,
+    skip_if_highmem,
+    skip_if_highpte,
     skip_unless_have_full_mm_support,
     skip_unless_have_test_kmod,
 )
@@ -262,15 +264,19 @@ class TestMm(LinuxKernelTestCase):
         )
 
     @skip_unless_have_full_mm_support
-    @skip_unless_have_test_kmod
+    @skip_if_highpte
     def test_follow_pfn(self):
+        task = find_task(self.prog, os.getpid())
+        with self._pages() as (map, address, pfns):
+            self.assertEqual(follow_pfn(task.mm, address), pfns[0])
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_follow_pfn_init_mm(self):
         self.assertEqual(
             follow_pfn(self.prog["init_mm"].address_of_(), self.prog["drgn_test_va"]),
             self.prog["drgn_test_pfn"],
         )
-        task = find_task(self.prog, os.getpid())
-        with self._pages() as (map, address, pfns):
-            self.assertEqual(follow_pfn(task.mm, address), pfns[0])
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
@@ -313,6 +319,7 @@ class TestMm(LinuxKernelTestCase):
         )
 
     @skip_unless_have_full_mm_support
+    @skip_if_highmem
     def test_access_process_vm(self):
         task = find_task(self.prog, os.getpid())
         data = b"hello, world"
@@ -323,6 +330,7 @@ class TestMm(LinuxKernelTestCase):
         self.assertRaises(FaultError, access_process_vm, task, 0, 8)
 
     @skip_unless_have_full_mm_support
+    @skip_if_highmem
     def test_access_process_vm_big(self):
         task = find_task(self.prog, os.getpid())
         # 32M = 2**(log2(16K) + log2(16K / 8)), so 32MB + 1 is enough so that
@@ -364,6 +372,7 @@ class TestMm(LinuxKernelTestCase):
         )
 
     @skip_unless_have_full_mm_support
+    @skip_if_highmem
     def test_cmdline(self):
         with open("/proc/self/cmdline", "rb") as f:
             proc_cmdline = f.read().split(b"\0")[:-1]
@@ -374,6 +383,7 @@ class TestMm(LinuxKernelTestCase):
         self.assertIsNone(cmdline(find_task(self.prog, 2)))
 
     @skip_unless_have_full_mm_support
+    @skip_if_highmem
     def test_environ(self):
         with open("/proc/self/environ", "rb") as f:
             proc_environ = f.read().split(b"\0")[:-1]

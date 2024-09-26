@@ -5,6 +5,7 @@ import contextlib
 import ctypes
 import errno
 from fcntl import ioctl
+import functools
 import mmap
 import os
 from pathlib import Path
@@ -109,6 +110,20 @@ skip_unless_have_full_mm_support = unittest.skipUnless(
     HAVE_FULL_MM_SUPPORT,
     f"mm support is not implemented for {NORMALIZED_MACHINE_NAME}",
 )
+
+
+def skip_if_highmem(f):
+    @functools.wraps(f)
+    def wrapper(self, *args, **kwargs):
+        if self.prog["max_low_pfn"] < self.prog["max_pfn"]:
+            self.skipTest("high memory is not supported")
+
+    return wrapper
+
+
+# This is a false positive if CONFIG_HIGHMEM=y and CONFIG_HIGHPTE=n, but it's
+# good enough for now.
+skip_if_highpte = skip_if_highmem
 
 skip_unless_have_stack_tracing = unittest.skipUnless(
     NORMALIZED_MACHINE_NAME in {"aarch64", "ppc64", "s390x", "x86_64"},
