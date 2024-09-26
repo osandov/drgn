@@ -1186,6 +1186,7 @@ int drgn_test_function(int x)
 
 // kmodify
 
+#ifdef __x86_64__
 enum drgn_kmodify_enum {
 	DRGN_KMODIFY_ONE = 1,
 	DRGN_KMODIFY_TWO,
@@ -1338,6 +1339,7 @@ DEFINE_KMODIFY_TEST_ARGS(
 		match;
 	})
 )
+#endif
 
 static void drgn_test_exit(void)
 {
