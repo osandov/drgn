@@ -15,6 +15,7 @@ noinst_HEADERS = include/elf.h \
 include_HEADERS = drgn.h
 
 ARCH_DEFS_PYS = arch_aarch64_defs.py \
+		arch_arm_defs.py \
 		arch_ppc64_defs.py \
 		arch_s390x_defs.py \
 		arch_x86_64_defs.py
@@ -37,7 +38,6 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 $(ARCH_DEFS_INCS) \
 			 $(STRSWITCH_INCS) \
 			 accessors.c \
-			 arch_arm.c \
 			 arch_i386.c \
 			 arch_riscv.c \
 			 array.h \

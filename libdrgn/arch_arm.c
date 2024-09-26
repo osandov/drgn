@@ -3,14 +3,147 @@
 
 #include <elf.h>
 
+#include "cfi.h"
+#include "error.h"
+#include "helpers.h"
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
+#include "register_state.h"
 
 /*
  * The ABI specification can be found at:
  * https://developer.arm.com/architectures/system-architectures/software-standards/abi
  * https://github.com/ARM-software/abi-aa/releases
  */
+
+#include "arch_arm_defs.inc"
+
+static const struct drgn_cfi_row default_dwarf_cfi_row_arm = DRGN_CFI_ROW(
+	// The psABI defines the CFA as the value of the stack pointer in the
+	// calling frame.
+	[DRGN_REGISTER_NUMBER(r13)] = { DRGN_CFI_RULE_CFA_PLUS_OFFSET },
+	// The psABI defines that callee-saved registers default to
+	// DW_CFA_same_value.
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r4)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r5)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r6)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r7)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r8)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r9)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r10)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r11)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r14)),
+);
+
+static struct drgn_error *fallback_unwind_arm(struct drgn_program *prog,
+					      struct drgn_register_state *regs,
+					      struct drgn_register_state **ret)
+{
+	// GCC and Clang generate different frame pointer layouts. See "GCC/LLVM
+	// frame pointer incompatibility on ARM" [1] and Linux kernel commit
+	// b4d5ec9b39f8 ("ARM: 8992/1: Fix unwind_frame for clang-built
+	// kernels"). For now, let's not bother with it.
+	//
+	// 1: https://discourse.llvm.org/t/gcc-llvm-frame-pointer-incompatibility-on-arm/32906
+	return &drgn_stop;
+}
+
+// elf_gregset_t (in PRSTATUS) and struct pt_regs are identical.
+static struct drgn_error *
+get_initial_registers_from_struct_arm(struct drgn_program *prog,
+				      const void *buf, size_t size,
+				      struct drgn_register_state **ret)
+{
+	if (size < 68) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "registers are truncated");
+	}
+
+	struct drgn_register_state *regs =
+		drgn_register_state_create(cpsr, true);
+	if (!regs)
+		return &drgn_enomem;
+
+	drgn_register_state_set_range_from_buffer(regs, r13, r14,
+						  (uint32_t *)buf + 13);
+	drgn_register_state_set_range_from_buffer(regs, r4, r11,
+						  (uint32_t *)buf + 4);
+	drgn_register_state_set_range_from_buffer(regs, r0, r3, buf);
+	drgn_register_state_set_from_buffer(regs, r12, (uint32_t *)buf + 12);
+	drgn_register_state_set_range_from_buffer(regs, r15, cpsr,
+						  (uint32_t *)buf + 15);
+	drgn_register_state_set_pc_from_register(prog, regs, r15);
+
+	*ret = regs;
+	return NULL;
+}
+
+static struct drgn_error *
+pt_regs_get_initial_registers_arm(const struct drgn_object *obj,
+				  struct drgn_register_state **ret)
+{
+	return get_initial_registers_from_struct_arm(drgn_object_program(obj),
+						     drgn_object_buffer(obj),
+						     drgn_object_size(obj),
+						     ret);
+}
+
+static struct drgn_error *
+prstatus_get_initial_registers_arm(struct drgn_program *prog,
+				   const void *prstatus, size_t size,
+				   struct drgn_register_state **ret)
+{
+	// offsetof(struct elf_prstatus, pr_reg)
+	static const size_t pr_reg_offset = 72;
+	if (size < pr_reg_offset) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "NT_PRSTATUS is truncated");
+	}
+	return get_initial_registers_from_struct_arm(prog,
+						     (char *)prstatus + pr_reg_offset,
+						     size - pr_reg_offset, ret);
+}
+
+// The Linux kernel saves the callee-saved registers in
+// task_thread_info(task)->cpu_context (with type struct cpu_context_save). See
+// __switch_to() in arch/arm/kernel/entry-armv.S (as of Linux v6.12).
+static struct drgn_error *
+linux_kernel_get_initial_registers_arm(const struct drgn_object *task_obj,
+				       struct drgn_register_state **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_object_program(task_obj);
+
+	DRGN_OBJECT(cpu_context_obj, prog);
+	err = linux_helper_task_thread_info(&cpu_context_obj, task_obj);
+	if (err)
+		return err;
+	err = drgn_object_member_dereference(&cpu_context_obj, &cpu_context_obj,
+					     "cpu_context");
+	if (err)
+		return err;
+	if (cpu_context_obj.encoding != DRGN_OBJECT_ENCODING_BUFFER ||
+	    drgn_object_size(&cpu_context_obj) < 40) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "cpu_context is truncated");
+	}
+	err = drgn_object_read(&cpu_context_obj, &cpu_context_obj);
+	if (err)
+		return err;
+
+	const void *buf = drgn_object_buffer(&cpu_context_obj);
+	struct drgn_register_state *regs =
+		drgn_register_state_create(r15, false);
+	if (!regs)
+		return &drgn_enomem;
+
+	drgn_register_state_set_range_from_buffer(regs, r13, r14,
+						  (uint32_t *)buf + 8);
+	drgn_register_state_set_range_from_buffer(regs, r4, r11, buf);
+	drgn_register_state_set_pc_from_register(prog, regs, r14);
+	*ret = regs;
+	return NULL;
+}
 
 static struct drgn_error *
 apply_elf_reloc_arm(const struct drgn_relocating_section *relocating,
@@ -194,7 +327,13 @@ const struct drgn_architecture_info arch_info_arm = {
 	.arch = DRGN_ARCH_ARM,
 	.default_flags = DRGN_PLATFORM_IS_LITTLE_ENDIAN,
 	.scalar_alignment = { 1, 2, 4, 8, 8 },
-	.register_by_name = drgn_register_by_name_unknown,
+	DRGN_ARCHITECTURE_REGISTERS,
+	.default_dwarf_cfi_row = &default_dwarf_cfi_row_arm,
+	.fallback_unwind = fallback_unwind_arm,
+	.pt_regs_get_initial_registers = pt_regs_get_initial_registers_arm,
+	.prstatus_get_initial_registers = prstatus_get_initial_registers_arm,
+	.linux_kernel_get_initial_registers =
+		linux_kernel_get_initial_registers_arm,
 	.apply_elf_reloc = apply_elf_reloc_arm,
 	.linux_kernel_pgtable_iterator_create =
 		linux_kernel_pgtable_iterator_create_arm,
