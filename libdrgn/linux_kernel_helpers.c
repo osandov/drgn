@@ -289,6 +289,34 @@ struct drgn_error *linux_helper_idle_task(struct drgn_object *res, uint64_t cpu)
 	return cpu_rq_member(res, cpu, "idle");
 }
 
+struct drgn_error *linux_helper_task_thread_info(struct drgn_object *res,
+						 const struct drgn_object *task)
+{
+	struct drgn_error *err;
+	DRGN_OBJECT(tmp, drgn_object_program(task));
+
+	err = drgn_object_member_dereference(&tmp, task, "thread_info");
+	if (!err) {
+		// CONFIG_THREAD_INFO_IN_TASK=y
+		return drgn_object_address_of(res, &tmp);
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		// CONFIG_THREAD_INFO_IN_TASK=n
+		drgn_error_destroy(err);
+		err = drgn_object_member_dereference(&tmp, task, "stack");
+		if (err)
+			return err;
+		struct drgn_qualified_type thread_info_type;
+		err = drgn_program_find_type(drgn_object_program(task),
+					     "struct thread_info *", NULL,
+					     &thread_info_type);
+		if (err)
+			return err;
+		return drgn_object_cast(res, thread_info_type, &tmp);
+	} else {
+		return err;
+	}
+}
+
 struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
 					 uint64_t *ret)
 {
@@ -308,29 +336,13 @@ struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
 	// ((struct thread_info *)task->stack)->cpu.
 	//
 	// If none of those exist, then the kernel must be !SMP.
-	err = drgn_object_member_dereference(&tmp, task, "thread_info");
-	if (!err) {
-		err = drgn_object_member(&tmp, &tmp, "cpu");
-		if (err && err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
-			err = drgn_object_member_dereference(&tmp, task, "cpu");
-		}
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		// CONFIG_THREAD_INFO_IN_TASK=n
+	err = linux_helper_task_thread_info(&tmp, task);
+	if (err)
+		return err;
+	err = drgn_object_member_dereference(&tmp, &tmp, "cpu");
+	if (err && err->code == DRGN_ERROR_LOOKUP) {
 		drgn_error_destroy(err);
-		err = drgn_object_member_dereference(&tmp, task, "stack");
-		if (err)
-			return err;
-		struct drgn_qualified_type thread_info_type;
-		err = drgn_program_find_type(drgn_object_program(task),
-					     "struct thread_info *", NULL,
-					     &thread_info_type);
-		if (err)
-			return err;
-		err = drgn_object_cast(&tmp, thread_info_type, &tmp);
-		if (err)
-			return err;
-		err = drgn_object_member_dereference(&tmp, &tmp, "cpu");
+		err = drgn_object_member_dereference(&tmp, task, "cpu");
 	}
 	if (!err) {
 		union drgn_value value;

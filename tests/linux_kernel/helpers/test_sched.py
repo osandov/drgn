@@ -12,17 +12,26 @@ from drgn.helpers.linux.sched import (
     loadavg,
     task_cpu,
     task_state_to_char,
+    task_thread_info,
 )
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     fork_and_stop,
     proc_state,
+    skip_unless_have_test_kmod,
     smp_enabled,
     wait_until,
 )
 
 
 class TestSched(LinuxKernelTestCase):
+    @skip_unless_have_test_kmod
+    def test_task_thread_info(self):
+        self.assertEqual(
+            task_thread_info(self.prog["drgn_test_kthread"]),
+            self.prog["drgn_test_kthread_info"],
+        )
+
     def test_task_cpu(self):
         cpu = os.cpu_count() - 1
         with fork_and_stop(os.sched_setaffinity, 0, (cpu,)) as (pid, _):

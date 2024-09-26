@@ -41,6 +41,10 @@ struct drgn_error *linux_helper_cpu_curr(struct drgn_object *res, uint64_t cpu);
 struct drgn_error *linux_helper_idle_task(struct drgn_object *res,
 					  uint64_t cpu);
 
+struct drgn_error *
+linux_helper_task_thread_info(struct drgn_object *res,
+			      const struct drgn_object *task);
+
 struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
 					 uint64_t *ret);
 

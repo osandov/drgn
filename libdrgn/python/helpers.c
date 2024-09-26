@@ -127,6 +127,26 @@ DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args)
 	return_ptr(res);
 }
 
+DrgnObject *drgnpy_linux_helper_task_thread_info(PyObject *self, PyObject *args,
+						 PyObject *kwds)
+{
+	static char *keywords[] = {"task", NULL};
+	struct drgn_error *err;
+	DrgnObject *task;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:task_cpu", keywords,
+					 &DrgnObject_type, &task))
+		return NULL;
+
+	_cleanup_pydecref_ DrgnObject *res =
+		DrgnObject_alloc(DrgnObject_prog(task));
+	if (!res)
+		return NULL;
+	err = linux_helper_task_thread_info(&res->obj, &task->obj);
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(res);
+}
+
 PyObject *drgnpy_linux_helper_task_cpu(PyObject *self, PyObject *args,
 				       PyObject *kwds)
 {

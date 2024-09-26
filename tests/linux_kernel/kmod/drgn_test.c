@@ -714,7 +714,8 @@ static int drgn_test_slab_init(void)
 
 // kthread for stack trace
 
-static struct task_struct *drgn_test_kthread;
+struct task_struct *drgn_test_kthread;
+struct thread_info *drgn_test_kthread_info;
 
 const int drgn_test_have_stacktrace = IS_ENABLED(CONFIG_STACKTRACE);
 #ifdef CONFIG_STACKTRACE
@@ -927,6 +928,7 @@ static int drgn_test_stack_trace_init(void)
 					   "drgn_test_kthread");
 	if (!drgn_test_kthread)
 		return -1;
+	drgn_test_kthread_info = task_thread_info(drgn_test_kthread);
 	wake_up_process(drgn_test_kthread);
 	wait_for_completion(&drgn_test_kthread_ready);
 	return kthread_park(drgn_test_kthread);

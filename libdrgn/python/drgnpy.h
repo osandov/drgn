@@ -373,6 +373,8 @@ DrgnObject *drgnpy_linux_helper_per_cpu_ptr(PyObject *self, PyObject *args,
 					    PyObject *kwds);
 DrgnObject *drgnpy_linux_helper_cpu_curr(PyObject *self, PyObject *args);
 DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args);
+DrgnObject *drgnpy_linux_helper_task_thread_info(PyObject *self, PyObject *args,
+						 PyObject *kwds);
 PyObject *drgnpy_linux_helper_task_cpu(PyObject *self, PyObject *args,
 				       PyObject *kwds);
 DrgnObject *drgnpy_linux_helper_xa_load(PyObject *self, PyObject *args,

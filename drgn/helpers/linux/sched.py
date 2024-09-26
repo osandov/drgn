@@ -15,6 +15,7 @@ from _drgn import (
     _linux_helper_cpu_curr,
     _linux_helper_idle_task,
     _linux_helper_task_cpu as task_cpu,
+    _linux_helper_task_thread_info as task_thread_info,
 )
 from drgn import IntegerLike, Object, Program
 from drgn.helpers.common.prog import takes_program_or_default
@@ -25,6 +26,7 @@ __all__ = (
     "loadavg",
     "task_cpu",
     "task_state_to_char",
+    "task_thread_info",
 )
 
 _TASK_NOLOAD = 0x400

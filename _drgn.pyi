@@ -2730,6 +2730,15 @@ def _linux_helper_per_cpu_ptr(ptr: Object, cpu: IntegerLike) -> Object:
 
 def _linux_helper_cpu_curr(__prog: Program, __cpu: IntegerLike) -> Object: ...
 def _linux_helper_idle_task(__prog: Program, __cpu: IntegerLike) -> Object: ...
+def _linux_helper_task_thread_info(task: Object) -> Object:
+    """
+    Return the thread information structure for a task.
+
+    :param task: ``struct task_struct *``
+    :return: ``struct thread_info *``
+    """
+    ...
+
 def _linux_helper_task_cpu(task: Object) -> int:
     """
     Return the CPU number that the given task last ran on.
