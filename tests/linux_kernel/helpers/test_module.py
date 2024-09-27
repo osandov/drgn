@@ -24,6 +24,7 @@ class TestListModules(LinuxKernelTestCase):
 class TestModules(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
+        super().setUpClass()
         cls.mod = find_module(cls.prog, "drgn_test")
 
     def test_module_percpu_region(self):

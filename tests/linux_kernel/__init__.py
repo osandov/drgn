@@ -40,6 +40,7 @@ class LinuxKernelTestCase(TestCase):
 
     @classmethod
     def setUpClass(cls):
+        super().setUpClass()
         # We only want to create the Program once for all tests, so it's cached
         # as a class variable (in the base class). If we can't run these tests
         # for whatever reason, we also cache that.

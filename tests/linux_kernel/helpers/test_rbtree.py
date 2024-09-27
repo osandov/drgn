@@ -26,6 +26,7 @@ from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 class TestRbtree(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
+        super().setUpClass()
         cls.root = cls.prog["drgn_test_rb_root"].address_of_()
         cls.entries = cls.prog["drgn_test_rb_entries"]
         cls.num_entries = 4

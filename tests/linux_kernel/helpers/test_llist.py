@@ -18,6 +18,7 @@ from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 class TestLlist(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
+        super().setUpClass()
         cls.empty = cls.prog["drgn_test_empty_llist"].address_of_()
         cls.full = cls.prog["drgn_test_full_llist"].address_of_()
         cls.entries = cls.prog["drgn_test_llist_entries"]

@@ -32,6 +32,7 @@ from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 class TestList(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
+        super().setUpClass()
         cls.empty = cls.prog["drgn_test_empty_list"].address_of_()
         cls.full = cls.prog["drgn_test_full_list"].address_of_()
         cls.entries = cls.prog["drgn_test_list_entries"]
@@ -211,6 +212,7 @@ class TestList(LinuxKernelTestCase):
 class TestHlist(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
+        super().setUpClass()
         cls.empty = cls.prog["drgn_test_empty_hlist"].address_of_()
         cls.full = cls.prog["drgn_test_full_hlist"].address_of_()
         cls.entries = cls.prog["drgn_test_hlist_entries"]

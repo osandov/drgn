@@ -12,6 +12,7 @@ from tests.resources import get_resource
 class TestLive(TestCase):
     @classmethod
     def setUpClass(cls):
+        super().setUpClass()
         cls.prog = Program()
         cls.prog.set_pid(os.getpid())
 
