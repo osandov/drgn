@@ -86,6 +86,8 @@ SYS = {
         "finit_module": 380,
         "perf_event_open": 366,
     },
+    # TODO: mips is missing here because I don't know how to distinguish
+    # between the o32 and n32 ABIs.
     "mips64": {
         "bpf": 315,
         "finit_module": 307,
