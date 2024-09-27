@@ -24,6 +24,12 @@ elif NORMALIZED_MACHINE_NAME == "sun4u":
 
 
 SYS = {
+    "aarch64": {
+        "bpf": 280,
+        "finit_module": 273,
+        "kexec_file_load": 294,
+        "perf_event_open": 241,
+    },
     "alpha": {
         "bpf": 515,
         "finit_module": 507,
@@ -47,10 +53,28 @@ SYS = {
         "kexec_file_load": 294,
         "perf_event_open": 241,
     },
+    "hexagon": {
+        "bpf": 280,
+        "finit_module": 273,
+        "kexec_file_load": 294,
+        "perf_event_open": 241,
+    },
     "i386": {
         "bpf": 357,
         "finit_module": 350,
         "perf_event_open": 336,
+    },
+    "loongarch": {
+        "bpf": 280,
+        "finit_module": 273,
+        "kexec_file_load": 294,
+        "perf_event_open": 241,
+    },
+    "loongarch64": {
+        "bpf": 280,
+        "finit_module": 273,
+        "kexec_file_load": 294,
+        "perf_event_open": 241,
     },
     "m68k": {
         "bpf": 354,
@@ -68,6 +92,12 @@ SYS = {
         "perf_event_open": 292,
     },
     "nios2": {
+        "bpf": 280,
+        "finit_module": 273,
+        "kexec_file_load": 294,
+        "perf_event_open": 241,
+    },
+    "openrisc": {
         "bpf": 280,
         "finit_module": 273,
         "kexec_file_load": 294,
