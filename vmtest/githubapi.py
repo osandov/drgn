@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import json
+import os
 from pathlib import Path
 import typing
 from typing import Any, Dict, Mapping, Optional, Union
@@ -68,6 +69,15 @@ class _GitHubApiBase:
                 return {**self._headers, "If-Modified-Since": cached["last_modified"]}
         return self._headers
 
+    @staticmethod
+    def _trust_cache(cached: Any) -> bool:
+        # If the request was cached and the VMTEST_TRUST_CACHE environment
+        # variable is non-zero, assume the cache is still valid.
+        try:
+            return cached is not None and int(os.getenv("VMTEST_TRUST_CACHE", "0")) != 0
+        except ValueError:
+            return False
+
     def _write_cache(
         self, cache: _CACHE, body: Any, headers: Mapping[str, str]
     ) -> None:
@@ -122,6 +132,8 @@ class GitHubApi(_GitHubApiBase):
 
     def _cached_get_json(self, endpoint: str, cache: _CACHE) -> Any:
         cached = self._read_cache(cache)
+        if self._trust_cache(cached):
+            return cached["body"]
         try:
             with urllib.request.urlopen(
                 urllib.request.Request(
@@ -164,6 +176,8 @@ class AioGitHubApi(_GitHubApiBase):
 
     async def _cached_get_json(self, endpoint: str, cache: _CACHE) -> Any:
         cached = self._read_cache(cache)
+        if self._trust_cache(cached):
+            return cached["body"]
         async with self._session.get(
             self._HOST + "/" + endpoint,
             headers=self._cached_get_headers(cached),
