@@ -7,6 +7,8 @@ Architectures
 Some features in drgn require architecture-specific support. The current status
 of this support is:
 
+.. _architecture support matrix:
+
 .. list-table::
     :header-rows: 1
 
