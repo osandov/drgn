@@ -42,7 +42,7 @@ SUPPORTED_KERNEL_VERSIONS = (
 )
 
 KERNEL_ORG_COMPILER_VERSION = "12.2.0"
-VMTEST_KERNEL_VERSION = 31
+VMTEST_KERNEL_VERSION = 32
 
 
 BASE_KCONFIG = """
@@ -271,12 +271,9 @@ ARCHITECTURES = {
             kernel_flavor_configs={
                 "default": """
                     CONFIG_ARM64_4K_PAGES=y
-                    CONFIG_ARM64_VA_BITS_48=y
                 """,
                 "alternative": """
                     CONFIG_ARM64_64K_PAGES=y
-                    CONFIG_ARM64_VA_BITS_52=y
-                    CONFIG_ARM64_PA_BITS_52=y
                 """,
                 "tiny": """
                     CONFIG_ARM64_16K_PAGES=y
