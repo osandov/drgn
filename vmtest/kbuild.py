@@ -52,6 +52,10 @@ _PATCHES = (
         versions=((None, None),),
     ),
     _Patch(
+        name="iov_iter-fix-advancing-slot-in-iter_folioq_get_pages.patch",
+        versions=((KernelVersion("6.12"), None),),
+    ),
+    _Patch(
         name="5.15-kbuild-Unify-options-for-BTF-generation-for-vmlinux.patch",
         versions=((KernelVersion("5.13"), KernelVersion("5.15.66")),),
     ),
