@@ -89,17 +89,11 @@ async def get_latest_kernel_tags() -> List[str]:
     return ["v" + str(version) for version in sorted(latest.values(), reverse=True)]
 
 
-def kernel_tag_to_release(tag: str, flavor: KernelFlavor) -> str:
+def kernel_tag_to_release(tag: str, arch: Architecture, flavor: KernelFlavor) -> str:
     match = re.fullmatch(r"v([0-9]+\.[0-9]+)(\.[0-9]+)?(-rc\d+)?", tag)
     assert match
-    return "".join(
-        [
-            match.group(1),
-            match.group(2) or ".0",
-            match.group(3) or "",
-            kconfig_localversion(flavor),
-        ]
-    )
+    version = "".join([match.group(1), match.group(2) or ".0", match.group(3) or ""])
+    return version + kconfig_localversion(arch, flavor, version)
 
 
 async def fetch_kernel_tags(kernel_dir: Path, kernel_tags: Sequence[str]) -> None:
@@ -349,7 +343,7 @@ async def main() -> None:
                     tag_arch_flavors_to_build = [
                         flavor
                         for flavor in args.flavors
-                        if kernel_tag_to_release(tag, flavor)
+                        if kernel_tag_to_release(tag, arch, flavor)
                         not in arch_kernel_releases
                     ]
                     if tag_arch_flavors_to_build:

@@ -203,10 +203,10 @@ class KBuild:
         self._build_stderr = (
             None if build_log_file is None else asyncio.subprocess.STDOUT
         )
-        self._cached_make_args: Optional[Tuple[str, ...]] = None
+        self._cached_make_args: Optional[Sequence[str]] = None
         self._cached_kernel_release: Optional[str] = None
 
-    async def _prepare_make(self) -> Tuple[str, ...]:
+    async def _prepare_make(self) -> Sequence[str]:
         if self._cached_make_args is None:
             self._build_dir.mkdir(parents=True, exist_ok=True)
 
@@ -239,11 +239,10 @@ class KBuild:
 
             cflags = " ".join(["-fdebug-prefix-map=" + map for map in debug_prefix_map])
 
-            self._cached_make_args = (
+            make_args = [
                 "-C",
                 str(self._kernel_dir),
                 "ARCH=" + str(self._arch.kernel_arch),
-                "LOCALVERSION=" + kconfig_localversion(self._flavor),
                 "O=" + str(build_dir_real),
                 "KBUILD_ABS_SRCTREE=1",
                 "KBUILD_BUILD_USER=drgn",
@@ -251,9 +250,25 @@ class KBuild:
                 "HOSTCFLAGS=" + cflags,
                 "KAFLAGS=" + cflags,
                 "KCFLAGS=" + cflags,
-                "-j",
-                str(nproc()),
+            ]
+
+            version = (
+                (
+                    await check_output(
+                        "make", *make_args, "-s", "kernelversion", env=self._env
+                    )
+                )
+                .decode()
+                .strip()
             )
+            make_args.append(
+                "LOCALVERSION="
+                + kconfig_localversion(self._arch, self._flavor, version)
+            )
+            make_args.append("-j")
+            make_args.append(str(nproc()))
+
+            self._cached_make_args = make_args
         return self._cached_make_args
 
     async def _kernel_release(self) -> str:

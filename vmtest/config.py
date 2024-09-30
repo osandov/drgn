@@ -42,7 +42,6 @@ SUPPORTED_KERNEL_VERSIONS = (
 )
 
 KERNEL_ORG_COMPILER_VERSION = "12.2.0"
-VMTEST_KERNEL_VERSION = 32
 
 
 BASE_KCONFIG = """
@@ -418,12 +417,21 @@ class Compiler(NamedTuple):
         }
 
 
-def kconfig_localversion(flavor: KernelFlavor) -> str:
-    localversion = f"-vmtest{VMTEST_KERNEL_VERSION}"
-    # The default flavor should be the "latest" version.
-    localversion += ".1" if flavor.name == "default" else ".0"
-    localversion += flavor.name
-    return localversion
+def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str) -> str:
+    vmtest_kernel_version = [
+        # Increment the major version to rebuild every
+        # architecture/flavor/version combination.
+        32,
+        # The minor version makes the default flavor the "latest" version.
+        1 if flavor.name == "default" else 0,
+    ]
+    patch_level = 0
+    # If only specific architecture/flavor/version combinations need to be
+    # rebuilt, conditionally increment the patch level here.
+    if patch_level:
+        vmtest_kernel_version.append(patch_level)
+
+    return "-vmtest" + ".".join(str(n) for n in vmtest_kernel_version) + flavor.name
 
 
 def kconfig(arch: Architecture, flavor: KernelFlavor) -> str:
