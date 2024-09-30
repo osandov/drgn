@@ -4,6 +4,7 @@
 import contextlib
 import functools
 import os
+import sys
 from typing import Any, Mapping, NamedTuple, Optional
 import unittest
 from unittest.mock import Mock
@@ -289,7 +290,70 @@ class IdenticalMatcher:
         return identical(self._obj, other)
 
 
+if sys.version_info < (3, 8):
+
+    # Class cleanups need to be called even if setUpClass() fails.
+    # Unfortunately, we need to wrap setUpClass() to do that reliably.
+    def classCleanups(setUpClass):
+        @functools.wraps(setUpClass)
+        def wrapper(cls):
+            cls._class_cleanups = []
+            try:
+                setUpClass(cls)
+            except Exception:
+                cls.doClassCleanups()
+                raise
+
+        return wrapper
+
+else:
+
+    def classCleanups(setUpClass):
+        return setUpClass
+
+
 class TestCase(unittest.TestCase):
+    # "Backport" addClassCleanup(), doClassCleanups(), enterContext(), and
+    # enterClassContext().
+    if sys.version_info < (3, 8):
+
+        @classmethod
+        def addClassCleanup(cls, function, *args, **kwargs):
+            # Note that this will fail if the @classCleanups decorator wasn't
+            # used. This is intentional.
+            cls._class_cleanups.append((function, args, kwargs))
+
+        @classmethod
+        def doClassCleanups(cls):
+            exceptions = []
+            while cls._class_cleanups:
+                function, args, kwargs = cls._class_cleanups.pop()
+                try:
+                    function(*args, **kwargs)
+                except Exception as e:
+                    exceptions.append(e)
+            if exceptions:
+                raise Exception(exceptions)
+
+        @classmethod
+        def tearDownClass(cls):
+            if hasattr(cls, "_class_cleanups"):
+                cls.doClassCleanups()
+            super().tearDownClass()
+
+    if sys.version_info < (3, 11):
+
+        def enterContext(self, cm):
+            result = cm.__enter__()
+            self.addCleanup(cm.__exit__, None, None, None)
+            return result
+
+        @classmethod
+        def enterClassContext(cls, cm):
+            result = cm.__enter__()
+            cls.addClassCleanup(cm.__exit__, None, None, None)
+            return result
+
     def assertIdentical(self, a, b, msg=None):
         return self.assertEqual(IdenticalMatcher(a), IdenticalMatcher(b), msg)
 

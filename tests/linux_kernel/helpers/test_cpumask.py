@@ -5,6 +5,7 @@ from pathlib import Path
 
 import drgn.helpers.linux.cpumask
 from drgn.helpers.linux.cpumask import cpumask_to_cpulist
+from tests import classCleanups
 from tests.linux_kernel import LinuxKernelTestCase, parse_range_list
 
 CPU_PATH = Path("/sys/devices/system/cpu")
@@ -14,23 +15,15 @@ class TestCpuMask(LinuxKernelTestCase):
     _MASKS = ("online", "possible", "present")
 
     @classmethod
+    @classCleanups
     def setUpClass(cls):
         super().setUpClass()
         for online_path in sorted(CPU_PATH.glob("cpu*/online")):
             if int(online_path.read_text()):
                 cls.offlined_path = online_path
                 online_path.write_text("0")
+                cls.addClassCleanup(online_path.write_text, "1")
                 break
-
-    @classmethod
-    def tearDownClass(cls):
-        try:
-            offlined_path = cls.offlined_path
-        except AttributeError:
-            pass
-        else:
-            offlined_path.write_text("1")
-        super().tearDownClass()
 
     def test_for_each_cpu(self):
         for name in self._MASKS:

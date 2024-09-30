@@ -19,6 +19,7 @@ from drgn.helpers.linux.cgroup import (
 )
 from drgn.helpers.linux.fs import fget
 from drgn.helpers.linux.pid import find_task
+from tests import classCleanups
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     create_socket,
@@ -49,45 +50,30 @@ def tmp_cgroups():
 
 class TestCgroup(LinuxKernelTestCase):
     @classmethod
+    @classCleanups
     def setUpClass(cls):
-        # It'd be nice to just use addClassCleanup(), but that was added in
-        # Python 3.8.
-        cls.__cleanups = []
-        try:
-            super().setUpClass()
+        super().setUpClass()
 
-            cm = tmp_cgroups()
-            parent_cgroup_dir, child_cgroup_dir = cm.__enter__()
-            cls.__cleanups.append((cm.__exit__, None, None, None))
+        parent_cgroup_dir, child_cgroup_dir = cls.enterClassContext(tmp_cgroups())
 
-            cls.root_cgroup = cls.prog["cgrp_dfl_root"].cgrp.address_of_()
+        cls.root_cgroup = cls.prog["cgrp_dfl_root"].cgrp.address_of_()
 
-            with fork_and_stop() as pid:
-                task = find_task(cls.prog, pid)
+        with fork_and_stop() as pid:
+            task = find_task(cls.prog, pid)
 
-                cls.parent_cgroup_name = os.fsencode(parent_cgroup_dir.name)
-                cls.parent_cgroup_path = b"/" + cls.parent_cgroup_name
+            cls.parent_cgroup_name = os.fsencode(parent_cgroup_dir.name)
+            cls.parent_cgroup_path = b"/" + cls.parent_cgroup_name
 
-                (parent_cgroup_dir / "cgroup.procs").write_text(str(pid))
-                cls.parent_cgroup = task.cgroups.dfl_cgrp.read_()
+            (parent_cgroup_dir / "cgroup.procs").write_text(str(pid))
+            cls.parent_cgroup = task.cgroups.dfl_cgrp.read_()
 
-                cls.child_cgroup_name = os.fsencode(child_cgroup_dir.name)
-                cls.child_cgroup_path = (
-                    cls.parent_cgroup_path + b"/" + cls.child_cgroup_name
-                )
+            cls.child_cgroup_name = os.fsencode(child_cgroup_dir.name)
+            cls.child_cgroup_path = (
+                cls.parent_cgroup_path + b"/" + cls.child_cgroup_name
+            )
 
-                (child_cgroup_dir / "cgroup.procs").write_text(str(pid))
-                cls.child_cgroup = task.cgroups.dfl_cgrp.read_()
-        except BaseException:
-            for cleanup in reversed(cls.__cleanups):
-                cleanup[0](*cleanup[1:])
-            raise
-
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        for cleanup in reversed(cls.__cleanups):
-            cleanup[0](*cleanup[1:])
+            (child_cgroup_dir / "cgroup.procs").write_text(str(pid))
+            cls.child_cgroup = task.cgroups.dfl_cgrp.read_()
 
     def test_cgroup_parent(self):
         self.assertEqual(cgroup_parent(self.child_cgroup), self.parent_cgroup)

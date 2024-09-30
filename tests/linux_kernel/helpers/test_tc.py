@@ -9,6 +9,7 @@ import unittest
 from drgn.helpers.linux.fs import path_lookup
 from drgn.helpers.linux.net import get_net_ns_by_inode, netdev_get_by_name
 from drgn.helpers.linux.tc import qdisc_lookup
+from tests import classCleanups
 from tests.linux_kernel import LinuxKernelTestCase
 
 try:
@@ -23,6 +24,7 @@ except ImportError:
 @unittest.skipUnless(have_pyroute2, "pyroute2 not found")
 class TestTc(LinuxKernelTestCase):
     @classmethod
+    @classCleanups
     def setUpClass(cls):
         super().setUpClass()
         cls.ns = None
@@ -34,11 +36,7 @@ class TestTc(LinuxKernelTestCase):
                 cls.ns = NetNS(cls.name, flags=os.O_CREAT | os.O_EXCL)
             except FileExistsError:
                 pass
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.ns.remove()
-        super().tearDownClass()
+        cls.addClassCleanup(cls.ns.remove)
 
     def test_qdisc_lookup(self):
         try:

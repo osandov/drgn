@@ -46,17 +46,7 @@ UPROBE_TYPE_PATH = Path("/sys/bus/event_source/devices/uprobe/type")
 class TestFsRefs(LinuxKernelTestCase):
     def setUp(self):
         super().setUp()
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._tmp = Path(self._tmpdir.name)
-
-    def tearDown(self):
-        try:
-            tmpdir = self._tmpdir
-        except AttributeError:
-            pass
-        else:
-            tmpdir.cleanup()
-        super().tearDown()
+        self._tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
     def run_and_capture(self, *args):
         f = io.StringIO()
