@@ -349,6 +349,7 @@ class KBuild:
             "scripts/gcc-version.sh",
             "scripts/ld-version.sh",
             "scripts/mod/modpost",
+            "scripts/module-common.c",
             "scripts/module-common.lds",
             "scripts/module.lds",
             "scripts/modules-check.sh",
