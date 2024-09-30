@@ -4,9 +4,9 @@ import argparse
 import os
 import sys
 import typing
-from typing import Any, Callable, Optional, Sequence, Union
+from typing import Any, Callable, Iterator, Optional, Sequence, Union
 
-from drgn import FaultError, Object, Program, cast, container_of
+from drgn import FaultError, Object, Program, TypeKind, cast, container_of
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.fs import (
     d_path,
@@ -397,8 +397,28 @@ def visit_uprobes(prog: Program, visitor: "Visitor") -> None:
                 continue
             found_consumer = False
             with warn_on_fault("iterating uprobe consumers"):
-                consumer = uprobe.consumers.read_()
-                while consumer:
+                consumer_list = uprobe.consumers
+                # Since Linux kernel commit cc01bd044e6a ("uprobes: travers
+                # uprobe's consumer list locklessly under SRCU protection") (in
+                # v6.12), struct uprobe::consumers is a struct list_head.
+                # Before that, it was a hand-rolled singly-linked list.
+                if consumer_list.type_.kind == TypeKind.STRUCT:
+                    consumers = list_for_each_entry(
+                        "struct uprobe_consumer",
+                        consumer_list.address_of_(),
+                        "cons_node",
+                    )
+                else:
+
+                    def for_each_consumer(first: Object) -> Iterator[Object]:
+                        consumer = first.read_()
+                        while consumer:
+                            yield consumer
+                            consumer = consumer.next.read_()
+
+                    consumers = for_each_consumer(consumer_list)
+
+                for consumer in consumers:
                     handler = consumer.handler.read_()
                     if handler == uprobe_dispatcher:
                         tu = container_of(consumer, "struct trace_uprobe", "consumer")
@@ -458,7 +478,6 @@ def visit_uprobes(prog: Program, visitor: "Visitor") -> None:
                         print(
                             f"unknown uprobe consumer {consumer.format_(**format_args)}"
                         )
-                    consumer = consumer.next.read_()
             if not found_consumer:
                 print(f"unknown uprobe {uprobe.format_(**format_args)} {match}")
 
