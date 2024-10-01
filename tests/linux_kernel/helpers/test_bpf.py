@@ -3,6 +3,7 @@
 
 import errno
 import os
+import resource
 import sys
 import unittest
 
@@ -16,6 +17,7 @@ from drgn.helpers.linux.bpf import (
     cgroup_bpf_prog_for_each_effective,
 )
 from drgn.helpers.linux.cgroup import cgroup_get_from_path
+from tests import classCleanups
 from tests.linux_kernel import LinuxKernelTestCase
 from tests.linux_kernel.bpf import (
     BPF_CGROUP_INET_INGRESS,
@@ -47,12 +49,28 @@ class TestBpf(LinuxKernelTestCase):
         INSNS = (0xB700000000000000, 0x9500000000000000)
 
     @classmethod
+    @classCleanups
     def setUpClass(cls):
         super().setUpClass()
         if _SYS_bpf is None:
             raise unittest.SkipTest(
                 f"bpf syscall number is not known on {NORMALIZED_MACHINE_NAME}"
             )
+        # Before the patch series culminating in Linux kernel commit
+        # 3ac1f01b43b6 ("bpf: Eliminate rlimit-based memory accounting for bpf
+        # progs") (in v5.11), BPF program and map memory usage was limited by
+        # RLIMIT_MEMLOCK. At that time (before Linux kernel commit 9dcc38e2813e
+        # ("Increase default MLOCK_LIMIT to 8 MiB") (in v5.16)), the limit was
+        # only 64kB. We only allocate a few small objects at a time, but with
+        # 64k pages, we can easily blow that limit.
+        memlock_limit = 8 * 1024 * 1024
+        old_limit = resource.getrlimit(resource.RLIMIT_MEMLOCK)
+        if old_limit[0] < memlock_limit:
+            resource.setrlimit(
+                resource.RLIMIT_MEMLOCK,
+                (memlock_limit, max(memlock_limit, old_limit[1])),
+            )
+            cls.addClassCleanup(resource.setrlimit, resource.RLIMIT_MEMLOCK, old_limit)
         try:
             os.close(bpf_map_create(BPF_MAP_TYPE_HASH, 8, 8, 8))
         except OSError as e:
