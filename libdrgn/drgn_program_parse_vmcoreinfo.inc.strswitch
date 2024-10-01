@@ -103,6 +103,12 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 			if (err)
 				return err;
 			break;
+		@case "NUMBER(TCR_EL1_T1SZ)"@
+			err = parse_vmcoreinfo_u64(value, newline, 0,
+						   &prog->vmcoreinfo.tcr_el1_t1sz);
+			if (err)
+				return err;
+			break;
 		@endswitch@
 	}
 	if (!prog->vmcoreinfo.osrelease[0]) {
