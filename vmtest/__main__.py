@@ -113,9 +113,8 @@ def _kdump_works(kernel: Kernel) -> bool:
         # http://lists.infradead.org/pipermail/kexec/2020-November/021740.html.
         return KernelVersion(kernel.release) >= KernelVersion("5.10")
     elif kernel.arch.name == "arm":
-        # Without virtual address translation, we can't debug vmcores. Besides,
-        # kexec fails with "Could not find a free area of memory of 0xXXX
-        # bytes...".
+        # /proc/vmcore fails to initialize. See
+        # https://lore.kernel.org/linux-debuggers/ZvxT9EmYkyFuFBH9@telecaster/T/.
         return False
     elif kernel.arch.name == "ppc64":
         # Before 6.1, sysrq-c hangs.

@@ -171,6 +171,8 @@ struct drgn_program {
 		uint64_t phys_base;
 		/** Whether 5-level paging was enabled on x86-64. */
 		bool pgtable_l5_enabled;
+		/** Whether LPAE was enabled on Arm. */
+		bool arm_lpae;
 		/** Whether CRASHTIME was in the VMCOREINFO. */
 		bool have_crashtime;
 		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */

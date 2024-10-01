@@ -39,7 +39,7 @@ of this support is:
     * - Arm
       - ✓
       -
-      -
+      - ✓
     * - RISC-V
       - ✓
       -

@@ -109,6 +109,9 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 			if (err)
 				return err;
 			break;
+		@case "CONFIG_ARM_LPAE"@
+			prog->vmcoreinfo.arm_lpae = value[0] == 'y';
+			break;
 		@endswitch@
 	}
 	if (!prog->vmcoreinfo.osrelease[0]) {

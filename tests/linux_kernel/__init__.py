@@ -102,6 +102,7 @@ skip_unless_have_test_disk = unittest.skipUnless(
 # Please keep this in sync with docs/support_matrix.rst.
 HAVE_FULL_MM_SUPPORT = NORMALIZED_MACHINE_NAME in (
     "aarch64",
+    "arm",
     "ppc64",
     "s390x",
     "x86_64",
