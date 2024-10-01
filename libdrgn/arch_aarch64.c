@@ -275,6 +275,7 @@ struct pgtable_iterator_aarch64 {
 	uint64_t table[5];
 	uint64_t pa_low_mask;
 	uint64_t pa_high_mask;
+	int pa_high_shift;
 };
 
 static struct drgn_error *
@@ -347,20 +348,35 @@ linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 	// For 52-bit physical addresses, physical address bits [51:48] come
 	// from elsewhere.
 	//
-	// With 64k pages and Armv8.2 FEAT_LPA, descriptor bits [15:12] contain
-	// physical address bits [51:48]. If FEAT_LPA is not enabled, then bits
-	// [15:12] must be 0. So, if we're using 64k pages, we can always get
-	// those bits without doing feature detection.
+	// With 64k pages and 52-bit physical addresses (Armv8.2 FEAT_LPA),
+	// descriptor bits [15:12] contain physical address bits [51:48]. With
+	// 64k pages and 48-bit physical addresses, descriptor bits [15:12] must
+	// be 0. So, if we're using 64k pages, we can always get those bits
+	// without knowing the physical address size.
 	//
-	// With 4k or 16k pages and Armv8.7 FEAT_LPA2, descriptor bits [48:49]
-	// contain physical address bits [48:49] and descriptor bits [9:8]
-	// contain physical address bits [51:50]. However, if FEAT_LPA2 is not
-	// enabled, then descriptor bits [9:8] are used for other purposes.
-	// Linux as of v5.19 does not support FEAT_LPA2. When support is added,
-	// we will need to do feature detection.
+	// With 4k or 16k pages and 52-bit physical addresses (Armv8.7
+	// FEAT_LPA2), descriptor bits [49:48] contain physical address bits
+	// [49:48] and descriptor bits [9:8] contain physical address bits
+	// [51:50]. However, with 4k or 16k pages and 48-bit physical addresses,
+	// descriptor bits [9:8] are used for other purposes. We need to know
+	// the physical address size, but it is not reported in VMCOREINFO.
+	// However, we can check the virtual address size, as with 4k or 16k
+	// pages, the kernel requires that it is equal to the physical address
+	// size; see Linux kernel commit 352b0395b505 ("arm64: Enable 52-bit
+	// virtual addressing for 4k and 16k granule configs") (in v6.9).
 	it->pa_low_mask = (UINT64_C(0x0000ffffffffffff)
 			   & ~(prog->vmcoreinfo.page_size - 1));
-	it->pa_high_mask = page_shift < 16 ? 0x0 : 0xf000;
+	if (page_shift == 16) {
+		it->pa_high_mask = 0xf000;
+		it->pa_high_shift = 36;
+	} else if (va_bits == 52) {
+		it->pa_low_mask |= UINT64_C(0x0003000000000000);
+		it->pa_high_mask = 0x300;
+		it->pa_high_shift = 42;
+	} else {
+		it->pa_high_mask = 0x0;
+		it->pa_high_shift = 0;
+	}
 
 	*ret = &it->it;
 	return NULL;
@@ -435,7 +451,7 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 
 		num_entries = it->entries_per_level;
 		table = ((entry & it->pa_low_mask) |
-			 (entry & it->pa_high_mask) << 36);
+			 (entry & it->pa_high_mask) << it->pa_high_shift);
 
 		// Descriptor bits [1:0] identify the descriptor type:
 		//
