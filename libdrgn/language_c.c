@@ -109,11 +109,11 @@ c_declare_basic(struct drgn_qualified_type qualified_type,
 
 static struct drgn_error *
 c_append_tagged_name(struct drgn_qualified_type qualified_type, size_t indent,
-		     struct string_builder *sb)
+		     bool need_keyword, struct string_builder *sb)
 {
 	struct drgn_error *err;
-	const char *keyword, *tag;
 
+	const char *keyword;
 	switch (drgn_type_kind(qualified_type.type)) {
 	case DRGN_TYPE_STRUCT:
 		keyword = "struct";
@@ -131,6 +131,13 @@ c_append_tagged_name(struct drgn_qualified_type qualified_type, size_t indent,
 		UNREACHABLE();
 	}
 
+	const char *tag = drgn_type_tag(qualified_type.type);
+	if (!need_keyword
+	    && (!tag
+		|| drgn_type_language(qualified_type.type)
+		   != &drgn_language_cpp))
+		need_keyword = true;
+
 	if (!append_tabs(indent, sb))
 		return &drgn_enomem;
 	if (qualified_type.qualifiers) {
@@ -140,12 +147,11 @@ c_append_tagged_name(struct drgn_qualified_type qualified_type, size_t indent,
 		if (!string_builder_appendc(sb, ' '))
 			return &drgn_enomem;
 	}
-	if (!string_builder_append(sb, keyword))
+	if (need_keyword && !string_builder_append(sb, keyword))
 		return &drgn_enomem;
 
-	tag = drgn_type_tag(qualified_type.type);
 	if (tag) {
-		if (!string_builder_appendc(sb, ' ') ||
+		if ((need_keyword && !string_builder_appendc(sb, ' ')) ||
 		    !string_builder_append(sb, tag))
 			return &drgn_enomem;
 	}
@@ -164,7 +170,7 @@ c_declare_tagged(struct drgn_qualified_type qualified_type,
 	if (anonymous && define_anonymous_type)
 		err = c_define_type(qualified_type, indent, sb);
 	else
-		err = c_append_tagged_name(qualified_type, indent, sb);
+		err = c_append_tagged_name(qualified_type, indent, false, sb);
 	if (err)
 		return err;
 	if (anonymous && !define_anonymous_type &&
@@ -382,7 +388,7 @@ c_define_compound(struct drgn_qualified_type qualified_type, size_t indent,
 	members = drgn_type_members(qualified_type.type);
 	num_members = drgn_type_num_members(qualified_type.type);
 
-	err = c_append_tagged_name(qualified_type, indent, sb);
+	err = c_append_tagged_name(qualified_type, indent, true, sb);
 	if (err)
 		return err;
 	if (!string_builder_append(sb, " {\n"))
@@ -436,7 +442,7 @@ c_define_enum(struct drgn_qualified_type qualified_type, size_t indent,
 	enumerators = drgn_type_enumerators(qualified_type.type);
 	num_enumerators = drgn_type_num_enumerators(qualified_type.type);
 
-	err = c_append_tagged_name(qualified_type, indent, sb);
+	err = c_append_tagged_name(qualified_type, indent, true, sb);
 	if (err)
 		return err;
 	if (!string_builder_append(sb, " {\n"))
