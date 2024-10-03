@@ -87,9 +87,9 @@ Coding Guidelines
 C
 ^
 
-drgn is written in C11. C code in drgn mostly follows the `Linux kernel coding
-style <https://www.kernel.org/doc/html/latest/process/coding-style.html>`_ with
-some slightly more modern preferences:
+drgn is written in GNU C11. C code in drgn mostly follows the `Linux kernel
+coding style <https://www.kernel.org/doc/html/latest/process/coding-style.html>`_
+with some slightly more modern preferences:
 
 * Variables should be declared as close as possible to where they are used (as
   opposed to the C89 style of declaring everything at the top of a function).
