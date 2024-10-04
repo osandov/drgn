@@ -151,7 +151,8 @@ DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 	case DRGN_ERROR_FAULT: {
 		_cleanup_pydecref_ PyObject *exc =
 			PyObject_CallFunction((PyObject *)&FaultError_type,
-					      "sK", err->message, err->address);
+					      "sK", err->message,
+					      (unsigned long long)err->address);
 		if (exc)
 			PyErr_SetObject((PyObject *)&FaultError_type, exc);
 		break;
