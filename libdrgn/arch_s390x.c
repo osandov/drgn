@@ -394,6 +394,7 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 		container_of(_it, struct pgtable_iterator_s390x, it);
 	const uint64_t va = it->it.virt_addr;
 	uint64_t table = _it->pgtable & ~UINT64_C(0xfff);
+	bool table_physical = false;
 	int level, length = 2048, offset = 0;
 	uint64_t entry;
 
@@ -403,7 +404,7 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 	 * the linux kernel does: read the first level entry, and deduct the
 	 * number of levels from the TT bits.
 	 */
-	struct drgn_error *err = drgn_program_read_u64(prog, table, true,
+	struct drgn_error *err = drgn_program_read_u64(prog, table, false,
 						       &entry);
 	if (err)
 		return err;
@@ -430,7 +431,8 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 			 */
 			err = drgn_program_read_memory(prog,
 						       it->pagetable[level].entries,
-						       table, length * 8, true);
+						       table, length * 8,
+						       table_physical);
 			if (err)
 				return err;
 
@@ -452,6 +454,7 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 
 		bool is_large;
 		table = get_table_address(entry, level, &is_large);
+		table_physical = true;
 
 		if (level == 0 || is_large) {
 			uint64_t mask = get_level_mask(level);

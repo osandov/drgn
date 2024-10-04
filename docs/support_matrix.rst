@@ -27,7 +27,7 @@ of this support is:
     * - s390x
       - ✓
       - ✓
-      - ✓ (`currently broken on Linux ≥ 6.10 <https://github.com/osandov/drgn/issues/433>`_)
+      - ✓
     * - ppc64
       - ✓
       - ✓
