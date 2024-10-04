@@ -79,19 +79,22 @@ _syscall = _c.syscall
 _syscall.restype = ctypes.c_long
 
 
-# os.memfd_create() was added in Python 3.8.
+# os.memfd_create() was added in Python 3.8, and only with glibc >= 2.27
+# (manylinux2014 uses glibc 2.17). The syscall was added in Linux 3.17, so fall
+# back to using it directly.
 if hasattr(os, "memfd_create"):
     _memfd_create = os.memfd_create  # novermin
 else:
-    __memfd_create = _c.memfd_create
-    __memfd_create.restype = ctypes.c_int
-    __memfd_create.argtypes = [ctypes.c_char_p, ctypes.c_uint]
 
     def _memfd_create(
         name: str,
         flags: int = 1,  # MFD_CLOEXEC
     ) -> int:
-        fd = __memfd_create(os.fsencode(name), flags)
+        fd = _syscall(
+            ctypes.c_long(SYS["memfd_create"]),
+            ctypes.c_char_p(os.fsencode(name)),
+            ctypes.c_uint(flags),
+        )
         if fd < 0:
             errnum = ctypes.get_errno()
             raise OSError(errnum, os.strerror(errnum))
