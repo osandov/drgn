@@ -133,8 +133,8 @@ DrgnObject *drgnpy_linux_helper_task_thread_info(PyObject *self, PyObject *args,
 	static char *keywords[] = {"task", NULL};
 	struct drgn_error *err;
 	DrgnObject *task;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:task_cpu", keywords,
-					 &DrgnObject_type, &task))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:task_thread_info",
+					 keywords, &DrgnObject_type, &task))
 		return NULL;
 
 	_cleanup_pydecref_ DrgnObject *res =
