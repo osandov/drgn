@@ -325,20 +325,20 @@ class TestCase(unittest.TestCase):
 
         @classmethod
         def doClassCleanups(cls):
-            exceptions = []
-            while cls._class_cleanups:
-                function, args, kwargs = cls._class_cleanups.pop()
-                try:
-                    function(*args, **kwargs)
-                except Exception as e:
-                    exceptions.append(e)
-            if exceptions:
-                raise Exception(exceptions)
+            if hasattr(cls, "_class_cleanups"):
+                exceptions = []
+                while cls._class_cleanups:
+                    function, args, kwargs = cls._class_cleanups.pop()
+                    try:
+                        function(*args, **kwargs)
+                    except Exception as e:
+                        exceptions.append(e)
+                if exceptions:
+                    raise Exception(exceptions)
 
         @classmethod
         def tearDownClass(cls):
-            if hasattr(cls, "_class_cleanups"):
-                cls.doClassCleanups()
+            cls.doClassCleanups()
             super().tearDownClass()
 
     if sys.version_info < (3, 11):
