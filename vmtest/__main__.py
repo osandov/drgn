@@ -74,19 +74,19 @@ class _ProgressPrinter:
             for category, names in self._passed.items():
                 if first:
                     first = False
-                    print(self._green("Passed:"), end=" ")
+                    print(self._green("Passed:"), end=" ", file=self._file)
                 else:
-                    print("       ", end=" ")
-                print(f"{category}: {', '.join(names)}")
+                    print("       ", end=" ", file=self._file)
+                print(f"{category}: {', '.join(names)}", file=self._file)
         if self._failed:
             first = True
             for category, names in self._failed.items():
                 if first:
                     first = False
-                    print(self._red("Failed:"), end=" ")
+                    print(self._red("Failed:"), end=" ", file=self._file)
                 else:
-                    print("       ", end=" ")
-                print(f"{category}: {', '.join(names)}")
+                    print("       ", end=" ", file=self._file)
+                print(f"{category}: {', '.join(names)}", file=self._file)
 
         print(file=self._file)
         print(header, file=self._file, flush=True)
