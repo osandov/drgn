@@ -56,6 +56,10 @@ _PATCHES = (
         versions=((KernelVersion("6.12"), None),),
     ),
     _Patch(
+        name="filelock-fix-name-of-file_lease-slab-cache.patch",
+        versions=((KernelVersion("6.9"), KernelVersion("6.10")),),
+    ),
+    _Patch(
         name="5.15-kbuild-Unify-options-for-BTF-generation-for-vmlinux.patch",
         versions=((KernelVersion("5.13"), KernelVersion("5.15.66")),),
     ),

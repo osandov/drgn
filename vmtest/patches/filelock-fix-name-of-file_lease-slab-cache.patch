@@ -1,0 +1,39 @@
+From 3f65f3c099bcb27949e712f39ba836f21785924a Mon Sep 17 00:00:00 2001
+Message-ID: <3f65f3c099bcb27949e712f39ba836f21785924a.1728320011.git.osandov@fb.com>
+From: Omar Sandoval <osandov@fb.com>
+Date: Mon, 29 Jul 2024 15:48:12 -0700
+Subject: [PATCH] filelock: fix name of file_lease slab cache
+
+When struct file_lease was split out from struct file_lock, the name of
+the file_lock slab cache was copied to the new slab cache for
+file_lease. This name conflict causes confusion in /proc/slabinfo and
+/sys/kernel/slab. In particular, it caused failures in drgn's test case
+for slab cache merging.
+
+Link: https://github.com/osandov/drgn/blob/9ad29fd86499eb32847473e928b6540872d3d59a/tests/linux_kernel/helpers/test_slab.py#L81
+Fixes: c69ff4071935 ("filelock: split leases out of struct file_lock")
+Signed-off-by: Omar Sandoval <osandov@fb.com>
+Link: https://lore.kernel.org/r/2d1d053da1cafb3e7940c4f25952da4f0af34e38.1722293276.git.osandov@fb.com
+Reviewed-by: Chuck Lever <chuck.lever@oracle.com>
+Reviewed-by: Jeff Layton <jlayton@kernel.org>
+Signed-off-by: Christian Brauner <brauner@kernel.org>
+---
+ fs/locks.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/locks.c b/fs/locks.c
+index 9afb16e0683f..e45cad40f8b6 100644
+--- a/fs/locks.c
++++ b/fs/locks.c
+@@ -2984,7 +2984,7 @@ static int __init filelock_init(void)
+ 	filelock_cache = kmem_cache_create("file_lock_cache",
+ 			sizeof(struct file_lock), 0, SLAB_PANIC, NULL);
+ 
+-	filelease_cache = kmem_cache_create("file_lock_cache",
++	filelease_cache = kmem_cache_create("file_lease_cache",
+ 			sizeof(struct file_lease), 0, SLAB_PANIC, NULL);
+ 
+ 	for_each_possible_cpu(i) {
+-- 
+2.46.2
+
