@@ -1,0 +1,211 @@
+0.0.28 (Released October 7th, 2024)
+====================================
+
+These are some of the highlights of drgn 0.0.28. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.0.28>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+
+Calling Arbitrary Functions in the Running Kernel
+-------------------------------------------------
+
+This release added :func:`~drgn.helpers.experimental.kmodify.call_function()`,
+which calls a function in the running kernel. This is the first ever feature in
+drgn that allows modifying the state of the kernel. Its primary use cases are
+experimentation in development environments and mitigating kernel bugs in
+production. For example, `this
+<https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=74751ef5c1912ebd3e65c3b65f45587e05ce5d36>`_
+recent lost wake-up bug could be mitigated with something like:
+
+.. code-block:: python3
+
+
+    from drgn.helpers.experimental.kmodify import call_function
+    for task in for_each_task():
+        for frame in stack_trace(task):
+            if frame.name == "perf_event_free_task":
+                call_function("wake_up_process", task)
+                break
+
+Note that this feature is currently experimental, only supported on x86-64, and
+may have a different API in the future.
+
+There is a `blog post
+<https://blog.osandov.com/2024/09/17/calling-linux-kernel-functions-from-userspace.html>`_
+about how this feature works.
+
+Writing to Kernel Memory
+------------------------
+
+In a similar vein, drgn can now write to kernel memory, either via an address
+(with :func:`~drgn.helpers.experimental.kmodify.write_memory()`)::
+
+    >>> import os
+    >>> from drgn.helpers.experimental.kmodify import write_memory
+    >>> os.uname().sysname
+    'Linux'
+    >>> write_memory(prog["init_uts_ns"].name.sysname.address_, b"Lol\\0")
+    >>> os.uname().sysname
+    'Lol'
+
+or an object (with :func:`~drgn.helpers.experimental.kmodify.write_object()`)::
+
+    >>> from drgn.helpers.experimental.kmodify import write_object
+    >>> os.system("uptime -p")
+    up 12 minutes
+    >>> write_object(prog["init_time_ns"].offsets.boottime.tv_sec, 1000000000)
+    >>> os.system("uptime -p")
+    up 3 decades, 1 year, 37 weeks, 1 hour, 59 minutes
+
+This feature is also experimental. It uses the same underlying mechanism as
+:func:`~drgn.helpers.experimental.kmodify.call_function()`.
+
+More C Operators
+----------------
+
+This release added a couple of new functions corresponding to operators in C.
+The :func:`~drgn.alignof()` function is analogous to the |alignof()|_ operator
+in C::
+
+    >>> alignof(prog.type("long long"))
+    8
+
+.. |alignof()| replace:: ``_Alignof()``
+.. _alignof(): https://en.cppreference.com/w/c/language/_Alignof
+
+The :func:`~drgn.implicit_convert()` function implements implicit conversions
+in C, like when assigning a variable, passing an argument to a function call,
+or returning a value::
+
+    >>> implicit_convert("unsigned int", Object(prog, "float", 2.0))
+    (unsigned int)2
+    >>> implicit_convert("void *", Object(prog, "int", 0))
+    Traceback (most recent call last):
+      ...
+    TypeError: cannot convert 'int' to incompatible type 'void *'
+
+Kernel Module Helpers
+---------------------
+
+Stephen Brennan contributed several helpers for working with Linux kernel modules.
+
+
+:func:`~drgn.helpers.linux.module.for_each_module()` iterates over loaded modules::
+
+    >>> for module in for_each_module():
+    ...     print(module.name.string_().decode())
+    ...
+    overlay
+    vhost_net
+    vhost
+    ...
+
+:func:`~drgn.helpers.linux.module.find_module()` finds the module with a given name::
+
+    >>> module = find_module("overlay")
+    >>> module
+    *(struct module *)0xffffffffc23dae00 = {
+            ...
+    }
+
+:func:`~drgn.helpers.linux.module.module_address_regions()` and
+:func:`~drgn.helpers.linux.module.module_percpu_region()` return all of the
+memory regions associated with a module, and
+:func:`~drgn.helpers.linux.module.address_to_module()` finds the module containing an address::
+
+    >>> for start, size in module_address_regions(module):
+    ...     print(hex(start), size)
+    ...
+    0xffffffffc23be000 102400
+    0xffffffffc23d8000 65536
+    0xffffffffc23e9000 73728
+    0xffffffffc2385000 4096
+    0x0 0
+    0x0 0
+    0x0 0
+    >>> address_to_module(0xffffffffc23bf000) == module
+    True
+
+Thread Names
+------------
+
+Ryan Wilson added the :attr:`~drgn.Thread.name` attribute to
+:class:`drgn.Thread`. This provides a consistent interface for getting the name
+of a thread regardless of whether you're debugging the kernel or a userspace
+program. (Unfortunately, userspace core dumps on Linux don't save the name of
+any threads other than the main thread.)
+
+Full 32-Bit Arm Support
+-----------------------
+
+This release added support for virtual address translation and stack traces on
+32-bit Arm. This is the state of architecture support in this release:
+
+.. list-table::
+    :header-rows: 1
+
+    * - Architecture
+      - Linux Kernel Modules
+      - Stack Traces
+      - Virtual Address Translation
+    * - x86-64
+      - ✓
+      - ✓
+      - ✓
+    * - AArch64
+      - ✓
+      - ✓
+      - ✓
+    * - s390x
+      - ✓
+      - ✓
+      - ✓
+    * - ppc64
+      - ✓
+      - ✓
+      - ✓
+    * - i386
+      - ✓
+      -
+      -
+    * - Arm
+      - ✓
+      - ✓
+      - ✓
+    * - RISC-V
+      - ✓
+      -
+      -
+
+Note that there are known Linux kernel issues with debugging 32-bit Arm, both
+`live <https://github.com/osandov/drgn/blob/fa9157f53a431abe3054b82ef7a7431107742a52/vmtest/patches/proc-kcore-allow-enabling-CONFIG_PROC_KCORE-on-ARM.patch>`_
+and in `kdump <https://lore.kernel.org/linux-arm-kernel/ZvxT9EmYkyFuFBH9@telecaster/>`_.
+Please reach out to the linux-debuggers@vger.kernel.org mailing list if these
+affect you.
+
+AArch64 and s390x Virtual Address Translation Fixes
+---------------------------------------------------
+
+As of Linux 6.9, the default AArch64 kernel configuration `enables
+<https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=5d101654226d64ac0a6928019fbf476b46e9d14b>`_
+52-bit virtual addresses and `falls back
+<https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=0dd4f60a2c76938c2625f6c630c225699d97608b>`_
+to a smaller virtual address size if the hardware does not support 52 bits.
+This required updates to drgn that were missed in v0.0.27.
+
+As of Linux 6.10, on s390x, virtual addresses in the direct mapping are
+`no longer
+<https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c98d2ecae08f02bd2dccd24e7e485e9f0211db65>`_
+equal to physical addresses. This also required updates to drgn that were
+missed in v0.0.27.
+
+Linux 6.11 and 6.12 Support
+---------------------------
+
+A change in Linux 6.12 broke ``tools/fsrefs.py``. This error from
+``visit_uprobes()`` is fixed in this release::
+
+    TypeError: cannot convert 'struct list_head' to bool
+
+No other changes were required to support Linux 6.11 and 6.12.
