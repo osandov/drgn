@@ -881,6 +881,7 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
     :raises FaultError: if the address cannot be written to
     """
     copy_to_kernel_nofault_address = None
+    copy_from_kernel_nofault_address = None
     for copy_to_kernel_nofault, copy_from_kernel_nofault in (
         # Names used since Linux kernel commit fe557319aa06 ("maccess: rename
         # probe_kernel_{read,write} to copy_{from,to}_kernel_nofault") (in
@@ -888,17 +889,20 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
         ("copy_to_kernel_nofault", "copy_from_kernel_nofault"),
         # Names used before Linux kernel commit 48c49c0e5f31 ("maccess: remove
         # various unused weak aliases") (in v5.8-rc1).
-        ("__probe_kernel_write", "probe_kernel_read"),
+        ("__probe_kernel_write", "__probe_kernel_read"),
         # Names briefly used between those two commits.
         ("probe_kernel_write", "probe_kernel_read"),
     ):
         try:
             copy_to_kernel_nofault_address = prog[copy_to_kernel_nofault].address_
+            copy_from_kernel_nofault_address = prog[copy_from_kernel_nofault].address_
             break
         except KeyError:
             pass
     if copy_to_kernel_nofault_address is None:
         raise LookupError("copy_to_kernel_nofault not found")
+    if copy_from_kernel_nofault_address is None:
+        raise LookupError("copy_from_kernel_nofault not found")
 
     kmodify = _Kmodify(prog)
     address = operator.index(address)
@@ -946,7 +950,6 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
         # copies can be slightly less racy.
         data_alignment=16,
         symbols=[
-            # copy_to_kernel_nofault() is not exported.
             _ElfSymbol(
                 name=copy_to_kernel_nofault,
                 value=copy_to_kernel_nofault_address,
@@ -957,11 +960,11 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
             ),
             _ElfSymbol(
                 name=copy_from_kernel_nofault,
-                value=0,
+                value=copy_from_kernel_nofault_address,
                 size=0,
-                type=STT.NOTYPE,
-                binding=STB.GLOBAL,
-                section=SHN.UNDEF,
+                type=STT.FUNC,
+                binding=STB.LOCAL,
+                section=SHN.ABS,
             ),
         ],
     )
@@ -1290,12 +1293,25 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
         )
 
     # copy_to_user() is the more obvious choice, but it's an inline function.
-    # Renamed in Linux kernel commit c0ee37e85e0e ("maccess: rename
-    # probe_user_{read,write} to copy_{from,to}_user_nofault") (in v5.8-rc2).
-    if "copy_to_user_nofault" in prog:
-        copy_to_user_nofault = "copy_to_user_nofault"
-    else:
-        copy_to_user_nofault = "probe_user_write"
+    copy_to_user_nofault_address = None
+    for copy_to_user_nofault in (
+        # Name used since Linux kernel commit c0ee37e85e0e ("maccess: rename
+        # probe_user_{read,write} to copy_{from,to}_user_nofault") (in
+        # v5.8-rc2).
+        "copy_to_user_nofault",
+        # Name used before Linux kernel commit 48c49c0e5f31 ("maccess: remove
+        # various unused weak aliases") (in v5.8-rc1).
+        "__probe_user_write",
+        # Name briefly used between those two commits.
+        "probe_user_write",
+    ):
+        try:
+            copy_to_user_nofault_address = prog[copy_to_user_nofault].address_
+            break
+        except KeyError:
+            continue
+    if copy_to_user_nofault_address is None:
+        raise LookupError("copy_to_user_nofault not found")
 
     sizeof_int = sizeof(prog.type("int"))
     if data:
@@ -1316,11 +1332,11 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
         symbols.append(
             _ElfSymbol(
                 name=copy_to_user_nofault,
-                value=0,
+                value=copy_to_user_nofault_address,
                 size=0,
-                type=STT.NOTYPE,
-                binding=STB.GLOBAL,
-                section=SHN.UNDEF,
+                type=STT.FUNC,
+                binding=STB.LOCAL,
+                section=SHN.ABS,
             )
         )
 
