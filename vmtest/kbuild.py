@@ -52,10 +52,6 @@ _PATCHES = (
         versions=((None, None),),
     ),
     _Patch(
-        name="iov_iter-fix-advancing-slot-in-iter_folioq_get_pages.patch",
-        versions=((KernelVersion("6.12"), None),),
-    ),
-    _Patch(
         name="filelock-fix-name-of-file_lease-slab-cache.patch",
         versions=((KernelVersion("6.9"), KernelVersion("6.10")),),
     ),
