@@ -1,9 +1,13 @@
-0.0.28 (Released October 7th, 2024)
-====================================
+0.0.28 & 0.0.29 (Released October 7th & 8th, 2024)
+==================================================
 
 These are some of the highlights of drgn 0.0.28. See the `GitHub release
 <https://github.com/osandov/drgn/releases/tag/v0.0.28>`_ for the full release
 notes, including more improvements and bug fixes.
+
+drgn 0.0.29 was released shortly after 0.0.28 with a single bug fix for the
+:mod:`drgn.helpers.experimental.kmodify` module. See the `release notes
+<https://github.com/osandov/drgn/releases/tag/v0.0.29>`_.
 
 .. highlight:: pycon
 
