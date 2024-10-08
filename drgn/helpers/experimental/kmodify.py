@@ -713,6 +713,98 @@ class _Arch_X86_64:
         return code_gen.code, code_gen.relocations
 
 
+def _find_exported_symbol_in_section(
+    prog: Program, name: bytes, start: int, stop: int
+) -> int:
+    kernel_symbol_type = prog.type("struct kernel_symbol")
+    if kernel_symbol_type.has_member("name_offset"):
+
+        def kernel_symbol_name(sym: Object) -> Object:
+            return cast("char *", sym.name_offset.address_of_()) + sym.name_offset
+
+    else:
+
+        def kernel_symbol_name(sym: Object) -> Object:
+            return sym.name
+
+    syms = Object(prog, prog.pointer_type(kernel_symbol_type), start)
+    lo = 0
+    hi = (stop - start) // sizeof(kernel_symbol_type)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        sym_name = kernel_symbol_name(syms[mid]).string_()
+        if sym_name < name:
+            lo = mid + 1
+        elif sym_name > name:
+            hi = mid
+        else:
+            return mid
+    return -1
+
+
+# If CONFIG_MODVERSIONS=y, then we need a __versions section containing a CRC
+# of each exported symbol that we use. Since we intentionally don't use any
+# symbols, we only need it for the special module_layout symbol.
+def _get_versions_section(struct_module: Type) -> Optional[_ElfSection]:
+    prog = struct_module.prog
+    try:
+        return prog.cache["kmodify___versions_section"]
+    except KeyError:
+        pass
+
+    # module_layout is defined if and only if CONFIG_MODVERSIONS=y.
+    have_module_layout = False
+    try:
+        have_module_layout = prog["module_layout"].address_ is not None
+    except KeyError:
+        pass
+
+    if have_module_layout:
+        # We only check the non-GPL-only section because module_layout is
+        # non-GPL-only.
+        i = _find_exported_symbol_in_section(
+            prog,
+            b"module_layout",
+            prog.symbol("__start___ksymtab").address,
+            prog.symbol("__stop___ksymtab").address,
+        )
+        if i < 0:
+            raise LookupError("module_layout not found")
+
+        # Since Linux kernel commit 71810db27c1c ("modversions: treat symbol
+        # CRCs as 32 bit quantities") (in v4.10), CRCs are in an array of s32.
+        # Before that, they are in an array of unsigned long. Determine the
+        # correct type from struct module::crcs.
+        module_layout_crc = (
+            Object(
+                prog,
+                struct_module.member("crcs").type,
+                prog.symbol("__start___kcrctab").address,
+            )[i].value_()
+            & 0xFFFFFFFF
+        )
+
+        struct_modversion_info = prog.type("struct modversion_info")
+        section = _ElfSection(
+            name="__versions",
+            type=SHT.PROGBITS,
+            flags=SHF.ALLOC,
+            data=Object(
+                prog,
+                struct_modversion_info,
+                {
+                    "crc": module_layout_crc,
+                    "name": b"module_layout",
+                },
+            ).to_bytes_(),
+            addralign=alignof(struct_modversion_info),
+        )
+    else:
+        section = None
+    prog.cache["kmodify___versions_section"] = section
+    return section
+
+
 class _Kmodify:
     def __init__(self, prog: Program) -> None:
         if prog.flags & (
@@ -809,6 +901,11 @@ class _Kmodify:
                 ),
             ),
         ]
+
+        # Add the __versions section if needed.
+        versions_section = _get_versions_section(struct_module)
+        if versions_section is not None:
+            sections.append(versions_section)
 
         symbols = [
             *symbols,
