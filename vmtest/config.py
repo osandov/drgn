@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Dict, Mapping, NamedTuple, Sequence
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-from util import KernelVersion
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
@@ -196,7 +195,7 @@ KERNEL_FLAVORS = OrderedDict(
         ),
         KernelFlavor(
             name="alternative",
-            description="SLAB allocator, no KASLR",
+            description="SLAB allocator, module versioning, no KASLR",
             config="""
                 CONFIG_SMP=y
                 CONFIG_SLAB=y
@@ -204,6 +203,7 @@ KERNEL_FLAVORS = OrderedDict(
                 # CONFIG_SLAB to CONFIG_SLAB_DEPRECATED") (in v6.5) renamed the
                 # option for SLAB.
                 CONFIG_SLAB_DEPRECATED=y
+                CONFIG_MODVERSIONS=y
                 CONFIG_RANDOMIZE_BASE=n
             """,
         ),
@@ -423,17 +423,13 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     vmtest_kernel_version = [
         # Increment the major version to rebuild every
         # architecture/flavor/version combination.
-        32,
+        33,
         # The minor version makes the default flavor the "latest" version.
         1 if flavor.name == "default" else 0,
     ]
     patch_level = 0
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
-    if KernelVersion(version) >= KernelVersion("6.12"):
-        patch_level += 1
-    if KernelVersion("6.9") <= KernelVersion(version) < KernelVersion("6.10"):
-        patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 
