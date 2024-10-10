@@ -86,8 +86,9 @@ drgn can be installed using the package manager on some Linux distributions.
 
 * Arch Linux
 
-  Install the `drgn <https://aur.archlinux.org/packages/drgn/>`_ package from
-  the `AUR <https://wiki.archlinux.org/title/Arch_User_Repository>`_.
+  .. code-block:: console
+
+      $ sudo pacman -S drgn
 
 * Debian >= 12 (Bookworm)
 
