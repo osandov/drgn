@@ -117,3 +117,12 @@ Arch Linux unfortunately does not make debugging symbols available. Packages
 must be manually rebuilt with debugging symbols enabled. See the `ArchWiki
 <https://wiki.archlinux.org/title/Debugging/Getting_traces>`_ and the `feature
 request <https://bugs.archlinux.org/task/38755?project=1>`_.
+
+Oracle Linux
+------------
+
+Oracle Linux provides documentation on using installing the necessary debugging
+symbols. See the documentation for `Oracle Linux 9
+<https://docs.oracle.com/en/operating-systems/oracle-linux/9/monitoring/working_with_the_drgn_and_corelens.html#installing-debuginfo-packages>`_
+and `Oracle Linux 8
+<https://docs.oracle.com/en/operating-systems/oracle-linux/8/monitoring/working_with_the_drgn_and_corelens.html#installing-debuginfo-packages>`_.
