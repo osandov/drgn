@@ -198,7 +198,7 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo pacman -S --needed autoconf automake check gcc git libelf libtool make pkgconf python python-pip python-setuptools libkdumpfile
+      $ sudo pacman -S --needed autoconf automake check gcc git libelf libkdumpfile libtool make pkgconf python python-pip python-setuptools
 
 * Gentoo
 
