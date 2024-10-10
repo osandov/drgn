@@ -310,6 +310,8 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         def _slub_get_freelist(freelist: Object, freelist_set: Set[int]) -> None:
             ptr = freelist.value_()
             while ptr:
+                if ptr in freelist_set:
+                    break
                 freelist_set.add(ptr)
                 ptr = self._freelist_dereference(ptr + freelist_offset)
 
