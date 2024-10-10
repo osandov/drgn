@@ -138,7 +138,11 @@ def _displayhook(value: Any) -> None:
         return
     setattr(builtins, "_", None)
     if isinstance(value, drgn.Object):
-        text = value.format_(columns=shutil.get_terminal_size((0, 0)).columns)
+        try:
+            text = value.format_(columns=shutil.get_terminal_size((0, 0)).columns)
+        except drgn.FaultError as e:
+            logger.warning("can't print value: %s", e)
+            text = repr(value)
     elif isinstance(value, (drgn.StackFrame, drgn.StackTrace, drgn.Type)):
         text = str(value)
     else:
