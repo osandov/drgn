@@ -84,6 +84,21 @@ drgn can be installed using the package manager on some Linux distributions.
 
       $ sudo dnf install drgn
 
+* Oracle Linux >= 8
+
+  Enable the ``ol8_addons`` or ``ol9_addons`` repository and install drgn:
+
+  .. code-block:: console
+
+      $ sudo dnf config-manager --enable ol8_addons  # OR: ol9_addons
+      $ sudo dnf install drgn
+
+  See the documentation for drgn in `Oracle Linux 9
+  <https://docs.oracle.com/en/operating-systems/oracle-linux/9/monitoring/working_with_the_drgn_and_corelens.html>`_
+  and `Oracle Linux 8
+  <https://docs.oracle.com/en/operating-systems/oracle-linux/8/monitoring/working_with_the_drgn_and_corelens.html>`_
+  for more information.
+
 * Arch Linux
 
   .. code-block:: console
@@ -151,7 +166,7 @@ First, install dependencies:
 
       $ sudo dnf install autoconf automake check-devel elfutils-devel gcc git libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
 
-* RHEL/CentOS
+* RHEL/CentOS/Oracle Linux
 
   .. code-block:: console
 
@@ -159,9 +174,16 @@ First, install dependencies:
 
   Optionally, install ``libkdumpfile-devel`` from EPEL on RHEL/CentOS >= 8 or
   install `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_ from
-  source if you want support for the makedumpfile format.
+  source if you want support for the makedumpfile format. For Oracle Linux >= 7,
+  ``libkdumpfile-devel`` can be installed directly from the corresponding addons
+  repository (e.g. ``ol9_addons``).
 
-  Replace ``dnf`` with ``yum`` for RHEL/CentOS < 8.
+  Replace ``dnf`` with ``yum`` for RHEL/CentOS/Oracle Linux < 8.
+
+  When building on RHEL/CentOS/Oracle Linux < 8, you may need to use a newer
+  version of GCC, for example, using the ``devtoolset-12`` developer toolset.
+  Check your distribution's documentation for information on installing and
+  using these newer toolchains.
 
 * Debian/Ubuntu
 
