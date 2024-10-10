@@ -108,8 +108,11 @@ def configure(repl) -> None:
 
     def _format_result_output(result: object):
         if isinstance(result, drgn.Object):
-            s = result.format_(columns=shutil.get_terminal_size((0, 0)).columns)
-            to_format = _maybe_c_format(s)
+            try:
+                s = result.format_(columns=shutil.get_terminal_size((0, 0)).columns)
+                to_format = _maybe_c_format(s)
+            except drgn.FaultError:
+                to_format = DummyForRepr(repr(result))
         elif isinstance(result, (drgn.StackFrame, drgn.StackTrace)):
             to_format = DummyForRepr(str(result))
         elif isinstance(result, drgn.Type):
