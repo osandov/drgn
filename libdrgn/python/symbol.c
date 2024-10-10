@@ -16,6 +16,29 @@ PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj)
 	return (PyObject *)ret;
 }
 
+PyObject *Symbol_list_wrap(struct drgn_symbol **symbols, size_t count,
+			   PyObject *name_obj)
+{
+	_cleanup_pydecref_ PyObject *list = PyList_New(count);
+	if (!list) {
+		drgn_symbols_destroy(symbols, count);
+		return NULL;
+	}
+	for (size_t i = 0; i < count; i++) {
+		PyObject *pysym = Symbol_wrap(symbols[i], name_obj);
+		if (!pysym) {
+			/* Free symbols which aren't yet added to list. */
+			drgn_symbols_destroy(symbols, count);
+			/* Free list and all symbols already added. */
+			return NULL;
+		}
+		symbols[i] = NULL;
+		PyList_SET_ITEM(list, i, pysym);
+	}
+	free(symbols);
+	return_ptr(list);
+}
+
 static PyObject *Symbol_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
 {
 	struct drgn_symbol *sym;

@@ -54,10 +54,9 @@ drgn_raw_orc_entry_is_terminator(struct drgn_module *module, unsigned int i)
 	}
 }
 
-static _Thread_local struct drgn_module *compare_orc_entries_module;
-static int compare_orc_entries(const void *a, const void *b)
+static int compare_orc_entries(const void *a, const void *b, void *arg)
 {
-	struct drgn_module *module = compare_orc_entries_module;
+	struct drgn_module *module = arg;
 	unsigned int index_a = *(unsigned int *)a;
 	unsigned int index_b = *(unsigned int *)b;
 
@@ -340,7 +339,6 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	for (unsigned int i = 0; i < num_entries; i++)
 		indices[i] = i;
 
-	compare_orc_entries_module = module;
 	/*
 	 * Sort the ORC entries for binary search. Since Linux kernel commit
 	 * f14bf6a350df ("x86/unwind/orc: Remove boot-time ORC unwind tables
@@ -348,9 +346,9 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	 * it if necessary.
 	 */
 	for (unsigned int i = 1; i < num_entries; i++) {
-		if (compare_orc_entries(&indices[i - 1], &indices[i]) > 0) {
-			qsort(indices, num_entries, sizeof(indices[0]),
-			      compare_orc_entries);
+		if (compare_orc_entries(&indices[i - 1], &indices[i], module) > 0) {
+			qsort_arg(indices, num_entries, sizeof(indices[0]),
+				  compare_orc_entries, module);
 			break;
 		}
 	}

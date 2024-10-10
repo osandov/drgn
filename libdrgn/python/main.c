@@ -208,6 +208,12 @@ static PyMethodDef drgn_methods[] = {
 	 METH_O},
 	{"_linux_helper_pgtable_l5_enabled",
 	 drgnpy_linux_helper_pgtable_l5_enabled, METH_O},
+	{"_linux_helper_load_proc_kallsyms",
+	 (PyCFunction)drgnpy_linux_helper_load_proc_kallsyms,
+	 METH_VARARGS | METH_KEYWORDS},
+	{"_linux_helper_load_builtin_kallsyms",
+	 (PyCFunction)drgnpy_linux_helper_load_builtin_kallsyms,
+	 METH_VARARGS | METH_KEYWORDS},
 	{},
 };
 
@@ -297,6 +303,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &StackFrame_type) ||
 	    add_type(m, &StackTrace_type) ||
 	    add_type(m, &Symbol_type) ||
+	    add_type(m, &SymbolIndex_type) ||
 	    add_type(m, &DrgnType_type) ||
 	    add_type(m, &Thread_type) ||
 	    add_type(m, &ThreadIterator_type) ||

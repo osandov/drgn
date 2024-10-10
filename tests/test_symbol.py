@@ -3,7 +3,7 @@
 import tempfile
 
 from _drgn_util.elf import ET, PT, SHT, STB, STT
-from drgn import Program, Symbol, SymbolBinding, SymbolKind
+from drgn import Program, Symbol, SymbolBinding, SymbolIndex, SymbolKind
 from tests import TestCase
 from tests.dwarfwriter import dwarf_sections
 from tests.elfwriter import ElfSection, ElfSymbol, create_elf_file
@@ -343,3 +343,121 @@ class TestSymbolFinder(TestCase):
         self.expect_args(None, None, False)
         self.assertEqual(self.prog.symbols(), self.TEST_SYMS)
         self.assertTrue(self.called)
+
+
+class TestSymbolIndex(TestCase):
+    # Symbols are listed here in order of address, but are shuffled below
+    AA = Symbol("AA", 10, 5, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    BB = Symbol("BB", 12, 1, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    CC = Symbol("CC", 13, 8, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    DD = Symbol("DD", 28, 5, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    EE = Symbol("EE", 34, 1, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    FF = Symbol("FF", 34, 10, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    GG = Symbol("GG", 34, 2, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+    BB2 = Symbol("BB", 36, 3, SymbolBinding.GLOBAL, SymbolKind.OBJECT)
+
+    TEST_SYMS = [GG, BB, AA, BB2, CC, FF, DD, EE]
+
+    def setUp(self):
+        # This class tests both the SymbolIndex callable interface, and the
+        # Symbol Finder API. While this seems like it duplicates code, it's
+        # necessary to test both since they exercise different code paths: the
+        # Symbol Finder API uses a more efficient fast path.
+        self.finder = SymbolIndex(self.TEST_SYMS)
+        self.prog = Program()
+        self.prog.register_symbol_finder("test", self.finder, enable_index=0)
+
+    def test_name_single(self):
+        for sym in self.TEST_SYMS:
+            if sym.name != "BB":
+                self.assertEqual([sym], self.finder(self.prog, sym.name, None, True))
+                self.assertEqual(sym, self.prog.symbol(sym.name))
+                self.assertEqual([sym], self.finder(self.prog, sym.name, None, False))
+                self.assertEqual([sym], self.prog.symbols(sym.name))
+
+    def test_name_multiple(self):
+        multi_result = self.finder(self.prog, "BB", None, False)
+        self.assertEqual(2, len(multi_result))
+        self.assertIn(self.BB, multi_result)
+        self.assertIn(self.BB2, multi_result)
+
+        multi_result = self.prog.symbols("BB")
+        self.assertEqual(2, len(multi_result))
+        self.assertIn(self.BB, multi_result)
+        self.assertIn(self.BB2, multi_result)
+
+        single_result = self.finder(self.prog, "BB", None, True)
+        self.assertIn(single_result[0], (self.BB, self.BB2))
+
+        single_result = self.prog.symbol("BB")
+        self.assertIn(single_result, (self.BB, self.BB2))
+
+    def test_addr(self):
+        cases = {
+            9: [],
+            10: [self.AA],
+            12: [self.AA, self.BB],
+            13: [self.AA, self.CC],
+            15: [self.CC],
+            25: [],
+            28: [self.DD],
+            30: [self.DD],
+            34: [self.EE, self.FF, self.GG],
+            35: [self.FF, self.GG],
+            36: [self.FF, self.BB2],
+            43: [self.FF],
+            44: [],
+        }
+        for address, expected in cases.items():
+            # first, lookup by address alone and ensure we get all correct
+            # candidates:
+            multi_result = self.finder(self.prog, None, address, False)
+            self.assertEqual(len(expected), len(multi_result))
+            self.assertTrue(all(e in multi_result for e in expected))
+            multi_result = self.prog.symbols(address)
+            self.assertEqual(len(expected), len(multi_result))
+            self.assertTrue(all(e in multi_result for e in expected))
+
+            # next, ensure that the single lookup works as expected:
+            if expected:
+                single_result = self.finder(self.prog, None, address, True)
+                self.assertEqual(1, len(single_result))
+                self.assertIn(single_result[0], expected)
+                single_result = self.prog.symbol(address)
+                self.assertIn(single_result, expected)
+
+            # Now, test that adding a name filter correctly filters:
+            # This cannot be tested with the Program.symbol() API since only
+            # one filter is allowed there.
+            for sym in expected:
+                self.assertEqual([sym], self.finder(self.prog, sym.name, address, True))
+                self.assertEqual(
+                    [sym], self.finder(self.prog, sym.name, address, False)
+                )
+
+            self.assertEqual([], self.finder(None, "MISSING", address, True))
+            self.assertEqual([], self.finder(None, "MISSING", address, False))
+
+    def test_all(self):
+        result = self.finder(self.prog, None, None, True)
+        self.assertEqual(1, len(result))
+        self.assertIn(result[0], self.TEST_SYMS)
+        result = self.finder(self.prog, None, None, False)
+        self.assertEqual(len(self.TEST_SYMS), len(result))
+        for sym in self.TEST_SYMS:
+            self.assertIn(sym, result)
+        result = self.prog.symbols()
+        self.assertEqual(len(self.TEST_SYMS), len(result))
+        for sym in self.TEST_SYMS:
+            self.assertIn(sym, result)
+
+    def test_empty_index(self):
+        index = SymbolIndex([])
+        # Check all the possible query patterns to ensure they can safely handle
+        # an empty list.
+        self.assertEqual([], index(self.prog, "name search", None, True))
+        self.assertEqual([], index(self.prog, "name search", None, False))
+        self.assertEqual([], index(self.prog, None, 0xFFFF, True))
+        self.assertEqual([], index(self.prog, None, 0xFFFF, False))
+        self.assertEqual([], index(self.prog, "name search", 0xFFFF, True))
+        self.assertEqual([], index(self.prog, "name search", 0xFFFF, False))

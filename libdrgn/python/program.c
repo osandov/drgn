@@ -504,6 +504,16 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 		  enum drgn_find_symbol_flags flags, void *arg,
 		  struct drgn_symbol_result_builder *builder)
 {
+	// Fast path for SymbolIndex: don't bother converting to and from Python
+	// types, as this is a C finder. Use Py_TYPE and pointer comparison
+	// directly here to avoid needing to take the GIL for
+	// PyObject_TypeCheck(). SymbolIndex cannot be subclassed, so the logic
+	// for subclass checking is unnecessary anyway.
+	if (Py_TYPE(PyTuple_GET_ITEM(arg, 1)) == &SymbolIndex_type) {
+		SymbolIndex *ix = (SymbolIndex *)PyTuple_GET_ITEM(arg, 1);
+		return drgn_symbol_index_find(name, addr, flags, &ix->index, builder);
+	}
+
 	PyGILState_guard();
 
 	_cleanup_pydecref_ PyObject *name_obj = NULL;
@@ -1231,23 +1241,7 @@ static PyObject *Program_symbols(Program *self, PyObject *args)
 	if (err)
 		return set_drgn_error(err);
 
-	_cleanup_pydecref_ PyObject *list = PyList_New(count);
-	if (!list) {
-		drgn_symbols_destroy(symbols, count);
-		return NULL;
-	}
-	for (size_t i = 0; i < count; i++) {
-		PyObject *pysym = Symbol_wrap(symbols[i], (PyObject *)self);
-		if (!pysym) {
-			/* Free symbols which aren't yet added to list. */
-			drgn_symbols_destroy(symbols, count);
-			return NULL;
-		}
-		symbols[i] = NULL;
-		PyList_SET_ITEM(list, i, pysym);
-	}
-	free(symbols);
-	return_ptr(list);
+	return Symbol_list_wrap(symbols, count, (PyObject *)self);
 }
 
 static PyObject *Program_symbol(Program *self, PyObject *arg)
