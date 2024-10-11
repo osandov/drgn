@@ -152,14 +152,14 @@ def css_next_descendant_pre(pos: Object, root: Object) -> Object:
 
 
 def _css_for_each_impl(
-    next_fn: Callable[[Object, Object], Object], css: Object
+    next_fn: Callable[[Object, Object], Object], css: Object, only_online: bool
 ) -> Iterator[Object]:
     pos = NULL(css.prog_, "struct cgroup_subsys_state *")
     while True:
         pos = next_fn(pos, css)
         if not pos:
             break
-        if pos.flags & pos.prog_["CSS_ONLINE"]:
+        if not only_online or pos.flags & pos.prog_["CSS_ONLINE"]:
             yield pos
 
 
@@ -170,14 +170,14 @@ def css_for_each_child(css: Object) -> Iterator[Object]:
     :param css: ``struct cgroup_subsys_state *``
     :return: Iterator of ``struct cgroup_subsys_state *`` objects.
     """
-    return _css_for_each_impl(css_next_child, css)
+    return _css_for_each_impl(css_next_child, css, True)
 
 
-def css_for_each_descendant_pre(css: Object) -> Iterator[Object]:
+def css_for_each_descendant_pre(css: Object, only_online: bool = True) -> Iterator[Object]:
     """
     Iterate through the given css's descendants in pre-order.
 
     :param css: ``struct cgroup_subsys_state *``
     :return: Iterator of ``struct cgroup_subsys_state *`` objects.
     """
-    return _css_for_each_impl(css_next_descendant_pre, css)
+    return _css_for_each_impl(css_next_descendant_pre, css, only_online)
