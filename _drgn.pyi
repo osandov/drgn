@@ -669,6 +669,14 @@ class Program:
         """
         ...
 
+    def set_gdbremote(self, conn: str) -> None:
+        """
+        Set the program to the specificed elffile and connect to a gdbserver.
+
+        :param conn: gdb connection string (e.g. localhost:2345)
+        """
+        ...
+
     def set_kernel(self) -> None:
         """
         Set the program to the running operating system kernel.
@@ -1065,6 +1073,11 @@ class ProgramFlags(enum.Flag):
     IS_LOCAL = ...
     """
     The program is running on the local machine.
+    """
+
+    IS_GDBREMOTE = ...
+    """
+    The program is connected via the gdbremote protocol.
     """
 
 class FindObjectFlags(enum.Flag):

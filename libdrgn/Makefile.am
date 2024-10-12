@@ -71,6 +71,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 hash_table.c \
 			 hash_table.h \
 			 helpers.h \
+			 gdbremote.c \
+			 gdbremote.h \
 			 io.c \
 			 io.h \
 			 kallsyms.c \
