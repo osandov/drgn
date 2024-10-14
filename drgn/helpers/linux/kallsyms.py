@@ -159,18 +159,6 @@ def _elf_sym_to_symbol(name: str, obj: Object, has_typetab: bool) -> Symbol:
 
 
 def _module_kallsyms(module: Object) -> List[Symbol]:
-    """
-    Return a list of symbols for a kernel module
-
-    When compiled with ``CONFIG_KALLSYMS``, the kernel maintains ELF symbol
-    information about each module within ``struct module``.  This function
-    accesses this symbol information, and returns a list of drgn :class:`Symbol`
-    objects for the module. Keep in mind that unless ``CONFIG_KALLSYMS_ALL`` is
-    enabled, these symbols are typically only function symbols.
-
-    :param module: :class:`Object` of type ``struct module *``
-    :returns: a list of symbols
-    """
     try:
         ks = module.kallsyms
     except AttributeError:
