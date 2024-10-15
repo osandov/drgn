@@ -210,3 +210,52 @@ core dumps. These special objects include:
     distinguish it from the kernel variable ``vmcoreinfo_data``.
 
     This is available without debugging information.
+
+Debugging via the gdbremote protocol
+------------------------------------
+
+The
+`gdbremote protocol <https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Protocol.html>`_
+makes it possible to run drgn on one machine and use it to debug code running
+on another system. drgn implements the client side of the protocol and can
+connect via gdbremote to a variety of different gdbremote "server"
+implementations including
+`gdbserver <https://sourceware.org/gdb/current/onlinedocs/gdb.html/Server.html>`_,
+`kgdb <https://www.kernel.org/doc/html/latest/dev-tools/kgdb.html>`_,
+`OpenOCD <https://openocd.org/>`_
+and the
+`QEMU gdbstub <https://qemu-project.gitlab.io/qemu/system/gdb.html>`_.
+
+Currently the gdbremote support in drgn is absolutely minimal:
+
+* drgn can only connect to network sockets (use socat to bridge to stubs
+  that are not networked)
+* only a single thread is supported
+* there is no support for automatically handle address space layout
+  randomization (ASLR)
+* register packet decoding is implemented only for AArch64
+
+However, even this minimal support is sufficient to connect to the gdbserver,
+read memory and generate a stack trace using AArch64 frame pointers::
+
+    sh$ drgn --gdbremote localhost:2345 --symbols ./hello
+    drgn 0.0.27+67.ge8a745c3 (using Python 3.11.2, elfutils 0.188, without libkdumpfile)
+    For help, type help(drgn).
+    >>> import drgn
+    >>> from drgn import FaultError, NULL, Object, cast, container_of, execscript, offsetof, reinterpret, sizeof, stack_trace
+    >>> from drgn.helpers.common import *
+    >>> prog['main']
+    (int (int argc, const char **argv))0x754
+    >>> prog.threads()
+    <_drgn._ThreadIterator object at 0x7f81b570d0>
+    >>> prog.main_thread().stack_trace()
+    #0  0x5555550764     <--- Symbol lookup currently fails due to ASLR offsets
+    #1  0x7ff7e17740
+    #2  0x7ff7e17818
+    >>> prog.main_thread().stack_trace()[0].registers()['x0']
+    1
+    >>> argv = prog.main_thread().stack_trace()[0].registers()['x1']
+    >>> argv0 = prog.read_u64(argv)
+    >>> prog.read(argv0, 8)
+    b'./hello\x00'
+    >>>

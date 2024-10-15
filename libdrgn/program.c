@@ -12,17 +12,21 @@
 #include <gelf.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/statfs.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 #include "cleanup.h"
 #include "debug_info.h"
+#include "drgn.h"
 #include "error.h"
 #include "helpers.h"
+#include "gdbremote.h"
 #include "io.h"
 #include "language.h"
 #include "log.h"
@@ -102,6 +106,7 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_program_init_types(prog);
 	drgn_debug_info_init(&prog->dbinfo, prog);
 	prog->core_fd = -1;
+	prog->conn_fd = -1;
 	if (platform)
 		drgn_program_set_platform(prog, platform);
 	drgn_thread_set_init(&prog->thread_set);
@@ -122,7 +127,8 @@ void drgn_program_deinit(struct drgn_program *prog)
 	 */
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 		drgn_thread_destroy(prog->crashed_thread);
-	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
+	else if (prog->flags & DRGN_PROGRAM_IS_LIVE &&
+		 !(prog->flags & DRGN_PROGRAM_IS_GDBREMOTE))
 		drgn_thread_destroy(prog->main_thread);
 	if (prog->pgtable_it)
 		prog->platform.arch->linux_kernel_pgtable_iterator_destroy(prog->pgtable_it);
@@ -152,6 +158,8 @@ void drgn_program_deinit(struct drgn_program *prog)
 	elf_end(prog->core);
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
+	if (prog->conn_fd != -1)
+		close(prog->conn_fd);
 
 	drgn_debug_info_deinit(&prog->dbinfo);
 }
@@ -703,6 +711,39 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_gdbremote(struct drgn_program *prog, const char *conn)
+{
+	struct drgn_error *err;
+
+	err = drgn_program_check_initialized(prog);
+	if (err)
+		return err;
+
+	err = drgn_gdbremote_connect(conn, &prog->conn_fd);
+	if (err)
+		return err;
+
+	bool had_platform = prog->has_platform;
+	drgn_program_set_platform(prog, &drgn_host_platform);
+
+	err = drgn_program_add_memory_segment(
+	    prog, 0, UINT64_MAX, drgn_gdbremote_read_memory, prog, false);
+	if (err)
+		goto out_segments;
+
+	prog->flags |= DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_GDBREMOTE;
+	return NULL;
+
+out_segments:
+	drgn_memory_reader_deinit(&prog->reader);
+	drgn_memory_reader_init(&prog->reader);
+	prog->has_platform = had_platform;
+	close(prog->conn_fd);
+	prog->conn_fd = -1;
+	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_kernel(struct drgn_program *prog)
 {
 	return drgn_program_set_core_dump(prog, "/proc/kcore");
@@ -1113,6 +1154,31 @@ drgn_thread_iterator_init_linux_kernel(struct drgn_thread_iterator *it)
 }
 
 static struct drgn_error *
+drgn_thread_iterator_init_gdbremote(struct drgn_thread_iterator *it)
+{
+	struct drgn_program *prog = it->prog;
+	struct drgn_thread thread = {
+	    .prog = prog,
+	    // Until we implement query packet parsing in the gdbremote code
+	    // then we are only able to debug the stopped thread.
+	    .tid = 1,
+	};
+
+	prog->main_thread =
+	    drgn_thread_set_search(&prog->thread_set, &thread.tid).entry;
+	if (!prog->main_thread) {
+		if (drgn_thread_set_insert(&prog->thread_set, &thread, NULL) == -1)
+			return &drgn_enomem;
+		prog->main_thread =
+		    drgn_thread_set_search(&prog->thread_set, &thread.tid)
+			.entry;
+	}
+
+	it->iterator = drgn_thread_set_first(&it->prog->thread_set);
+	return NULL;
+}
+
+static struct drgn_error *
 drgn_thread_iterator_init_userspace_live(struct drgn_thread_iterator *it)
 {
 #define FORMAT "/proc/%ld/task"
@@ -1152,6 +1218,8 @@ drgn_thread_iterator_create(struct drgn_program *prog,
 	(*ret)->prog = prog;
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 		err = drgn_thread_iterator_init_linux_kernel(*ret);
+	else if (prog->flags & DRGN_PROGRAM_IS_GDBREMOTE)
+		err = drgn_thread_iterator_init_gdbremote(*ret);
 	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
 		err = drgn_thread_iterator_init_userspace_live(*ret);
 	else
@@ -1168,6 +1236,9 @@ drgn_thread_iterator_destroy(struct drgn_thread_iterator *it)
 		if (it->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 			drgn_object_deinit(&it->entry.object);
 			linux_helper_task_iterator_deinit(&it->task_iter);
+		} else if (it->prog->flags & DRGN_PROGRAM_IS_GDBREMOTE) {
+			// do nothing (but *don't* follow the IS_LIVE path
+			// for core dumps)
 		} else if (it->prog->flags & DRGN_PROGRAM_IS_LIVE) {
 			closedir(it->tasks_dir);
 		}
@@ -1233,8 +1304,8 @@ drgn_thread_iterator_next_userspace_live(struct drgn_thread_iterator *it,
 }
 
 static void
-drgn_thread_iterator_next_userspace_core(struct drgn_thread_iterator *it,
-					 struct drgn_thread **ret)
+drgn_thread_iterator_next_from_thread_set(struct drgn_thread_iterator *it,
+					  struct drgn_thread **ret)
 {
 	*ret = it->iterator.entry;
 	if (it->iterator.entry)
@@ -1247,10 +1318,13 @@ drgn_thread_iterator_next(struct drgn_thread_iterator *it,
 {
 	if (it->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		return drgn_thread_iterator_next_linux_kernel(it, ret);
+	} else if (it->prog->flags & DRGN_PROGRAM_IS_GDBREMOTE) {
+		drgn_thread_iterator_next_from_thread_set(it, ret);
+		return NULL;
 	} else if (it->prog->flags & DRGN_PROGRAM_IS_LIVE) {
 		return drgn_thread_iterator_next_userspace_live(it, ret);
 	} else {
-		drgn_thread_iterator_next_userspace_core(it, ret);
+		drgn_thread_iterator_next_from_thread_set(it, ret);
 		return NULL;
 	}
 }
@@ -1325,8 +1399,8 @@ drgn_program_find_thread_userspace_live(struct drgn_program *prog, uint32_t tid,
 }
 
 static struct drgn_error *
-drgn_program_find_thread_userspace_core(struct drgn_program *prog, uint32_t tid,
-					struct drgn_thread **ret)
+drgn_program_find_thread_from_thread_set(struct drgn_program *prog,
+					 uint32_t tid, struct drgn_thread **ret)
 {
 	struct drgn_error *err = drgn_program_cache_core_dump_notes(prog);
 	if (err)
@@ -1344,7 +1418,7 @@ drgn_program_find_thread(struct drgn_program *prog, uint32_t tid,
 	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
 		return drgn_program_find_thread_userspace_live(prog, tid, ret);
 	else
-		return drgn_program_find_thread_userspace_core(prog, tid, ret);
+		return drgn_program_find_thread_from_thread_set(prog, tid, ret);
 }
 
 // Get the CPU that crashed in a Linux kernel core dump.
