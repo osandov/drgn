@@ -6,8 +6,9 @@
 import builtins
 import keyword
 import re
-import readline
 from typing import Any, Dict, List, Optional
+
+from drgn.internal.repl import readline
 
 _EXPR_RE = re.compile(
     r"""

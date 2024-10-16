@@ -12,17 +12,13 @@ makes it worth sharing.
 Requires: "pip install ptpython" which brings in pygments and prompt_toolkit
 """
 import functools
-import importlib
 import os
 import shutil
-import sys
-from typing import Any, Callable, Dict, Optional, Set
+from typing import Any, Dict, Set
 
-from prompt_toolkit.completion import Completion, Completer
+from prompt_toolkit.completion import Completer
 from prompt_toolkit.formatted_text import PygmentsTokens
-from prompt_toolkit.formatted_text import fragment_list_to_text, to_formatted_text
 from ptpython import embed
-from ptpython.completer import DictionaryCompleter
 from ptpython.repl import run_config
 from pygments.lexers.c_cpp import CLexer
 
@@ -127,95 +123,14 @@ def configure(repl) -> None:
     repl.completer = ReorderDrgnObjectCompleter(repl.completer)
 
 
-def run_interactive(
-    prog: drgn.Program,
-    banner_func: Optional[Callable[[str], str]] = None,
-    globals_func: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-    quiet: bool = False,
-) -> None:
-    """
-    Run drgn's :ref:`interactive-mode` via ptpython
-
-    :param prog: Pre-configured program to run against. Available as a global
-        named ``prog`` in the CLI.
-    :param banner_func: Optional function to modify the printed banner. Called
-        with the default banner, and must return a string to use as the new
-        banner. The default banner does not include the drgn version, which can
-        be retrieved via :func:`version_header()`.
-    :param globals_func: Optional function to modify globals provided to the
-        session. Called with a dictionary of default globals, and must return a
-        dictionary to use instead.
-    :param quiet: Whether to suppress non-fatal warnings.
-    """
-    init_globals: Dict[str, Any] = {
-        "prog": prog,
-        "drgn": drgn,
-        "__name__": "__main__",
-        "__doc__": None,
-    }
-    drgn_globals = [
-        "NULL",
-        "Object",
-        "cast",
-        "container_of",
-        "execscript",
-        "offsetof",
-        "reinterpret",
-        "sizeof",
-        "stack_trace",
-    ]
-    for attr in drgn_globals:
-        init_globals[attr] = getattr(drgn, attr)
-
-    banner = f"""\
-For help, type help(drgn).
->>> import drgn
->>> from drgn import {", ".join(drgn_globals)}
->>> from drgn.helpers.common import *"""
-
-    module = importlib.import_module("drgn.helpers.common")
-    for name in module.__dict__["__all__"]:
-        init_globals[name] = getattr(module, name)
-    if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
-        banner += "\n>>> from drgn.helpers.linux import *"
-        module = importlib.import_module("drgn.helpers.linux")
-        for name in module.__dict__["__all__"]:
-            init_globals[name] = getattr(module, name)
-
-    if banner_func:
-        banner = banner_func(banner)
-    if globals_func:
-        init_globals = globals_func(init_globals)
-
-    old_path = list(sys.path)
-    try:
-        old_default_prog = drgn.get_default_prog()
-    except drgn.NoDefaultProgramError:
-        old_default_prog = None
-    # The ptpython history file format is different from a standard readline
-    # history file since it must handle multi-line input, and it includes some
-    # metadata as well. Use a separate history format, even though it would be
-    # nice to share.
+def interact(local: Dict[str, Any], banner: str):
     histfile = os.path.expanduser("~/.drgn_history.ptpython")
-    try:
-        sys.path.insert(0, "")
-
-        drgn.set_default_prog(prog)
-
-        print(banner)
-        embed(
-            globals=init_globals,
-            history_filename=histfile,
-            title="drgn",
-            configure=configure,
-        )
-    finally:
-        drgn.set_default_prog(old_default_prog)
-        sys.path[:] = old_path
+    print(banner)
+    embed(globals=local, history_filename=histfile, title="drgn", configure=configure)
 
 
 if __name__ == "__main__":
     # Muck around with the internals of drgn: swap out run_interactive() with our
     # ptpython version, and then call main as if nothing happened.
-    drgn.cli.run_interactive = run_interactive
+    drgn.cli.interact = interact
     drgn.cli._main()
