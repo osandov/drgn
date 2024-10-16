@@ -114,6 +114,13 @@ Some of drgn's behavior can be modified through environment variables:
     Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default
     is 0. This functionality will be removed in the future.
 
+``DRGN_USE_PYREPL``
+    Whether drgn should attempt to use the improved REPL (pyrepl) from Python
+    3.13. This provides colored output and multiline editing, among other
+    features. The default is 1.  Unfortunately, Python has no public API to use
+    these features, so drgn must rely on internal implementation details. Set
+    this to 0 to disable this feature.
+
 ``DRGN_USE_SYS_MODULE``
     Whether drgn should use ``/sys/module`` to find information about loaded
     kernel modules for the running kernel instead of getting them from the core

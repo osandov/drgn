@@ -6,19 +6,18 @@
 
 import argparse
 import builtins
-import code
 import importlib
 import logging
 import os
 import os.path
 import pkgutil
-import readline
 import runpy
 import shutil
 import sys
 from typing import Any, Callable, Dict, Optional
 
 import drgn
+from drgn.internal.repl import interact, readline
 from drgn.internal.rlcompleter import Completer
 from drgn.internal.sudohelper import open_via_sudo
 
@@ -435,7 +434,7 @@ For help, type help(drgn).
         drgn.set_default_prog(prog)
 
         try:
-            code.interact(banner=banner, exitmsg="", local=init_globals)
+            interact(init_globals, banner)
         finally:
             try:
                 readline.write_history_file(histfile)
