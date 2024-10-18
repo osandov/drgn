@@ -63,23 +63,24 @@ def kernfs_path(kn: Object) -> bytes:
     return b"/".join(names)
 
 
-def kernfs_walk(parent: Object, path: Path) -> Object:
+def kernfs_walk(parent: Object, path: Path, follow_symlinks: bool = False) -> Object:
     """
     Find the kernfs node with the given path from the given parent kernfs node.
 
     :param parent: ``struct kernfs_node *``
     :param path: Path name.
+    :param follow_symlinks: If follow_symlinks is ``False``, and the
+        last component of a path is a symlink, the function will
+        return ``struct kernfs_node *`` of the symbolic link.
     :return: ``struct kernfs_node *`` (``NULL`` if not found)
     """
     kernfs_nodep_type = parent.type_
-    kernfs_node_type = kernfs_nodep_type.type
+    link_flag = parent.prog_.constant("KERNFS_LINK")
     for name in os.fsencode(path).split(b"/"):
         if not name:
             continue
 
-        for parent in rbtree_inorder_for_each_entry(
-            kernfs_node_type, parent.dir.children.address_of_(), "rb"
-        ):
+        for parent in kernfs_children(parent):
             if (
                 parent.name.string_() == name
                 and not parent.ns  # For now, we don't bother with namespaced kernfs nodes.
@@ -87,6 +88,8 @@ def kernfs_walk(parent: Object, path: Path) -> Object:
                 break
         else:
             return NULL(parent.prog_, kernfs_nodep_type)
+    if parent.flags & link_flag and follow_symlinks:
+        parent = parent.symlink.target_kn
     return parent
 
 
