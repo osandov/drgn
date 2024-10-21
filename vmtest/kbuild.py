@@ -138,6 +138,10 @@ _PATCHES = (
         name="s390-crash-fix-proc-vmcore-reads.patch",
         versions=((KernelVersion("5.18"), KernelVersion("6.0")),),
     ),
+    _Patch(
+        name="lib-raid6-add-option-to-skip-algo-benchmarking.patch",
+        versions=((None, KernelVersion("5.0")),),
+    )
 )
 
 

@@ -1,0 +1,77 @@
+From be85f93ae2df32dea0b20908316f1d894c3e0f64 Mon Sep 17 00:00:00 2001
+Message-ID: <be85f93ae2df32dea0b20908316f1d894c3e0f64.1729542372.git.osandov@fb.com>
+From: Daniel Verkamp <dverkamp@chromium.org>
+Date: Mon, 12 Nov 2018 15:26:52 -0800
+Subject: [PATCH] lib/raid6: add option to skip algo benchmarking
+
+This is helpful for systems where fast startup time is important.
+It is especially nice to avoid benchmarking RAID functions that are
+never used (for example, BTRFS selects RAID6_PQ even if the parity RAID
+mode is not in use).
+
+This saves 250+ milliseconds of boot time on modern x86 and ARM systems
+with a dozen or more available implementations.
+
+The new option is defaulted to 'y' to match the previous behavior of
+always benchmarking on init.
+
+Signed-off-by: Daniel Verkamp <dverkamp@chromium.org>
+Signed-off-by: Shaohua Li <shli@fb.com>
+---
+ include/linux/raid/pq.h | 3 +++
+ lib/Kconfig             | 8 ++++++++
+ lib/raid6/algos.c       | 5 +++++
+ 3 files changed, 16 insertions(+)
+
+diff --git a/include/linux/raid/pq.h b/include/linux/raid/pq.h
+index d7c99161bba2..605cf46c17bd 100644
+--- a/include/linux/raid/pq.h
++++ b/include/linux/raid/pq.h
+@@ -70,6 +70,9 @@ extern const char raid6_empty_zero_page[PAGE_SIZE];
+ #define MODULE_DESCRIPTION(desc)
+ #define subsys_initcall(x)
+ #define module_exit(x)
++
++#define IS_ENABLED(x) (x)
++#define CONFIG_RAID6_PQ_BENCHMARK 1
+ #endif /* __KERNEL__ */
+ 
+ /* Routine choices */
+diff --git a/lib/Kconfig b/lib/Kconfig
+index a9965f4af4dd..fcb05305a5a2 100644
+--- a/lib/Kconfig
++++ b/lib/Kconfig
+@@ -10,6 +10,14 @@ menu "Library routines"
+ config RAID6_PQ
+ 	tristate
+ 
++config RAID6_PQ_BENCHMARK
++	bool "Automatically choose fastest RAID6 PQ functions"
++	depends on RAID6_PQ
++	default y
++	help
++	  Benchmark all available RAID6 PQ functions on init and choose the
++	  fastest one.
++
+ config BITREVERSE
+ 	tristate
+ 
+diff --git a/lib/raid6/algos.c b/lib/raid6/algos.c
+index a753ff56670f..7e4f7a8ffa8e 100644
+--- a/lib/raid6/algos.c
++++ b/lib/raid6/algos.c
+@@ -163,6 +163,11 @@ static inline const struct raid6_calls *raid6_choose_gen(
+ 			if ((*algo)->valid && !(*algo)->valid())
+ 				continue;
+ 
++			if (!IS_ENABLED(CONFIG_RAID6_PQ_BENCHMARK)) {
++				best = *algo;
++				break;
++			}
++
+ 			perf = 0;
+ 
+ 			preempt_disable();
+-- 
+2.47.0
+

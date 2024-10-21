@@ -127,6 +127,8 @@ CONFIG_IKCONFIG_PROC=y
 
 # For filesystem tests.
 CONFIG_BTRFS_FS=m
+# Don't waste time benchmarking in raid6_pq just to load the Btrfs module.
+CONFIG_RAID6_PQ_BENCHMARK=n
 CONFIG_EXT4_FS=m
 CONFIG_XFS_FS=m
 
@@ -423,7 +425,7 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     vmtest_kernel_version = [
         # Increment the major version to rebuild every
         # architecture/flavor/version combination.
-        33,
+        34,
         # The minor version makes the default flavor the "latest" version.
         1 if flavor.name == "default" else 0,
     ]
