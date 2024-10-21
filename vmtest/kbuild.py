@@ -52,6 +52,10 @@ _PATCHES = (
         versions=((None, None),),
     ),
     _Patch(
+        name="9p-fix-slab-cache-name-creation-for-real.patch",
+        versions=((KernelVersion("6.12"), None),),
+    ),
+    _Patch(
         name="filelock-fix-name-of-file_lease-slab-cache.patch",
         versions=((KernelVersion("6.9"), KernelVersion("6.10")),),
     ),
@@ -141,7 +145,7 @@ _PATCHES = (
     _Patch(
         name="lib-raid6-add-option-to-skip-algo-benchmarking.patch",
         versions=((None, KernelVersion("5.0")),),
-    )
+    ),
 )
 
 

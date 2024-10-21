@@ -1,0 +1,50 @@
+From a360f311f57a36e96d88fa8086b749159714dcd2 Mon Sep 17 00:00:00 2001
+Message-ID: <a360f311f57a36e96d88fa8086b749159714dcd2.1729551875.git.osandov@fb.com>
+From: Linus Torvalds <torvalds@linux-foundation.org>
+Date: Mon, 21 Oct 2024 11:57:38 -0700
+Subject: [PATCH] 9p: fix slab cache name creation for real
+
+This was attempted by using the dev_name in the slab cache name, but as
+Omar Sandoval pointed out, that can be an arbitrary string, eg something
+like "/dev/root".  Which in turn trips verify_dirent_name(), which fails
+if a filename contains a slash.
+
+So just make it use a sequence counter, and make it an atomic_t to avoid
+any possible races or locking issues.
+
+Reported-and-tested-by: Omar Sandoval <osandov@fb.com>
+Link: https://lore.kernel.org/all/ZxafcO8KWMlXaeWE@telecaster.dhcp.thefacebook.com/
+Fixes: 79efebae4afc ("9p: Avoid creating multiple slab caches with the same name")
+Acked-by: Vlastimil Babka <vbabka@suse.cz>
+Cc: Dominique Martinet <asmadeus@codewreck.org>
+Cc: Thorsten Leemhuis <regressions@leemhuis.info>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ net/9p/client.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/net/9p/client.c b/net/9p/client.c
+index 9e7b9151816d..09f8ced9f8bb 100644
+--- a/net/9p/client.c
++++ b/net/9p/client.c
+@@ -977,6 +977,7 @@ static int p9_client_version(struct p9_client *c)
+ struct p9_client *p9_client_create(const char *dev_name, char *options)
+ {
+ 	int err;
++	static atomic_t seqno = ATOMIC_INIT(0);
+ 	struct p9_client *clnt;
+ 	char *client_id;
+ 	char *cache_name;
+@@ -1036,7 +1037,8 @@ struct p9_client *p9_client_create(const char *dev_name, char *options)
+ 	if (err)
+ 		goto close_trans;
+ 
+-	cache_name = kasprintf(GFP_KERNEL, "9p-fcall-cache-%s", dev_name);
++	cache_name = kasprintf(GFP_KERNEL,
++		"9p-fcall-cache-%u", atomic_inc_return(&seqno));
+ 	if (!cache_name) {
+ 		err = -ENOMEM;
+ 		goto close_trans;
+-- 
+2.47.0
+
