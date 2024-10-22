@@ -62,8 +62,8 @@ static PyObject *filename_matches(PyObject *self, PyObject *args,
 				  PyObject *kwds)
 {
 	static char *keywords[] = {"haystack", "needle", NULL};
-	struct path_arg haystack_arg = {.allow_none = true};
-	struct path_arg needle_arg = {.allow_none = true};
+	PATH_ARG(haystack_arg, .allow_none = true);
+	PATH_ARG(needle_arg, .allow_none = true);
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:filename_matches",
 					 keywords, path_converter,
 					 &haystack_arg, path_converter,
@@ -88,10 +88,7 @@ static PyObject *filename_matches(PyObject *self, PyObject *args,
 		needle.components[0].len = needle_arg.length;
 		needle.num_components = 1;
 	}
-	bool ret = path_ends_with(&haystack, &needle);
-	path_cleanup(&haystack_arg);
-	path_cleanup(&needle_arg);
-	Py_RETURN_BOOL(ret);
+	Py_RETURN_BOOL(path_ends_with(&haystack, &needle));
 }
 
 static PyObject *sizeof_(PyObject *self, PyObject *arg)

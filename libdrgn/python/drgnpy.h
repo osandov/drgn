@@ -371,6 +371,10 @@ struct path_arg {
 int path_converter(PyObject *o, void *p);
 void path_cleanup(struct path_arg *path);
 
+#define PATH_ARG(name, ...)				\
+	__attribute__((__cleanup__(path_cleanup)))	\
+	struct path_arg name = { __VA_ARGS__ }
+
 struct enum_arg {
 	PyObject *type;
 	unsigned long value;
