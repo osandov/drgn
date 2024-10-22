@@ -1307,7 +1307,8 @@ typedef void *drgn_program_begin_blocking_fn(struct drgn_program *prog,
  *
  * @param[in] arg @c callback_arg passed to @ref
  * drgn_program_set_blocking_callback().
- * @param[in] state Return value of @ref drgn_program_begin_blocking_fn().
+ * @param[in] state Return value of matching call to @ref
+ * drgn_program_begin_blocking_fn().
  */
 typedef void drgn_program_end_blocking_fn(struct drgn_program *prog,
 					  void *arg, void *state);
@@ -1319,6 +1320,7 @@ typedef void drgn_program_end_blocking_fn(struct drgn_program *prog,
  * long-running computations. They are intended for things like releasing the
  * [global interpreter
  * lock](https://docs.python.org/3/glossary.html#term-global-interpreter-lock).
+ * Calls to these callbacks may be nested, but they will always be matched.
  *
  * @param[in] begin_callback Callback called before a blocking operation. Can be
  * @c NULL to unset.

@@ -40,6 +40,10 @@
     } while (0)
 #endif
 
+#if PY_VERSION_HEX < 0x030d00a1
+#define PyThreadState_GetUnchecked _PyThreadState_UncheckedGet
+#endif
+
 #define DRGNPY_PUBLIC __attribute__((__visibility__("default")))
 
 // PyLong_From* and PyLong_As* for stdint.h types. These use _Generic for

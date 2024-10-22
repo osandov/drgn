@@ -231,12 +231,16 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 
 static void *drgnpy_begin_blocking(struct drgn_program *prog, void *arg)
 {
-	return PyEval_SaveThread();
+	PyThreadState *state = PyThreadState_GetUnchecked();
+	if (state)
+		PyEval_ReleaseThread(state);
+	return state;
 }
 
 static void drgnpy_end_blocking(struct drgn_program *prog, void *arg, void *state)
 {
-	PyEval_RestoreThread(state);
+	if (state)
+		PyEval_RestoreThread(state);
 }
 
 static Program *Program_new(PyTypeObject *subtype, PyObject *args,
