@@ -840,6 +840,23 @@ static PyObject *Program_set_core_dump(Program *self, PyObject *args,
 	Py_RETURN_NONE;
 }
 
+static PyObject *Program_set_gdbremote(Program *self, PyObject *args,
+		                       PyObject *kwds)
+{
+	static char *keywords[] = {"conn", NULL};
+	struct drgn_error *err;
+	const char *conn;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "s:set_gdbremote",
+					 keywords, &conn))
+		return NULL;
+
+	err = drgn_program_set_gdbremote(&self->prog, conn);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_set_kernel(Program *self)
 {
 	struct drgn_error *err;
@@ -1469,6 +1486,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_object_finder_DOC},
 	{"set_core_dump", (PyCFunction)Program_set_core_dump,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_core_dump_DOC},
+	{"set_gdbremote", (PyCFunction)Program_set_gdbremote,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_gdbremote_DOC},
 	{"set_kernel", (PyCFunction)Program_set_kernel, METH_NOARGS,
 	 drgn_Program_set_kernel_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
