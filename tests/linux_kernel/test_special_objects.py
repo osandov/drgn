@@ -3,8 +3,20 @@
 
 import os
 
-import drgn
+from drgn import Object, Program
 from tests.linux_kernel import LinuxKernelTestCase
+
+
+class TestJiffies(LinuxKernelTestCase):
+    def test_jiffies(self):
+        self.assertIdentical(
+            self.prog["jiffies"],
+            Object(
+                self.prog,
+                "volatile unsigned long",
+                address=self.prog.symbol("jiffies").address,
+            ),
+        )
 
 
 class TestUts(LinuxKernelTestCase):
@@ -14,7 +26,7 @@ class TestUts(LinuxKernelTestCase):
         )
 
     def test_uts_release_no_debug_info(self):
-        prog = drgn.Program()
+        prog = Program()
         prog.set_kernel()
         self.assertEqual(prog["UTS_RELEASE"].string_().decode(), os.uname().release)
 
@@ -31,7 +43,7 @@ class TestVmcoreinfo(LinuxKernelTestCase):
         )
 
     def test_vmcoreinfo_no_debug_info(self):
-        prog = drgn.Program()
+        prog = Program()
         prog.set_kernel()
         vmcoreinfo_data = dict(
             line.split("=", 1)

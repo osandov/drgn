@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import unittest
 
-from drgn import Object, Program
+from drgn import Program
 from tests import modifyenv
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
@@ -48,15 +48,3 @@ class TestModuleDebugInfo(LinuxKernelTestCase):
 
     def test_module_debug_info_use_core_dump(self):
         self._test_module_debug_info(False)
-
-
-class TestLinuxKernelObjectFinder(LinuxKernelTestCase):
-    def test_jiffies(self):
-        self.assertIdentical(
-            self.prog["jiffies"],
-            Object(
-                self.prog,
-                "volatile unsigned long",
-                address=self.prog.symbol("jiffies").address,
-            ),
-        )
