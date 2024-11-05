@@ -179,7 +179,10 @@ class BpfProg(object):
         id_ = self.prog.aux.id.value_()
         type_ = BpfProgType(self.prog.type).name
         name = self.get_prog_name()
-        tail_call_reachable = self.prog.aux.tail_call_reachable.value_()
+        try:
+            tail_call_reachable = self.prog.aux.member_("tail_call_reachable").value_()
+        except LookupError:
+            tail_call_reachable = None
 
         tail_call_desc = " tail_call_reachable" if tail_call_reachable else ""
 
