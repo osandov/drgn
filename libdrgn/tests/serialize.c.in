@@ -1,0 +1,192 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include "test_util.h"
+#include "../serialize.h"
+#include "../util.h"
+
+struct foo64 {
+	uint64_t big;
+	uint32_t medium;
+	uint16_t small;
+	uint8_t tiny;
+	uint8_t array[3];
+};
+
+struct foo32 {
+	uint32_t big;
+	uint16_t medium;
+	uint8_t small;
+	uint8_t tiny;
+	uint8_t array[3];
+};
+
+#define visit_foo_members(visit_scalar_member, visit_raw_member) do {	\
+	visit_scalar_member(big);					\
+	visit_scalar_member(medium);					\
+	visit_scalar_member(small);					\
+	visit_scalar_member(tiny);					\
+	visit_raw_member(array);					\
+} while (0)
+
+#suite serialize
+
+#tcase deserialize_struct64
+
+#test deserialize_struct64_64le
+{
+	uint8_t buf[24] = {
+		0x00, 0xf2, 0x05, 0x2a, 0x01, 0x00, 0x00, 0x00,
+		0xa0, 0x86, 0x01, 0x00,
+		0x20, 0x03,
+		0x0a,
+		0x41, 0x42, 0x43,
+	};
+	struct foo64 foo;
+	deserialize_struct64(&foo, struct foo32, visit_foo_members, buf, true,
+			     !HOST_LITTLE_ENDIAN);
+	ck_assert_uint_eq(foo.big, 5000000000);
+	ck_assert_uint_eq(foo.medium, 100000);
+	ck_assert_uint_eq(foo.small, 800);
+	ck_assert_uint_eq(foo.tiny, 10);
+	ck_assert_mem_eq(foo.array, "ABC", 3);
+}
+
+#test deserialize_struct64_64be
+{
+	uint8_t buf[24] = {
+		0x00, 0x00, 0x00, 0x01, 0x2a, 0x05, 0xf2, 0x00,
+		0x00, 0x01, 0x86, 0xa0,
+		0x03, 0x20,
+		0x0a,
+		0x41, 0x42, 0x43,
+	};
+	struct foo64 foo;
+	deserialize_struct64(&foo, struct foo32, visit_foo_members, buf, true,
+			     HOST_LITTLE_ENDIAN);
+	ck_assert_uint_eq(foo.big, 5000000000);
+	ck_assert_uint_eq(foo.medium, 100000);
+	ck_assert_uint_eq(foo.small, 800);
+	ck_assert_uint_eq(foo.tiny, 10);
+	ck_assert_mem_eq(foo.array, "ABC", 3);
+}
+
+#test deserialize_struct64_32le
+{
+	uint8_t buf[12] = {
+		0x00, 0x5e, 0xd0, 0xb2,
+		0x10, 0x27,
+		0x64,
+		0x0d,
+		0x41, 0x42, 0x43,
+	};
+	struct foo64 foo;
+	deserialize_struct64(&foo, struct foo32, visit_foo_members, buf, false,
+			     !HOST_LITTLE_ENDIAN);
+	ck_assert_uint_eq(foo.big, 3000000000);
+	ck_assert_uint_eq(foo.medium, 10000);
+	ck_assert_uint_eq(foo.small, 100);
+	ck_assert_uint_eq(foo.tiny, 13);
+	ck_assert_mem_eq(foo.array, "ABC", 3);
+}
+
+#test deserialize_struct64_32be
+{
+	uint8_t buf[12] = {
+		0xb2, 0xd0, 0x5e, 0x00,
+		0x27, 0x10,
+		0x64,
+		0x0d,
+		0x41, 0x42, 0x43,
+	};
+	struct foo64 foo;
+	deserialize_struct64(&foo, struct foo32, visit_foo_members, buf, false,
+			     HOST_LITTLE_ENDIAN);
+	ck_assert_uint_eq(foo.big, 3000000000);
+	ck_assert_uint_eq(foo.medium, 10000);
+	ck_assert_uint_eq(foo.small, 100);
+	ck_assert_uint_eq(foo.tiny, 13);
+	ck_assert_mem_eq(foo.array, "ABC", 3);
+}
+
+#tcase deserialize_struct64_inplace
+
+#test deserialize_struct64_inplace_64le
+{
+	uint8_t buf[24] = {
+		0x00, 0xf2, 0x05, 0x2a, 0x01, 0x00, 0x00, 0x00,
+		0xa0, 0x86, 0x01, 0x00,
+		0x20, 0x03,
+		0x0a,
+		0x41, 0x42, 0x43,
+	};
+	struct foo64 foo;
+	memcpy(&foo, buf, sizeof(buf));
+	deserialize_struct64_inplace(&foo, struct foo32, visit_foo_members,
+				     true, !HOST_LITTLE_ENDIAN);
+	ck_assert_uint_eq(foo.big, 5000000000);
+	ck_assert_uint_eq(foo.medium, 100000);
+	ck_assert_uint_eq(foo.small, 800);
+	ck_assert_uint_eq(foo.tiny, 10);
+	ck_assert_mem_eq(foo.array, "ABC", 3);
+}
+
+#test deserialize_struct64_inplace_64be
+{
+	uint8_t buf[24] = {
+		0x00, 0x00, 0x00, 0x01, 0x2a, 0x05, 0xf2, 0x00,
+		0x00, 0x01, 0x86, 0xa0,
+		0x03, 0x20,
+		0x0a,
+		0x41, 0x42, 0x43,
+	};
+	struct foo64 foo;
+	memcpy(&foo, buf, sizeof(buf));
+	deserialize_struct64_inplace(&foo, struct foo32, visit_foo_members,
+				     true, HOST_LITTLE_ENDIAN);
+	ck_assert_uint_eq(foo.big, 5000000000);
+	ck_assert_uint_eq(foo.medium, 100000);
+	ck_assert_uint_eq(foo.small, 800);
+	ck_assert_uint_eq(foo.tiny, 10);
+	ck_assert_mem_eq(foo.array, "ABC", 3);
+}
+
+#test deserialize_struct64_inplace_32le
+{
+	uint8_t buf[12] = {
+		0x00, 0x5e, 0xd0, 0xb2,
+		0x10, 0x27,
+		0x64,
+		0x0d,
+		0x41, 0x42, 0x43,
+	};
+	struct foo64 foo;
+	memcpy(&foo, buf, sizeof(buf));
+	deserialize_struct64_inplace(&foo, struct foo32, visit_foo_members,
+				     false, !HOST_LITTLE_ENDIAN);
+	ck_assert_uint_eq(foo.big, 3000000000);
+	ck_assert_uint_eq(foo.medium, 10000);
+	ck_assert_uint_eq(foo.small, 100);
+	ck_assert_uint_eq(foo.tiny, 13);
+	ck_assert_mem_eq(foo.array, "ABC", 3);
+}
+
+#test deserialize_struct64_inplace_32be
+{
+	uint8_t buf[12] = {
+		0xb2, 0xd0, 0x5e, 0x00,
+		0x27, 0x10,
+		0x64,
+		0x0d,
+		0x41, 0x42, 0x43,
+	};
+	struct foo64 foo;
+	memcpy(&foo, buf, sizeof(buf));
+	deserialize_struct64_inplace(&foo, struct foo32, visit_foo_members,
+				     false, HOST_LITTLE_ENDIAN);
+	ck_assert_uint_eq(foo.big, 3000000000);
+	ck_assert_uint_eq(foo.medium, 10000);
+	ck_assert_uint_eq(foo.small, 100);
+	ck_assert_uint_eq(foo.tiny, 13);
+	ck_assert_mem_eq(foo.array, "ABC", 3);
+}
