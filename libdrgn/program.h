@@ -138,7 +138,7 @@ struct drgn_program {
 	 * from NT_ARM_PAC_MASK or VMCOREINFO.
 	 */
 	uint64_t aarch64_insn_pac_mask;
-	bool core_dump_notes_cached;
+	bool core_dump_threads_cached;
 	bool prefer_orc_unwinder;
 	const char *core_dump_fname_cached;
 

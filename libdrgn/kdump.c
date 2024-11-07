@@ -285,7 +285,7 @@ err:
 	return err;
 }
 
-struct drgn_error *drgn_program_cache_kdump_notes(struct drgn_program *prog)
+struct drgn_error *drgn_program_cache_kdump_threads(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 	kdump_num_t ncpus, i;

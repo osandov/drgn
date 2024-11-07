@@ -970,7 +970,7 @@ struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 }
 
 static struct drgn_error *
-drgn_program_cache_core_dump_notes(struct drgn_program *prog)
+drgn_program_cache_core_dump_threads(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 	size_t phnum, i;
@@ -980,14 +980,14 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 	uint32_t prpsinfo_pid;
 	const char *prpsinfo_fname = NULL;
 
-	if (prog->core_dump_notes_cached)
+	if (prog->core_dump_threads_cached)
 		return NULL;
 
 	assert(!(prog->flags & DRGN_PROGRAM_IS_LIVE));
 
 #ifdef WITH_LIBKDUMPFILE
 	if (prog->kdump_ctx) {
-		err = drgn_program_cache_kdump_notes(prog);
+		err = drgn_program_cache_kdump_threads(prog);
 		if (err)
 			goto err;
 		goto out;
@@ -1070,7 +1070,7 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 	}
 
 out:
-	prog->core_dump_notes_cached = true;
+	prog->core_dump_threads_cached = true;
 	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
 		if (found_prpsinfo) {
 			struct drgn_thread_set_iterator it =
@@ -1133,7 +1133,7 @@ drgn_thread_iterator_init_userspace_live(struct drgn_thread_iterator *it)
 static struct drgn_error *
 drgn_thread_iterator_init_userspace_core(struct drgn_thread_iterator *it)
 {
-	struct drgn_error *err = drgn_program_cache_core_dump_notes(it->prog);
+	struct drgn_error *err = drgn_program_cache_core_dump_threads(it->prog);
 	if (err)
 		return err;
 	it->iterator = drgn_thread_set_first(&it->prog->thread_set);
@@ -1328,7 +1328,7 @@ static struct drgn_error *
 drgn_program_find_thread_userspace_core(struct drgn_program *prog, uint32_t tid,
 					struct drgn_thread **ret)
 {
-	struct drgn_error *err = drgn_program_cache_core_dump_notes(prog);
+	struct drgn_error *err = drgn_program_cache_core_dump_threads(prog);
 	if (err)
 		return err;
 	*ret = drgn_thread_set_search(&prog->thread_set, &tid).entry;
@@ -1480,7 +1480,7 @@ drgn_program_main_thread(struct drgn_program *prog, struct drgn_thread **ret)
 			}
 		}
 	} else {
-		err = drgn_program_cache_core_dump_notes(prog);
+		err = drgn_program_cache_core_dump_threads(prog);
 		if (err)
 			return err;
 	}
@@ -1504,7 +1504,7 @@ drgn_program_crashed_thread(struct drgn_program *prog, struct drgn_thread **ret)
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 		err = drgn_program_kernel_core_dump_cache_crashed_thread(prog);
 	else
-		err = drgn_program_cache_core_dump_notes(prog);
+		err = drgn_program_cache_core_dump_threads(prog);
 	if (err)
 		return err;
 	if (!prog->crashed_thread) {
@@ -1569,7 +1569,7 @@ drgn_thread_name_userspace_live(struct drgn_thread *thread, char **ret)
 static struct drgn_error *
 drgn_thread_name_userspace_core(struct drgn_thread *thread, char **ret)
 {
-	struct drgn_error *err = drgn_program_cache_core_dump_notes(thread->prog);
+	struct drgn_error *err = drgn_program_cache_core_dump_threads(thread->prog);
 	if (err)
 		return err;
 	// Core dumps only contain the main thread name so check if this is the main thread.
@@ -1600,7 +1600,7 @@ drgn_thread_name(struct drgn_thread *thread, char **ret)
 struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
 					      uint32_t tid, struct nstring *ret)
 {
-	struct drgn_error *err = drgn_program_cache_core_dump_notes(prog);
+	struct drgn_error *err = drgn_program_cache_core_dump_threads(prog);
 	if (err)
 		return err;
 	struct drgn_thread *thread =
