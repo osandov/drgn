@@ -140,64 +140,93 @@ struct drgn_program {
 	uint64_t aarch64_insn_pac_mask;
 	bool core_dump_threads_cached;
 	bool prefer_orc_unwinder;
-	const char *core_dump_fname_cached;
 
-	/*
-	 * Linux kernel-specific.
-	 */
-	/* The important parts of the VMCOREINFO note of a Linux kernel core. */
-	struct {
-		/** <tt>uname -r</tt> */
-		char osrelease[128];
-		/** PAGE_SIZE of the kernel. */
-		uint64_t page_size;
-		/**
-		 * The offset from the compiled address of the kernel image to its
-		 * actual address in memory.
-		 *
-		 * This is non-zero if kernel address space layout randomization (KASLR)
-		 * is enabled.
+	union {
+		/*
+		 * Userspace-specific.
 		 */
-		uint64_t kaslr_offset;
-		/** Kernel page table. */
-		uint64_t swapper_pg_dir;
-		/** Length of mem_section array (i.e., NR_SECTION_ROOTS). */
-		uint64_t mem_section_length;
-		/** VA_BITS on AArch64. */
-		uint64_t va_bits;
-		/** TCR_EL1_T1SZ on AArch64. */
-		uint64_t tcr_el1_t1sz;
-		/** phys_base on x86_64 */
-		uint64_t phys_base;
-		/** Whether 5-level paging was enabled on x86-64. */
-		bool pgtable_l5_enabled;
-		/** Whether LPAE was enabled on Arm. */
-		bool arm_lpae;
-		/** Whether CRASHTIME was in the VMCOREINFO. */
-		bool have_crashtime;
-		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */
-		int page_shift;
+		struct {
+			/** Cached `pr_fname` from `NT_PRPSINFO` note. */
+			const char *core_dump_fname_cached;
+		};
 
-		/** The original vmcoreinfo data, to expose as an object */
-		char *raw;
-		size_t raw_size;
-	} vmcoreinfo;
+		/*
+		 * Linux kernel-specific.
+		 */
+		struct {
+			/*
+			 * Important parts of the VMCOREINFO note of a Linux
+			 * kernel core.
+			 */
+			struct {
+				/** `uname -r` */
+				char osrelease[128];
+				/** `PAGE_SIZE` of the kernel. */
+				uint64_t page_size;
+				/**
+				 * The offset from the compiled address of the
+				 * kernel image to its actual address in memory.
+				 *
+				 * This is non-zero if kernel address space
+				 * layout randomization (KASLR) is enabled.
+				 */
+				uint64_t kaslr_offset;
+				/** Kernel page table. */
+				uint64_t swapper_pg_dir;
+				/**
+				 * Length of mem_section array (i.e.,
+				 * `NR_SECTION_ROOTS`).
+				 */
+				uint64_t mem_section_length;
+				/** `VA_BITS` on AArch64. */
+				uint64_t va_bits;
+				/** `TCR_EL1_T1SZ` on AArch64. */
+				uint64_t tcr_el1_t1sz;
+				/** `phys_base` on x86_64 */
+				uint64_t phys_base;
+				/**
+				 * Whether 5-level paging was enabled on x86-64.
+				 */
+				bool pgtable_l5_enabled;
+				/** Whether LPAE was enabled on Arm. */
+				bool arm_lpae;
+				/** Whether `CRASHTIME` was in the VMCOREINFO. */
+				bool have_crashtime;
+				/**
+				 * `PAGE_SHIFT` of the kernel (derived from
+				 * `PAGE_SIZE`).
+				 */
+				int page_shift;
+
+				/** The original vmcoreinfo data, to expose as an object */
+				char *raw;
+				size_t raw_size;
+			} vmcoreinfo;
+			/*
+			 * Difference between a virtual address in the direct
+			 * mapping and the physical address it maps to.
+			 */
+			uint64_t direct_mapping_offset;
+			/*
+			 * Whether @ref drgn_program::direct_mapping_offset has
+			 * been cached.
+			 */
+			bool direct_mapping_offset_cached;
+			/*
+			 * Whether we are currently in address translation. Used
+			 * to prevent address translation from recursing.
+			 */
+			bool in_address_translation;
+		};
+	};
 	/*
-	 * Difference between a virtual address in the direct mapping and the
-	 * physical address it maps to.
+	 * Linux kernel-specific, but simplifies init/deinit to have them
+	 * outside of the union above.
 	 */
-	uint64_t direct_mapping_offset;
 	/* Cached vmemmap. */
 	struct drgn_object vmemmap;
 	/* Page table iterator. */
 	struct pgtable_iterator *pgtable_it;
-	/*
-	 * Whether we are currently in address translation. Used to prevent
-	 * address translation from recursing.
-	 */
-	bool in_address_translation;
-	/* Whether @ref drgn_program::direct_mapping_offset has been cached. */
-	bool direct_mapping_offset_cached;
 
 	/*
 	 * Logging.
