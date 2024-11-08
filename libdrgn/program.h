@@ -282,6 +282,28 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog);
  */
 struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid);
 
+/**
+ * Return whether a @ref drgn_program is a userspace process running on the
+ * local machine.
+ */
+static inline bool
+drgn_program_is_userspace_process(struct drgn_program *prog)
+{
+	return (prog->flags & (DRGN_PROGRAM_IS_LINUX_KERNEL
+			       | DRGN_PROGRAM_IS_LIVE
+			       | DRGN_PROGRAM_IS_LOCAL))
+	       == (DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LOCAL);
+}
+
+/** Return whether a @ref drgn_program is a core dump of a userspace process. */
+static inline bool
+drgn_program_is_userspace_core(struct drgn_program *prog)
+{
+	return (prog->flags &
+		(DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE)) == 0
+	       && prog->core;
+}
+
 static inline struct drgn_error *
 drgn_program_is_little_endian(struct drgn_program *prog, bool *ret)
 {

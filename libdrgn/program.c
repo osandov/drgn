@@ -120,10 +120,10 @@ void drgn_program_deinit(struct drgn_program *prog)
 	 * prog->thread_set and thus freed by the above call to
 	 * drgn_thread_set_deinit().
 	 */
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+	if (!drgn_program_is_userspace_core(prog)) {
 		drgn_thread_destroy(prog->crashed_thread);
-	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
 		drgn_thread_destroy(prog->main_thread);
+	}
 	if (prog->pgtable_it)
 		prog->platform.arch->linux_kernel_pgtable_iterator_destroy(prog->pgtable_it);
 
@@ -917,8 +917,7 @@ struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_thread_dup(const struct drgn_thread *thread, struct drgn_thread **ret)
 {
-	if (!(thread->prog->flags &
-	      (DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE))) {
+	if (drgn_program_is_userspace_core(thread->prog)) {
 		/*
 		 * For userspace core dumps, all threads are cached and
 		 * immutable, so we can return the same handle.
@@ -945,8 +944,7 @@ LIBDRGN_PUBLIC void drgn_thread_destroy(struct drgn_thread *thread)
 {
 	if (thread) {
 		drgn_thread_deinit(thread);
-		if (thread->prog->flags &
-		    (DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE))
+		if (!drgn_program_is_userspace_core(thread->prog))
 			free(thread);
 	}
 }
@@ -1113,7 +1111,7 @@ drgn_thread_iterator_init_linux_kernel(struct drgn_thread_iterator *it)
 }
 
 static struct drgn_error *
-drgn_thread_iterator_init_userspace_live(struct drgn_thread_iterator *it)
+drgn_thread_iterator_init_userspace_process(struct drgn_thread_iterator *it)
 {
 #define FORMAT "/proc/%ld/task"
 	char path[sizeof(FORMAT)
@@ -1152,10 +1150,12 @@ drgn_thread_iterator_create(struct drgn_program *prog,
 	(*ret)->prog = prog;
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 		err = drgn_thread_iterator_init_linux_kernel(*ret);
-	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
-		err = drgn_thread_iterator_init_userspace_live(*ret);
-	else
+	else if (drgn_program_is_userspace_process(prog))
+		err = drgn_thread_iterator_init_userspace_process(*ret);
+	else if (drgn_program_is_userspace_core(prog))
 		err = drgn_thread_iterator_init_userspace_core(*ret);
+	else
+		err = NULL;
 	if (err)
 		free(*ret);
 	return err;
@@ -1168,7 +1168,7 @@ drgn_thread_iterator_destroy(struct drgn_thread_iterator *it)
 		if (it->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 			drgn_object_deinit(&it->entry.object);
 			linux_helper_task_iterator_deinit(&it->task_iter);
-		} else if (it->prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		} else if (drgn_program_is_userspace_process(it->prog)) {
 			closedir(it->tasks_dir);
 		}
 		free(it);
@@ -1202,8 +1202,8 @@ drgn_thread_iterator_next_linux_kernel(struct drgn_thread_iterator *it,
 }
 
 static struct drgn_error *
-drgn_thread_iterator_next_userspace_live(struct drgn_thread_iterator *it,
-					 struct drgn_thread **ret)
+drgn_thread_iterator_next_userspace_process(struct drgn_thread_iterator *it,
+					    struct drgn_thread **ret)
 {
 	struct dirent *task;
 	unsigned long tid;
@@ -1247,10 +1247,13 @@ drgn_thread_iterator_next(struct drgn_thread_iterator *it,
 {
 	if (it->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		return drgn_thread_iterator_next_linux_kernel(it, ret);
-	} else if (it->prog->flags & DRGN_PROGRAM_IS_LIVE) {
-		return drgn_thread_iterator_next_userspace_live(it, ret);
-	} else {
+	} else if (drgn_program_is_userspace_process(it->prog)) {
+		return drgn_thread_iterator_next_userspace_process(it, ret);
+	} else if (drgn_program_is_userspace_core(it->prog)) {
 		drgn_thread_iterator_next_userspace_core(it, ret);
+		return NULL;
+	} else {
+		*ret = NULL;
 		return NULL;
 	}
 }
@@ -1296,8 +1299,9 @@ err:
 }
 
 static struct drgn_error *
-drgn_program_find_thread_userspace_live(struct drgn_program *prog, uint32_t tid,
-					struct drgn_thread **ret)
+drgn_program_find_thread_userspace_process(struct drgn_program *prog,
+					   uint32_t tid,
+					   struct drgn_thread **ret)
 {
 #define FORMAT "/proc/%ld/task/%" PRIu32
 	char path[sizeof(FORMAT)
@@ -1339,12 +1343,17 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_find_thread(struct drgn_program *prog, uint32_t tid,
 			 struct drgn_thread **ret)
 {
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		return drgn_program_find_thread_linux_kernel(prog, tid, ret);
-	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
-		return drgn_program_find_thread_userspace_live(prog, tid, ret);
-	else
+	} else if (drgn_program_is_userspace_process(prog)) {
+		return drgn_program_find_thread_userspace_process(prog, tid,
+								  ret);
+	} else if (drgn_program_is_userspace_core(prog)) {
 		return drgn_program_find_thread_userspace_core(prog, tid, ret);
+	} else {
+		*ret = NULL;
+		return NULL;
+	}
 }
 
 // Get the CPU that crashed in a Linux kernel core dump.
@@ -1470,7 +1479,7 @@ drgn_program_main_thread(struct drgn_program *prog, struct drgn_thread **ret)
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "main thread is not defined for the Linux kernel");
 	}
-	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+	if (drgn_program_is_userspace_process(prog)) {
 		if (!prog->main_thread) {
 			err = drgn_program_find_thread(prog, prog->pid,
 						       &prog->main_thread);
@@ -1479,7 +1488,7 @@ drgn_program_main_thread(struct drgn_program *prog, struct drgn_thread **ret)
 				return err;
 			}
 		}
-	} else {
+	} else if (drgn_program_is_userspace_core(prog)) {
 		err = drgn_program_cache_core_dump_threads(prog);
 		if (err)
 			return err;
@@ -1503,8 +1512,10 @@ drgn_program_crashed_thread(struct drgn_program *prog, struct drgn_thread **ret)
 	}
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 		err = drgn_program_kernel_core_dump_cache_crashed_thread(prog);
-	else
+	else if (drgn_program_is_userspace_core(prog))
 		err = drgn_program_cache_core_dump_threads(prog);
+	else
+		err = NULL;
 	if (err)
 		return err;
 	if (!prog->crashed_thread) {
@@ -1538,7 +1549,7 @@ drgn_thread_name_linux_kernel(struct drgn_thread *thread, char **ret)
 }
 
 static struct drgn_error *
-drgn_thread_name_userspace_live(struct drgn_thread *thread, char **ret)
+drgn_thread_name_userspace_process(struct drgn_thread *thread, char **ret)
 {
 #define FORMAT "/proc/%" PRIu32 "/comm"
 	char path[sizeof(FORMAT)
@@ -1589,12 +1600,16 @@ drgn_thread_name_userspace_core(struct drgn_thread *thread, char **ret)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_thread_name(struct drgn_thread *thread, char **ret)
 {
-	if (thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+	if (thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		return drgn_thread_name_linux_kernel(thread, ret);
-	else if (thread->prog->flags & DRGN_PROGRAM_IS_LIVE)
-		return drgn_thread_name_userspace_live(thread, ret);
-	else
+	} else if (drgn_program_is_userspace_process(thread->prog)) {
+		return drgn_thread_name_userspace_process(thread, ret);
+	} else if (drgn_program_is_userspace_core(thread->prog)) {
 		return drgn_thread_name_userspace_core(thread, ret);
+	} else {
+		*ret = NULL;
+		return NULL;
+	}
 }
 
 struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
