@@ -61,19 +61,19 @@ class _PreTransformer(ast.NodeTransformer):
 
     # Replace the old constant nodes produced by ast.parse() before Python 3.8
     # with Constant.
-    def visit_Num(self, node: ast.Num) -> ast.Constant:
+    def visit_Num(self, node: Any) -> ast.Constant:
         return ast.copy_location(ast.Constant(node.n), node)
 
-    def visit_Str(self, node: ast.Str) -> ast.Constant:
+    def visit_Str(self, node: Any) -> ast.Constant:
         return ast.copy_location(ast.Constant(node.s), node)
 
-    def visit_Bytes(self, node: ast.Bytes) -> ast.Constant:
+    def visit_Bytes(self, node: Any) -> ast.Constant:
         return ast.copy_location(ast.Constant(node.s), node)
 
-    def visit_Ellipsis(self, node: ast.Ellipsis) -> ast.Constant:
+    def visit_Ellipsis(self, node: Any) -> ast.Constant:
         return ast.copy_location(ast.Constant(...), node)
 
-    def visit_NameConstant(self, node: ast.NameConstant) -> ast.Constant:
+    def visit_NameConstant(self, node: Any) -> ast.Constant:
         return ast.copy_location(ast.Constant(node.value), node)
 
     # Get rid of Index nodes, which are deprecated as of Python 3.9.
@@ -186,9 +186,7 @@ def _docstring_from_node(node: Optional[ast.AST]) -> Optional[str]:
     if not isinstance(node, ast.Expr):
         return None
     node = node.value
-    if isinstance(node, ast.Str):
-        text = node.s
-    elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         text = node.value
     else:
         return None
