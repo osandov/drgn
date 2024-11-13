@@ -29,7 +29,6 @@ int init_type_kind_set(void)
 				    &TypeKindSet_type);
 	if (!res)
 		return -1;
-	Py_DECREF(res);
 	return 0;
 }
 
