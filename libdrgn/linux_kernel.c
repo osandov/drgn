@@ -486,6 +486,7 @@ static struct drgn_error *
 kernel_module_iterator_next(struct kernel_module_iterator *it)
 {
 	struct drgn_error *err;
+	struct drgn_program *prog = drgn_object_program(&it->mod);
 
 	uint64_t addr;
 	err = drgn_object_read_unsigned(&it->node, &addr);
@@ -518,24 +519,28 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 	// Set tmp1 to the module base address and tmp2 to the size.
 	err = drgn_object_member(&it->tmp1, &it->mod, "mem");
 	if (!err) {
-		union drgn_value mod_mem_type;
-
 		// Since Linux kernel commit ac3b43283923 ("module: replace
 		// module_layout with module_memory") (in v6.4), the base and
 		// size are in the `struct module_memory mem[MOD_TEXT]` member
 		// of `struct module`.
-		err = drgn_program_find_object(drgn_object_program(&it->mod),
-					       "MOD_TEXT", NULL,
-					       DRGN_FIND_OBJECT_CONSTANT,
-					       &it->tmp2);
-		if (err)
-			return err;
-		err = drgn_object_read_integer(&it->tmp2, &mod_mem_type);
-		if (err)
-			return err;
+		if (!prog->mod_text_cached) {
+			err = drgn_program_find_object(drgn_object_program(&it->mod),
+						       "MOD_TEXT", NULL,
+						       DRGN_FIND_OBJECT_CONSTANT,
+						       &it->tmp2);
+			if (err)
+				return err;
+			union drgn_value mod_text_value;
+			err = drgn_object_read_integer(&it->tmp2,
+						       &mod_text_value);
+			if (err)
+				return err;
+			prog->mod_text = mod_text_value.uvalue;
+			prog->mod_text_cached = true;
+		}
 
 		err = drgn_object_subscript(&it->tmp1, &it->tmp1,
-					    mod_mem_type.uvalue);
+					    prog->mod_text);
 		if (err)
 			return err;
 		err = drgn_object_member(&it->tmp2, &it->tmp1, "size");

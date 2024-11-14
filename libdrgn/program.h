@@ -207,11 +207,17 @@ struct drgn_program {
 			 * mapping and the physical address it maps to.
 			 */
 			uint64_t direct_mapping_offset;
+			/** Cached value of `MOD_TEXT` in the kernel. */
+			uint64_t mod_text;
 			/*
 			 * Whether @ref drgn_program::direct_mapping_offset has
 			 * been cached.
 			 */
 			bool direct_mapping_offset_cached;
+			/**
+			 * Whether @ref drgn_program::mod_text has been cached.
+			 */
+			bool mod_text_cached;
 			/*
 			 * Whether we are currently in address translation. Used
 			 * to prevent address translation from recursing.
