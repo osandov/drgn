@@ -332,6 +332,30 @@ static struct drgn_error *gdb_send_and_receive(int fd, struct gdb_packet *pkt)
 	if (VERBOSE_PROTOCOL > 1)
 		fprintf(stderr, "-> +\n");
 
+	// We need to make sure we check for errors after sending the
+	// acknowledgement!
+	if (pkt->buffer[1] == 'E') {
+		// Error packets are naturally printable to we just have
+		// to deframe things slightly to make it look good in the
+		// error message.
+		//
+		// Format is either a two digit number (e.g. $E01#c5) or
+		// a textual message (e.g. $E.messaeg#c5). We can print
+		// either of these simply by terminating at the '#' and
+		// stripping of the . or leading '0' if it exists.
+
+		char *msg = (char *) pkt->buffer +
+			(pkt->buffer[2] == '.' || pkt->buffer[2] == '0' ? 3 :
+									  2);
+
+		// strrchr() will always find the '#' because the
+		// packet has already been subjected to framing checks
+		*strrchr(msg, '#') = '\0';
+
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "gdbserver reported error: %s", msg);
+	}
+
 	return NULL;
 }
 

@@ -22,8 +22,10 @@ aarch64_lookup = {
     b"$m7fffffee40,16#63": b'$60eef* 7f0*"4077e1f77f0*"d8ef*!7f00#c6',
     b"$m7fffffee60,16#65": b'$70ef*!7f0*"1878e1f77f0*"f00cfdf77f00#47',
     b"$m7fffffef70,16#67": b'$0*,70065*"0*.#5c',
-}
 
+    # Null pointer read
+    b"$m0,64#33" : b'$E01#a6',
+}
 
 class GdbMockProcess(multiprocessing.Process):
     def __init__(self):
@@ -123,6 +125,15 @@ class TestGdbRemote(TestCase):
         self.assertEqual(
             val, b"`\xee\xff\xff\x7f\x00\x00\x00@w\xe1\xf7\x7f\x00\x00\x00"
         )
+
+    def test_gdbremote_read_with_error(self):
+        self.prog.set_gdbremote(self.conn_str)
+        self.assertRaisesRegex(
+            Exception,
+            "gdbserver reported error: 1",
+            self.prog.read,
+            0,
+            64)
 
     def test_gdbremote_getregs(self):
         self.prog.set_gdbremote(self.conn_str)
