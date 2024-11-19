@@ -22,6 +22,10 @@ struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
 	shdr = gelf_getshdr(scn, &shdr_mem);
 	if (!shdr)
 		return drgn_error_libelf();
+	if (shdr->sh_type == SHT_NOBITS) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "section has no data");
+	}
 	if ((shdr->sh_flags & SHF_COMPRESSED) && elf_compress(scn, 0, 0) < 0)
 		return drgn_error_libelf();
 	Elf_Data *data = elf_rawdata(scn, NULL);

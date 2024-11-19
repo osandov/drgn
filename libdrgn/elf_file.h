@@ -39,8 +39,7 @@ struct drgn_module;
  * Read the raw data from an ELF section, decompressing it first if it is
  * compressed.
  *
- * @warning If the section is `SHT_NOBITS`, this returns an `Elf_Data` with
- * `d_size >= 0 && d_buf == NULL`.
+ * This returns an error if the section type is `SHT_NOBITS`.
  */
 struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret);
 

@@ -1658,13 +1658,6 @@ static struct drgn_error *relocate_elf_file(Elf *elf)
 							 reloc_shdr->sh_link);
 			if (!symtab_scn)
 				return drgn_error_libelf();
-			shdr = gelf_getshdr(symtab_scn, &shdr_mem);
-			if (!shdr)
-				return drgn_error_libelf();
-			if (shdr->sh_type == SHT_NOBITS) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
-							 "relocation symbol table has no data");
-			}
 
 			Elf_Data *data, *reloc_data, *symtab_data;
 			if ((err = read_elf_section(scn, &data)) ||
