@@ -117,19 +117,22 @@ static unsigned int remove_fdes_from_orc(struct drgn_module *module,
 
 	unsigned int new_num_entries = 0;
 
-	/* Keep any entries that start before the first DWARF FDE. */
-	uint64_t start_pc;
-	for (;;) {
-		start_pc = drgn_raw_orc_pc(module, new_num_entries);
-		if (fde->initial_location <= start_pc)
-			break;
-		new_num_entries++;
-		if (new_num_entries == num_entries)
-			return num_entries;
-	}
+	uint64_t start_pc = drgn_raw_orc_pc(module, 0);
+	uint64_t end_pc;
+	for (unsigned int i = 0; i < num_entries; i++, start_pc = end_pc) {
+		if (i < num_entries - 1)
+			end_pc = drgn_raw_orc_pc(module, i + 1);
+		else
+			end_pc = UINT64_MAX;
 
-	for (unsigned int i = new_num_entries; i < num_entries - 1; i++) {
-		uint64_t end_pc = drgn_raw_orc_pc(module, i + 1);
+		if (start_pc < fde->initial_location) {
+			// The current ORC entry starts before the current FDE
+			// (which can only happen if it is the first FDE). Keep
+			// it.
+			new_num_entries = keep_orc_entry(module, indices,
+							 new_num_entries, i);
+			continue;
+		}
 
 		/*
 		 * Find the last FDE that starts at or before the current ORC
@@ -146,26 +149,12 @@ static unsigned int remove_fdes_from_orc(struct drgn_module *module,
 			/*
 			 * The current FDE doesn't cover the current ORC entry.
 			 */
-			if (fde == last_fde) {
-				/*
-				 * There are no more FDEs. Keep the remaining
-				 * ORC entries.
-				 */
-				if (i != new_num_entries) {
-					memmove(&indices[new_num_entries],
-						&indices[i],
-						(num_entries - i) *
-						sizeof(indices[0]));
-				}
-				return new_num_entries + (num_entries - i);
-			}
-			if (fde[1].initial_location - fde->initial_location
-			    > fde->address_range) {
-				/*
-				 * There is a gap between the current FDE and
-				 * the next FDE that exposes the current ORC
-				 * entry. Keep it.
-				 */
+			if (fde == last_fde
+			    || fde[1].initial_location - fde->initial_location
+			       > fde->address_range) {
+				// Either there are no more FDEs or there is a
+				// gap between the current FDE and the next FDE
+				// that exposes the current ORC entry. Keep it.
 				new_num_entries = keep_orc_entry(module,
 								 indices,
 								 new_num_entries,
@@ -174,12 +163,8 @@ static unsigned int remove_fdes_from_orc(struct drgn_module *module,
 			}
 			fde++;
 		}
-
-		start_pc = end_pc;
 	}
-	/* We don't know where the last ORC entry ends, so always keep it. */
-	return keep_orc_entry(module, indices, new_num_entries,
-			      num_entries - 1);
+	return new_num_entries;
 }
 
 static int orc_version_from_header(Elf_Data *orc_header)
