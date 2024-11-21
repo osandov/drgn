@@ -56,6 +56,11 @@ struct drgn_register_layout {
 // We enforce that it stays up to date with a static_assert() in arch_aarch64.c.
 #define DRGN_AARCH64_RA_SIGN_STATE_REGNO 0
 
+struct drgn_error *
+drgn_orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
+		       struct drgn_cfi_row **row_ret, bool *interrupted_ret,
+		       drgn_register_number *ret_addr_regno_ret);
+
 /** ELF section to apply relocations to. */
 struct drgn_relocating_section {
 	char *buf;
@@ -320,14 +325,6 @@ struct drgn_architecture_info {
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t);
 	/** CFI row containing default rules for DWARF CFI. */
 	const struct drgn_cfi_row *default_dwarf_cfi_row;
-	/**
-	 * Translate an ORC entry to a @ref drgn_cfi_row.
-	 *
-	 * This should be `NULL` if the architecture doesn't use ORC.
-	 */
-	struct drgn_error *(*orc_to_cfi)(const struct drgn_orc_entry *,
-					 struct drgn_cfi_row **, bool *,
-					 drgn_register_number *);
 	/**
 	 * Replace mangled registers unwound by CFI with their actual values.
 	 *

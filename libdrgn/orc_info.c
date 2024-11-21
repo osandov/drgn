@@ -317,7 +317,7 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 {
 	struct drgn_error *err;
 
-	if (!module->debug_file->platform.arch->orc_to_cfi)
+	if (module->debug_file->platform.arch->arch != DRGN_ARCH_X86_64)
 		return NULL;
 
 	// pc_offsets and entries point to the Elf_Data buffers until we're
@@ -453,8 +453,6 @@ drgn_module_find_orc_cfi(struct drgn_module *module, uint64_t pc,
 	// addresses beyond the max will fall into the last entry.
 	if (i == 0)
 		return &drgn_not_found;
-	return module->debug_file->platform.arch->orc_to_cfi(&module->orc.entries[i - 1],
-							     row_ret,
-							     interrupted_ret,
-							     ret_addr_regno_ret);
+	return drgn_orc_to_cfi_x86_64(&module->orc.entries[i - 1], row_ret,
+				      interrupted_ret, ret_addr_regno_ret);
 }

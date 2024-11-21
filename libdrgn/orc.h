@@ -6,12 +6,13 @@
  *
  * ORC unwinder definitions.
  *
- * As of Linux v6.4, ORC is only defined for x86-64. This file assumes that the
- * overall format would be the same for other architectures other than
- * architecture-specific register numbers, but this may require reorganization
- * if that isn't the case.
+ * As of Linux v6.12, ORC is only defined for x86-64 and LoongArch. We don't
+ * support LoongArch, so the definitions below are x86-64-specific. The
+ * LoongArch format is different, so if we ever want to support LoongArch or a
+ * another architecture that adds its own ORC format, this will need
+ * reorganization.
  *
- * There are multiple versions of the ORC format:
+ * There are multiple versions of the ORC format for x86-64:
  *
  * - Version 3 since since Linux kernel commit fb799447ae29 ("x86,objtool: Split
  *   UNWIND_HINT_EMPTY in two") (in v6.4).
@@ -20,7 +21,8 @@
  * - Version 1 before that, introduced in Linux kernel commit ee9f8fce9964
  *   ("x86/unwind: Add the ORC unwinder") (in v4.14).
  *
- * (The version numbers are our own invention and aren't used upstream.)
+ * (The version numbers are our own invention and aren't used in the Linux
+ * kernel.)
  *
  * So far, the format changes only affect the interpretation of @ref
  * drgn_orc_entry::flags. The getters assume the latest version.
@@ -58,6 +60,19 @@ enum {
 	DRGN_ORC_TYPE_CALL = 2,
 	DRGN_ORC_TYPE_REGS = 3,
 	DRGN_ORC_TYPE_REGS_PARTIAL = 4,
+};
+
+enum {
+	DRGN_ORC_REG_UNDEFINED = 0,
+	DRGN_ORC_REG_PREV_SP = 1,
+	DRGN_ORC_REG_DX = 2,
+	DRGN_ORC_REG_DI = 3,
+	DRGN_ORC_REG_BP = 4,
+	DRGN_ORC_REG_SP = 5,
+	DRGN_ORC_REG_R10 = 6,
+	DRGN_ORC_REG_R13 = 7,
+	DRGN_ORC_REG_BP_INDIRECT = 8,
+	DRGN_ORC_REG_SP_INDIRECT = 9,
 };
 
 static inline int drgn_orc_sp_reg(const struct drgn_orc_entry *orc)

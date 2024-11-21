@@ -36,24 +36,11 @@ static const struct drgn_cfi_row default_dwarf_cfi_row_x86_64 = DRGN_CFI_ROW(
 	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r15)),
 );
 
-static struct drgn_error *
-orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
-		  struct drgn_cfi_row **row_ret, bool *interrupted_ret,
-		  drgn_register_number *ret_addr_regno_ret)
+struct drgn_error *
+drgn_orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
+		       struct drgn_cfi_row **row_ret, bool *interrupted_ret,
+		       drgn_register_number *ret_addr_regno_ret)
 {
-	enum {
-		ORC_REG_UNDEFINED = 0,
-		ORC_REG_PREV_SP = 1,
-		ORC_REG_DX = 2,
-		ORC_REG_DI = 3,
-		ORC_REG_BP = 4,
-		ORC_REG_SP = 5,
-		ORC_REG_R10 = 6,
-		ORC_REG_R13 = 7,
-		ORC_REG_BP_INDIRECT = 8,
-		ORC_REG_SP_INDIRECT = 9,
-	};
-
 	if (!drgn_cfi_row_copy(row_ret, drgn_empty_cfi_row))
 		return &drgn_enomem;
 
@@ -64,42 +51,42 @@ orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 
 	struct drgn_cfi_rule rule;
 	switch (drgn_orc_sp_reg(orc)) {
-	case ORC_REG_SP:
+	case DRGN_ORC_REG_SP:
 		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(rsp);
 		rule.offset = orc->sp_offset;
 		break;
-	case ORC_REG_BP:
+	case DRGN_ORC_REG_BP:
 		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(rbp);
 		rule.offset = orc->sp_offset;
 		break;
-	case ORC_REG_SP_INDIRECT:
+	case DRGN_ORC_REG_SP_INDIRECT:
 		rule.kind = DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(rsp);
 		rule.offset = orc->sp_offset;
 		break;
-	case ORC_REG_BP_INDIRECT:
+	case DRGN_ORC_REG_BP_INDIRECT:
 		rule.kind = DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(rbp);
 		rule.offset = orc->sp_offset;
 		break;
-	case ORC_REG_R10:
+	case DRGN_ORC_REG_R10:
 		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(r10);
 		rule.offset = 0;
 		break;
-	case ORC_REG_R13:
+	case DRGN_ORC_REG_R13:
 		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(r13);
 		rule.offset = 0;
 		break;
-	case ORC_REG_DI:
+	case DRGN_ORC_REG_DI:
 		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(rdi);
 		rule.offset = 0;
 		break;
-	case ORC_REG_DX:
+	case DRGN_ORC_REG_DX:
 		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(rdx);
 		rule.offset = 0;
@@ -189,16 +176,16 @@ orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 	}
 
 	switch (drgn_orc_bp_reg(orc)) {
-	case ORC_REG_UNDEFINED:
+	case DRGN_ORC_REG_UNDEFINED:
 		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(rbp);
 		rule.offset = 0;
 		break;
-	case ORC_REG_PREV_SP:
+	case DRGN_ORC_REG_PREV_SP:
 		rule.kind = DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET;
 		rule.offset = orc->bp_offset;
 		break;
-	case ORC_REG_BP:
+	case DRGN_ORC_REG_BP:
 		rule.kind = DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(rbp);
 		rule.offset = orc->bp_offset;
@@ -677,7 +664,6 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.scalar_alignment = { 1, 2, 4, 8, 16 },
 	DRGN_ARCHITECTURE_REGISTERS,
 	.default_dwarf_cfi_row = &default_dwarf_cfi_row_x86_64,
-	.orc_to_cfi = orc_to_cfi_x86_64,
 	.fallback_unwind = fallback_unwind_x86_64,
 	.pt_regs_get_initial_registers = pt_regs_get_initial_registers_x86_64,
 	.prstatus_get_initial_registers = prstatus_get_initial_registers_x86_64,
