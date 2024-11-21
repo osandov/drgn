@@ -222,4 +222,8 @@ static inline uint64_t uint_max(int n)
 void qsort_arg(void *base, size_t nmemb, size_t size,
 	       int (*compar)(const void *, const void *, void*), void *arg);
 
+struct uint64_range {
+	uint64_t start, end;
+};
+
 #endif /* DRGN_UTIL_H */

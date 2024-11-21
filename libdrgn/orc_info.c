@@ -18,10 +18,13 @@
 #include "program.h"
 #include "util.h"
 
+DEFINE_VECTOR(uint64_range_vector, struct uint64_range);
+
 void drgn_module_orc_info_deinit(struct drgn_module *module)
 {
 	free(module->orc.entries);
 	free(module->orc.pc_offsets);
+	free(module->orc.preferred);
 }
 
 // Getters for "raw" ORC information, i.e., before it is aligned, byte swapped,
@@ -53,6 +56,24 @@ drgn_raw_orc_entry_is_terminator(struct drgn_module *module, unsigned int i)
 		// orc->sp_reg == ORC_REG_UNDEFINED && !orc->end
 		return (flags & 0x40f) == 0;
 	}
+}
+
+static bool
+drgn_raw_orc_entry_is_preferred(struct drgn_module *module, unsigned int i)
+{
+	uint16_t flags;
+	memcpy(&flags, &module->orc.entries[i].flags, sizeof(flags));
+	if (drgn_elf_file_bswap(module->debug_file))
+		flags = bswap_16(flags);
+	// ORC_REG_SP_INDIRECT is used for the stack switching pattern used in
+	// the Linux kernel's call_on_stack()/call_on_irqstack() macros. See
+	// Linux kernel commits 87ccc826bf1c ("x86/unwind/orc: Change
+	// REG_SP_INDIRECT"), aafeb14e9da2 ("objtool: Support stack-swizzle"),
+	// and a0cfc74d0b00 ("x86/irq: Provide macro for inlining irq stack
+	// switching") (in v5.12). These macros switch the stack pointer in
+	// inline assembly, resulting in inaccurate DWARF CFI. So, we should use
+	// ORC to unwind these instead.
+	return (flags & 0xf) == DRGN_ORC_REG_SP_INDIRECT;
 }
 
 static int compare_orc_entries(const void *a, const void *b, void *arg)
@@ -104,17 +125,30 @@ static unsigned int keep_orc_entry(struct drgn_module *module,
  * Note that we don't bother checking EH CFI because currently ORC is only used
  * for the Linux kernel on x86-64, which explicitly disables EH data.
  */
-static unsigned int remove_fdes_from_orc(struct drgn_module *module,
-					 unsigned int *indices,
-					 unsigned int num_entries)
+static struct drgn_error *
+remove_fdes_from_orc(struct drgn_module *module, unsigned int *indices,
+		     struct uint64_range_vector *preferred,
+		     unsigned int *num_entriesp)
 {
+	char *env = getenv("DRGN_PREFER_ORC_UNWINDER");
+	if (env && atoi(env)) {
+		struct uint64_range *range =
+			uint64_range_vector_append_entry(preferred);
+		if (!range)
+			return &drgn_enomem;
+		range->start = 0;
+		range->end = UINT64_MAX;
+		return NULL;
+	}
+
 	if (module->dwarf.debug_frame.num_fdes == 0)
-		return num_entries;
+		return NULL;
 
 	struct drgn_dwarf_fde *fde = module->dwarf.debug_frame.fdes;
 	struct drgn_dwarf_fde *last_fde =
 		fde + module->dwarf.debug_frame.num_fdes - 1;
 
+	unsigned int num_entries = *num_entriesp;
 	unsigned int new_num_entries = 0;
 
 	uint64_t start_pc = drgn_raw_orc_pc(module, 0);
@@ -124,6 +158,18 @@ static unsigned int remove_fdes_from_orc(struct drgn_module *module,
 			end_pc = drgn_raw_orc_pc(module, i + 1);
 		else
 			end_pc = UINT64_MAX;
+
+		if (drgn_raw_orc_entry_is_preferred(module, i)) {
+			struct uint64_range *range =
+				uint64_range_vector_append_entry(preferred);
+			if (!range)
+				return &drgn_enomem;
+			range->start = start_pc;
+			range->end = end_pc;
+			new_num_entries = keep_orc_entry(module, indices,
+							 new_num_entries, i);
+			continue;
+		}
 
 		if (start_pc < fde->initial_location) {
 			// The current ORC entry starts before the current FDE
@@ -164,7 +210,8 @@ static unsigned int remove_fdes_from_orc(struct drgn_module *module,
 			fde++;
 		}
 	}
-	return new_num_entries;
+	*num_entriesp = new_num_entries;
+	return NULL;
 }
 
 static int orc_version_from_header(Elf_Data *orc_header)
@@ -313,7 +360,7 @@ static inline void drgn_module_clear_orc(struct drgn_module **modulep)
 	}
 }
 
-static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
+struct drgn_error *drgn_module_parse_orc(struct drgn_module *module)
 {
 	struct drgn_error *err;
 
@@ -351,7 +398,12 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 		}
 	}
 
-	num_entries = remove_fdes_from_orc(module, indices, num_entries);
+	_cleanup_(uint64_range_vector_deinit)
+		struct uint64_range_vector preferred = VECTOR_INIT;
+
+	err = remove_fdes_from_orc(module, indices, &preferred, &num_entries);
+	if (err)
+		return err;
 
 	_cleanup_free_ int32_t *pc_offsets =
 		malloc_array(num_entries, sizeof(pc_offsets[0]));
@@ -414,11 +466,25 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 		pc_offsets[i] = UINT64_C(4) * index + offset - UINT64_C(4) * i;
 	}
 
+	uint64_range_vector_shrink_to_fit(&preferred);
+	uint64_range_vector_steal(&preferred, &module->orc.preferred,
+				  &module->orc.num_preferred);
 	module->orc.pc_offsets = no_cleanup_ptr(pc_offsets);
 	module->orc.entries = no_cleanup_ptr(entries);
 	module->orc.num_entries = num_entries;
 	clear = NULL;
 	return NULL;
+}
+
+bool drgn_module_should_prefer_orc_cfi(struct drgn_module *module, uint64_t pc)
+{
+	uint64_t unbiased_pc = pc - module->debug_file_bias;
+	#define less_than_uint64_range_start(a, b) (*(a) < (b)->start)
+	size_t i = binary_search_gt(module->orc.preferred,
+				    module->orc.num_preferred, &unbiased_pc,
+				    less_than_uint64_range_start);
+	#undef less_than_uint64_range_start
+	return i > 0 && module->orc.preferred[i - 1].end > unbiased_pc;
 }
 
 static inline uint64_t drgn_orc_pc(struct drgn_module *module, unsigned int i)
@@ -431,15 +497,6 @@ drgn_module_find_orc_cfi(struct drgn_module *module, uint64_t pc,
 			 struct drgn_cfi_row **row_ret, bool *interrupted_ret,
 			 drgn_register_number *ret_addr_regno_ret)
 {
-	struct drgn_error *err;
-
-	if (!module->parsed_orc) {
-		err = drgn_debug_info_parse_orc(module);
-		if (err)
-			return err;
-		module->parsed_orc = true;
-	}
-
 	uint64_t unbiased_pc = pc - module->debug_file_bias;
 	#define less_than_orc_pc(a, b)	\
 		(*(a) < drgn_orc_pc(module, (b) - module->orc.pc_offsets))

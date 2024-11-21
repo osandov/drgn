@@ -337,10 +337,14 @@ drgn_object_from_dwarf(struct drgn_debug_info *dbinfo,
 		       const struct drgn_register_state *regs,
 		       struct drgn_object *ret);
 
+struct drgn_error *drgn_module_parse_debug_frame(struct drgn_module *module);
+
 struct drgn_error *
 drgn_module_find_dwarf_cfi(struct drgn_module *module, uint64_t pc,
 			   struct drgn_cfi_row **row_ret, bool *interrupted_ret,
 			   drgn_register_number *ret_addr_regno_ret);
+
+struct drgn_error *drgn_module_parse_eh_frame(struct drgn_module *module);
 
 struct drgn_error *
 drgn_module_find_eh_cfi(struct drgn_module *module, uint64_t pc,

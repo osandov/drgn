@@ -7199,20 +7199,12 @@ out:
 }
 
 static struct drgn_error *
-drgn_find_dwarf_cfi(struct drgn_dwarf_cfi *cfi, bool *parsed,
-		    struct drgn_elf_file *file, enum drgn_section_index scn,
-		    uint64_t unbiased_pc, struct drgn_cfi_row **row_ret,
-		    bool *interrupted_ret,
+drgn_find_dwarf_cfi(struct drgn_dwarf_cfi *cfi, struct drgn_elf_file *file,
+		    enum drgn_section_index scn, uint64_t unbiased_pc,
+		    struct drgn_cfi_row **row_ret, bool *interrupted_ret,
 		    drgn_register_number *ret_addr_regno_ret)
 {
 	struct drgn_error *err;
-
-	if (!*parsed) {
-		err = drgn_parse_dwarf_cfi(cfi, file, scn);
-		if (err)
-			return err;
-		*parsed = true;
-	}
 
 	struct drgn_dwarf_fde *fde = drgn_find_dwarf_fde(cfi, unbiased_pc);
 	if (!fde)
@@ -7226,16 +7218,27 @@ drgn_find_dwarf_cfi(struct drgn_dwarf_cfi *cfi, bool *parsed,
 	return NULL;
 }
 
+struct drgn_error *drgn_module_parse_debug_frame(struct drgn_module *module)
+{
+	return drgn_parse_dwarf_cfi(&module->dwarf.debug_frame,
+				    module->debug_file, DRGN_SCN_DEBUG_FRAME);
+}
+
 struct drgn_error *
 drgn_module_find_dwarf_cfi(struct drgn_module *module, uint64_t pc,
 			   struct drgn_cfi_row **row_ret, bool *interrupted_ret,
 			   drgn_register_number *ret_addr_regno_ret)
 {
 	return drgn_find_dwarf_cfi(&module->dwarf.debug_frame,
-				   &module->parsed_debug_frame,
 				   module->debug_file, DRGN_SCN_DEBUG_FRAME,
 				   pc - module->debug_file_bias, row_ret,
 				   interrupted_ret, ret_addr_regno_ret);
+}
+
+struct drgn_error *drgn_module_parse_eh_frame(struct drgn_module *module)
+{
+	return drgn_parse_dwarf_cfi(&module->dwarf.eh_frame,
+				    module->loaded_file, DRGN_SCN_EH_FRAME);
 }
 
 struct drgn_error *
@@ -7243,9 +7246,8 @@ drgn_module_find_eh_cfi(struct drgn_module *module, uint64_t pc,
 			struct drgn_cfi_row **row_ret, bool *interrupted_ret,
 			drgn_register_number *ret_addr_regno_ret)
 {
-	return drgn_find_dwarf_cfi(&module->dwarf.eh_frame,
-				   &module->parsed_eh_frame,
-				   module->loaded_file, DRGN_SCN_EH_FRAME,
+	return drgn_find_dwarf_cfi(&module->dwarf.eh_frame, module->loaded_file,
+				   DRGN_SCN_EH_FRAME,
 				   pc - module->loaded_file_bias, row_ret,
 				   interrupted_ret, ret_addr_regno_ret);
 }

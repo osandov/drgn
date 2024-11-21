@@ -105,8 +105,6 @@ void drgn_program_init(struct drgn_program *prog,
 	if (platform)
 		drgn_program_set_platform(prog, platform);
 	drgn_thread_set_init(&prog->thread_set);
-	char *env = getenv("DRGN_PREFER_ORC_UNWINDER");
-	prog->prefer_orc_unwinder = env && atoi(env);
 	drgn_program_set_log_level(prog, DRGN_LOG_NONE);
 	drgn_program_set_log_file(prog, stderr);
 	drgn_object_init(&prog->vmemmap, prog);

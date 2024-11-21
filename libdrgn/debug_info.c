@@ -2244,49 +2244,59 @@ drgn_module_find_cfi(struct drgn_program *prog, struct drgn_module *module,
 		 drgn_platforms_equal(&module->debug_file->platform,
 				      &prog->platform));
 
-	if (prog->prefer_orc_unwinder) {
-		if (can_use_debug_file) {
-			*file_ret = module->debug_file;
+	bool prefer_orc = false;
+	if (can_use_debug_file) {
+		if (!module->parsed_debug_frame) {
+			err = drgn_module_parse_debug_frame(module);
+			if (err)
+				return err;
+			module->parsed_debug_frame = true;
+		}
+		if (!module->parsed_orc) {
+			err = drgn_module_parse_orc(module);
+			if (err)
+				return err;
+			module->parsed_orc = true;
+		}
+
+		prefer_orc = drgn_module_should_prefer_orc_cfi(module, pc);
+
+		*file_ret = module->debug_file;
+		if (prefer_orc) {
 			err = drgn_module_find_orc_cfi(module, pc, row_ret,
 						       interrupted_ret,
 						       ret_addr_regno_ret);
 			if (err != &drgn_not_found)
 				return err;
-			err = drgn_module_find_dwarf_cfi(module, pc, row_ret,
-							 interrupted_ret,
-							 ret_addr_regno_ret);
-			if (err != &drgn_not_found)
+		}
+		err = drgn_module_find_dwarf_cfi(module, pc, row_ret,
+						 interrupted_ret,
+						 ret_addr_regno_ret);
+		if (err != &drgn_not_found)
+			return err;
+	}
+
+	if (can_use_loaded_file) {
+		if (!module->parsed_eh_frame) {
+			err = drgn_module_parse_eh_frame(module);
+			if (err)
 				return err;
+			module->parsed_eh_frame = true;
 		}
-		if (can_use_loaded_file) {
-			*file_ret = module->loaded_file;
-			return drgn_module_find_eh_cfi(module, pc, row_ret,
-						       interrupted_ret,
-						       ret_addr_regno_ret);
-		}
-	} else {
-		if (can_use_debug_file) {
-			*file_ret = module->debug_file;
-			err = drgn_module_find_dwarf_cfi(module, pc, row_ret,
-							 interrupted_ret,
-							 ret_addr_regno_ret);
-			if (err != &drgn_not_found)
-				return err;
-		}
-		if (can_use_loaded_file) {
-			*file_ret = module->loaded_file;
-			err = drgn_module_find_eh_cfi(module, pc, row_ret,
-						      interrupted_ret,
-						      ret_addr_regno_ret);
-			if (err != &drgn_not_found)
-				return err;
-		}
-		if (can_use_debug_file) {
-			*file_ret = module->debug_file;
-			return drgn_module_find_orc_cfi(module, pc, row_ret,
-							interrupted_ret,
-							ret_addr_regno_ret);
-		}
+		*file_ret = module->loaded_file;
+		err = drgn_module_find_eh_cfi(module, pc, row_ret,
+					      interrupted_ret,
+					      ret_addr_regno_ret);
+		if (err != &drgn_not_found)
+			return err;
+	}
+
+	if (can_use_debug_file && !prefer_orc) {
+		err = drgn_module_find_orc_cfi(module, pc, row_ret,
+					       interrupted_ret,
+					       ret_addr_regno_ret);
+		if (err != &drgn_not_found)
+			return err;
 	}
 	return &drgn_not_found;
 }
