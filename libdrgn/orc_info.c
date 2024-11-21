@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "binary_search.h"
+#include "cleanup.h"
 #include "debug_info.h" // IWYU pragma: associated
 #include "elf_file.h"
 #include "error.h"
@@ -319,6 +320,14 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 	return NULL;
 }
 
+static inline void drgn_module_clear_orc(struct drgn_module **modulep)
+{
+	if (*modulep) {
+		(*modulep)->orc.pc_offsets = NULL;
+		(*modulep)->orc.entries = NULL;
+	}
+}
+
 static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 {
 	struct drgn_error *err;
@@ -326,16 +335,20 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	if (!module->debug_file->platform.arch->orc_to_cfi)
 		return NULL;
 
+	// pc_offsets and entries point to the Elf_Data buffers until we're
+	// done. We don't want those freed by drgn_module_orc_info_deinit(), so
+	// clear them if anything goes wrong.
+	_cleanup_(drgn_module_clear_orc) struct drgn_module *clear = module;
+
 	err = drgn_read_orc_sections(module);
 	if (err || !module->orc.num_entries)
-		goto out_clear;
+		return err;
 
 	unsigned int num_entries = module->orc.num_entries;
-	unsigned int *indices = malloc_array(num_entries, sizeof(indices[0]));
-	if (!indices) {
-		err = &drgn_enomem;
-		goto out_clear;
-	}
+	_cleanup_free_ unsigned int *indices =
+		malloc_array(num_entries, sizeof(indices[0]));
+	if (!indices)
+		return &drgn_enomem;
 	for (unsigned int i = 0; i < num_entries; i++)
 		indices[i] = i;
 
@@ -355,18 +368,14 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 
 	num_entries = remove_fdes_from_orc(module, indices, num_entries);
 
-	int32_t *pc_offsets = malloc_array(num_entries, sizeof(pc_offsets[0]));
-	if (!pc_offsets) {
-		err = &drgn_enomem;
-		goto out;
-	}
-	struct drgn_orc_entry *entries = malloc_array(num_entries,
-						      sizeof(entries[0]));
-	if (!entries) {
-		free(pc_offsets);
-		err = &drgn_enomem;
-		goto out;
-	}
+	_cleanup_free_ int32_t *pc_offsets =
+		malloc_array(num_entries, sizeof(pc_offsets[0]));
+	if (!pc_offsets)
+		return &drgn_enomem;
+	_cleanup_free_ struct drgn_orc_entry *entries =
+		malloc_array(num_entries, sizeof(entries[0]));
+	if (!entries)
+		return &drgn_enomem;
 	const int32_t *orig_offsets = module->orc.pc_offsets;
 	const struct drgn_orc_entry *orig_entries = module->orc.entries;
 	const bool bswap = drgn_elf_file_bswap(module->debug_file);
@@ -420,19 +429,11 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 		pc_offsets[i] = UINT64_C(4) * index + offset - UINT64_C(4) * i;
 	}
 
-	module->orc.pc_offsets = pc_offsets;
-	module->orc.entries = entries;
+	module->orc.pc_offsets = no_cleanup_ptr(pc_offsets);
+	module->orc.entries = no_cleanup_ptr(entries);
 	module->orc.num_entries = num_entries;
-
-	err = NULL;
-out:
-	free(indices);
-	if (err) {
-out_clear:
-		module->orc.pc_offsets = NULL;
-		module->orc.entries = NULL;
-	}
-	return err;
+	clear = NULL;
+	return NULL;
 }
 
 static inline uint64_t drgn_orc_pc(struct drgn_module *module, unsigned int i)
