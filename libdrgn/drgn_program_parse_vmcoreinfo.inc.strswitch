@@ -101,7 +101,7 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 			break;
 		@case "KERNELOFFSET"@
 			err = parse_vmcoreinfo_u64(value, newline, 16,
-						   &prog->vmcoreinfo.kaslr_offset);
+						   &prog->ktext_offset);
 			if (err)
 				return err;
 			break;
