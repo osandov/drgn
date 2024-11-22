@@ -20,11 +20,24 @@ from drgn.helpers.linux import (
     find_task,
 )
 
-BpfAttachType = enum_type_to_class(
-    prog.type("enum bpf_attach_type"),
-    "BpfAttachType",
-    exclude=("__MAX_BPF_ATTACH_TYPE",),
-)
+# Since Linux kernel commit 6fc88c354f3a ("bpf: Migrate cgroup_bpf to internal
+# cgroup_bpf_attach_type enum") (in v5.15), the attach type is the
+# cgroup-specific enum cgroup_bpf_attach_type. Before that, it was the generic
+# enum bpf_attach_type.
+try:
+    enum_cgroup_bpf_attach_type = prog.type("enum cgroup_bpf_attach_type")
+except LookupError:
+    CgroupBpfAttachType = enum_type_to_class(
+        prog.type("enum bpf_attach_type"),
+        "CgroupBpfAttachType",
+        exclude=("__MAX_BPF_ATTACH_TYPE",),
+    )
+else:
+    CgroupBpfAttachType = enum_type_to_class(
+        enum_cgroup_bpf_attach_type,
+        "CgroupBpfAttachType",
+        exclude=("CGROUP_BPF_ATTACH_TYPE_INVALID", "MAX_CGROUP_BPF_ATTACH_TYPE",),
+    )
 
 CgroupSubsysId = enum_type_to_class(
     prog.type("enum cgroup_subsys_id"),
@@ -44,7 +57,7 @@ def open_dir(*args, **kwds):
 
 def print_cgroup_bpf_progs(cgrp):
     cgroup_printed = False
-    for attach_type in BpfAttachType:
+    for attach_type in CgroupBpfAttachType:
         attach_flags = cgrp.bpf.flags[attach_type.value].value_()
         for prog in cgroup_bpf_prog_for_each(cgrp, attach_type.value):
             prog_id = prog.aux.id.value_()

@@ -105,7 +105,8 @@ def cgroup_bpf_prog_for_each(
     the given cgroup.
 
     :param cgrp: ``struct cgroup *``
-    :param bpf_attach_type: ``enum bpf_attach_type``
+    :param bpf_attach_type: ``enum cgroup_bpf_attach_type`` (``enum
+        bpf_attach_type`` before Linux 5.15)
     :return: Iterator of ``struct bpf_prog *`` objects.
     """
     # Before Linux kernel commit 3007098494be ("cgroup: add support for eBPF
