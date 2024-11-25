@@ -117,8 +117,10 @@ def _create_symtab(
 
 def create_elf_file(
     type: ET,
-    sections: Sequence[ElfSection],
+    sections: Sequence[ElfSection] = (),
     symbols: Sequence[ElfSymbol] = (),
+    *,
+    build_id: Optional[bytes] = None,
     little_endian: bool = True,
     bits: int = 64,
 ):
@@ -136,10 +138,25 @@ def create_elf_file(
         phdr_struct = struct.Struct(endian + "8I")
         chdr_struct = struct.Struct(endian + "III")
         e_machine = 3 if little_endian else 8  # EM_386 or EM_MIPS
+    nhdr_struct = struct.Struct(endian + "3I")
 
     sections = list(sections)
     if symbols:
         _create_symtab(sections, symbols, little_endian=little_endian, bits=bits)
+    if build_id is not None:
+        build_id_note = (
+            nhdr_struct.pack(
+                4,  # n_namesz,
+                len(build_id),  # n_namesz,
+                3,  # n_type = NT_GNU_BUILD_ID
+            )
+            + b"GNU\0"
+            + build_id
+            + bytes(-len(build_id) % 4)
+        )
+        sections.append(
+            ElfSection(name=".note.gnu.build-id", sh_type=SHT.NOTE, data=build_id_note)
+        )
     shnum = 0
     phnum = 0
     shstrtab = bytearray(1)
@@ -153,7 +170,6 @@ def create_elf_file(
     if shnum > 0:
         shnum += 2  # One for the SHT_NULL section, one for .shstrtab.
         shstrtab.extend(b".shstrtab\0")
-        sections = list(sections)
         sections.append(ElfSection(name=".shstrtab", sh_type=SHT.STRTAB, data=shstrtab))
 
     shdr_offset = ehdr_struct.size
