@@ -11,6 +11,7 @@ from _drgn_util.elf import ET, PT, SHF, SHN, SHT, STB, STT, STV
 class ElfSection:
     def __init__(
         self,
+        *,
         data: bytes = b"",
         name: Optional[str] = None,
         sh_type: Optional[SHT] = None,
@@ -22,12 +23,12 @@ class ElfSection:
         sh_link: int = 0,
         sh_info: int = 0,
         sh_entsize: int = 0,
-        compressed=False,
+        sh_flags: SHF = SHF(0),
     ):
         self.data = data
         self.name = name
         self.sh_type = sh_type
-        self.sh_flags = SHF.COMPRESSED if compressed else 0
+        self.sh_flags = sh_flags
         self.p_type = p_type
         self.vaddr = vaddr
         self.paddr = paddr
@@ -39,7 +40,7 @@ class ElfSection:
 
         assert (self.name is not None) or (self.p_type is not None)
         assert (self.name is None) == (self.sh_type is None)
-        assert self.p_type is None or not compressed
+        assert self.p_type is None or not (sh_flags & SHF.COMPRESSED)
 
 
 class ElfSymbol(NamedTuple):

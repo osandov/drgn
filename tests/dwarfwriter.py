@@ -6,7 +6,7 @@ import os.path
 from typing import Any, NamedTuple, Optional, Sequence, Union
 import zlib
 
-from _drgn_util.elf import ET, SHT
+from _drgn_util.elf import ET, SHF, SHT
 from tests.assembler import _append_sleb128, _append_uleb128
 from tests.dwarf import DW_AT, DW_FORM, DW_LNCT, DW_TAG, DW_UT
 from tests.elfwriter import ElfSection, create_elf_file
@@ -364,7 +364,7 @@ def dwarf_sections(
             name=name,
             sh_type=SHT.PROGBITS,
             data=data,
-            compressed=(compress == "zlib-gabi"),
+            sh_flags=SHF.COMPRESSED if compress == "zlib-gabi" else SHF(0),
         )
         return name
 
