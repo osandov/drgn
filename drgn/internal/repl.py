@@ -3,9 +3,12 @@
 
 """Compatibility shim between drgn and the pyrepl/code modules"""
 
+import builtins
 import os
-import sys
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict
+
+if TYPE_CHECKING:
+    from drgn.cli import Command
 
 __all__ = ("interact", "readline")
 
@@ -24,7 +27,9 @@ try:
     # stubs for these modules. This makes sense as they are private APIs, but it
     # means we need to disable mypy checks.
     from _pyrepl import readline  # type: ignore
-    from _pyrepl.console import InteractiveColoredConsole  # type: ignore
+    from _pyrepl.console import (  # type: ignore
+        InteractiveColoredConsole as _BaseConsole,
+    )
     from _pyrepl.simple_interact import (  # type: ignore
         run_multiline_interactive_console,
     )
@@ -34,14 +39,43 @@ try:
     # completer doesn't get clobbered.
     readline._setup({})
 
-    def interact(local: Dict[str, Any], banner: str) -> None:
-        console = InteractiveColoredConsole(local)
-        print(banner, file=sys.stderr)
+    def interact(
+        local: Dict[str, Any], banner: str, commands: Dict[str, "Command"]
+    ) -> None:
+        console = _InteractiveConsoleWithCommand(commands, local)
+        console.write(banner + "\n")
         run_multiline_interactive_console(console)
 
 except (ModuleNotFoundError, ImportError):
-    import code
+    from code import InteractiveConsole as _BaseConsole
     import readline
 
-    def interact(local: Dict[str, Any], banner: str) -> None:
-        code.interact(banner=banner, exitmsg="", local=local)
+    def interact(
+        local: Dict[str, Any], banner: str, commands: Dict[str, "Command"]
+    ) -> None:
+        console = _InteractiveConsoleWithCommand(commands, local)
+        console.interact(banner, exitmsg="")
+
+
+class _InteractiveConsoleWithCommand(_BaseConsole):  # type: ignore
+    def __init__(self, commands: Dict[str, "Command"], *args: Any, **kwargs: Any):
+        self.__commands = commands
+        super().__init__(*args, **kwargs)
+
+    def runsource(
+        self, source: str, filename: str = "<input>", symbol: str = "single"
+    ) -> bool:
+        if not source or source[0] != ".":
+            return super().runsource(source, filename=filename, symbol=symbol)
+
+        cmd_name = source.split(maxsplit=1)[0][1:]
+        if cmd_name not in self.__commands:
+            self.write(f"{cmd_name}: drgn command not found\n")
+            return False
+        cmd = self.__commands[cmd_name]
+        prog = self.locals["prog"]
+        try:
+            setattr(builtins, "_", cmd(prog, source, self.locals))  # type: ignore
+        except Exception:
+            self.showtraceback()
+        return False  # we never require the PS2 ("...") prompt

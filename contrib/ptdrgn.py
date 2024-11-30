@@ -11,19 +11,25 @@ makes it worth sharing.
 
 Requires: "pip install ptpython" which brings in pygments and prompt_toolkit
 """
+import builtins
 import functools
 import os
+import re
 import shutil
 from typing import Any, Dict, Set
 
-from prompt_toolkit.completion import Completer
+import ptpython.repl
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import PygmentsTokens
 from ptpython import embed
-from ptpython.repl import run_config
+from ptpython.repl import PythonRepl, run_config
+from ptpython.validator import PythonValidator
 from pygments.lexers.c_cpp import CLexer
 
 import drgn
 import drgn.cli
+from drgn.cli import Command
 
 
 class DummyForRepr:
@@ -68,10 +74,18 @@ def _object_fields() -> Set[str]:
 class ReorderDrgnObjectCompleter(Completer):
     """A completer which puts Object member fields above Object defaults"""
 
-    def __init__(self, c: Completer):
+    def __init__(self, c: Completer, commands: Dict[str, Command]):
         self.c = c
+        self.__commands = [f".{cmd}" for cmd in commands.keys()]
+        self.__command_re = re.compile(r"\.[\S]+")
 
     def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if self.__command_re.fullmatch(text):
+            return [
+                Completion(cmd, start_position=-len(text))
+                for cmd in self.__commands if cmd.startswith(text)
+            ]
         completions = list(self.c.get_completions(document, complete_event))
         if not completions:
             return completions
@@ -119,18 +133,47 @@ def configure(repl) -> None:
 
     repl._format_result_output = _format_result_output
     run_config(repl)
-    repl._completer = ReorderDrgnObjectCompleter(repl._completer)
-    repl.completer = ReorderDrgnObjectCompleter(repl.completer)
+    repl._completer = ReorderDrgnObjectCompleter(repl._completer, repl._commands)
+    repl.completer = ReorderDrgnObjectCompleter(repl.completer, repl._commands)
 
 
-def interact(local: Dict[str, Any], banner: str):
+class DrgnPythonValidator(PythonValidator):
+
+    def validate(self, document: Document) -> None:
+        if document.text.lstrip().startswith("."):
+            return
+        return super().validate(document)
+
+
+class DrgnPythonRepl(PythonRepl):
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs, _validator=DrgnPythonValidator())
+
+    def __run_command(self, line: str) -> object:
+        cmd_name = line.split(maxsplit=1)[0][1:]
+        if cmd_name not in self._commands:
+            print(f"{cmd_name}: drgn command not found")
+            return None
+        cmd = self._commands[cmd_name]
+        locals = self.get_locals()
+        prog = locals["prog"]
+        setattr(builtins, "_", cmd(prog, line, locals))
+
+    def eval(self, line: str) -> object:
+        if line.lstrip().startswith('.'):
+            return self.__run_command(line)
+        return super().eval(line)
+
+
+def interact(local: Dict[str, Any], banner: str, commands: Dict[str, Command]):
+    DrgnPythonRepl._commands = commands
     histfile = os.path.expanduser("~/.drgn_history.ptpython")
     print(banner)
     embed(globals=local, history_filename=histfile, title="drgn", configure=configure)
 
 
 if __name__ == "__main__":
-    # Muck around with the internals of drgn: swap out run_interactive() with our
-    # ptpython version, and then call main as if nothing happened.
+    ptpython.repl.PythonRepl = DrgnPythonRepl
     drgn.cli.interact = interact
     drgn.cli._main()

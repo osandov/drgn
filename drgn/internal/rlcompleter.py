@@ -6,9 +6,12 @@
 import builtins
 import keyword
 import re
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from drgn.internal.repl import readline
+
+if TYPE_CHECKING:
+    from drgn.cli import Command
 
 _EXPR_RE = re.compile(
     r"""
@@ -37,11 +40,15 @@ class Completer:
     """
     This is a readline completer based on rlcompleter.Completer from the
     standard library. It allows expressions containing [key], where key is an
-    integer or string.
+    integer or string. It also allows completing the names of commands, if at
+    the beginning of a line where a drgn command can be used.
     """
 
-    def __init__(self, namespace: Dict[str, Any]) -> None:
+    def __init__(
+        self, namespace: Dict[str, Any], commands: Dict[str, "Command"]
+    ) -> None:
         self._namespace = namespace
+        self._commands = [f".{c}" for c in commands.keys()]
         # _EXPR_RE can match these characters, so don't treat them as
         # delimiters.
         delims = re.sub("[]['\"\\\\]", "", readline.get_completer_delims())
@@ -57,7 +64,9 @@ class Completer:
                 return None
 
         if state == 0:
-            if "." in text:
+            if readline.get_begidx() == 0 and text.startswith("."):
+                self._matches = self._command_matches(text)
+            elif "." in text:
                 self._matches = self._expr_matches(text)
             else:
                 self._matches = self._global_matches(text)
@@ -123,4 +132,11 @@ class Completer:
                     if callable(value):
                         word += "("
                     matches.add(word)
+        return sorted(matches)
+
+    def _command_matches(self, text: str) -> List[str]:
+        matches = []
+        for cmd in self._commands:
+            if cmd.startswith(text):
+                matches.append(cmd)
         return sorted(matches)
