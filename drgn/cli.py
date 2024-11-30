@@ -179,6 +179,12 @@ def _main() -> None:
         "-c", "--core", metavar="PATH", type=str, help="debug the given core dump"
     )
     program_group.add_argument(
+        "--gdbremote",
+        metavar="CONN",
+        type=str,
+        help="connect to the specified gdbserver",
+    )
+    program_group.add_argument(
         "-p",
         "--pid",
         metavar="PID",
@@ -295,6 +301,12 @@ def _main() -> None:
                 sys.exit(
                     f"{e}\nerror: attaching to live process requires ptrace attach permissions"
                 )
+        elif args.gdbremote is not None:
+            prog.set_gdbremote(args.gdbremote)
+
+            # Suppress default symbol loading (at present, gdbremote always
+            # needs to get symbols from --symbols)
+            args.default_symbols = {}
         else:
             try:
                 prog.set_kernel()

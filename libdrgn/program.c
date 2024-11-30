@@ -23,6 +23,7 @@
 #include "debug_info.h"
 #include "error.h"
 #include "helpers.h"
+#include "gdbremote.h"
 #include "io.h"
 #include "language.h"
 #include "log.h"
@@ -102,6 +103,7 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_program_init_types(prog);
 	drgn_debug_info_init(&prog->dbinfo, prog);
 	prog->core_fd = -1;
+	prog->conn_fd = -1;
 	if (platform)
 		drgn_program_set_platform(prog, platform);
 	drgn_thread_set_init(&prog->thread_set);
@@ -118,7 +120,8 @@ void drgn_program_deinit(struct drgn_program *prog)
 	 * prog->thread_set and thus freed by the above call to
 	 * drgn_thread_set_deinit().
 	 */
-	if (!drgn_program_is_userspace_core(prog)) {
+	if (!drgn_program_is_userspace_core(prog) &&
+	    !(prog->flags & DRGN_PROGRAM_IS_GDBREMOTE)) {
 		drgn_thread_destroy(prog->crashed_thread);
 		drgn_thread_destroy(prog->main_thread);
 	}
@@ -150,6 +153,8 @@ void drgn_program_deinit(struct drgn_program *prog)
 	elf_end(prog->core);
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
+	if (prog->conn_fd != -1)
+		close(prog->conn_fd);
 
 	drgn_debug_info_deinit(&prog->dbinfo);
 }
@@ -701,6 +706,39 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_gdbremote(struct drgn_program *prog, const char *conn)
+{
+	struct drgn_error *err;
+
+	err = drgn_program_check_initialized(prog);
+	if (err)
+		return err;
+
+	err = drgn_gdbremote_connect(conn, &prog->conn_fd);
+	if (err)
+		return err;
+
+	bool had_platform = prog->has_platform;
+	drgn_program_set_platform(prog, &drgn_host_platform);
+
+	err = drgn_program_add_memory_segment(
+	    prog, 0, UINT64_MAX, drgn_gdbremote_read_memory, prog, false);
+	if (err)
+		goto out_segments;
+
+	prog->flags |= DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_GDBREMOTE;
+	return NULL;
+
+out_segments:
+	drgn_memory_reader_deinit(&prog->reader);
+	drgn_memory_reader_init(&prog->reader);
+	prog->has_platform = had_platform;
+	close(prog->conn_fd);
+	prog->conn_fd = -1;
+	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_kernel(struct drgn_program *prog)
 {
 	return drgn_program_set_core_dump(prog, "/proc/kcore");
@@ -1109,6 +1147,31 @@ drgn_thread_iterator_init_linux_kernel(struct drgn_thread_iterator *it)
 }
 
 static struct drgn_error *
+drgn_thread_iterator_init_gdbremote(struct drgn_thread_iterator *it)
+{
+	struct drgn_program *prog = it->prog;
+	struct drgn_thread thread = {
+	    .prog = prog,
+	    // Until we implement query packet parsing in the gdbremote code
+	    // then we are only able to debug the stopped thread.
+	    .tid = 1,
+	};
+
+	prog->main_thread =
+	    drgn_thread_set_search(&prog->thread_set, &thread.tid).entry;
+	if (!prog->main_thread) {
+		if (drgn_thread_set_insert(&prog->thread_set, &thread, NULL) == -1)
+			return &drgn_enomem;
+		prog->main_thread =
+		    drgn_thread_set_search(&prog->thread_set, &thread.tid)
+			.entry;
+	}
+
+	it->iterator = drgn_thread_set_first(&it->prog->thread_set);
+	return NULL;
+}
+
+static struct drgn_error *
 drgn_thread_iterator_init_userspace_process(struct drgn_thread_iterator *it)
 {
 #define FORMAT "/proc/%ld/task"
@@ -1148,6 +1211,8 @@ drgn_thread_iterator_create(struct drgn_program *prog,
 	(*ret)->prog = prog;
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 		err = drgn_thread_iterator_init_linux_kernel(*ret);
+	else if (prog->flags & DRGN_PROGRAM_IS_GDBREMOTE)
+		err = drgn_thread_iterator_init_gdbremote(*ret);
 	else if (drgn_program_is_userspace_process(prog))
 		err = drgn_thread_iterator_init_userspace_process(*ret);
 	else if (drgn_program_is_userspace_core(prog))
@@ -1166,6 +1231,9 @@ drgn_thread_iterator_destroy(struct drgn_thread_iterator *it)
 		if (it->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 			drgn_object_deinit(&it->entry.object);
 			linux_helper_task_iterator_deinit(&it->task_iter);
+		} else if (it->prog->flags & DRGN_PROGRAM_IS_GDBREMOTE) {
+			// do nothing (but *don't* follow the IS_LIVE path
+			// for core dumps)
 		} else if (drgn_program_is_userspace_process(it->prog)) {
 			closedir(it->tasks_dir);
 		}
@@ -1231,8 +1299,8 @@ drgn_thread_iterator_next_userspace_process(struct drgn_thread_iterator *it,
 }
 
 static void
-drgn_thread_iterator_next_userspace_core(struct drgn_thread_iterator *it,
-					 struct drgn_thread **ret)
+drgn_thread_iterator_next_from_thread_set(struct drgn_thread_iterator *it,
+					  struct drgn_thread **ret)
 {
 	*ret = it->iterator.entry;
 	if (it->iterator.entry)
@@ -1245,10 +1313,13 @@ drgn_thread_iterator_next(struct drgn_thread_iterator *it,
 {
 	if (it->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		return drgn_thread_iterator_next_linux_kernel(it, ret);
+	} else if (it->prog->flags & DRGN_PROGRAM_IS_GDBREMOTE) {
+		drgn_thread_iterator_next_from_thread_set(it, ret);
+		return NULL;
 	} else if (drgn_program_is_userspace_process(it->prog)) {
 		return drgn_thread_iterator_next_userspace_process(it, ret);
 	} else if (drgn_program_is_userspace_core(it->prog)) {
-		drgn_thread_iterator_next_userspace_core(it, ret);
+		drgn_thread_iterator_next_from_thread_set(it, ret);
 		return NULL;
 	} else {
 		*ret = NULL;
@@ -1327,8 +1398,8 @@ drgn_program_find_thread_userspace_process(struct drgn_program *prog,
 }
 
 static struct drgn_error *
-drgn_program_find_thread_userspace_core(struct drgn_program *prog, uint32_t tid,
-					struct drgn_thread **ret)
+drgn_program_find_thread_from_thread_set(struct drgn_program *prog,
+					 uint32_t tid, struct drgn_thread **ret)
 {
 	struct drgn_error *err = drgn_program_cache_core_dump_threads(prog);
 	if (err)
@@ -1343,11 +1414,13 @@ drgn_program_find_thread(struct drgn_program *prog, uint32_t tid,
 {
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		return drgn_program_find_thread_linux_kernel(prog, tid, ret);
+	} else if (prog->flags & DRGN_PROGRAM_IS_GDBREMOTE) {
+		return drgn_program_find_thread_from_thread_set(prog, tid, ret);
 	} else if (drgn_program_is_userspace_process(prog)) {
 		return drgn_program_find_thread_userspace_process(prog, tid,
 								  ret);
 	} else if (drgn_program_is_userspace_core(prog)) {
-		return drgn_program_find_thread_userspace_core(prog, tid, ret);
+		return drgn_program_find_thread_from_thread_set(prog, tid, ret);
 	} else {
 		*ret = NULL;
 		return NULL;

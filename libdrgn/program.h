@@ -71,6 +71,8 @@ struct drgn_program {
 	int core_fd;
 	/* PID of live userspace program. */
 	pid_t pid;
+	/* File descriptor to communicate with the connected backend (e.g. gdbremote) */
+	int conn_fd;
 #ifdef WITH_LIBKDUMPFILE
 	kdump_ctx_t *kdump_ctx;
 #endif

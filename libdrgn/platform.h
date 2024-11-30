@@ -197,6 +197,7 @@ typedef struct drgn_error *
  *     - @ref pt_regs_get_initial_registers
  *     - @ref prstatus_get_initial_registers
  *     - @ref linux_kernel_get_initial_registers
+ *     - @ref gdbremote_get_initial_registers
  *     - @ref demangle_cfi_registers (only if needed)
  * - Implement `drgn_test_get_pt_regs()` in
  *   `tests/linux_kernel/kmod/drgn_test.c` (usually by copying
@@ -400,6 +401,20 @@ struct drgn_architecture_info {
 	 */
 	struct drgn_error *(*linux_kernel_get_initial_registers)(const struct drgn_object *task_obj,
 								 struct drgn_register_state **ret);
+	/**
+	 * Create a @ref drgn_register_state from a gdbremote register reply.
+	 *
+	 * This should check that @p reglen is sufficiently large, call @ref
+	 * drgn_register_state_create() with `interrupted = true`, and
+	 * initialize it from @p regs.
+	 *
+	 * @param[in] regs Reply from gdbremote (after hex decoding)
+	 * @param[in] reglen Length of the decoded reply
+	 * @param[out] ret Returned registers.
+	 */
+	struct drgn_error *(*gdbremote_get_initial_registers)(
+	    struct drgn_program *prog, const void *regs, size_t reglen,
+	    struct drgn_register_state **ret);
 	/**
 	 * Apply an ELF relocation.
 	 *

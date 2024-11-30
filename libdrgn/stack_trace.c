@@ -15,6 +15,7 @@
 #include "dwarf_info.h"
 #include "elf_file.h"
 #include "error.h"
+#include "gdbremote.h"
 #include "helpers.h"
 #include "minmax.h"
 #include "nstring.h"
@@ -689,6 +690,29 @@ drgn_get_initial_registers_from_kernel_core_dump(struct drgn_program *prog,
 }
 
 static struct drgn_error *
+drgn_get_initial_registers_from_gdbremote(struct drgn_program *prog,
+					  uint32_t tid,
+					  struct drgn_register_state **ret)
+{
+	struct drgn_error *err;
+	_cleanup_free_ void *regs = NULL;
+	size_t reglen;
+
+	if (!prog->platform.arch->gdbremote_get_initial_registers)
+		return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
+					 "gdbremote register decoding is not "
+					 "implemented for %s architecture",
+					 prog->platform.arch->name);
+
+	err = drgn_gdbremote_get_registers(prog->conn_fd, tid, &regs, &reglen);
+	if (err)
+		return err;
+
+	return prog->platform.arch->gdbremote_get_initial_registers(
+	    prog, regs, reglen, ret);
+}
+
+static struct drgn_error *
 drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			   const struct drgn_object *thread_obj,
 			   struct drgn_register_state **ret)
@@ -779,6 +803,8 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 		}
 		return prog->platform.arch->linux_kernel_get_initial_registers(&obj,
 									       ret);
+	} else if (prog->flags & DRGN_PROGRAM_IS_GDBREMOTE) {
+		return drgn_get_initial_registers_from_gdbremote(prog, tid, ret);
 	} else {
 		struct nstring prstatus;
 		err = drgn_program_find_prstatus(prog, tid, &prstatus);
@@ -1154,6 +1180,7 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
 					 "stack unwinding is not yet supported for live processes");
 	} else if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		   && !(prog->flags & DRGN_PROGRAM_IS_GDBREMOTE)
 		   && !drgn_program_is_userspace_core(prog)) {
 		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
 					 "stack unwinding is not supported for this program");
