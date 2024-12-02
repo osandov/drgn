@@ -299,39 +299,31 @@ struct drgn_error *drgn_program_cache_kdump_threads(struct drgn_program *prog)
 	}
 
 	/*
-	 * Note that in the following loop we never call kdump_attr_unref() on
-	 * prstatus_ref, nor kdump_blob_unpin() on the prstatus blob that we get
-	 * from libkdumpfile. Since drgn is completely read-only as a consumer
-	 * of that library, we "leak" both the attribute reference and blob pin
-	 * until kdump_free() is called which will clean up everything for us.
+	 * Note that in the following loop we never call kdump_blob_unpin() on
+	 * the prstatus blob that we get from libkdumpfile. Since drgn never
+	 * modifies the PRSTATUS attributes (neither directly nor indirectly),
+	 * we "leak" the blob pin until kdump_free() is called, which will
+	 * clean up everything for us.
 	 */
 	for (i = 0; i < ncpus; i++) {
-		/* Enough for the longest possible PRSTATUS attribute name. */
-		kdump_attr_ref_t prstatus_ref;
 		kdump_attr_t prstatus_attr;
 		void *prstatus_data;
 		size_t prstatus_size;
 
 #define FORMAT "cpu.%" PRIuFAST64 ".PRSTATUS"
+		/* Enough for the longest possible PRSTATUS attribute name. */
 		char attr_name[sizeof(FORMAT)
 			       - sizeof("%" PRIuFAST64)
 			       + max_decimal_length(uint_fast64_t)
 			       + 1];
 		snprintf(attr_name, sizeof(attr_name), FORMAT, i);
 #undef FORMAT
-		ks = kdump_attr_ref(prog->kdump_ctx, attr_name, &prstatus_ref);
+		prstatus_attr.type = KDUMP_BLOB;
+		ks = kdump_get_typed_attr(prog->kdump_ctx, attr_name,
+					  &prstatus_attr);
 		if (ks != KDUMP_OK) {
 			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "kdump_attr_ref(%s): %s",
-						 attr_name,
-						 kdump_get_err(prog->kdump_ctx));
-		}
-
-		ks = kdump_attr_ref_get(prog->kdump_ctx, &prstatus_ref,
-					&prstatus_attr);
-		if (ks != KDUMP_OK) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "kdump_attr_ref_get(%s): %s",
+						 "kdump_get_typed_attr(%s): %s",
 						 attr_name,
 						 kdump_get_err(prog->kdump_ctx));
 		}
