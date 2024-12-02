@@ -180,10 +180,27 @@ if __name__ == "__main__":
         action="store_true",
         help="run local tests",
     )
+    parser.add_argument(
+        "--use-host-rootfs",
+        choices=["never", "auto"],
+        default="auto",
+        help='if "never", use $directory/$arch/rootfs even for host architecture; '
+        'if "auto", use / for host architecture',
+    )
     args = parser.parse_args()
 
     if not hasattr(args, "kernels") and not args.local:
         parser.error("at least one of -k/--kernel or -l/--local is required")
+
+    if args.use_host_rootfs == "auto":
+
+        def use_host_rootfs(arch: Architecture) -> bool:
+            return arch is HOST_ARCHITECTURE
+
+    else:
+
+        def use_host_rootfs(arch: Architecture) -> bool:
+            return False
 
     architecture_names: List[str] = []
     if hasattr(args, "architectures"):
@@ -257,7 +274,7 @@ if __name__ == "__main__":
         args.directory, to_download, max_pending_kernels
     ) as downloads:
         for arch in architectures:
-            if arch is HOST_ARCHITECTURE:
+            if use_host_rootfs(arch):
                 subprocess.check_call(
                     [sys.executable, "setup.py", "build_ext", "-i"],
                     env={
@@ -308,7 +325,7 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
             if not isinstance(kernel, Kernel):
                 continue
 
-            if kernel.arch is HOST_ARCHITECTURE:
+            if use_host_rootfs(kernel.arch):
                 python_executable = sys.executable
                 tests_expression = ""
             else:
@@ -342,7 +359,11 @@ fi
                 status = run_in_vm(
                     test_command,
                     kernel,
-                    args.directory / kernel.arch.name / "rootfs",
+                    (
+                        Path("/")
+                        if use_host_rootfs(kernel.arch)
+                        else args.directory / kernel.arch.name / "rootfs"
+                    ),
                     args.directory,
                     test_kmod=TestKmodMode.BUILD,
                 )
