@@ -318,9 +318,14 @@ struct drgn_error *drgn_program_cache_kdump_threads(struct drgn_program *prog)
 			       + 1];
 		snprintf(attr_name, sizeof(attr_name), FORMAT, i);
 #undef FORMAT
+#if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 5, 5)
+		ks = kdump_get_typed_attr(prog->kdump_ctx, attr_name,
+					  KDUMP_BLOB, &prstatus_attr.val);
+#else
 		prstatus_attr.type = KDUMP_BLOB;
 		ks = kdump_get_typed_attr(prog->kdump_ctx, attr_name,
 					  &prstatus_attr);
+#endif
 		if (ks != KDUMP_OK) {
 			return drgn_error_format(DRGN_ERROR_OTHER,
 						 "kdump_get_typed_attr(%s): %s",
