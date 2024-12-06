@@ -159,6 +159,28 @@ def _displayhook(value: Any) -> None:
     setattr(builtins, "_", value)
 
 
+def _add_drgn_helpers_banner(banner: str) -> str:
+    return (
+        banner
+        + """
+>>> from drgn.helpers.drgn import *
+
+>>> self_prog = program_from_self()
+>>> oot = get_prog_obj(self_prog, prog)"""
+    )
+
+
+def _add_drgn_helpers_globals(ns: Dict[str, Any]) -> Dict[str, Any]:
+    module = importlib.import_module("drgn.helpers.drgn")
+    for name in module.__dict__["__all__"]:
+        ns[name] = getattr(module, name)
+
+    self_prog = module.program_from_self()
+    ns["self_prog"] = self_prog
+    ns["oot"] = module.get_prog_obj(self_prog, ns["prog"])
+    return ns
+
+
 def _main() -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(
@@ -245,6 +267,11 @@ def _main() -> None:
         nargs=argparse.REMAINDER,
         help="script to execute instead of running in interactive mode",
     )
+    parser.add_argument(
+        "--debug-self",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--version", action="version", version=version)
 
     args = parser.parse_args()
@@ -318,6 +345,12 @@ def _main() -> None:
     except drgn.MissingDebugInfoError as e:
         logger.warning("%s", e)
 
+    banner_func = None
+    globals_func = None
+    if args.debug_self:
+        banner_func = _add_drgn_helpers_banner
+        globals_func = _add_drgn_helpers_globals
+
     if args.script:
         sys.argv = args.script
         script = args.script[0]
@@ -326,7 +359,7 @@ def _main() -> None:
         drgn.set_default_prog(prog)
         runpy.run_path(script, init_globals={"prog": prog}, run_name="__main__")
     else:
-        run_interactive(prog)
+        run_interactive(prog, banner_func=banner_func, globals_func=globals_func)
 
 
 def run_interactive(
