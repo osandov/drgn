@@ -93,6 +93,8 @@ drgn can be installed using the package manager on some Linux distributions.
       $ sudo dnf config-manager --enable ol8_addons  # OR: ol9_addons
       $ sudo dnf install drgn
 
+  Drgn is also available for Python versions in application streams. For
+  example, use ``dnf install python3.12-drgn`` to install drgn for Python 3.12.
   See the documentation for drgn in `Oracle Linux 9
   <https://docs.oracle.com/en/operating-systems/oracle-linux/9/drgn/how_to_install_drgn.html>`_
   and `Oracle Linux 8
