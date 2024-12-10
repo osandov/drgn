@@ -94,9 +94,9 @@ drgn can be installed using the package manager on some Linux distributions.
       $ sudo dnf install drgn
 
   See the documentation for drgn in `Oracle Linux 9
-  <https://docs.oracle.com/en/operating-systems/oracle-linux/9/monitoring/working_with_the_drgn_and_corelens.html>`_
+  <https://docs.oracle.com/en/operating-systems/oracle-linux/9/drgn/how_to_install_drgn.html>`_
   and `Oracle Linux 8
-  <https://docs.oracle.com/en/operating-systems/oracle-linux/8/monitoring/working_with_the_drgn_and_corelens.html>`_
+  <https://docs.oracle.com/en/operating-systems/oracle-linux/8/drgn/how_to_install_drgn.html>`_
   for more information.
 
 * Arch Linux
