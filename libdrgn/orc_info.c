@@ -214,11 +214,8 @@ remove_fdes_from_orc(struct drgn_module *module, unsigned int *indices,
 	return NULL;
 }
 
-static int orc_version_from_header(Elf_Data *orc_header)
+static int orc_version_from_header(const void *buffer)
 {
-	if (orc_header->d_size != 20)
-		return -1;
-
 	// Known version identifiers in .orc_header. These can be generated in
 	// the kernel source tree with:
 	// sh ./scripts/orc_hash.sh < arch/x86/include/asm/orc_types.h | sed -e 's/^#define ORC_HASH //' -e 's/,/, /g'
@@ -236,9 +233,9 @@ static int orc_version_from_header(Elf_Data *orc_header)
 		0x17, 0xf8, 0xf7, 0x97, 0x83, 0xca, 0x98, 0x5c, 0x2c, 0x51,
 	};
 
-	if (memcmp(orc_header->d_buf, orc_hash_6_4, 20) == 0)
+	if (memcmp(buffer, orc_hash_6_4, 20) == 0)
 		return 3;
-	else if (memcmp(orc_header->d_buf, orc_hash_6_3, 20) == 0)
+	else if (memcmp(buffer, orc_hash_6_3, 20) == 0)
 		return 2;
 	return -1;
 }
@@ -318,7 +315,9 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 		err = read_elf_section(orc_header_scn, &orc_header);
 		if (err)
 			return err;
-		module->orc.version = orc_version_from_header(orc_header);
+		module->orc.version = -1;
+		if (orc_header->d_size == 20)
+			module->orc.version = orc_version_from_header(orc_header->d_buf);
 		if (module->orc.version < 0) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "unrecognized .orc_header");
