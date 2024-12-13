@@ -1797,7 +1797,8 @@ kernel_module_set_section_addresses(struct drgn_module *module,
 }
 
 static struct drgn_error *
-kernel_module_find_or_create_internal(const struct drgn_object *module_obj,
+kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
+				      const struct drgn_object *module_obj,
 				      struct drgn_module **ret, bool *new_ret,
 				      bool create, bool log)
 {
@@ -1896,6 +1897,10 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_obj,
 		return NULL;
 	}
 
+	err = drgn_module_set_object(module, module_ptr);
+	if (err)
+		return err;
+
 	if (layout_in_module)
 		err = drgn_object_member(&val, module_obj, "core_size");
 	else
@@ -1939,60 +1944,47 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_obj,
 }
 
 static struct drgn_error *
-drgn_module_find_or_create_linux_kernel_loadable_internal(const struct drgn_object *module_obj,
+drgn_module_find_or_create_linux_kernel_loadable_internal(const struct drgn_object *module_ptr,
 							  struct drgn_module **ret,
 							  bool *new_ret,
 							  bool create)
 {
 	struct drgn_error *err;
+	struct drgn_program *prog = drgn_object_program(module_ptr);
 
-	// kernel_module_find_or_create_internal() expects a `struct module`
-	// value.
-	struct drgn_object mod;
-	if (drgn_type_kind(drgn_underlying_type(module_obj->type))
-	    == DRGN_TYPE_POINTER) {
-		drgn_object_init(&mod, drgn_object_program(module_obj));
-		err = drgn_object_dereference(&mod, module_obj);
-		if (!err)
-			err = drgn_object_read(&mod, &mod);
-		module_obj = &mod;
-		if (err)
-			goto out;
-	} else if (module_obj->kind != DRGN_OBJECT_VALUE) {
-		drgn_object_init(&mod, drgn_object_program(module_obj));
-		err = drgn_object_read(&mod, module_obj);
-		module_obj = &mod;
-		if (err)
-			goto out;
-	}
+	if (drgn_type_kind(drgn_underlying_type(module_ptr->type))
+	    != DRGN_TYPE_POINTER)
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "struct module * is required");
 
-	err = kernel_module_find_or_create_internal(module_obj, ret, new_ret,
-						    create, false);
-out:
-	if (module_obj == &mod)
-		drgn_object_deinit(&mod);
-	return err;
+	DRGN_OBJECT(module_obj, prog);
+	err = drgn_object_dereference(&module_obj, module_ptr);
+	if (err)
+		return err;
+
+	err = drgn_object_read(&module_obj, &module_obj);
+	if (err)
+		return err;
+
+	return kernel_module_find_or_create_internal(module_ptr, &module_obj, ret, new_ret,
+						     create, false);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_module_find_linux_kernel_loadable(const struct drgn_object *module_obj,
+drgn_module_find_linux_kernel_loadable(const struct drgn_object *module_ptr,
 				       struct drgn_module **ret)
 {
-	return drgn_module_find_or_create_linux_kernel_loadable_internal(module_obj,
-									 ret,
-									 NULL,
-									 false);
+	return drgn_module_find_or_create_linux_kernel_loadable_internal(module_ptr, ret,
+									 NULL, false);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_module_find_or_create_linux_kernel_loadable(const struct drgn_object *module_obj,
+drgn_module_find_or_create_linux_kernel_loadable(const struct drgn_object *module_ptr,
 						 struct drgn_module **ret,
 						 bool *new_ret)
 {
-	return drgn_module_find_or_create_linux_kernel_loadable_internal(module_obj,
-									 ret,
-									 new_ret,
-									 true);
+	return drgn_module_find_or_create_linux_kernel_loadable_internal(module_ptr, ret,
+									 new_ret, true);
 }
 
 static struct drgn_error *
@@ -2003,6 +1995,7 @@ yield_kernel_module(struct linux_kernel_loaded_module_iterator *it,
 	struct drgn_program *prog = it->it.prog;
 
 	DRGN_OBJECT(mod, prog);
+	DRGN_OBJECT(mod_ptr, prog);
 	for (;;) {
 		uint64_t addr;
 		err = drgn_object_read_unsigned(&it->node, &addr);
@@ -2034,12 +2027,12 @@ list_walk_err:
 		}
 		it->module_list_iterations_remaining--;
 
-		err = drgn_object_container_of(&mod, &it->node, it->module_type,
+		err = drgn_object_container_of(&mod_ptr, &it->node, it->module_type,
 					       "list");
 		if (err)
 			goto list_walk_err;
 
-		err = drgn_object_dereference(&mod, &mod);
+		err = drgn_object_dereference(&mod, &mod_ptr);
 		if (err)
 			goto list_walk_err;
 		// We need several fields from the `struct module`. Especially
@@ -2057,8 +2050,8 @@ list_walk_err:
 		if (err)
 			goto list_walk_err;
 
-		err = kernel_module_find_or_create_internal(&mod, ret, new_ret,
-							    true, true);
+		err = kernel_module_find_or_create_internal(&mod_ptr, &mod, ret,
+							    new_ret, true, true);
 		if (err && !drgn_error_is_fatal(err)) {
 			drgn_error_log_warning(prog, err, "ignoring module: ");
 			drgn_error_destroy(err);

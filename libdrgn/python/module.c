@@ -284,6 +284,35 @@ static int Module_set_build_id(Module *self, PyObject *value, void *arg)
 	return 0;
 }
 
+static DrgnObject *Module_get_object(Module *self, void *arg)
+{
+
+	Program *prog_obj = Module_prog(self);
+	_cleanup_pydecref_ DrgnObject *ret = DrgnObject_alloc(prog_obj);
+	if (!ret)
+		return NULL;
+
+	struct drgn_error *err = drgn_module_object(self->module, &ret->obj);
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(ret);
+}
+
+static int Module_set_object(Module *self, PyObject *value, void *arg)
+{
+	SETTER_NO_DELETE("object", value);
+	if (!PyObject_TypeCheck(value, &DrgnObject_type)) {
+		PyErr_SetString(PyExc_TypeError, "object must be a drgn.Object");
+		return -1;
+	}
+	DrgnObject *object = (DrgnObject *)value;
+
+	struct drgn_error *err = drgn_module_set_object(self->module, &object->obj);
+	if (err)
+		set_drgn_error(err);
+	return 0;
+}
+
 #define MODULE_FILE_STATUS_GETSET(which)					\
 static PyObject *Module_wants_##which##_file(Module *self)			\
 {										\
@@ -400,6 +429,8 @@ static PyGetSetDef Module_getset[] = {
 	 (setter)Module_set_address_range, drgn_Module_address_range_DOC},
 	{"build_id", (getter)Module_get_build_id, (setter)Module_set_build_id,
 	 drgn_Module_build_id_DOC},
+	{"object", (getter)Module_get_object, (setter)Module_set_object,
+	 drgn_Module_object_DOC},
 	{"loaded_file_status", (getter)Module_get_loaded_file_status,
 	 (setter)Module_set_loaded_file_status,
 	 drgn_Module_loaded_file_status_DOC},

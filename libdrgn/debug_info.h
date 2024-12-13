@@ -260,6 +260,8 @@ struct drgn_module {
 	struct drgn_module_wanted_supplementary_file *wanted_supplementary_debug_file;
 	/** Node in @ref drgn_debug_info::modules_pending_indexing. */
 	struct drgn_module *pending_indexing_next;
+	/** Object the module was created from */
+	struct drgn_object object;
 };
 
 struct drgn_error *drgn_module_find_or_create(struct drgn_program *prog,
