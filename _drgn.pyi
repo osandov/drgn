@@ -1499,6 +1499,14 @@ class Module:
     module, it is set to the file's build ID if it is not already set. It can
     also be set manually.
     """
+    object: Object
+    """
+    The object associated with this module.
+
+    For Linux kernel loadable modules, this is the ``struct module *``
+    associated with the kernel module. For other kinds, this is currently an
+    absent object. The object may be set manually.
+    """
     loaded_file_status: ModuleFileStatus
     """Status of the module's :ref:`loaded file <module-loaded-file>`."""
     loaded_file_path: Optional[str]
