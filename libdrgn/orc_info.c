@@ -13,6 +13,7 @@
 #include "debug_info.h" // IWYU pragma: associated
 #include "elf_file.h"
 #include "error.h"
+#include "log.h"
 #include "orc.h"
 #include "platform.h"
 #include "program.h"
@@ -34,7 +35,7 @@ static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module,
 {
 	int32_t offset;
 	memcpy(&offset, &module->orc.pc_offsets[i], sizeof(offset));
-	if (drgn_elf_file_bswap(module->debug_file))
+	if (module->orc.bswap)
 		offset = bswap_32(offset);
 	return module->orc.pc_base + UINT64_C(4) * i + offset;
 }
@@ -44,7 +45,7 @@ drgn_raw_orc_entry_is_terminator(struct drgn_module *module, unsigned int i)
 {
 	uint16_t flags;
 	memcpy(&flags, &module->orc.entries[i].flags, sizeof(flags));
-	if (drgn_elf_file_bswap(module->debug_file))
+	if (module->orc.bswap)
 		flags = bswap_16(flags);
 	if (module->orc.version >= 3) {
 		// orc->type == ORC_TYPE_UNDEFINED
@@ -63,7 +64,7 @@ drgn_raw_orc_entry_is_preferred(struct drgn_module *module, unsigned int i)
 {
 	uint16_t flags;
 	memcpy(&flags, &module->orc.entries[i].flags, sizeof(flags));
-	if (drgn_elf_file_bswap(module->debug_file))
+	if (module->orc.bswap)
 		flags = bswap_16(flags);
 	// ORC_REG_SP_INDIRECT is used for the stack switching pattern used in
 	// the Linux kernel's call_on_stack()/call_on_irqstack() macros. See
@@ -355,6 +356,165 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 	return NULL;
 }
 
+static struct drgn_error *
+copy_builtin_orc_buffers(struct drgn_module *module, uint64_t num_entries,
+			 uint64_t unwind, uint64_t unwind_ip, uint64_t header)
+{
+	uint8_t header_data[20];
+
+	struct drgn_error *err;
+
+	if (header) {
+		err = drgn_program_read_memory(module->prog, header_data,
+					       header, sizeof(header_data),
+					       false);
+
+		if (err)
+			return err;
+
+		module->orc.version = orc_version_from_header(header_data);
+		if (module->orc.version < 0)
+			return drgn_error_create(DRGN_ERROR_OTHER,
+							"unrecognized .orc_header");
+	} else {
+		module->orc.version = orc_version_from_osrelease(module->prog);
+	}
+
+	_cleanup_free_ int32_t *pc_offsets = malloc_array(num_entries,
+							  sizeof(pc_offsets[0]));
+	if (!pc_offsets)
+		return &drgn_enomem;
+	err = drgn_program_read_memory(module->prog, pc_offsets, unwind_ip,
+				       num_entries * sizeof(pc_offsets[0]), false);
+	if (err)
+		return err;
+
+	_cleanup_free_ struct drgn_orc_entry *entries =
+		malloc_array(num_entries, sizeof(entries[0]));
+	if (!entries)
+		return &drgn_enomem;
+	err = drgn_program_read_memory(module->prog, entries, unwind,
+				       num_entries * sizeof(entries[0]), false);
+	if (err)
+		return err;
+
+	module->orc.entries = no_cleanup_ptr(entries);
+	module->orc.pc_offsets = no_cleanup_ptr(pc_offsets);
+	module->orc.num_entries = num_entries;
+	module->orc.pc_base = unwind_ip;
+	drgn_log_debug(module->prog, "Loaded built-in ORC (v%d) for module %s",
+		       module->orc.version, module->name);
+	return NULL;
+}
+
+static struct drgn_error *drgn_read_vmlinux_orc(struct drgn_module *module)
+{
+	struct drgn_error *err;
+	struct drgn_symbol *sym;
+
+	uint64_t unwind_ip_start, unwind_ip_end;
+	uint64_t unwind_start, unwind_end;
+	uint64_t header_start = 0, header_end = 0;
+
+#define get_symbol(name, var, optional) \
+	err = drgn_program_find_symbol_by_name(module->prog, name, &sym); \
+	if (!err) { \
+		var = sym->address; \
+		drgn_symbol_destroy(sym); \
+		sym = NULL; \
+	} else if (optional && drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) { \
+		sym = NULL; \
+	} else { \
+		drgn_error_catch(&err, DRGN_ERROR_LOOKUP); \
+		return err; \
+	}
+
+	get_symbol("__start_orc_unwind_ip", unwind_ip_start, false);
+	get_symbol("__stop_orc_unwind_ip", unwind_ip_end, false);
+	get_symbol("__start_orc_unwind", unwind_start, false);
+	get_symbol("__stop_orc_unwind", unwind_end, false);
+	get_symbol("__start_orc_header", header_start, true);
+	get_symbol("__stop_orc_header", header_end, true);
+#undef get_symbol
+
+	if ((unwind_ip_end - unwind_ip_start) % sizeof(int32_t))
+		return drgn_error_create(DRGN_ERROR_OTHER, "invalid built-in orc_unwind_ip range");
+	uint64_t num_entries = (unwind_ip_end - unwind_ip_start) / sizeof(int32_t);
+	if (num_entries > UINT_MAX)
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "built-in orc_unwind_ip range is too large");
+
+	if ((unwind_end - unwind_start) % sizeof(struct drgn_orc_entry)
+	    || (unwind_end - unwind_start) / sizeof(struct drgn_orc_entry) != num_entries)
+		return drgn_error_create(DRGN_ERROR_OTHER, "invalid built-in orc_unwind range");
+
+	if (header_start && header_end && header_end - header_start != 20)
+		return drgn_error_create(DRGN_ERROR_OTHER, "invalid built-in orc_header size");
+
+	return copy_builtin_orc_buffers(module, num_entries, unwind_start,
+					unwind_ip_start, header_start);
+}
+
+static struct drgn_error *drgn_read_builtin_orc(struct drgn_module *module)
+{
+	if (!(module->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
+		return NULL;
+	if (module->kind == DRGN_MODULE_MAIN)
+		return drgn_read_vmlinux_orc(module);
+	else if (module->kind != DRGN_MODULE_RELOCATABLE)
+		return NULL;
+	else if (module->object.kind == DRGN_OBJECT_ABSENT)
+		return NULL;
+
+	// num_entries is implied by the size of the arrays. We can get the
+	// array addresses from the section address info, but not their size. So
+	// we need to find num_orcs by reading it out of the arch-specific
+	// module info.
+	DRGN_OBJECT(tmp, module->prog);
+	struct drgn_error *err;
+
+	err = drgn_object_dereference(&tmp, &module->object);
+	if (err)
+		return err;
+
+	err = drgn_object_member(&tmp, &tmp, "arch");
+	if (err)
+		return err;
+
+	err = drgn_object_member(&tmp, &tmp, "num_orcs");
+	// If the kernel does not support ORC (e.g. it is too old), this will be
+	// the first lookup error we encounter. Catch it and don't return any
+	// error.
+	if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP) || err)
+		return err;
+
+	uint64_t num_entries;
+	err = drgn_object_read_unsigned(&tmp, &num_entries);
+	if (err)
+		return err;
+
+	// We'll still use the section addresses for everything else, because
+	// the orc_header is only present there, and it should be a bit faster
+	// to read data which we already parsed, rather than going back to read
+	// it from program memory.
+	uint64_t orc_unwind;
+	uint64_t orc_unwind_ip;
+	uint64_t orc_header = 0;
+	err = drgn_module_get_section_address(module, ".orc_unwind", &orc_unwind);
+	if (err)
+		return err;
+	err = drgn_module_get_section_address(module, ".orc_unwind_ip", &orc_unwind_ip);
+	if (err)
+		return err;
+	err = drgn_module_get_section_address(module, ".orc_header", &orc_header);
+	drgn_error_catch(&err, DRGN_ERROR_LOOKUP);
+	if (err)
+		return err;
+
+	return copy_builtin_orc_buffers(module, num_entries, orc_unwind,
+					orc_unwind_ip, orc_header);
+}
+
 static inline void drgn_module_clear_orc(struct drgn_module **modulep)
 {
 	if (*modulep) {
@@ -363,20 +523,45 @@ static inline void drgn_module_clear_orc(struct drgn_module **modulep)
 	}
 }
 
-struct drgn_error *drgn_module_parse_orc(struct drgn_module *module)
+struct drgn_error *drgn_module_parse_orc(struct drgn_module *module,
+					 bool use_builtin)
 {
 	struct drgn_error *err;
 
-	if (module->debug_file->platform.arch->arch != DRGN_ARCH_X86_64)
+	if (module->prog->platform.arch->arch != DRGN_ARCH_X86_64)
 		return NULL;
 
-	// pc_offsets and entries point to the Elf_Data buffers until we're
-	// done. We don't want those freed by drgn_module_orc_info_deinit(), so
-	// clear them if anything goes wrong.
+	// When loading from the debug_file, pc_offsets and entries point to the
+	// Elf_Data buffers until the end of this function, when copies are made.
+	// When loading built-in ORC, we own both buffers. In either case, we
+	// don't want these pointers freed by drgn_module_orc_info_deinit() if
+	// we fail early. So we use this to reset the pointers to NULL on
+	// failure.
 	_cleanup_(drgn_module_clear_orc) struct drgn_module *clear = module;
 
-	err = drgn_read_orc_sections(module);
+	// For the built-in ORC, we use these to clean up the memory allocated
+	// in drgn_read_builtin_orc(). This happens even on success, because the
+	// buffers are copied at the end of this function.
+	_cleanup_free_ void *cleanup_pc_offsets = NULL;
+	_cleanup_free_ void *cleanup_entries = NULL;
+
+	if (use_builtin) {
+		err = drgn_read_builtin_orc(module);
+		cleanup_pc_offsets = module->orc.pc_offsets;
+		cleanup_entries = module->orc.entries;
+	} else {
+		err = drgn_read_orc_sections(module);
+	}
 	if (err || !module->orc.num_entries)
+		return err;
+
+	// We may need to byte swap ORC entries. Rather than checking the
+	// debug_file's platform, use the program's platform (since they are the
+	// same) because it's possible there is no debug_file (e.g. for builtin
+	// ORC).
+	bool bswap;
+	err = drgn_program_bswap(module->prog, &bswap);
+	if (err)
 		return err;
 
 	unsigned int num_entries = module->orc.num_entries;
@@ -417,7 +602,6 @@ struct drgn_error *drgn_module_parse_orc(struct drgn_module *module)
 		return &drgn_enomem;
 	const int32_t *orig_offsets = module->orc.pc_offsets;
 	const struct drgn_orc_entry *orig_entries = module->orc.entries;
-	const bool bswap = drgn_elf_file_bswap(module->debug_file);
 	const int version = module->orc.version;
 	for (unsigned int i = 0; i < num_entries; i++) {
 		unsigned int index = indices[i];
@@ -474,6 +658,7 @@ struct drgn_error *drgn_module_parse_orc(struct drgn_module *module)
 	module->orc.pc_offsets = no_cleanup_ptr(pc_offsets);
 	module->orc.entries = no_cleanup_ptr(entries);
 	module->orc.num_entries = num_entries;
+	module->orc.bswap = bswap;
 	clear = NULL;
 	return NULL;
 }
