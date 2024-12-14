@@ -14,6 +14,7 @@
 #include "dwarf_constants.h"
 #include "dwarf_info.h"
 #include "elf_file.h"
+#include "elf_notes.h"
 #include "error.h"
 #include "helpers.h"
 #include "minmax.h"
@@ -650,7 +651,7 @@ drgn_get_initial_registers_from_kernel_core_dump(struct drgn_program *prog,
 		const void *p = drgn_object_buffer(&tmp);
 		size_t size = drgn_object_size(&tmp);
 		bool bswap = drgn_platform_bswap(&prog->platform);
-		Elf32_Nhdr nhdr;
+		GElf_Nhdr nhdr;
 		const char *name;
 		const void *desc;
 		while (next_elf_note(&p, &size, 4, bswap, &nhdr, &name, &desc)

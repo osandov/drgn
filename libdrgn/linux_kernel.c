@@ -21,6 +21,7 @@
 #include "debug_info.h"
 #include "drgn_internal.h"
 #include "elf_file.h"
+#include "elf_notes.h"
 #include "error.h"
 #include "hash_table.h"
 #include "helpers.h"
@@ -603,25 +604,6 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 	return NULL;
 }
 
-static size_t parse_gnu_build_id_from_note(const void *note, size_t note_size,
-					   bool bswap, const void **ret)
-{
-	Elf32_Nhdr nhdr;
-	const char *name;
-	const void *desc;
-	while (next_elf_note(&note, &note_size, 4, bswap, &nhdr, &name, &desc)) {
-		if (nhdr.n_namesz == sizeof("GNU") &&
-		    memcmp(name, "GNU", sizeof("GNU")) == 0 &&
-		    nhdr.n_type == NT_GNU_BUILD_ID &&
-		    nhdr.n_descsz > 0) {
-			*ret = desc;
-			return nhdr.n_descsz;
-		}
-	}
-	*ret = NULL;
-	return 0;
-}
-
 static struct drgn_error *
 kernel_module_iterator_gnu_build_id_live(struct kernel_module_iterator *it,
 					 const void **build_id_ret,
@@ -676,8 +658,8 @@ kernel_module_iterator_gnu_build_id_live(struct kernel_module_iterator *it,
 		close(fd);
 
 		*build_id_len_ret =
-			parse_gnu_build_id_from_note(it->build_id_buf, r, false,
-						     build_id_ret);
+			parse_gnu_build_id_from_notes(it->build_id_buf, r, 4,
+						      false, build_id_ret);
 		if (*build_id_len_ret) {
 			err = NULL;
 			goto out;
@@ -769,8 +751,8 @@ kernel_module_iterator_gnu_build_id(struct kernel_module_iterator *it,
 			return err;
 
 		*build_id_len_ret =
-			parse_gnu_build_id_from_note(it->build_id_buf, size,
-						     bswap, build_id_ret);
+			parse_gnu_build_id_from_notes(it->build_id_buf, size, 4,
+						      bswap, build_id_ret);
 		if (*build_id_len_ret)
 			return NULL;
 	}
@@ -1578,7 +1560,7 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 		struct kernel_module_file *kmod = &kmods[i];
 
 		ssize_t build_id_len =
-			dwelf_elf_gnu_build_id(kmod->elf, &kmod->gnu_build_id);
+			drgn_elf_gnu_build_id(kmod->elf, &kmod->gnu_build_id);
 		if (build_id_len < 0) {
 			err = drgn_debug_info_report_error(load, kmod->path,
 							   NULL,

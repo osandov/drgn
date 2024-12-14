@@ -21,6 +21,7 @@
 
 #include "cleanup.h"
 #include "debug_info.h"
+#include "elf_notes.h"
 #include "error.h"
 #include "helpers.h"
 #include "io.h"

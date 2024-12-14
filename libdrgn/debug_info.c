@@ -20,6 +20,7 @@
 #include "cleanup.h"
 #include "debug_info.h"
 #include "elf_file.h"
+#include "elf_notes.h"
 #include "error.h"
 #include "linux_kernel.h"
 #include "openmp.h"
@@ -465,7 +466,7 @@ drgn_debug_info_report_elf(struct drgn_debug_info_load_state *load,
 
 	struct drgn_error *err;
 	const void *build_id;
-	ssize_t build_id_len = dwelf_elf_gnu_build_id(elf, &build_id);
+	ssize_t build_id_len = drgn_elf_gnu_build_id(elf, &build_id);
 	if (build_id_len < 0) {
 		err = drgn_debug_info_report_error(load, path, NULL,
 						   drgn_error_libelf());
@@ -708,7 +709,7 @@ static bool build_id_matches(Elf *elf, const void *build_id,
 			     size_t build_id_len)
 {
 	const void *elf_build_id;
-	ssize_t elf_build_id_len = dwelf_elf_gnu_build_id(elf, &elf_build_id);
+	ssize_t elf_build_id_len = drgn_elf_gnu_build_id(elf, &elf_build_id);
 	if (elf_build_id_len < 0)
 		return false;
 	return (elf_build_id_len == build_id_len &&
@@ -924,32 +925,6 @@ static void read_phdr(const void *phdr_buf, size_t i, bool is_64_bit,
 	}
 }
 
-static const char *read_build_id(const void *buf, size_t buf_len,
-				 unsigned int align, bool bswap,
-				 size_t *len_ret)
-{
-	/*
-	 * Build IDs are usually 16 or 20 bytes (MD5 or SHA-1, respectively), so
-	 * these arbitrary limits are generous.
-	 */
-	static const uint32_t build_id_min_size = 2;
-	static const uint32_t build_id_max_size = 1024;
-	Elf32_Nhdr nhdr;
-	const char *name;
-	const void *desc;
-	while (next_elf_note(&buf, &buf_len, align, bswap, &nhdr, &name, &desc)) {
-		if (nhdr.n_namesz == sizeof("GNU") &&
-		    memcmp(name, "GNU", sizeof("GNU")) == 0 &&
-		    nhdr.n_type == NT_GNU_BUILD_ID &&
-		    nhdr.n_descsz >= build_id_min_size &&
-		    nhdr.n_descsz <= build_id_max_size) {
-			*len_ret = nhdr.n_descsz;
-			return desc;
-		}
-	}
-	return NULL;
-}
-
 struct core_get_phdr_arg {
 	const void *phdr_buf;
 	bool is_64_bit;
@@ -1081,12 +1056,14 @@ userspace_core_identify_file(struct drgn_program *prog,
 					return err;
 				}
 			}
-			ret->build_id = read_build_id(core->segment_buf,
-						      phdr.p_filesz,
-						      phdr.p_align == 8 ? 8 : 4,
-						      arg.bswap,
-						      &ret->build_id_len);
-			if (ret->build_id)
+			ret->build_id_len =
+				parse_gnu_build_id_from_notes(core->segment_buf,
+							      phdr.p_filesz,
+							      phdr.p_align == 8
+							      ? 8 : 4,
+							      arg.bswap,
+							      &ret->build_id);
+			if (ret->build_id_len)
 				break;
 		}
 	}

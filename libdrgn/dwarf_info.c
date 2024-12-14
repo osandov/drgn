@@ -5,6 +5,7 @@
 #include <byteswap.h>
 #include <elf.h>
 #include <elfutils/libdw.h>
+#include <elfutils/version.h>
 #include <gelf.h>
 #include <inttypes.h>
 #include <limits.h>

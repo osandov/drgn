@@ -14,7 +14,6 @@
 
 #include <elfutils/libdw.h>
 #include <elfutils/libdwfl.h>
-#include <elfutils/version.h>
 #include <libelf.h>
 
 #include "cfi.h"
@@ -301,15 +300,6 @@ struct drgn_error *find_elf_file(char **path_ret, int *fd_ret, Elf **elf_ret,
 
 struct drgn_error *elf_address_range(Elf *elf, uint64_t bias,
 				     uint64_t *start_ret, uint64_t *end_ret);
-
-static inline Elf_Type note_header_type(uint64_t p_align)
-{
-#if _ELFUTILS_PREREQ(0, 175)
-	if (p_align == 8)
-		return ELF_T_NHDR8;
-#endif
-	return ELF_T_NHDR;
-}
 
 /** @} */
 

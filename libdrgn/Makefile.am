@@ -62,6 +62,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 dwarf_info.h \
 			 elf_file.c \
 			 elf_file.h \
+			 elf_notes.c \
+			 elf_notes.h \
 			 elf_sections.h \
 			 error.c \
 			 error.h \
