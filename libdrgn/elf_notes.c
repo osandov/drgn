@@ -55,6 +55,45 @@ bool next_elf_note(const void **p, size_t *size, unsigned int align, bool bswap,
 	return true;
 }
 
+int find_elf_note(Elf *elf, const char *name, uint32_t type, const void **ret,
+		  size_t *size_ret)
+{
+	size_t phnum;
+	if (elf_getphdrnum(elf, &phnum))
+		return -1;
+	size_t name_size = strlen(name) + 1;
+	for (size_t i = 0; i < phnum; i++) {
+		GElf_Phdr phdr_mem, *phdr = gelf_getphdr(elf, i, &phdr_mem);
+		if (!phdr)
+			return -1;
+		if (phdr->p_type != PT_NOTE)
+			continue;
+		Elf_Data *data = elf_getdata_rawchunk(elf, phdr->p_offset,
+						      phdr->p_filesz,
+						      note_header_type(phdr->p_align));
+		if (!data)
+			return -1;
+		GElf_Nhdr nhdr;
+		size_t offset = 0, name_offset, desc_offset;
+		while (offset < data->d_size &&
+		       (offset = gelf_getnote(data, offset, &nhdr,
+					      &name_offset,
+					      &desc_offset))) {
+			const char *note_name = (char *)data->d_buf + name_offset;
+			if (nhdr.n_namesz == name_size
+			    && memcmp(note_name, name, name_size) == 0
+			    && nhdr.n_type == type) {
+				*ret = (char *)data->d_buf + desc_offset;
+				*size_ret = nhdr.n_descsz;
+				return 0;
+			}
+		}
+	}
+	*ret = NULL;
+	*size_ret = 0;
+	return 0;
+}
+
 size_t parse_gnu_build_id_from_notes(const void *buf, size_t size,
 				     unsigned int align, bool bswap,
 				     const void **ret)

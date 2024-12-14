@@ -70,6 +70,16 @@ bool next_elf_note(const void **p, size_t *size, unsigned int align, bool bswap,
 		   GElf_Nhdr *nhdr_ret, const char **name_ret,
 		   const void **desc_ret);
 
+/**
+ * Find an ELF note matching the given name and type.
+ *
+ * Note that this currently only checks segments, not sections.
+ *
+ * @return 0 on success, -1 on libelf error.
+ */
+int find_elf_note(Elf *elf, const char *name, uint32_t type, const void **ret,
+		  size_t *size_ret);
+
 
 /**
  * Parse a GNU build ID from a buffer containing note data.
