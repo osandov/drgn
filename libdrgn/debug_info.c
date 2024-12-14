@@ -5543,5 +5543,21 @@ drgn_module_find_cfi(struct drgn_program *prog, struct drgn_module *module,
 		if (err != &drgn_not_found)
 			return err;
 	}
+
+	if (!can_use_debug_file) {
+		if (!module->parsed_orc) {
+			err = drgn_module_parse_orc(module);
+			if (err)
+				return err;
+			module->parsed_orc = true;
+		}
+
+		err = drgn_module_find_orc_cfi(module, pc, row_ret,
+					       interrupted_ret,
+					       ret_addr_regno_ret);
+		if (err != &drgn_not_found)
+			return err;
+	}
+
 	return &drgn_not_found;
 }

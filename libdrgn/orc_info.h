@@ -72,6 +72,8 @@ struct drgn_module_orc_info {
 	unsigned int num_entries;
 	/** Version of the ORC format. See @ref orc.h. */
 	int version;
+	/** Whether to byte swap data */
+	bool bswap;
 };
 
 void drgn_module_orc_info_deinit(struct drgn_module *module);
