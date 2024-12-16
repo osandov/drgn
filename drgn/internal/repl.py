@@ -39,7 +39,7 @@ try:
         print(banner, file=sys.stderr)
         run_multiline_interactive_console(console)
 
-except (ModuleNotFoundError, ImportError):
+except (ModuleNotFoundError, ImportError, AttributeError):
     import code
     import readline
 
