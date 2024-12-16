@@ -41,7 +41,8 @@ struct drgn_module_orc_info {
 	 * Base for calculating program counter corresponding to an ORC unwinder
 	 * entry.
 	 *
-	 * This is the address of the `.orc_unwind_ip` ELF section.
+	 * This is the address of the `.orc_unwind_ip` ELF section. It is the
+	 * actual loaded location, with any bias already applied.
 	 *
 	 * @sa drgn_module_orc_info::entries
 	 */

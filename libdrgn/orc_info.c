@@ -152,11 +152,15 @@ remove_fdes_from_orc(struct drgn_module *module, unsigned int *indices,
 	unsigned int num_entries = *num_entriesp;
 	unsigned int new_num_entries = 0;
 
-	uint64_t start_pc = drgn_raw_orc_pc(module, 0);
+	// ORC can be built-in or from the debug file. Because of that, we
+	// always store the biased/actual address at orc.pc_base. Since we are
+	// comparing to the unbiased addresses in the debug_frame FDEs, we need
+	// to subtract the bias from the ORC PC.
+	uint64_t start_pc = drgn_raw_orc_pc(module, 0) - module->debug_file_bias;
 	uint64_t end_pc;
 	for (unsigned int i = 0; i < num_entries; i++, start_pc = end_pc) {
 		if (i < num_entries - 1)
-			end_pc = drgn_raw_orc_pc(module, i + 1);
+			end_pc = drgn_raw_orc_pc(module, i + 1) - module->debug_file_bias;
 		else
 			end_pc = UINT64_MAX;
 
@@ -551,6 +555,7 @@ struct drgn_error *drgn_module_parse_orc(struct drgn_module *module,
 		cleanup_entries = module->orc.entries;
 	} else {
 		err = drgn_read_orc_sections(module);
+		module->orc.pc_base += module->debug_file_bias;
 	}
 	if (err || !module->orc.num_entries)
 		return err;
@@ -684,11 +689,10 @@ drgn_module_find_orc_cfi(struct drgn_module *module, uint64_t pc,
 			 struct drgn_cfi_row **row_ret, bool *interrupted_ret,
 			 drgn_register_number *ret_addr_regno_ret)
 {
-	uint64_t unbiased_pc = pc - module->debug_file_bias;
 	#define less_than_orc_pc(a, b)	\
 		(*(a) < drgn_orc_pc(module, (b) - module->orc.pc_offsets))
 	size_t i = binary_search_gt(module->orc.pc_offsets,
-				    module->orc.num_entries, &unbiased_pc,
+				    module->orc.num_entries, &pc,
 				    less_than_orc_pc);
 	#undef less_than_orc_pc
 	// We can tell when the program counter is below the minimum program
