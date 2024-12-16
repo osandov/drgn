@@ -15,9 +15,10 @@ __all__ = ("interact", "readline")
 # in the "code" module. We'd like to give the best experience possible, so we'll
 # detect _pyrepl and try to use it where possible.
 try:
-    # Since this mucks with internals, add a knob that can be used to disable it
-    # and use the traditional REPL.
-    if os.environ.get("DRGN_USE_PYREPL") in ("0", "n", "N", "false", "False"):
+    # The official Python interpreter honors this environment variable to
+    # disable the new REPL. We do the same, which also gives users an escape
+    # hatch if any of the internals we're messing with change.
+    if os.environ.get("PYTHON_BASIC_REPL"):
         raise ModuleNotFoundError()
 
     # Unfortunately, the typeshed library behind mypy explicitly removed type
