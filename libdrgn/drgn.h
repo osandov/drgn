@@ -522,6 +522,8 @@ enum drgn_program_flags {
 	DRGN_PROGRAM_IS_LIVE = (1 << 1),
 	/** The program is running on the local machine. */
 	DRGN_PROGRAM_IS_LOCAL = (1 << 2),
+	/** The program is connected via the gdbremote protocol. */
+	DRGN_PROGRAM_IS_GDBREMOTE = (1 << 3),
 };
 
 /**
@@ -801,6 +803,15 @@ struct drgn_error *drgn_program_set_core_dump(struct drgn_program *prog,
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_set_core_dump_fd(struct drgn_program *prog, int fd);
+
+/**
+ * Set a @ref drgn_program to a gdbremote server.
+ *
+ * @param[in] conn gdb connection string (e.g. localhost:2345)
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_gdbremote(struct drgn_program *prog,
+					      const char *conn);
 
 /**
  * Set a @ref drgn_program to the running operating system kernel.

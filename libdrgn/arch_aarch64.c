@@ -230,6 +230,17 @@ linux_kernel_get_initial_registers_aarch64(const struct drgn_object *task_obj,
 }
 
 static struct drgn_error *
+gdbremote_get_initial_registers_aarch64(struct drgn_program *prog,
+					const void *regs, size_t reglen,
+					struct drgn_register_state **ret)
+{
+	// gdbremote uses the same binary format as struct user_pt_reg
+	// so we can just reuse that code.
+	return get_initial_registers_from_struct_aarch64(prog, regs, reglen,
+							 ret);
+}
+
+static struct drgn_error *
 apply_elf_reloc_aarch64(const struct drgn_relocating_section *relocating,
 			uint64_t r_offset, uint32_t r_type, const int64_t *r_addend,
 			uint64_t sym_value)
@@ -495,6 +506,7 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 	.prstatus_get_initial_registers = prstatus_get_initial_registers_aarch64,
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_aarch64,
+	.gdbremote_get_initial_registers = gdbremote_get_initial_registers_aarch64,
 	.apply_elf_reloc = apply_elf_reloc_aarch64,
 	.linux_kernel_pgtable_iterator_create =
 		linux_kernel_pgtable_iterator_create_aarch64,
