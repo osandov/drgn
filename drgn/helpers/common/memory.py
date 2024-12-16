@@ -113,7 +113,12 @@ def _identify_kernel_address(
                 cache_name = escape_ascii_string(
                     slab_info.slab_cache.name.string_(), escape_backslash=True
                 )
-                maybe_free = "" if slab_info.allocated else "free "
+                if slab_info.allocated:
+                    maybe_free = ""
+                elif slab_info.allocated is None:
+                    maybe_free = "corrupted "
+                else:
+                    maybe_free = "free "
                 return f"{maybe_free}slab object: {cache_name}+{hex(addr - slab_info.address)}"
     else:
         return _identify_kernel_vmap(prog, addr, cache)
