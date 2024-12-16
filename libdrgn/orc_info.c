@@ -554,6 +554,7 @@ struct drgn_error *drgn_module_parse_orc(struct drgn_module *module,
 		cleanup_entries = module->orc.entries;
 	} else if (module->debug_file) {
 		err = drgn_read_orc_sections(module);
+		module->orc.pc_base += module->debug_file_bias;
 	} else {
 		err = &drgn_not_found;
 	}
@@ -690,11 +691,10 @@ drgn_module_find_orc_cfi(struct drgn_module *module, uint64_t pc,
 			 struct drgn_cfi_row **row_ret, bool *interrupted_ret,
 			 drgn_register_number *ret_addr_regno_ret)
 {
-	uint64_t unbiased_pc = pc - module->debug_file_bias;
 	#define less_than_orc_pc(a, b)	\
 		(*(a) < drgn_orc_pc(module, (b) - module->orc.pc_offsets))
 	size_t i = binary_search_gt(module->orc.pc_offsets,
-				    module->orc.num_entries, &unbiased_pc,
+				    module->orc.num_entries, &pc,
 				    less_than_orc_pc);
 	#undef less_than_orc_pc
 	// We can tell when the program counter is below the minimum program
