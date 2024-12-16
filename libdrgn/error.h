@@ -155,6 +155,24 @@ static inline void drgn_recursion_guard_cleanup(int **guard)
 	__attribute__((__cleanup__(drgn_recursion_guard_cleanup), __unused__))	\
 	int *PP_UNIQUE(recursion_count_ptr) = &unique_recursion_count
 
+/**
+ * Catch a certain kind of @ref drgn_error and free it
+ *
+ * If @a errp points to a non-@c NULL error whose code matches @a code, then the
+ * free the error (if necessary), replace the pointer value with @c NULL, and
+ * return @c true. Otherwise, return @c false, and @a err is not modified.
+ */
+static inline bool drgn_error_catch(struct drgn_error **errp,
+				    enum drgn_error_code code)
+{
+	if (*errp && (*errp)->code == code) {
+		drgn_error_destroy(*errp);
+		*errp = NULL;
+		return true;
+	}
+	return false;
+}
+
 /** @} */
 
 #endif /* DRGN_ERROR_H */
