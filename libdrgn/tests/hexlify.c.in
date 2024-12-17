@@ -1,0 +1,52 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include <stdint.h>
+
+#include "test_util.h"
+#include "../cleanup.h"
+#include "../hexlify.h"
+
+static const uint8_t binary[] = {
+	0x19, 0x29, 0x1d, 0x9a, 0xc4, 0xf3, 0x4c, 0x42, 0x01, 0xee,
+	0xdf, 0x9e, 0x8d, 0x1e, 0x59, 0x68, 0xf7, 0xd5, 0x48, 0x19,
+};
+static const char str[] = "19291d9ac4f34c4201eedf9e8d1e5968f7d54819";
+
+#suite hexlify
+
+#tcase hexlify
+
+#test hexlify_simple
+{
+	char out[2 * sizeof(binary) + 1];
+	out[sizeof(out) - 1] = '~';
+	hexlify(binary, sizeof(binary), out);
+	ck_assert_mem_eq(out, str, sizeof(out) - 1);
+	// Test that the string wasn't null-terminated.
+	ck_assert_int_eq(out[sizeof(out) - 1], '~');
+}
+
+#test ahexlify_simple
+{
+	_cleanup_free_ char *out = ahexlify(binary, sizeof(binary));
+	ck_assert_ptr_nonnull(out);
+	ck_assert_str_eq(out, str);
+}
+
+#test unhexlify_simple
+{
+	uint8_t out[(sizeof(str) - 1) / 2];
+	ck_assert(unhexlify(str, sizeof(str) - 1, out));
+	ck_assert_mem_eq(out, binary, sizeof(binary));
+}
+
+#test unhexlify_odd
+{
+	ck_assert(!unhexlify("abc", 3, (uint8_t [1]){}));
+}
+
+#test unhexlify_non_hex
+{
+	ck_assert(!unhexlify("foobar", 6, (uint8_t [3]){}));
+}
