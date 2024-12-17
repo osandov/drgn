@@ -52,6 +52,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 cfi.h \
 			 cityhash.h \
 			 cleanup.h \
+			 crc32.c \
+			 crc32.h \
 			 debug_info.c \
 			 debug_info.h \
 			 drgn_internal.h \
@@ -227,6 +229,7 @@ TESTS = $(check_PROGRAMS)
 
 check_PROGRAMS = tests/binary_search \
 		 tests/cityhash \
+		 tests/crc32 \
 		 tests/language_c \
 		 tests/lexer \
 		 tests/path \
@@ -252,6 +255,9 @@ tests_binary_search_LDADD = $(test_ldadd)
 tests_cityhash_CFLAGS = $(test_cflags)
 tests_cityhash_CPPFLAGS = $(test_cppflags)
 tests_cityhash_LDADD = $(test_ldadd)
+tests_crc32_CFLAGS = $(test_cflags)
+tests_crc32_CPPFLAGS = $(test_cppflags)
+tests_crc32_LDADD = $(test_ldadd)
 tests_language_c_CFLAGS = $(test_cflags)
 tests_language_c_CPPFLAGS = $(test_cppflags)
 tests_language_c_LDADD = $(test_ldadd)
