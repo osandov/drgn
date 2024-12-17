@@ -18,6 +18,34 @@ static struct drgn_error *parse_vmcoreinfo_u64(const char *value,
 	return NULL;
 }
 
+// Linux kernel commit 905415ff3ffb ("lib/buildid: harden build ID parsing
+// logic") (in v6.12) contains a bug that results in a garbage build ID in
+// VMCOREINFO. It was fixed in the same patch series in commits de3ec364c3c3
+// ("lib/buildid: add single folio-based file reader abstraction") and
+// d4deb8242341 ("lib/buildid: take into account e_phoff when fetching program
+// headers"). However, the broken commit was backported to several stable
+// kernels. Some branches were fixed by "lib/buildid: Fix build ID parsing
+// logic", but a couple reached their end-of-life while broken. See
+// https://lore.kernel.org/all/20241104175256.2327164-1-jolsa@kernel.org/.
+//
+// The very sad workaround is to ignore the build ID based on a version check.
+static void ignore_broken_vmcoreinfo_build_id(struct drgn_program *prog)
+{
+	char *p = (char *)prog->vmcoreinfo.osrelease;
+	long major = strtol(p, &p, 10), minor = 0, patch = 0;
+	if (*p == '.') {
+		minor = strtol(p + 1, &p, 10);
+		if (*p == '.')
+			patch = strtol(p + 1, NULL, 10);
+	}
+	if ((major == 6 && minor == 11 && patch >= 3 && patch < 10)
+	    || (major == 6 && minor == 10 && patch >= 14)
+	    || (major == 6 && minor == 6 && patch >= 55 && patch < 63)
+	    || (major == 6 && minor == 1 && patch >= 113 && patch < 119)
+	    || (major == 5 && minor == 15 && patch >= 168))
+		prog->vmcoreinfo.build_id_len = 0;
+}
+
 struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 						 const char *desc,
 						 size_t descsz)
@@ -37,6 +65,21 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 
 		const char *value = equals + 1;
 		@memswitch (line, equals - line)@
+		@case "BUILD-ID"@
+		{
+			size_t build_id_len = (newline - value) / 2;
+			if (build_id_len > sizeof(prog->vmcoreinfo.build_id)) {
+				return drgn_error_create(DRGN_ERROR_OTHER,
+							 "BUILD-ID in VMCOREINFO is too long");
+			}
+			if (!unhexlify(value, newline - value,
+				       &prog->vmcoreinfo.build_id)) {
+				return drgn_error_create(DRGN_ERROR_OTHER,
+							 "couldn't parse BUILD-ID in VMCOREINFO");
+			}
+			prog->vmcoreinfo.build_id_len = build_id_len;
+			break;
+		}
 		@case "CRASHTIME"@
 			prog->vmcoreinfo.have_crashtime = true;
 			break;
@@ -119,6 +162,7 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid OSRELEASE");
 	}
+	ignore_broken_vmcoreinfo_build_id(prog);
 	if (!is_power_of_two(prog->vmcoreinfo.page_size)) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid PAGESIZE");

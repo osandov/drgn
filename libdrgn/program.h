@@ -160,6 +160,8 @@ struct drgn_program {
 			struct {
 				/** `uname -r` */
 				char osrelease[128];
+				/** Build ID. */
+				char build_id[128];
 				/** `PAGE_SIZE` of the kernel. */
 				uint64_t page_size;
 				/**
@@ -193,6 +195,8 @@ struct drgn_program {
 				bool have_crashtime;
 				/** Whether `phys_base` was in the VMCOREINFO. */
 				bool have_phys_base;
+				/** Length of build ID. */
+				unsigned int build_id_len;
 				/**
 				 * `PAGE_SHIFT` of the kernel (derived from
 				 * `PAGE_SIZE`).
