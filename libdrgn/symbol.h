@@ -46,16 +46,22 @@ static inline void drgn_symbol_cleanup(struct drgn_symbol **p)
 	drgn_symbol_destroy(*p);
 }
 
-/** Initialize a @ref drgn_symbol from an ELF symbol. */
-void drgn_symbol_from_elf(const char *name, uint64_t address,
-			  const GElf_Sym *elf_sym, struct drgn_symbol *ret);
-
 /** Destroy the contents of the result builder */
 void drgn_symbol_result_builder_abort(struct drgn_symbol_result_builder *builder);
 
 /** Initialize result builder */
 void drgn_symbol_result_builder_init(struct drgn_symbol_result_builder *builder,
 				     bool one);
+
+/**
+ * Convert an ELF symbol to a @ref drgn_symbol and add it to a result builder.
+ *
+ * @return @c true on success, @c false on failure to allocate memory.
+ */
+bool
+drgn_symbol_result_builder_add_from_elf(struct drgn_symbol_result_builder *builder,
+					const char *name, uint64_t address,
+					const GElf_Sym *elf_sym);
 
 /** Return single result */
 struct drgn_symbol *

@@ -1,8 +1,10 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
+
+import itertools
 import tempfile
 
-from _drgn_util.elf import ET, PT, SHT, STB, STT
+from _drgn_util.elf import ET, PT, SHF, SHT, STB, STT
 from drgn import Program, Symbol, SymbolBinding, SymbolIndex, SymbolKind
 from tests import TestCase
 from tests.dwarfwriter import dwarf_sections
@@ -10,19 +12,20 @@ from tests.elfwriter import ElfSection, ElfSymbol, create_elf_file
 
 
 def create_elf_symbol_file(symbols):
-    # We need some DWARF data so that libdwfl will load the file.
     sections = dwarf_sections(())
     # Create a section for the symbols to reference and the corresponding
     # segment for address lookups.
     min_address = min(symbol.value for symbol in symbols)
     max_address = max(symbol.value + symbol.size for symbol in symbols)
+    size = max(max_address - min_address, 4096)
     sections.append(
         ElfSection(
             name=".foo",
             sh_type=SHT.NOBITS,
+            sh_flags=SHF.ALLOC,
             p_type=PT.LOAD,
             vaddr=min_address,
-            memsz=max_address - min_address,
+            memsz=size,
         )
     )
     symbols = [
@@ -31,16 +34,20 @@ def create_elf_symbol_file(symbols):
         )
         for symbol in symbols
     ]
-    return create_elf_file(ET.EXEC, sections, symbols)
+    return create_elf_file(ET.EXEC, sections, symbols), min_address, min_address + size
 
 
 def elf_symbol_program(*modules):
     prog = Program()
     for symbols in modules:
         with tempfile.NamedTemporaryFile() as f:
-            f.write(create_elf_symbol_file(symbols))
+            contents, start, end = create_elf_symbol_file(symbols)
+            f.write(contents)
             f.flush()
-            prog.load_debug_info([f.name])
+            module = prog.extra_module(f.name, create=True)[0]
+            module.address_range = (start, end)
+            module.try_file(f.name, force=True)
+            print(module.loaded_file_path)
     return prog
 
 
@@ -78,59 +85,167 @@ class TestElfSymbol(TestCase):
                 self.assert_symbols_equal_unordered(prog.symbols(0xFFFF000C), [second])
                 self.assertRaises(LookupError, prog.symbol, 0xFFFF0010)
 
-    def test_by_address_precedence(self):
-        precedence = (STB.GLOBAL, STB.WEAK, STB.LOCAL)
-        drgn_precedence = (
-            SymbolBinding.GLOBAL,
-            SymbolBinding.WEAK,
-            SymbolBinding.LOCAL,
+    def test_by_address_closest(self):
+        # If two symbols contain the given address, then the one whose start
+        # address is closest to the given address should be preferred
+        # (regardless of the binding of either symbol).
+        elf_closest = ElfSymbol("closest", 0xFFFF0008, 0x8, STT.OBJECT, STB.WEAK)
+        elf_furthest = ElfSymbol("furthest", 0xFFFF0000, 0xC, STT.OBJECT, STB.GLOBAL)
+        closest = Symbol(
+            "closest", 0xFFFF0008, 0x8, SymbolBinding.WEAK, SymbolKind.OBJECT
+        )
+        furthest = Symbol(
+            "furthest", 0xFFFF0000, 0xC, SymbolBinding.GLOBAL, SymbolKind.OBJECT
         )
 
-        def assert_find_higher(*modules):
-            self.assertEqual(
-                elf_symbol_program(*modules).symbol(0xFFFF0000).name, "foo"
-            )
-
-        def assert_finds_both(symbols, *modules):
+        def test(elf_symbols):
+            prog = elf_symbol_program(elf_symbols)
+            self.assertEqual(prog.symbol(0xFFFF000B), closest)
             self.assert_symbols_equal_unordered(
-                elf_symbol_program(*modules).symbols(0xFFFF0000),
-                symbols,
+                prog.symbols(0xFFFF000B), [closest, furthest]
             )
 
-        for i in range(len(precedence) - 1):
-            higher_binding = precedence[i]
-            higher_binding_drgn = drgn_precedence[i]
-            for j in range(i + 1, len(precedence)):
-                lower_binding = precedence[j]
-                lower_binding_drgn = drgn_precedence[j]
-                with self.subTest(higher=higher_binding, lower=lower_binding):
-                    higher = ElfSymbol(
-                        "foo", 0xFFFF0000, 0x8, STT.OBJECT, higher_binding
-                    )
-                    lower = ElfSymbol("bar", 0xFFFF0000, 0x8, STT.OBJECT, lower_binding)
-                    symbols = [
-                        Symbol(
-                            "foo",
-                            0xFFFF0000,
-                            0x8,
-                            higher_binding_drgn,
-                            SymbolKind.OBJECT,
-                        ),
-                        Symbol(
-                            "bar",
-                            0xFFFF0000,
-                            0x8,
-                            lower_binding_drgn,
-                            SymbolKind.OBJECT,
-                        ),
-                    ]
-                    # Local symbols must be before global symbols.
-                    if lower_binding != STB.LOCAL:
-                        with self.subTest("higher before lower"):
-                            assert_find_higher((higher, lower))
-                    with self.subTest("lower before higher"):
-                        assert_find_higher((lower, higher))
-                    assert_finds_both(symbols, (lower, higher))
+        with self.subTest("closest first"):
+            test([elf_closest, elf_furthest])
+
+        with self.subTest("furthest first"):
+            test([elf_furthest, elf_closest])
+
+    def test_by_address_closest_end(self):
+        # If two symbols contain the given address and have the same start
+        # address, then the one whose end address is closest to the given
+        # address should be preferred (regardless of the binding of either
+        # symbol).
+        elf_closest = ElfSymbol("closest", 0xFFFF0000, 0xC, STT.OBJECT, STB.WEAK)
+        elf_furthest = ElfSymbol("furthest", 0xFFFF0000, 0x10, STT.OBJECT, STB.GLOBAL)
+        closest = Symbol(
+            "closest", 0xFFFF0000, 0xC, SymbolBinding.WEAK, SymbolKind.OBJECT
+        )
+        furthest = Symbol(
+            "furthest", 0xFFFF0000, 0x10, SymbolBinding.GLOBAL, SymbolKind.OBJECT
+        )
+
+        def test(elf_symbols):
+            prog = elf_symbol_program(elf_symbols)
+            self.assertEqual(prog.symbol(0xFFFF000B), closest)
+            self.assert_symbols_equal_unordered(
+                prog.symbols(0xFFFF000B), [closest, furthest]
+            )
+
+        with self.subTest("closest first"):
+            test([elf_closest, elf_furthest])
+
+        with self.subTest("furthest first"):
+            test([elf_furthest, elf_closest])
+
+    def test_by_address_sizeless(self):
+        label = ElfSymbol("label", 0xFFFF0008, 0x0, STT.FUNC, STB.LOCAL)
+        less = ElfSymbol("less", 0xFFFF0000, 0x4, STT.FUNC, STB.LOCAL)
+        greater = ElfSymbol("greater", 0xFFFF0010, 0x4, STT.FUNC, STB.LOCAL)
+
+        expected = Symbol(
+            "label", 0xFFFF0008, 0x0, SymbolBinding.LOCAL, SymbolKind.FUNC
+        )
+
+        # Test every permutation of every combination of symbols that includes
+        # "label".
+        for elf_symbols in itertools.chain.from_iterable(
+            itertools.permutations((label,) + extra_elf_symbols)
+            for r in range(3)
+            for extra_elf_symbols in itertools.combinations((less, greater), r)
+        ):
+            with self.subTest(elf_symbols=[sym.name for sym in elf_symbols]):
+                prog = elf_symbol_program(elf_symbols)
+                self.assertEqual(prog.symbol(0xFFFF0009), expected)
+                self.assertEqual(prog.symbols(0xFFFF0009), [expected])
+
+    def test_by_address_sizeless_subsumed(self):
+        import unittest.util
+
+        unittest.util._MAX_LENGTH = 999999999
+        label = ElfSymbol("label", 0xFFFF0008, 0x0, STT.FUNC, STB.LOCAL)
+        subsume = ElfSymbol("subsume", 0xFFFF0004, 0x8, STT.FUNC, STB.LOCAL)
+        less = ElfSymbol("less", 0xFFFF0000, 0x4, STT.FUNC, STB.LOCAL)
+        greater = ElfSymbol("greater", 0xFFFF0010, 0x4, STT.FUNC, STB.LOCAL)
+
+        expected = Symbol(
+            "subsume", 0xFFFF0004, 0x8, SymbolBinding.LOCAL, SymbolKind.FUNC
+        )
+
+        # Test every permutation of every combination of symbols that includes
+        # "label" and "subsume".
+        for elf_symbols in itertools.chain.from_iterable(
+            itertools.permutations((label, subsume) + extra_elf_symbols)
+            for r in range(3)
+            for extra_elf_symbols in itertools.combinations((less, greater), r)
+        ):
+            with self.subTest(elf_symbols=[sym.name for sym in elf_symbols]):
+                prog = elf_symbol_program(elf_symbols)
+                self.assertEqual(prog.symbol(0xFFFF0009), expected)
+                self.assertEqual(prog.symbols(0xFFFF0009), [expected])
+
+    def test_by_address_sizeless_wrong_section(self):
+        prog = elf_symbol_program(
+            (ElfSymbol("label", 0xFFFF0008, 0x0, STT.FUNC, STB.LOCAL),)
+        )
+        for module in prog.modules():
+            start, end = module.address_range
+            module.address_range = (start, 0xFFFFFF00)
+        self.assertRaises(LookupError, prog.symbol, 0xFFFFFE00)
+
+    def test_by_address_binding_precedence(self):
+        precedence = (
+            (STB.GLOBAL, STB.GNU_UNIQUE),
+            (STB.WEAK,),
+            (STB.LOCAL, STB.HIPROC),
+        )
+
+        def assert_find_higher(*modules, both):
+            prog = elf_symbol_program(*modules)
+            self.assertEqual(prog.symbol(0xFFFF0000).name, "foo")
+            # Test that symbols() finds both if expected or either one if not.
+            if both:
+                self.assertCountEqual(
+                    [sym.name for sym in prog.symbols(0xFFFF0000)], ["foo", "bar"]
+                )
+            else:
+                self.assertIn(
+                    [sym.name for sym in prog.symbols(0xFFFF0000)], (["foo"], ["bar"])
+                )
+
+        for size in (8, 0):
+            with self.subTest(size=size):
+                for i in range(len(precedence) - 1):
+                    for higher_binding in precedence[i]:
+                        for j in range(i + 1, len(precedence)):
+                            for lower_binding in precedence[j]:
+                                with self.subTest(
+                                    higher=higher_binding, lower=lower_binding
+                                ):
+                                    higher = ElfSymbol(
+                                        "foo",
+                                        0xFFFF0000,
+                                        size,
+                                        STT.OBJECT,
+                                        higher_binding,
+                                    )
+                                    lower = ElfSymbol(
+                                        "bar",
+                                        0xFFFF0000,
+                                        size,
+                                        STT.OBJECT,
+                                        lower_binding,
+                                    )
+                                    # Local symbols must be before global symbols.
+                                    if lower_binding not in precedence[-1]:
+                                        with self.subTest("higher before lower"):
+                                            assert_find_higher(
+                                                (higher, lower), both=size > 0
+                                            )
+                                    with self.subTest("lower before higher"):
+                                        assert_find_higher(
+                                            (lower, higher), both=size > 0
+                                        )
 
     def test_by_name(self):
         elf_first = ElfSymbol("first", 0xFFFF0000, 0x8, STT.OBJECT, STB.GLOBAL)
@@ -156,7 +271,7 @@ class TestElfSymbol(TestCase):
                 self.assert_symbols_equal_unordered(prog.symbols("second"), [second])
                 self.assertEqual(prog.symbols("third"), [])
 
-    def test_by_name_precedence(self):
+    def test_by_name_binding_precedence(self):
         precedence = (
             (STB.GLOBAL, STB.GNU_UNIQUE),
             (STB.WEAK,),
@@ -170,10 +285,9 @@ class TestElfSymbol(TestCase):
             prog = elf_symbol_program(*modules)
             self.assertEqual(prog.symbol("foo").address, expected)
             # assert symbols() always finds both
-            symbols = sorted(prog.symbols("foo"), key=lambda s: s.address)
-            self.assertEqual(len(symbols), 2)
-            self.assertEqual(symbols[0].address, other)
-            self.assertEqual(symbols[1].address, expected)
+            self.assertCountEqual(
+                [sym.address for sym in prog.symbols("foo")], [expected, other]
+            )
 
         for i in range(len(precedence) - 1):
             for higher_binding in precedence[i]:

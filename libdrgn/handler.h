@@ -51,6 +51,11 @@ struct drgn_error *drgn_handler_list_enabled(struct drgn_handler_list *list,
 					     const char ***names_ret,
 					     size_t *count_ret);
 
+static inline bool drgn_handler_is_last_enabled(struct drgn_handler *handler)
+{
+	return handler->enabled && (!handler->next || !handler->next->enabled);
+}
+
 // Helper to simplify the casting and naming in drgn_handler_list_deinit().
 static inline struct drgn_handler *
 drgn_handler_free_and_next(struct drgn_handler *handler)

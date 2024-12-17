@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define _unused_ __attribute__((__unused__))
+
 #ifndef LIBDRGN_PUBLIC
 #define LIBDRGN_PUBLIC __attribute__((__visibility__("default")))
 #endif

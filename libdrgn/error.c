@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <elfutils/libdw.h>
-#include <elfutils/libdwfl.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <libelf.h>
@@ -158,16 +157,6 @@ drgn_error_format_fault(uint64_t address, const char *format, ...)
 	return err;
 }
 
-struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
-						  struct string_builder *sb)
-{
-	if (!string_builder_null_terminate(sb)) {
-		string_builder_deinit(sb);
-		return &drgn_enomem;
-	}
-	return drgn_error_create_nodup(code, sb->str);
-}
-
 LIBDRGN_PUBLIC struct drgn_error *drgn_error_copy(struct drgn_error *src)
 {
 	if (!src->needs_destroy)
@@ -273,10 +262,4 @@ struct drgn_error *drgn_error_libdw(void)
 {
 	return drgn_error_format(DRGN_ERROR_OTHER, "libdw error: %s",
 				 dwarf_errmsg(-1));
-}
-
-struct drgn_error *drgn_error_libdwfl(void)
-{
-	return drgn_error_format(DRGN_ERROR_OTHER, "libdwfl error: %s",
-				 dwfl_errmsg(-1));
 }

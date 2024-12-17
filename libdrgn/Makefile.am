@@ -66,6 +66,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 elf_file.h \
 			 elf_notes.c \
 			 elf_notes.h \
+			 elf_symtab.c \
+			 elf_symtab.h \
 			 elf_sections.h \
 			 error.c \
 			 error.h \
@@ -183,6 +185,8 @@ _drgn_la_SOURCES = python/constants.c \
 		   python/helpers.c \
 		   python/language.c \
 		   python/main.c \
+		   python/module.c \
+		   python/module_section_addresses.c \
 		   python/object.c \
 		   python/platform.c \
 		   python/program.c \

@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <getopt.h>
+#include <locale.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -91,6 +92,8 @@ noreturn static void usage(bool error)
 
 int main(int argc, char **argv)
 {
+	setlocale(LC_ALL, "");
+
 	struct option long_options[] = {
 		{"kernel", no_argument, NULL, 'k'},
 		{"core", required_argument, NULL, 'c'},

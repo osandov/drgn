@@ -30,7 +30,9 @@
 #include "vector.h"
 
 struct drgn_object_finder;
+struct drgn_symbol;
 struct drgn_symbol_finder;
+struct drgn_type_finder;
 
 /**
  * @defgroup Internals Internals
@@ -118,6 +120,11 @@ struct drgn_program {
 	/* Default language of the program. */
 	const struct drgn_language *lang;
 	struct drgn_platform platform;
+	/**
+	 * Whether we have tried determining the default language from "main"
+	 * since the last time that debug info was added.
+	 */
+	bool tried_main_language;
 	bool has_platform;
 	enum drgn_program_flags flags;
 
@@ -147,6 +154,13 @@ struct drgn_program {
 		struct {
 			/** Cached `pr_fname` from `NT_PRPSINFO` note. */
 			const char *core_dump_fname_cached;
+			/** Cache of important parts of auxiliary vector. */
+			struct {
+				uint64_t at_phdr;
+				uint64_t at_phnum;
+				uint64_t at_sysinfo_ehdr;
+			} auxv;
+			bool auxv_cached;
 		};
 
 		/*
@@ -294,6 +308,8 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog);
  * Implement @ref drgn_program_from_pid() on an initialized @ref drgn_program.
  */
 struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid);
+
+struct drgn_error *drgn_program_cache_auxv(struct drgn_program *prog);
 
 /**
  * Return whether a @ref drgn_program is a userspace process running on the

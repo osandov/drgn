@@ -6,15 +6,128 @@ Advanced Usage
 The :doc:`user_guide` covers basic usage of drgn, but drgn also supports more
 advanced use cases which are covered here.
 
-Loading Debugging Symbols
--------------------------
+.. _advanced-modules:
 
-drgn will automatically load debugging information based on the debugged
-program (e.g., from loaded kernel modules or loaded shared libraries).
-:meth:`drgn.Program.load_debug_info()` can be used to load additional debugging
-information::
+Modules and Debugging Symbols
+-----------------------------
 
-    >>> prog.load_debug_info(['./libfoo.so', '/usr/lib/libbar.so'])
+drgn tries to determine what executable, libraries, etc. a program uses and
+load debugging symbols automatically. As long as :doc:`debugging symbols are
+installed <getting_debugging_symbols>`, this should work out of the box on
+standard setups.
+
+For non-standard scenarios, drgn allows overriding the defaults with different
+levels of control and complexity.
+
+Loading Debugging Symbols From Non-Standard Locations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+drgn searches standard locations for debugging symbols. If you have debugging
+symbols available in a non-standard location, you can provide it to the CLI
+with the ``-s``/``--symbols`` option:
+
+.. code-block:: console
+
+    $ drgn -s ./libfoo.so -s /usr/lib/libbar.so.debug
+
+Or with the :meth:`drgn.Program.load_debug_info()` method::
+
+    >>> prog.load_debug_info(["./libfoo.so", "/usr/lib/libbar.so.debug"])
+
+Loading Debugging Symbols For Specific Modules
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``-s`` and ``load_debug_info()`` try the given files against all of the modules
+loaded in the program based on build IDs. You can also :ref:`look up
+<api-module-constructors>` a specific module and try a given file for just that
+module with :meth:`drgn.Module.try_file()`::
+
+    >>> prog.main_module().try_file("build/vmlinux")
+
+Loading Additional Debugging Symbols
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``-s`` and ``load_debug_info()`` ignore files that don't correspond to a loaded
+module. To load debugging symbols from an arbitrary file, pass
+``--extra-symbols`` to the CLI:
+
+.. code-block:: console
+
+    $ drgn --extra-symbols ./my_extra_symbols.debug
+
+Or create a :class:`drgn.ExtraModule`::
+
+    >>> module = prog.extra_module("my_extra_symbols")
+    >>> module.try_file("./my_extra_symbols.debug")
+
+Listing Modules
+^^^^^^^^^^^^^^^
+
+By default, drgn creates a module for everything loaded in the program. You can
+disable this in the CLI with ``-no-default-symbols``.
+
+You can find or create the loaded modules programmatically with
+:meth:`drgn.Program.loaded_modules()`::
+
+    >>> for module, new in prog.loaded_modules():
+    ...     print("Created" if new else "Found", module)
+
+You can see all of the created modules with :meth:`drgn.Program.modules()`.
+
+Overriding Modules
+^^^^^^^^^^^^^^^^^^
+
+You can create modules with the :ref:`module factory functions
+<api-module-constructors>`. You can also modify various attributes of the
+:class:`drgn.Module` class.
+
+Debug Info Finders
+^^^^^^^^^^^^^^^^^^
+
+A callback for automatically finding debugging symbols for a set of modules can
+be registered with :meth:`drgn.Program.register_debug_info_finder()`. Here is
+an example for getting debugging symbols on Fedora Linux using DNF:
+
+.. code-block:: python3
+
+    import subprocess
+
+    import drgn
+
+    # Install debugging symbols using the DNF debuginfo-install plugin. Note that
+    # this is mainly for demonstration purposes; debuginfod, which drgn supports
+    # out of the box, is more reliable.
+    def dnf_debug_info_finder(modules: list[drgn.Module]) -> None:
+        packages = set()
+        for module in modules:
+            if not module.wants_debug_file():
+                continue
+
+            if not module.name.startswith("/"):
+                continue
+
+            proc = subprocess.run(
+                ["rpm", "--query", "--file", module.name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            if proc.returncode == 0:
+                packages.add(proc.stdout.rstrip("\n"))
+
+        # Try installing their debug info.
+        subprocess.call(
+            ["sudo", "dnf", "debuginfo-install", "--skip-broken", "--"]
+            + sorted(packages)
+        )
+
+        # Leave the rest to the standard debug info finder.
+
+
+    prog.register_debug_info_finder("dnf", dnf_debug_info_finder, enable_index=0)
+
+Currently, debug info finders must be configured explicitly by the user. In the
+future, there will be a plugin system for doing so automatically.
 
 Library
 -------
@@ -92,9 +205,9 @@ Environment Variables
 Some of drgn's behavior can be modified through environment variables:
 
 ``DRGN_MAX_DEBUG_INFO_ERRORS``
-    The maximum number of individual errors to report in a
-    :exc:`drgn.MissingDebugInfoError`. Any additional errors are truncated. The
-    default is 5; -1 is unlimited.
+    The maximum number of warnings about missing debugging information to log
+    on CLI startup or from :meth:`drgn.Program.load_debug_info()`. Any
+    additional errors are truncated. The default is 5; -1 is unlimited.
 
 ``DRGN_PREFER_ORC_UNWINDER``
     Whether to prefer using `ORC
@@ -103,12 +216,6 @@ Some of drgn's behavior can be modified through environment variables:
     fall back to ORC for functions lacking DWARF call frame information and
     vice versa. This environment variable is mainly intended for testing and
     may be ignored in the future.
-
-``DRGN_USE_LIBDWFL_REPORT``
-    Whether drgn should use libdwfl to find debugging information for core
-    dumps instead of its own implementation (0 or 1). The default is 0. This
-    environment variable is mainly intended as an escape hatch in case of bugs
-    in drgn's implementation and will be ignored in the future.
 
 ``DRGN_USE_LIBKDUMPFILE_FOR_ELF``
     Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default

@@ -492,6 +492,28 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 	Py_RETURN_NONE;
 }
 
+static struct drgn_error *
+py_debug_info_find_fn(struct drgn_module * const *modules, size_t num_modules,
+		      void *arg)
+{
+	PyGILState_guard();
+
+	_cleanup_pydecref_ PyObject *modules_list = PyList_New(num_modules);
+	if (!modules_list)
+		return drgn_error_from_python();
+	for (size_t i = 0; i < num_modules; i++) {
+		PyObject *module_obj = Module_wrap(modules[i]);
+		if (!module_obj)
+			return drgn_error_from_python();
+		PyList_SET_ITEM(modules_list, i, module_obj);
+	}
+	_cleanup_pydecref_ PyObject *obj =
+		PyObject_CallOneArg(arg, modules_list);
+	if (!obj)
+		return drgn_error_from_python();
+	return NULL;
+}
+
 static inline struct drgn_error *
 py_type_find_fn_common(PyObject *type_obj, void *arg,
 		       struct drgn_qualified_type *ret)
@@ -682,6 +704,7 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 	return NULL;
 }
 
+#define debug_info_finder_arg(self, fn) PyObject *arg = fn;
 #define type_finder_arg(self, fn)						\
 	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);	\
 	if (!arg)								\
@@ -829,6 +852,7 @@ static PyObject *Program_enabled_##which##_finders(Program *self)		\
 	return_ptr(res);							\
 }
 
+DEFINE_PROGRAM_FINDER_METHODS(debug_info)
 DEFINE_PROGRAM_FINDER_METHODS(type)
 DEFINE_PROGRAM_FINDER_METHODS(object)
 DEFINE_PROGRAM_FINDER_METHODS(symbol)
@@ -968,6 +992,322 @@ static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 	Py_RETURN_NONE;
 }
 
+static ModuleIterator *Program_modules(Program *self)
+{
+	struct drgn_error *err;
+	ModuleIterator *it = call_tp_alloc(ModuleIterator);
+	if (!it)
+		return NULL;
+	err = drgn_created_module_iterator_create(&self->prog, &it->it);
+	if (err) {
+		it->it = NULL;
+		Py_DECREF(it);
+		return set_drgn_error(err);
+	}
+	Py_INCREF(self);
+	return it;
+}
+
+static ModuleIterator *Program_loaded_modules(Program *self)
+{
+	struct drgn_error *err;
+	ModuleIterator *it =
+		(ModuleIterator *)ModuleIteratorWithNew_type.tp_alloc(
+					&ModuleIteratorWithNew_type, 0);
+	if (!it)
+		return NULL;
+	err = drgn_loaded_module_iterator_create(&self->prog, &it->it);
+	if (err) {
+		it->it = NULL;
+		Py_DECREF(it);
+		return set_drgn_error(err);
+	}
+	Py_INCREF(self);
+	return it;
+}
+
+static PyObject *Program_main_module(Program *self, PyObject *args,
+				     PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"name", "create", NULL};
+	PATH_ARG(name);
+	int create = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&$p:main_module",
+					 keywords, path_converter, &name,
+					 &create))
+		return NULL;
+
+	if (create) {
+		if (!name.path) {
+			PyErr_SetString(PyExc_TypeError,
+					"name must be given if create=True");
+			return NULL;
+		}
+		struct drgn_module *module;
+		bool new;
+		err = drgn_module_find_or_create_main(&self->prog, name.path,
+						      &module, &new);
+		if (err) {
+			set_drgn_error(err);
+			return NULL;
+		}
+		return Module_and_bool_wrap(module, new);
+	} else {
+		struct drgn_module_key key = { .kind = DRGN_MODULE_MAIN };
+		struct drgn_module *module = drgn_module_find(&self->prog, &key);
+		if (!module
+		    || (name.path
+			&& strcmp(drgn_module_name(module), name.path) != 0)) {
+			PyErr_SetString(PyExc_LookupError, "module not found");
+			return NULL;
+		}
+		return Module_wrap(module);
+	}
+}
+
+static PyObject *Program_find_module(Program *self, const struct drgn_module_key *key)
+{
+	struct drgn_module *module = drgn_module_find(&self->prog, key);
+	if (!module) {
+		PyErr_SetString(PyExc_LookupError, "module not found");
+		return NULL;
+	}
+	return Module_wrap(module);
+}
+
+static PyObject *Program_shared_library_module(Program *self, PyObject *args,
+					       PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"name", "dynamic_address", "create", NULL};
+	PATH_ARG(name);
+	struct index_arg dynamic_address = {};
+	int create = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O&O&|$p:shared_library_module",
+					 keywords, path_converter, &name,
+					 index_converter, &dynamic_address,
+					 &create))
+		return NULL;
+
+	if (create) {
+		struct drgn_module *module;
+		bool new;
+		err = drgn_module_find_or_create_shared_library(&self->prog,
+								name.path,
+								dynamic_address.uvalue,
+								&module, &new);
+		if (err) {
+			set_drgn_error(err);
+			return NULL;
+		}
+		return Module_and_bool_wrap(module, new);
+	} else {
+		struct drgn_module_key key = {
+			.kind = DRGN_MODULE_SHARED_LIBRARY,
+			.shared_library.name = name.path,
+			.shared_library.dynamic_address =
+				dynamic_address.uvalue,
+		};
+		return Program_find_module(self, &key);
+	}
+}
+
+static PyObject *Program_vdso_module(Program *self, PyObject *args,
+				     PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"name", "dynamic_address", "create", NULL};
+	PATH_ARG(name);
+	struct index_arg dynamic_address = {};
+	int create = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&|$p:vdso_module",
+					 keywords, path_converter, &name,
+					 index_converter, &dynamic_address,
+					 &create))
+		return NULL;
+
+	if (create) {
+		struct drgn_module *module;
+		bool new;
+		err = drgn_module_find_or_create_vdso(&self->prog, name.path,
+						      dynamic_address.uvalue,
+						      &module, &new);
+		if (err) {
+			set_drgn_error(err);
+			return NULL;
+		}
+		return Module_and_bool_wrap(module, new);
+	} else {
+		struct drgn_module_key key = {
+			.kind = DRGN_MODULE_VDSO,
+			.vdso.name = name.path,
+			.vdso.dynamic_address = dynamic_address.uvalue,
+		};
+		return Program_find_module(self, &key);
+	}
+}
+
+static PyObject *Program_relocatable_module(Program *self, PyObject *args,
+					    PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"name", "address", "create", NULL};
+	PATH_ARG(name);
+	struct index_arg address = {};
+	int create = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O&O&|$p:relocatable_module", keywords,
+					 path_converter, &name, index_converter,
+					 &address, &create))
+		return NULL;
+
+	if (create) {
+		struct drgn_module *module;
+		bool new;
+		err = drgn_module_find_or_create_relocatable(&self->prog,
+							     name.path,
+							     address.uvalue,
+							     &module, &new);
+		if (err) {
+			set_drgn_error(err);
+			return NULL;
+		}
+		return Module_and_bool_wrap(module, new);
+	} else {
+		struct drgn_module_key key = {
+			.kind = DRGN_MODULE_RELOCATABLE,
+			.relocatable.name = name.path,
+			.relocatable.address = address.uvalue,
+		};
+		return Program_find_module(self, &key);
+	}
+}
+
+static PyObject *Program_linux_kernel_loadable_module(Program *self,
+						      PyObject *args,
+						      PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"module_obj", "create", NULL};
+	DrgnObject *module_obj;
+	int create = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O!|$p:linux_kernel_loadable_module",
+					 keywords, &DrgnObject_type,
+					 &module_obj, &create))
+		return NULL;
+
+	if (DrgnObject_prog(module_obj) != self) {
+		PyErr_SetString(PyExc_ValueError,
+				"object is from different program");
+		return NULL;
+	}
+
+	struct drgn_module *module;
+	if (create) {
+		bool new;
+		err = drgn_module_find_or_create_linux_kernel_loadable(&module_obj->obj,
+								       &module,
+								       &new);
+		if (err) {
+			set_drgn_error(err);
+			return NULL;
+		}
+		return Module_and_bool_wrap(module, new);
+	} else {
+		err = drgn_module_find_linux_kernel_loadable(&module_obj->obj,
+							     &module);
+		if (err) {
+			set_drgn_error(err);
+			return NULL;
+		}
+		if (!module) {
+			PyErr_SetString(PyExc_LookupError, "module not found");
+			return NULL;
+		}
+		return Module_wrap(module);
+	}
+}
+
+static PyObject *Program_extra_module(Program *self, PyObject *args,
+				      PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"name", "id", "create", NULL};
+	PATH_ARG(name);
+	struct index_arg id = {};
+	int create = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&$p:extra_module",
+					 keywords, path_converter, &name,
+					 index_converter, &id, &create))
+		return NULL;
+
+	if (create) {
+		struct drgn_module *module;
+		bool new;
+		err = drgn_module_find_or_create_extra(&self->prog, name.path,
+						       id.uvalue, &module,
+						       &new);
+		if (err) {
+			set_drgn_error(err);
+			return NULL;
+		}
+		return Module_and_bool_wrap(module, new);
+	} else {
+		struct drgn_module_key key = {
+			.kind = DRGN_MODULE_EXTRA,
+			.extra.name = name.path,
+			.extra.id = id.uvalue,
+		};
+		return Program_find_module(self, &key);
+	}
+}
+
+static PyObject *Program_module(Program *self, PyObject *arg)
+{
+	struct index_arg address = {};
+	if (!index_converter(arg, &address))
+		return NULL;
+	struct drgn_module *module =
+		drgn_module_find_by_address(&self->prog, address.uvalue);
+	if (!module) {
+		PyErr_SetString(PyExc_LookupError, "module not found");
+		return NULL;
+	}
+	return Module_wrap(module);
+}
+
+static PyObject *Program_get_debug_info_path(Program *self, void *arg)
+{
+	return PyUnicode_FromString(drgn_program_debug_info_path(&self->prog));
+}
+
+static int Program_set_debug_info_path(Program *self, PyObject *value, void *arg)
+{
+	const char *path;
+	if (value == Py_None) {
+		path = NULL;
+	} else {
+		if (!PyUnicode_Check(value)) {
+			PyErr_SetString(PyExc_TypeError,
+					"debug_info_path must be str or None");
+			return -1;
+		}
+		path = PyUnicode_AsUTF8(value);
+		if (!path)
+			return -1;
+	}
+	struct drgn_error *err =
+		drgn_program_set_debug_info_path(&self->prog, path);
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+	return 0;
+}
+
 DEFINE_VECTOR(path_arg_vector, struct path_arg);
 
 static void path_arg_vector_cleanup(struct path_arg_vector *path_args)
@@ -1050,6 +1390,40 @@ static PyObject *Program_load_default_debug_info(Program *self)
 	struct drgn_error *err;
 
 	err = drgn_program_load_debug_info(&self->prog, NULL, 0, true, true);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+DEFINE_VECTOR(drgn_module_vector, struct drgn_module *);
+
+static PyObject *Program_load_module_debug_info(Program *self, PyObject *args)
+{
+	size_t num_modules = PyTuple_GET_SIZE(args);
+	_cleanup_free_ struct drgn_module **modules =
+		malloc_array(num_modules, sizeof(*modules));
+	if (!modules) {
+		PyErr_NoMemory();
+		return NULL;
+	}
+
+	for (size_t i = 0; i < num_modules; i++) {
+		PyObject *item = PyTuple_GET_ITEM(args, i);
+		if (!PyObject_TypeCheck(item, &Module_type)) {
+			return PyErr_Format(PyExc_TypeError,
+					    "expected Module, not %s",
+					    Py_TYPE(item)->tp_name);
+		}
+		modules[i] = ((Module *)item)->module;
+		if (modules[i]->prog != &self->prog) {
+			PyErr_SetString(PyExc_ValueError,
+					"module from wrong program");
+			return NULL;
+		}
+	}
+
+	struct drgn_error *err =
+		drgn_load_module_debug_info(modules, &num_modules);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -1562,6 +1936,7 @@ static int Program_set_language(Program *self, PyObject *value, void *arg)
 static PyMethodDef Program_methods[] = {
 	{"add_memory_segment", (PyCFunction)Program_add_memory_segment,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_memory_segment_DOC},
+	PROGRAM_FINDER_METHOD_DEFS(debug_info),
 	PROGRAM_FINDER_METHOD_DEFS(type),
 	PROGRAM_FINDER_METHOD_DEFS(object),
 	PROGRAM_FINDER_METHOD_DEFS(symbol),
@@ -1575,11 +1950,33 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_set_kernel_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_pid_DOC},
+	{"modules", (PyCFunction)Program_modules, METH_NOARGS,
+	 drgn_Program_modules_DOC},
+	{"loaded_modules", (PyCFunction)Program_loaded_modules, METH_NOARGS,
+	 drgn_Program_loaded_modules_DOC},
+	{"main_module", (PyCFunction)Program_main_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_main_module_DOC},
+	{"shared_library_module", (PyCFunction)Program_shared_library_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_shared_library_module_DOC},
+	{"vdso_module", (PyCFunction)Program_vdso_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_vdso_module_DOC},
+	{"relocatable_module", (PyCFunction)Program_relocatable_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_relocatable_module_DOC},
+	{"linux_kernel_loadable_module",
+	 (PyCFunction)Program_linux_kernel_loadable_module,
+	 METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_linux_kernel_loadable_module_DOC},
+	{"extra_module", (PyCFunction)Program_extra_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_extra_module_DOC},
+	{"module", (PyCFunction)Program_module, METH_O,
+	 drgn_Program_module_DOC},
 	{"load_debug_info", (PyCFunction)Program_load_debug_info,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_load_debug_info_DOC},
 	{"load_default_debug_info",
 	 (PyCFunction)Program_load_default_debug_info, METH_NOARGS,
 	 drgn_Program_load_default_debug_info_DOC},
+	{"load_module_debug_info", (PyCFunction)Program_load_module_debug_info,
+	 METH_VARARGS, drgn_Program_load_module_debug_info_DOC},
 	{"__getitem__", (PyCFunction)Program_subscript, METH_O | METH_COEXIST,
 	 drgn_Program___getitem___DOC},
 	{"__contains__", (PyCFunction)Program_contains, METH_O | METH_COEXIST,
@@ -1661,6 +2058,8 @@ static PyGetSetDef Program_getset[] = {
 	 drgn_Program_platform_DOC},
 	{"language", (getter)Program_get_language, (setter)Program_set_language,
 	 drgn_Program_language_DOC},
+	{"debug_info_path", (getter)Program_get_debug_info_path,
+	 (setter)Program_set_debug_info_path, drgn_Program_debug_info_path_DOC},
 	{},
 };
 

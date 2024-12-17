@@ -16,12 +16,13 @@
 #include <elfutils/debuginfod.h>
 #endif
 #include <elfutils/libdw.h>
-#include <elfutils/libdwfl.h>
 #include <libelf.h>
 
+#include "binary_search_tree.h"
 #include "cfi.h"
 #include "drgn_internal.h"
 #include "dwarf_info.h"
+#include "elf_symtab.h"
 #include "hash_table.h"
 #include "object.h"
 #include "orc_info.h"
@@ -45,94 +46,15 @@ struct drgn_elf_file;
  * @{
  */
 
-/** State of a @ref drgn_module. */
-enum drgn_module_state {
-	/** Reported but not indexed. */
-	DRGN_DEBUG_INFO_MODULE_NEW,
-	/** Reported and will be indexed on success. */
-	DRGN_DEBUG_INFO_MODULE_INDEXING,
-	/** Indexed. Must not be freed until @ref drgn_debug_info_destroy(). */
-	DRGN_DEBUG_INFO_MODULE_INDEXED,
-} __attribute__((__packed__));
-
 DEFINE_HASH_TABLE_TYPE(drgn_elf_file_dwarf_table, struct drgn_elf_file *);
-
-/**
- * A module reported to a @ref drgn_debug_info.
- *
- * Conceptually, a module is an ELF file loaded at a specific address range (or
- * not loaded).
- *
- * Files are identified by canonical path and, if present, build ID. Each (path,
- * address range) is uniquely represented by a @ref drgn_module.
- */
-struct drgn_module {
-	struct drgn_program *prog;
-
-	/** @c NULL if the module does not have a build ID. */
-	const void *build_id;
-	/** Zero if the module does not have a build ID. */
-	size_t build_id_len;
-	/** Load address range, or both 0 if not loaded. */
-	uint64_t start, end;
-	/** Optional module name allocated with @c malloc(). */
-	char *name;
-
-	Dwfl_Module *dwfl_module;
-	/** File that is loaded into the program. */
-	struct drgn_elf_file *loaded_file;
-	/** File containing debugging information. */
-	struct drgn_elf_file *debug_file;
-	/**
-	 * Difference between addresses in program and addresses in @ref
-	 * drgn_module::loaded_file.
-	 */
-	uint64_t loaded_file_bias;
-	/**
-	 * Difference between addresses in program and addresses in @ref
-	 * drgn_module::debug_file.
-	 */
-	uint64_t debug_file_bias;
-
-	struct drgn_elf_file_dwarf_table split_dwarf_files;
-
-	/** DWARF debugging information. */
-	struct drgn_module_dwarf_info dwarf;
-	/** ORC unwinder information. */
-	struct drgn_module_orc_info orc;
-
-	/** Whether DWARF CFI from .debug_frame has been parsed. */
-	bool parsed_debug_frame;
-	/** Whether EH CFI from .eh_frame has been parsed. */
-	bool parsed_eh_frame;
-	/** Whether ORC unwinder data has been parsed. */
-	bool parsed_orc;
-
-	/*
-	 * path, elf, and fd are used when an ELF file was reported with
-	 * drgn_debug_info_report_elf() so we can report the file to libdwfl
-	 * later. They are not valid after loading.
-	 */
-	char *path;
-	Elf *elf;
-	int fd;
-	enum drgn_module_state state;
-	/** Error while loading. */
-	struct drgn_error *err;
-	/**
-	 * Next module with same build ID and address range.
-	 *
-	 * There may be multiple files with the same build ID (e.g., a stripped
-	 * binary and its corresponding separate debug info file). While
-	 * loading, all files with the same build ID and address range are
-	 * linked in a list. Only one is indexed; the rest are destroyed.
-	 */
-	struct drgn_module *next;
-};
-
 DEFINE_HASH_TABLE_TYPE(drgn_module_table, struct drgn_module *);
+DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_module_address_tree, struct drgn_module);
 
-DEFINE_HASH_SET_TYPE(c_string_set, const char *);
+struct drgn_debug_info_finder {
+	struct drgn_handler handler;
+	struct drgn_debug_info_finder_ops ops;
+	void *arg;
+};
 
 /** Cache of debugging information. */
 struct drgn_debug_info {
@@ -143,23 +65,65 @@ struct drgn_debug_info {
 	struct drgn_object_finder object_finder;
 	struct drgn_symbol_finder symbol_finder;
 
-	/** DWARF frontend library handle. */
-	Dwfl *dwfl;
-#if WITH_DEBUGINFOD
-	/** debuginfod-client session. */
-	debuginfod_client *debuginfod_client;
-#endif
-	/** Modules keyed by build ID and address range. */
+	/** Main module. @c NULL if not created yet. */
+	struct drgn_module *main_module;
+	/** Table of non-main modules indexed on @ref drgn_module_key. */
 	struct drgn_module_table modules;
 	/**
-	 * Names of indexed modules.
-	 *
-	 * The entries in this set are @ref drgn_module::name, so they should
-	 * not be freed.
+	 * Counter used to detect when @ref modules is modified during iteration
+	 * of a @ref drgn_created_module_iterator.
 	 */
-	struct c_string_set module_names;
+	uint64_t modules_generation;
+	/** Tree of modules sorted by start address. */
+	struct drgn_module_address_tree modules_by_address;
+	/**
+	 * Singly-linked list of modules that need to have their DWARF
+	 * information indexed.
+	 */
+	struct drgn_module *modules_pending_indexing;
 	/** DWARF debugging information. */
 	struct drgn_dwarf_info dwarf;
+
+	struct drgn_handler_list debug_info_finders;
+	struct drgn_debug_info_finder standard_debug_info_finder;
+	/** See @ref drgn_program_debug_info_path(). */
+	const char *debug_info_path;
+	/**
+	 * Counter used to detect when loading debugging information is
+	 * attempted.
+	 *
+	 * @sa drgn_module::load_debug_info_generation
+	 */
+	uint64_t load_debug_info_generation;
+	/**
+	 * Counter used to detect when the wanted supplementary file for a
+	 * module has changed.
+	 *
+	 * @sa drgn_module_wanted_supplementary_file::generation
+	 */
+	uint64_t supplementary_file_generation;
+
+#if WITH_DEBUGINFOD
+	struct drgn_debug_info_finder debuginfod_debug_info_finder;
+	/** debuginfod-client session. */
+	debuginfod_client *debuginfod_client;
+	const char *debuginfod_current_name;
+	const char *debuginfod_current_type;
+	unsigned int debuginfod_spinner_position;
+	bool debuginfod_have_url;
+	bool logged_debuginfod_progress;
+#endif
+	bool logged_no_debuginfod;
+
+	/**
+	 * Cache of entries in /proc/$pid/map_files used for finding loaded
+	 * files. Populated the first time we need it or opportunistically when
+	 * we parse /proc/$pid/maps. Rebuilt whenever we try to open an entry
+	 * that no longer exists.
+	 */
+	struct drgn_map_files_segment *map_files_segments;
+	/** Number of segments in @ref map_files_segments. */
+	size_t num_map_files_segments;
 };
 
 /** Initialize a @ref drgn_debug_info. */
@@ -169,96 +133,188 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 /** Deinitialize a @ref drgn_debug_info. */
 void drgn_debug_info_deinit(struct drgn_debug_info *dbinfo);
 
-DEFINE_VECTOR_TYPE(drgn_module_vector, struct drgn_module *);
+typedef void drgn_module_iterator_destroy_fn(struct drgn_module_iterator *);
+typedef struct drgn_error *
+drgn_module_iterator_next_fn(struct drgn_module_iterator *,
+			     struct drgn_module **, bool *);
 
-/** State tracked while loading debugging information. */
-struct drgn_debug_info_load_state {
-	struct drgn_debug_info * const dbinfo;
-	const char ** const paths;
-	const size_t num_paths;
-	const bool load_default;
-	const bool load_main;
-	/** Newly added modules to be indexed. */
-	struct drgn_module_vector new_modules;
-	/** Formatted errors reported by @ref drgn_debug_info_report_error(). */
-	struct string_builder errors;
-	/** Number of errors reported by @ref drgn_debug_info_report_error(). */
-	unsigned int num_errors;
-	/** Maximum number of errors to report before truncating. */
-	unsigned int max_errors;
+struct drgn_module_iterator {
+	struct drgn_program *prog;
+	drgn_module_iterator_destroy_fn *destroy;
+	drgn_module_iterator_next_fn *next;
 };
 
+static inline void
+drgn_module_iterator_init(struct drgn_module_iterator *it,
+			  struct drgn_program *prog,
+			  drgn_module_iterator_destroy_fn *destroy,
+			  drgn_module_iterator_next_fn *next)
+{
+	it->prog = prog;
+	it->destroy = destroy;
+	it->next = next;
+}
+
+/** Bitmask of files in a @ref drgn_module. */
+enum drgn_module_file_mask {
+	DRGN_MODULE_FILE_MASK_LOADED = 1 << 0,
+	DRGN_MODULE_FILE_MASK_DEBUG = 1 << 1,
+} __attribute__((__packed__));
+
+DEFINE_HASH_MAP_TYPE(drgn_module_section_address_map, char *, uint64_t);
+
+struct drgn_module {
+	struct drgn_program *prog;
+	enum drgn_module_kind kind;
+
+	/** Module name. */
+	char *name;
+	/** Kind-specific information. */
+	union {
+		struct {
+			uint64_t dynamic_address;
+		} shared_library;
+		struct {
+			uint64_t dynamic_address;
+		} vdso;
+		struct {
+			uint64_t address;
+		} relocatable;
+		struct {
+			uint64_t id;
+		} extra;
+	};
+	/**
+	 * Raw binary build ID. @c NULL if the module does not have a build ID.
+	 */
+	void *build_id;
+	/**
+	 * Length of @ref drgn_module::build_id in bytes. Zero if the module
+	 * does not have a build ID.
+	 */
+	size_t build_id_len;
+	/**
+	 * Build ID as a null-terminated hexadecimal string. @c NULL if the
+	 * module does not have a build ID.
+	 *
+	 * Used for logging and finding debugging information.
+	 *
+	 * This is allocated together with @ref drgn_module::build_id.
+	 */
+	char *build_id_str;
+	/** Node in @ref drgn_debug_info::modules_by_address. */
+	struct binary_tree_node node;
+	/**
+	 * Load address range. Both 0 if not loaded. Both @c UINT64_MAX if not
+	 * known yet.
+	 */
+	uint64_t start, end;
+
+	struct drgn_elf_file *loaded_file;
+	struct drgn_elf_file *debug_file;
+	struct drgn_elf_file *supplementary_debug_file;
+	/** Table mapping libdw handle to corresponding @ref drgn_elf_file. */
+	struct drgn_elf_file_dwarf_table split_dwarf_files;
+	uint64_t loaded_file_bias;
+	uint64_t debug_file_bias;
+	enum drgn_module_file_status loaded_file_status;
+	enum drgn_module_file_status debug_file_status;
+	enum drgn_supplementary_file_kind supplementary_debug_file_kind;
+
+	/** DWARF debugging information. */
+	struct drgn_module_dwarf_info dwarf;
+	/** ORC unwinder information. */
+	struct drgn_module_orc_info orc;
+	/** ELF symbol table. */
+	struct drgn_elf_symbol_table elf_symtab;
+
+	/** Whether .debug_frame has been parsed. */
+	bool parsed_debug_frame;
+	/** Whether .eh_frame has been parsed. */
+	bool parsed_eh_frame;
+	/** Whether ORC unwinder data has been parsed. */
+	bool parsed_orc;
+	/** Which files need to be checked for an ELF symbol table. */
+	enum drgn_module_file_mask elf_symtab_pending_files;
+	/**
+	 * Whether a full symbol table has been found (as opposed to a dynamic
+	 * symbol table, which only contains a subset of symbols).
+	 */
+	bool have_full_symtab;
+
+	/** Mapping from section name to address. */
+	struct drgn_module_section_address_map section_addresses;
+	/**
+	 * Counter used to detect when @ref section_addresses is modified during
+	 * iteration of a @ref drgn_module_section_address_iterator.
+	 */
+	uint64_t section_addresses_generation;
+
+	/**
+	 * Counter used to detect when loading debugging information is
+	 * attempted.
+	 *
+	 * @sa drgn_debug_info::load_debug_info_generation
+	 */
+	uint64_t load_debug_info_generation;
+	struct drgn_module_wanted_supplementary_file *wanted_supplementary_debug_file;
+	/** Node in @ref drgn_debug_info::modules_pending_indexing. */
+	struct drgn_module *pending_indexing_next;
+};
+
+struct drgn_error *drgn_module_find_or_create(struct drgn_program *prog,
+					      const struct drgn_module_key *key,
+					      const char *name,
+					      struct drgn_module **ret,
+					      bool *new_ret);
+
 /**
- * Report a non-fatal error while loading debugging information.
- *
- * The error will be included in a @ref DRGN_ERROR_MISSING_DEBUG_INFO error
- * returned by @ref drgn_debug_info_load().
- *
- * @param[name] name An optional module name to prefix to the error message.
- * @param[message] message An optional message with additional context to prefix
- * to the error message.
- * @param[err] err The error to report. This may be @c NULL if @p name and @p
- * message provide sufficient information. This is destroyed on either success
- * or failure.
- * @return @c NULL on success, @ref drgn_enomem if the error could not be
- * reported.
+ * Delete a partially-initialized module. This can only be called before the
+ * module is returned from public API.
  */
+void drgn_module_delete(struct drgn_module *module);
+
+static inline void drgn_module_deletep(struct drgn_module **modulep)
+{
+	if (*modulep)
+		drgn_module_delete(*modulep);
+}
+
+struct depmod_index {
+	char *path;
+	void *addr;
+	size_t len;
+};
+
+struct drgn_module_standard_files_state {
+	struct depmod_index modules_dep;
+};
+
+// Always takes ownership of fd. Attempts to resolve the real path of path.
 struct drgn_error *
-drgn_debug_info_report_error(struct drgn_debug_info_load_state *load,
-			     const char *name, const char *message,
-			     struct drgn_error *err);
+drgn_module_try_standard_file(struct drgn_module *module, const char *path,
+			      int fd, bool check_build_id,
+			      const uint32_t *expected_crc);
 
-/**
- * Report a module to a @ref drgn_debug_info from an ELF file.
- *
- * This takes ownership of @p fd and @p elf on either success or failure. They
- * should not be used (including closed or freed) after this returns.
- *
- * @param[in] path The path to the file.
- * @param[in] fd A file descriptor referring to the file.
- * @param[in] elf The Elf handle of the file.
- * @param[in] start The (inclusive) start address of the loaded file, or 0 if
- * the file is not loaded.
- * @param[in] end The (exclusive) end address of the loaded file, or 0 if the
- * file is not loaded.
- * @param[in] name An optional name for the module. This is only used for @ref
- * drgn_debug_info_is_indexed().
- * @param[out] new_ret Whether the module was newly created and reported. This
- * is @c false if a module with the same build ID and address range was already
- * loaded or a file with the same path and address range was already reported.
- */
-struct drgn_error *
-drgn_debug_info_report_elf(struct drgn_debug_info_load_state *load,
-			   const char *path, int fd, Elf *elf, uint64_t start,
-			   uint64_t end, const char *name, bool *new_ret);
+#define drgn_program_for_each_debug_dir(prog, debug_dir, debug_dir_len)		\
+	for (debug_dir = (prog)->dbinfo.debug_info_path;			\
+	     debug_dir								\
+	     && (debug_dir_len = strchrnul(debug_dir, ':') - debug_dir, 1);	\
+	     debug_dir = debug_dir[debug_dir_len] == '\0'			\
+			 ? NULL : debug_dir + debug_dir_len + 1)
 
-/** Index new debugging information and continue reporting. */
-struct drgn_error *
-drgn_debug_info_report_flush(struct drgn_debug_info_load_state *load);
-
-/**
- * Load debugging information.
- *
- * @sa drgn_program_load_debug_info
- */
-struct drgn_error *drgn_debug_info_load(struct drgn_debug_info *dbinfo,
-					const char **paths, size_t n,
-					bool load_default, bool load_main);
-
-/**
- * Return whether a @ref drgn_debug_info has indexed a module with the given
- * name.
- */
-bool drgn_debug_info_is_indexed(struct drgn_debug_info *dbinfo,
-				const char *name);
+static inline bool drgn_module_wants_file(struct drgn_module *module)
+{
+	return drgn_module_wants_loaded_file(module)
+	       || drgn_module_wants_debug_file(module);
+}
 
 /**
  * Get the language of the program's `main` function or `NULL` if it could not
  * be found.
  */
-struct drgn_error *
-drgn_debug_info_main_language(struct drgn_debug_info *dbinfo,
-			      const struct drgn_language **ret);
+const struct drgn_language *
+drgn_debug_info_main_language(struct drgn_debug_info *dbinfo);
 
 /** @ref drgn_type_finder_ops::find() that uses debugging information. */
 struct drgn_error *drgn_debug_info_find_type(uint64_t kinds, const char *name,

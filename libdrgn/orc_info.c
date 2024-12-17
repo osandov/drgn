@@ -302,6 +302,10 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 		return NULL;
 	}
 
+	err = drgn_elf_file_apply_relocations(module->debug_file);
+	if (err)
+		return err;
+
 	// Since Linux kernel b9f174c811e3 ("x86/unwind/orc: Add ELF section
 	// with ORC version identifier") (in v6.4), which was also backported to
 	// Linux 6.3.10, vmlinux and kernel modules have a .orc_header ELF

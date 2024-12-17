@@ -28,6 +28,8 @@ CACHED_SECTIONS = (
 UNCACHED_SECTIONS = (
     ".text",
     ".got",
+    ".gnu_debuglink",
+    ".gnu_debugaltlink",
 )
 
 
@@ -54,15 +56,15 @@ enum drgn_section_index {
         out_file.write(f"\t{section_enumerator_name(section_name)},\n")
     out_file.write(
         """\
-	/** Indices less than this are cached when the module is loaded. */
-	DRGN_SECTION_INDEX_NUM_PRECACHE,
+	/** Indices less than this are used by the DWARF index. */
+	DRGN_SECTION_INDEX_NUM_DWARF_INDEX,
 """
     )
 
     for i, section_name in enumerate(CACHED_SECTIONS):
         if i == 0:
             out_file.write(
-                f"\t{section_enumerator_name(section_name)} = DRGN_SECTION_INDEX_NUM_PRECACHE,\n"
+                f"\t{section_enumerator_name(section_name)} = DRGN_SECTION_INDEX_NUM_DWARF_INDEX,\n"
             )
         else:
             out_file.write(f"\t{section_enumerator_name(section_name)},\n")

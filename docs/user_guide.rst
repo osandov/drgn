@@ -319,6 +319,47 @@ functions like :meth:`drgn.Program.int_type()`::
 You won't usually need to work with types directly, but see
 :ref:`api-reference-types` if you do.
 
+Modules
+^^^^^^^
+
+drgn tracks executables, shared libraries, loadable kernel modules, and other
+binary files used by a program with the :class:`drgn.Module` class. Modules
+store their name, identifying information, load address, and debugging symbols.
+
+.. code-block:: pycon
+    :caption: Linux kernel example
+
+    >>> for module in prog.modules():
+    ...     print(module)
+    ...
+    prog.main_module(name='kernel')
+    prog.relocatable_module(name='rng_core', address=0xffffffffc0400000)
+    prog.relocatable_module(name='virtio_rng', address=0xffffffffc0402000)
+    prog.relocatable_module(name='binfmt_misc', address=0xffffffffc0401000)
+    >>> prog.main_module().debug_file_path
+    '/usr/lib/modules/6.13.0-rc1-vmtest34.1default/build/vmlinux'
+
+.. code-block:: pycon
+    :caption: Userspace example
+
+    >>> for module in prog.modules():
+    ...     print(module)
+    ...
+    prog.main_module(name='/usr/bin/grep')
+    prog.shared_library_module(name='/lib64/ld-linux-x86-64.so.2', dynamic_address=0x7f51772b6e68)
+    prog.shared_library_module(name='/lib64/libc.so.6', dynamic_address=0x7f51771af960)
+    prog.shared_library_module(name='/lib64/libpcre2-8.so.0', dynamic_address=0x7f5177258c68)
+    prog.vdso_module(name='linux-vdso.so.1', dynamic_address=0x7f51772803e0)
+    >>> prog.main_module().loaded_file_path
+    '/usr/bin/grep'
+    >>> prog.main_module().debug_file_path
+    '/usr/lib/debug/usr/bin/grep-3.11-7.fc40.x86_64.debug'
+
+drgn normally initializes the appropriate modules and loads their debugging
+symbols automatically. Advanced use cases can create or modify modules and load
+debugging symbols manually; see the :ref:`advanced usage guide
+<advanced-modules>`.
+
 Platforms
 ^^^^^^^^^
 

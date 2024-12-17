@@ -89,19 +89,6 @@ def version_header() -> str:
     return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {libkdumpfile})"
 
 
-class _QuietAction(argparse.Action):
-    def __init__(
-        self, option_strings: Any, dest: Any, nargs: Any = 0, **kwds: Any
-    ) -> None:
-        super().__init__(option_strings, dest, nargs=nargs, **kwds)
-
-    def __call__(
-        self, parser: Any, namespace: Any, values: Any, option_string: Any = None
-    ) -> None:
-        setattr(namespace, self.dest, True)
-        namespace.log_level = "none"
-
-
 def _identify_script(path: str) -> str:
     EI_NIDENT = 16
     SIZEOF_E_TYPE = 2
@@ -161,9 +148,8 @@ def _displayhook(value: Any) -> None:
 
 def _main() -> None:
     handler = logging.StreamHandler()
-    handler.setFormatter(
-        _LogFormatter(hasattr(sys.stderr, "fileno") and os.isatty(sys.stderr.fileno()))
-    )
+    color = hasattr(sys.stderr, "fileno") and os.isatty(sys.stderr.fileno())
+    handler.setFormatter(_LogFormatter(color))
     logging.getLogger().addHandler(handler)
 
     version = version_header()
@@ -193,7 +179,9 @@ def _main() -> None:
         metavar="PATH",
         type=str,
         action="append",
-        help="load additional debugging symbols from the given file; this option may be given more than once",
+        help="load debugging symbols from the given file. "
+        "If the file does not correspond to a loaded executable, library, or module, "
+        "then it is ignored. This option may be given more than once",
     )
     default_symbols_group = symbol_group.add_mutually_exclusive_group()
     default_symbols_group.add_argument(
@@ -201,15 +189,25 @@ def _main() -> None:
         dest="default_symbols",
         action="store_const",
         const={"main": True},
-        help="only load debugging symbols for the main executable and those added with -s; "
-        "for userspace programs, this is currently equivalent to --no-default-symbols",
+        help="only load debugging symbols for the main executable "
+        "and those added with -s or --extra-symbols",
     )
     default_symbols_group.add_argument(
         "--no-default-symbols",
         dest="default_symbols",
         action="store_const",
         const={},
-        help="don't load any debugging symbols that were not explicitly added with -s",
+        help="don't load any debugging symbols that were not explicitly added "
+        "with -s or --extra-symbols",
+    )
+    symbol_group.add_argument(
+        "--extra-symbols",
+        metavar="PATH",
+        type=str,
+        action="append",
+        help="load additional debugging symbols from the given file, "
+        "which is assumed not to correspond to a loaded executable, library, or module. "
+        "This option may be given more than once",
     )
 
     advanced_group = parser.add_argument_group("advanced")
@@ -235,7 +233,9 @@ def _main() -> None:
     parser.add_argument(
         "-q",
         "--quiet",
-        action=_QuietAction,
+        dest="log_level",
+        action="store_const",
+        const="none",
         help="don't print any logs or download progress",
     )
     parser.add_argument(
@@ -268,8 +268,6 @@ def _main() -> None:
     else:
         print(version, file=sys.stderr, flush=True)
 
-    if not args.quiet:
-        os.environ["DEBUGINFOD_PROGRESS"] = "1"
     if args.log_level == "none":
         logger.setLevel(logging.CRITICAL + 1)
     else:
@@ -316,7 +314,14 @@ def _main() -> None:
     try:
         prog.load_debug_info(args.symbols, **args.default_symbols)
     except drgn.MissingDebugInfoError as e:
-        logger.warning("%s", e)
+        logger.warning("\033[1m%s\033[m" if color else "%s", e)
+
+    if args.extra_symbols:
+        for extra_symbol_path in args.extra_symbols:
+            extra_symbol_path = os.path.abspath(extra_symbol_path)
+            module, new = prog.extra_module(extra_symbol_path, create=True)
+            if new:
+                module.try_file(extra_symbol_path)
 
     if args.script:
         sys.argv = args.script

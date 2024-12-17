@@ -820,19 +820,6 @@ struct drgn_error *drgn_program_set_kernel(struct drgn_program *prog);
 struct drgn_error *drgn_program_set_pid(struct drgn_program *prog, pid_t pid);
 
 /**
- * Load debugging information for a list of executable or library files.
- *
- * @param[in] load_default Whether to also load debugging information which can
- * automatically be determined from the program. This implies @p load_main.
- * @param[in] load_main Whether to also load information for the main
- * executable.
- */
-struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog,
-						const char **paths, size_t n,
-						bool load_default,
-						bool load_main);
-
-/**
  * Create a @ref drgn_program from a core dump file.
  *
  * The type of program (e.g., userspace or kernel) is determined automatically.
@@ -1196,6 +1183,546 @@ struct drgn_element_info {
 struct drgn_error *drgn_program_element_info(struct drgn_program *prog,
 					     struct drgn_type *type,
 					     struct drgn_element_info *ret);
+
+/** @} */
+
+/**
+ * @defgroup Modules Modules
+ *
+ * Modules in a program and debugging information.
+ *
+ * @{
+ */
+
+/** An executable, library, or other binary file used by a program. */
+struct drgn_module;
+
+/** Kinds of modules. */
+enum drgn_module_kind {
+	/**
+	 * Main module. For userspace programs, this is the executable. For the
+	 * Linux kernel, this is `vmlinux`.
+	 */
+	DRGN_MODULE_MAIN,
+	/** Shared library (a.k.a. dynamic library or dynamic shared object). */
+	DRGN_MODULE_SHARED_LIBRARY,
+	/** Virtual dynamic shared object (vDSO). */
+	DRGN_MODULE_VDSO,
+	/** Relocatable object (e.g., Linux kernel loadable module). */
+	DRGN_MODULE_RELOCATABLE,
+	/** Extra debugging information. */
+	DRGN_MODULE_EXTRA,
+} __attribute__((__packed__));
+
+/** Unique key for a @ref drgn_module. */
+struct drgn_module_key {
+	/** Kind of module. */
+	enum drgn_module_kind kind;
+	/** Kind-specific key. */
+	union {
+		struct {
+			/** Name of module. */
+			const char *name;
+			/** Address of dynamic section. */
+			uint64_t dynamic_address;
+		} shared_library;
+		struct {
+			/** Name of module. */
+			const char *name;
+			/** Address of dynamic section. */
+			uint64_t dynamic_address;
+		} vdso;
+		struct {
+			/** Name of module. */
+			const char *name;
+			/**
+			 * Address identifying the module (e.g., for Linux
+			 * kernel loadable modules, the base address).
+			 */
+			uint64_t address;
+		} relocatable;
+		struct {
+			/** Name of module. */
+			const char *name;
+			/** Arbitrary identification number. */
+			uint64_t id;
+		} extra;
+	};
+};
+
+/**
+ * Find the created @ref drgn_module matching the given @p key.
+ *
+ * @return Module, or @c NULL if not found.
+ */
+struct drgn_module *drgn_module_find(struct drgn_program *prog,
+				     const struct drgn_module_key *key);
+
+/**
+ * Find the created @ref drgn_module containing the given @p address.
+ *
+ * @return Module, or @c NULL if not found.
+ */
+struct drgn_module *drgn_module_find_by_address(struct drgn_program *prog,
+						uint64_t address);
+
+/**
+ * Find the main module, creating it if it doesn't already exist.
+ *
+ * @param[out] new_ret @c true if the module was newly created, @c false if it
+ * was found.
+ */
+struct drgn_error *drgn_module_find_or_create_main(struct drgn_program *prog,
+						   const char *name,
+						   struct drgn_module **ret,
+						   bool *new_ret);
+
+/**
+ * Find a shared library module, creating it if it doesn't already exist.
+ *
+ * @param[out] new_ret @c true if the module was newly created, @c false if it
+ * was found.
+ */
+struct drgn_error *
+drgn_module_find_or_create_shared_library(struct drgn_program *prog,
+					  const char *name,
+					  uint64_t dynamic_address,
+					  struct drgn_module **ret,
+					  bool *new_ret);
+
+/**
+ * Find a vDSO module, creating it if it doesn't already exist.
+ *
+ * @param[out] new_ret @c true if the module was newly created, @c false if it
+ * was found.
+ */
+struct drgn_error *drgn_module_find_or_create_vdso(struct drgn_program *prog,
+						   const char *name,
+						   uint64_t dynamic_address,
+						   struct drgn_module **ret,
+						   bool *new_ret);
+
+/**
+ * Find a relocatable module, creating it if it doesn't already exist.
+ *
+ * @param[out] new_ret @c true if the module was newly created, @c false if it
+ * was found.
+ */
+struct drgn_error *
+drgn_module_find_or_create_relocatable(struct drgn_program *prog,
+				       const char *name, uint64_t address,
+				       struct drgn_module **ret, bool *new_ret);
+
+/**
+ * Find a created Linux kernel loadable module from a ``struct module`` object.
+ *
+ * @param[out] new_ret @c true if the module was newly created, @c false if it
+ * was found.
+ */
+struct drgn_error *
+drgn_module_find_linux_kernel_loadable(const struct drgn_object *module_obj,
+				       struct drgn_module **ret);
+
+/**
+ * Find a Linux kernel loadable module from a ``struct module`` object, creating
+ * it if it doesn't already exist.
+ *
+ * @param[out] new_ret @c true if the module was newly created, @c false if it
+ * was found.
+ */
+struct drgn_error *
+drgn_module_find_or_create_linux_kernel_loadable(const struct drgn_object *module_obj,
+						 struct drgn_module **ret,
+						 bool *new_ret);
+
+/**
+ * Find an extra module, creating it if it doesn't already exist.
+ *
+ * @param[out] new_ret @c true if the module was newly created, @c false if it
+ * was found.
+ */
+struct drgn_error *drgn_module_find_or_create_extra(struct drgn_program *prog,
+						    const char *name,
+						    uint64_t id,
+						    struct drgn_module **ret,
+						    bool *new_ret);
+
+/** Get the program that a module is from. */
+struct drgn_program *drgn_module_program(const struct drgn_module *module);
+
+/** Get the unique key for a module. */
+struct drgn_module_key drgn_module_key(const struct drgn_module *module);
+
+/** Get the kind of a module. */
+enum drgn_module_kind drgn_module_kind(const struct drgn_module *module);
+
+/** Get the name of a module. */
+const char *drgn_module_name(const struct drgn_module *module);
+
+/**
+ * Get the address range where a module is loaded.
+ *
+ * If the module is not loaded in memory, then the start and end are both 0
+ *
+ * @param[out] start_ret Minimum address (inclusive).
+ * @param[out] end_ret Maximum address (exclusive).
+ * @return @c true on success, @c false if the address range is not known yet.
+ */
+bool drgn_module_address_range(const struct drgn_module *module,
+			       uint64_t *start_ret, uint64_t *end_ret);
+
+/**
+ * Set the address range of a module.
+ *
+ * @p start and @p end may both be 0 to indicate that the module is not loaded
+ * in memory. They may both be @c UINT64_MAX to unset the range. Otherwise, @p
+ * start must be less than @p end.
+ */
+struct drgn_error *drgn_module_set_address_range(struct drgn_module *module,
+						 uint64_t start, uint64_t end);
+
+/**
+ * Get the unique byte string (e.g., GNU build ID) identifying files used by
+ * a module.
+ *
+ * @param[out] raw_ret Returned raw build ID. @c NULL if not known. Valid until
+ * the build ID is changed.
+ * @param[out] raw_len_ret Size of returned build ID, in bytes. 0 if not known.
+ * @return Lowercase hexadecimal representation of build ID. @c NULL if not
+ * known. Valid until the build ID is changed.
+ */
+const char *drgn_module_build_id(const struct drgn_module *module,
+				 const void **raw_ret, size_t *raw_len_ret);
+
+/**
+ * Set the unique byte string (e.g., GNU build ID) identifying files used by a
+ * module.
+ *
+ * @param[in] build_id New build ID.
+ * @param[in] build_id_len New size of build ID, in bytes. May be 0 to unset the
+ * build ID.
+ */
+struct drgn_error *drgn_module_set_build_id(struct drgn_module *module,
+					    const void *build_id,
+					    size_t build_id_len);
+
+/** Get the address of a section with the given name in a relocatable module. */
+struct drgn_error *drgn_module_get_section_address(struct drgn_module *module,
+						   const char *name,
+						   uint64_t *ret);
+
+/**
+ * Set the address of a section with the given name in a relocatable module.
+ *
+ * This is not allowed after a file has been assigned to the module.
+ */
+struct drgn_error *drgn_module_set_section_address(struct drgn_module *module,
+						   const char *name,
+						   uint64_t address);
+
+/**
+ * Unset the address of a section with the given name in a relocatable module.
+ *
+ * This is not allowed after a file has been assigned to the module.
+ */
+struct drgn_error *drgn_module_delete_section_address(struct drgn_module *module,
+						      const char *name);
+
+/**
+ * Get the number of section addresses currently set in a relocatable module.
+ */
+struct drgn_error *drgn_module_num_section_addresses(struct drgn_module *module,
+						     size_t *ret);
+
+/** Iterator over set section addresses in a relocatable module. */
+struct drgn_module_section_address_iterator;
+
+/** Create a @ref drgn_module_section_address_iterator. */
+struct drgn_error *
+drgn_module_section_address_iterator_create(struct drgn_module *module,
+					    struct drgn_module_section_address_iterator **ret);
+
+/** Destroy a @ref drgn_module_section_address_iterator. */
+void
+drgn_module_section_address_iterator_destroy(struct drgn_module_section_address_iterator *it);
+
+/** Get the module that a @ref drgn_module_section_address_iterator is for. */
+struct drgn_module *
+drgn_module_section_address_iterator_module(struct drgn_module_section_address_iterator *it);
+
+/**
+ * Get the next section name and address from a @ref
+ * drgn_module_section_address_iterator.
+ *
+ * @param[out] name_ret Returned name. Valid until the the next call to @ref
+ * drgn_module_section_address_iterator_next() or @ref
+ * drgn_module_section_address_iterator_destroy() on @it.
+ * @param[out] address_ret Returned address.
+ */
+struct drgn_error *
+drgn_module_section_address_iterator_next(struct drgn_module_section_address_iterator *it,
+					  const char **name_ret,
+					  uint64_t *address_ret);
+
+/** Status of a file in a @ref drgn_module. */
+enum drgn_module_file_status {
+	/** File has not been found and should be searched for. */
+	DRGN_MODULE_FILE_WANT,
+	/** File has already been found and assigned. */
+	DRGN_MODULE_FILE_HAVE,
+	/** File has not been found, but it should not be searched for. */
+	DRGN_MODULE_FILE_DONT_WANT,
+	/** File has not been found and is not needed. */
+	DRGN_MODULE_FILE_DONT_NEED,
+	/**
+	 * File has been found, but it requires a supplementary file before it
+	 * can be used.
+	 */
+	DRGN_MODULE_FILE_WANT_SUPPLEMENTARY,
+};
+
+/** Kind of supplementary file. */
+enum drgn_supplementary_file_kind {
+	/** Not known or not needed. */
+	DRGN_SUPPLEMENTARY_FILE_NONE,
+	/**
+	 * GNU-style supplementary debug file referred to by a
+	 * ``.gnu_debugaltlink`` section.
+	 */
+	DRGN_SUPPLEMENTARY_FILE_GNU_DEBUGALTLINK,
+};
+
+/** Get the status of a module's loaded file. */
+enum drgn_module_file_status
+drgn_module_loaded_file_status(const struct drgn_module *module);
+
+/** Set the status of a module's loaded file. */
+bool drgn_module_set_loaded_file_status(struct drgn_module *module,
+					enum drgn_module_file_status status);
+
+/**
+ * Get whether a module wants a loaded file.
+ *
+ * For future-proofness, debug info finders should prefer this over comparing
+ * @ref drgn_module_loaded_file_status() directly.
+ */
+bool drgn_module_wants_loaded_file(const struct drgn_module *module);
+
+/** Get the absolute path of a module's loaded file, or @c NULL if not known. */
+const char *drgn_module_loaded_file_path(const struct drgn_module *module);
+
+/**
+ * Get the difference between the load address in the program and addresses in a
+ * module's loaded file.
+ */
+uint64_t drgn_module_loaded_file_bias(const struct drgn_module *module);
+
+enum drgn_module_file_status
+drgn_module_debug_file_status(const struct drgn_module *module);
+
+bool drgn_module_set_debug_file_status(struct drgn_module *module,
+				       enum drgn_module_file_status status);
+
+/**
+ * Get whether a module wants a debug file.
+ *
+ * For future-proofness, debug info finders should prefer this over comparing
+ * @ref drgn_module_debug_file_status() directly.
+ */
+bool drgn_module_wants_debug_file(const struct drgn_module *module);
+
+/** Get the absolute path of a module's debug file, or @c NULL if not known. */
+const char *drgn_module_debug_file_path(const struct drgn_module *module);
+
+/**
+ * Get the difference between the load address in the program and addresses in a
+ * module's debug file.
+ */
+uint64_t drgn_module_debug_file_bias(const struct drgn_module *module);
+
+/** Get the kind of a module's supplementary debug file. */
+enum drgn_supplementary_file_kind
+drgn_module_supplementary_debug_file_kind(const struct drgn_module *module);
+
+/**
+ * Get the absolute path of a module's supplementary debug file, or @c NULL if
+ * not known or not needed.
+ */
+const char *
+drgn_module_supplementary_debug_file_path(const struct drgn_module *module);
+
+/**
+ * Get information about the supplementary debug file that a module currently
+ * wants.
+ *
+ * @param[out] debug_file_path_ret Path of main file that wants the
+ * supplementary file.
+ * @param[out] supplementary_path_ret Path to supplementary file. This may be
+ * absolute or relative to @p debug_file_path_ret.
+ * @param[out] checksum_ret Unique identifier of the supplementary file.
+ * @param[out] checksum_len_ret Size of unique identifier, in bytes.
+ * @return Kind of supplementary file.
+ */
+enum drgn_supplementary_file_kind
+drgn_module_wanted_supplementary_debug_file(struct drgn_module *module,
+					    const char **debug_file_path_ret,
+					    const char **supplementary_path_ret,
+					    const void **checksum_ret,
+					    size_t *checksum_len_ret);
+
+/** Debugging information finder callback table. */
+struct drgn_debug_info_finder_ops {
+	/**
+	 * Callback to destroy the debug info finder.
+	 *
+	 * This may be @c NULL.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_debug_info_finder().
+	 */
+	void (*destroy)(void *arg);
+	/**
+	 * Callback for finding debug info.
+	 *
+	 * @param[in] modules Array of modules that want debugging information.
+	 * @param[in] num_modules Number of modules in @p modules.
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_debug_info_finder().
+	 * @return @c NULL on success, non-@c NULL on error. It is not an error
+	 * for some debugging information to not be found.
+	 */
+	struct drgn_error *(*find)(struct drgn_module * const *modules,
+				   size_t num_modules, void *arg);
+};
+
+/**
+ * Register a debugging information finding callback.
+ *
+ * @param[in] name Finder name. This is copied.
+ * @param[in] ops Callback table. This is copied.
+ * @param[in] arg Argument to pass to callbacks.
+ * @param[in] enable_index Insert the finder into the list of enabled finders at
+ * the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or greater than
+ * the number of enabled finders, insert it at the end. If @ref
+ * DRGN_HANDLER_REGISTER_DONT_ENABLE, don’t enable the finder.
+ */
+struct drgn_error *
+drgn_program_register_debug_info_finder(struct drgn_program *prog,
+					const char *name,
+					const struct drgn_debug_info_finder_ops *ops,
+					void *arg, size_t enable_index);
+
+/**
+ * Get the names of all registered debugging information finders.
+ *
+ * The order of the names is arbitrary.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_registered_debug_info_finders(struct drgn_program *prog,
+					   const char ***names_ret,
+					   size_t *count_ret);
+
+/**
+ * Set the list of enabled debugging information finders.
+ *
+ * Finders are called in the same order as the list until all wanted files have
+ * been found.
+ *
+ * @param[in] names Names of finders to enable, in order.
+ * @param[in] count Number of names in @p names.
+ */
+struct drgn_error *
+drgn_program_set_enabled_debug_info_finders(struct drgn_program *prog,
+					    const char * const *names,
+					    size_t count);
+
+/**
+ * Get the names of enabled debugging information finders, in order.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_enabled_debug_info_finders(struct drgn_program *prog,
+					const char ***names_ret,
+					size_t *count_ret);
+
+/** Colon-separated directories to search for debugging information files. */
+const char *drgn_program_debug_info_path(struct drgn_program *prog);
+
+/** Set the directories to search for debugging information files. */
+struct drgn_error *drgn_program_set_debug_info_path(struct drgn_program *prog,
+						    const char *path);
+
+/**
+ * Try to use the given file for a module.
+ *
+ * @param[in] path Path to file.
+ * @param[in] fd If nonnegative, an open file descriptor referring to the file.
+ * This always takes ownership of the file descriptor even if the file is not
+ * used or on error.
+ * @param[in] force If @c true, don't check whether the file matches the module.
+ */
+struct drgn_error *
+drgn_module_try_file(struct drgn_module *module, const char *path, int fd,
+		     bool force);
+
+/** Iterator over a set of modules. */
+struct drgn_module_iterator;
+
+/** Destroy a @ref drgn_module_iterator. */
+void
+drgn_module_iterator_destroy(struct drgn_module_iterator *it);
+
+/** Get the program that a module iterator is from. */
+struct drgn_program *
+drgn_module_iterator_program(const struct drgn_module_iterator *it);
+
+/**
+ * Get the next module in a module iterator.
+ *
+ * @param[out] ret Returned module.
+ * @param[out] new_ret Whether the module was newly created. May be @c NULL.
+ */
+struct drgn_error *drgn_module_iterator_next(struct drgn_module_iterator *it,
+					     struct drgn_module **ret,
+					     bool *new_ret);
+
+/** Create an iterator over created modules. */
+struct drgn_error *
+drgn_created_module_iterator_create(struct drgn_program *prog,
+				    struct drgn_module_iterator **ret);
+
+/**
+ * Create an iterator that determines what executables, libraries, etc. are
+ * loaded in the program and creates modules to represent them.
+ */
+struct drgn_error *
+drgn_loaded_module_iterator_create(struct drgn_program *prog,
+				   struct drgn_module_iterator **ret);
+
+/**
+ * Load debugging information for the given set of files and/or modules.
+ *
+ * @param[in] load_default Whether to load all debugging information for all
+ * loaded modules. This implies @p load_main.
+ * @param[in] load_main Whether to load all debugging information for the main
+ * module.
+ */
+struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog,
+						const char **paths, size_t n,
+						bool load_default,
+						bool load_main);
+
+/**
+ * Load debugging information for the given modules using the enabled debugging
+ * information finders.
+ */
+struct drgn_error *drgn_load_module_debug_info(struct drgn_module **modules,
+					       size_t *num_modules);
 
 /** @} */
 
