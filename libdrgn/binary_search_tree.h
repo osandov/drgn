@@ -151,6 +151,16 @@ binary_search_tree_delete_iterator(struct binary_search_tree *tree,
 				   struct binary_search_tree_iterator it);
 
 /**
+ * Delete an entry in a @ref binary_search_tree.
+ *
+ * @return An iterator pointing to the next entry in the tree. See @ref
+ * binary_search_tree_next().
+ */
+struct binary_search_tree_iterator
+binary_search_tree_delete_entry(struct binary_search_tree *tree,
+				entry_type *entry);
+
+/**
  * Get an iterator pointing to the first (in-order) entry in a @ref
  * binary_search_tree.
  *
@@ -490,6 +500,13 @@ tree##_delete_iterator(struct tree *tree, struct tree##_iterator it)		\
 	it = tree##_next_impl(it);						\
 	drgn_##variant##_tree_delete(&tree->root, node);			\
 	return it;								\
+}										\
+										\
+__attribute__((__always_inline__, __unused__))					\
+static inline struct tree##_iterator						\
+tree##_delete_entry(struct tree *tree, tree##_entry_type *entry)		\
+{										\
+	return tree##_delete_iterator(tree, (struct tree##_iterator){ entry });	\
 }										\
 										\
 __attribute__((__unused__))							\
