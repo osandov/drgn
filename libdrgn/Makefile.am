@@ -236,7 +236,8 @@ check_PROGRAMS = tests/binary_search \
 		 tests/language_c \
 		 tests/lexer \
 		 tests/path \
-		 tests/recursion_guard
+		 tests/recursion_guard \
+		 tests/serialize
 
 EXTRA_DIST += $(addsuffix .c.in,$(check_PROGRAMS))
 
@@ -276,6 +277,9 @@ tests_path_LDADD = $(test_ldadd)
 tests_recursion_guard_CFLAGS = $(test_cflags)
 tests_recursion_guard_CPPFLAGS = $(test_cppflags)
 tests_recursion_guard_LDADD = $(test_ldadd)
+tests_serialize_CFLAGS = $(test_cflags)
+tests_serialize_CPPFLAGS = $(test_cppflags)
+tests_serialize_LDADD = $(test_ldadd)
 
 # Don't delete test-suite.log on failure.
 .PRECIOUS: $(TEST_SUITE_LOG)

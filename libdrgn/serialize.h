@@ -12,11 +12,13 @@
 #ifndef DRGN_SERIALIZE_H
 #define DRGN_SERIALIZE_H
 
+#include <byteswap.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "minmax.h"
+#include "util.h"
 
 /**
  * @ingroup Internals
@@ -174,6 +176,181 @@ void serialize_bits(void *buf, uint64_t bit_offset, uint64_t uvalue,
  */
 uint64_t deserialize_bits(const void *buf, uint64_t bit_offset,
 			  uint8_t bit_size, bool little_endian);
+
+#define struct64_assign_member(member) do {				\
+	typeof_member(_struct64_src_type, member) _struct64_tmp;	\
+	memcpy(&_struct64_tmp,						\
+	       _struct64_src + offsetof(_struct64_src_type, member),	\
+	       sizeof(_struct64_tmp));					\
+	_struct64_dst->member = _struct64_tmp;				\
+} while (0)
+
+#define struct64_bswap_member(member) do {					\
+	typeof_member(_struct64_src_type, member) _struct64_swapped;		\
+	_Static_assert(sizeof(_struct64_swapped) == 8 ||			\
+		       sizeof(_struct64_swapped) == 4 ||			\
+		       sizeof(_struct64_swapped) == 2 ||			\
+		       sizeof(_struct64_swapped) == 1,				\
+		       "scalar member has invalid size");			\
+	if (sizeof(_struct64_swapped) == 8) {					\
+		uint64_t _struct64_tmp;						\
+		memcpy(&_struct64_tmp,						\
+		       _struct64_src + offsetof(_struct64_src_type, member),	\
+		       sizeof(_struct64_tmp));					\
+		_struct64_tmp = bswap_64(_struct64_tmp);			\
+		memcpy(&_struct64_swapped, &_struct64_tmp,			\
+		       sizeof(_struct64_tmp));					\
+	} else if (sizeof(_struct64_swapped) == 4) {				\
+		uint32_t _struct64_tmp;						\
+		memcpy(&_struct64_tmp,						\
+		       _struct64_src + offsetof(_struct64_src_type, member),	\
+		       sizeof(_struct64_tmp));					\
+		_struct64_tmp = bswap_32(_struct64_tmp);			\
+		memcpy(&_struct64_swapped, &_struct64_tmp,			\
+		       sizeof(_struct64_tmp));					\
+	} else if (sizeof(_struct64_swapped) == 2) {				\
+		uint16_t _struct64_tmp;						\
+		memcpy(&_struct64_tmp,						\
+		       _struct64_src + offsetof(_struct64_src_type, member),	\
+		       sizeof(_struct64_tmp));					\
+		_struct64_tmp = bswap_16(_struct64_tmp);			\
+		memcpy(&_struct64_swapped, &_struct64_tmp,			\
+		       sizeof(_struct64_tmp));					\
+	} else {								\
+		memcpy(&_struct64_swapped,					\
+		       _struct64_src + offsetof(_struct64_src_type, member),	\
+		       sizeof(_struct64_swapped));				\
+	}									\
+	_struct64_dst->member = _struct64_swapped;				\
+} while (0)
+
+#define struct64_bswap_member_inplace(member) do {		\
+	_Static_assert(sizeof(_struct64_dst->member) == 8 ||	\
+		       sizeof(_struct64_dst->member) == 4 ||	\
+		       sizeof(_struct64_dst->member) == 2 ||	\
+		       sizeof(_struct64_dst->member) == 1,	\
+		       "scalar member has invalid size");	\
+	if (sizeof(_struct64_dst->member) == 8) {		\
+		uint64_t _struct64_tmp;				\
+		memcpy(&_struct64_tmp, &_struct64_dst->member,	\
+		       sizeof(_struct64_tmp));			\
+		_struct64_tmp = bswap_64(_struct64_tmp);	\
+		memcpy(&_struct64_dst->member, &_struct64_tmp,	\
+		       sizeof(_struct64_tmp));			\
+	} else if (sizeof(_struct64_dst->member) == 4) {	\
+		uint32_t _struct64_tmp;				\
+		memcpy(&_struct64_tmp, &_struct64_dst->member,	\
+		       sizeof(_struct64_tmp));			\
+		_struct64_tmp = bswap_32(_struct64_tmp);	\
+		memcpy(&_struct64_dst->member, &_struct64_tmp,	\
+		       sizeof(_struct64_tmp));			\
+	} else if (sizeof(_struct64_dst->member) == 2) {	\
+		uint16_t _struct64_tmp;				\
+		memcpy(&_struct64_tmp, &_struct64_dst->member,	\
+		       sizeof(_struct64_tmp));			\
+		_struct64_tmp = bswap_16(_struct64_tmp);	\
+		memcpy(&_struct64_dst->member, &_struct64_tmp,	\
+		       sizeof(_struct64_tmp));			\
+	}							\
+} while (0)
+
+#define struct64_memcpy_member(member) do {					\
+	_Static_assert(sizeof(_struct64_dst->member)				\
+		       == sizeof_member(_struct64_src_type, member),		\
+		       "64-bit and 32-bit members have different sizes");	\
+	memcpy(&_struct64_dst->member,						\
+	       _struct64_src + offsetof(_struct64_src_type, member),		\
+	       sizeof(_struct64_dst->member));					\
+} while (0)
+
+#define struct64_ignore_member(member)
+
+#ifdef DOXYGEN
+/**
+ * Deserialize a structure from a memory buffer, where the structure has
+ * different 64-bit and 32-bit formats, may have a different byte order, and may
+ * be unaligned.
+ *
+ * @param[out] struct64p Returned 64-bit structure in host byte order.
+ * @param[in] T32 32-bit structure type.
+ * @param[in] visit_members Macro with signature
+ * `visit_members(visit_scalar_member, visit_raw_member)`.
+ * `visit_scalar_member()` is a macro that should be called with the name of
+ * each scalar member of the structure. `visit_raw_member()` is a macro that
+ * should be called with the name of each member that is identical regardless of
+ * 64-/32-bit format or byte order.
+ * @param[in] buf Source buffer. Must not overlap with @p struct64p.
+ * @param[in] is_64_bit Whether the source is in the 64-bit format or the 32-bit
+ * format.
+ * @param[in] bswap Whether the source has a different byte order than the host
+ * system.
+ */
+void deserialize_struct64(T64 * restrict struct64p, T32, visit_members,
+			  const void * restrict buf, bool is_64_bit,
+			  bool bswap);
+
+/**
+ * Like @ref deserialize_struct64(), but the source and destination are the
+ * same.
+ *
+ * @param[in,out] struct64p Initially the source buffer, then the returned
+ * 64-bit structure in host byte order.
+ */
+void deserialize_struct64_inplace(T64 *struct64p, T32, bool visit_members,
+				  bool is_64_bit, bool bswap);
+
+#else
+#define deserialize_struct64(struct64p, type32, visit_members, buf, is_64_bit,	\
+			     bswap)						\
+do {										\
+	__auto_type _struct64_dst = (struct64p);				\
+	/*									\
+	 * We want to type check buf like a function parameter, so do two	\
+	 * implicit conversions instead of an explicit cast.			\
+	 */									\
+	const void *_struct64_buf = (buf);					\
+	const char *_struct64_src = _struct64_buf;				\
+	if (is_64_bit) {							\
+		if (bswap) {							\
+			typedef typeof(*_struct64_dst) _struct64_src_type;	\
+			visit_members(struct64_bswap_member,			\
+				      struct64_memcpy_member);			\
+		} else {							\
+			memcpy(_struct64_dst, buf, sizeof(*_struct64_dst));	\
+		}								\
+	} else {								\
+		typedef typeof(type32) _struct64_src_type;			\
+		if (bswap) {							\
+			visit_members(struct64_bswap_member,			\
+				      struct64_memcpy_member);			\
+		} else {							\
+			visit_members(struct64_assign_member,			\
+				      struct64_memcpy_member);			\
+		}								\
+	}									\
+} while (0)
+
+#define deserialize_struct64_inplace(struct64p, type32, visit_members,		\
+				     is_64_bit, bswap) do {			\
+	__auto_type _struct64_dst = (struct64p);				\
+	if (!(is_64_bit)) {							\
+		typedef typeof(type32) _struct64_src_type;			\
+		_Alignas(_struct64_src_type) char				\
+			_struct64_src[sizeof(_struct64_src_type)];		\
+		memcpy(_struct64_src, _struct64_dst, sizeof(_struct64_src));	\
+		if (bswap) {							\
+			visit_members(struct64_bswap_member,			\
+				      struct64_memcpy_member);			\
+		} else {							\
+			visit_members(struct64_assign_member,			\
+				      struct64_memcpy_member);			\
+		}								\
+	} else if (bswap) {							\
+		visit_members(struct64_bswap_member_inplace,			\
+			      struct64_ignore_member);				\
+	}									\
+} while (0)
+#endif
 
 /** @} */
 

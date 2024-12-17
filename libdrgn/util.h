@@ -69,6 +69,10 @@
 	_Generic(sizeof(struct { _Static_assert(assert_expression, message); int _; }),\
 		 default: (eval_expression))
 
+#define sizeof_member(type, member) sizeof(((type *)0)->member)
+
+#define typeof_member(type, member) typeof(((type *)0)->member)
+
 #define container_of(ptr, type, member)				\
 static_assert_expression(					\
 	types_compatible(*(ptr), ((type *)0)->member)		\
