@@ -133,6 +133,15 @@ libdrgnimpl_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden $(OPENMP_CFLAGS) \
 libdrgnimpl_la_CPPFLAGS = $(AM_CPPFLAGS) -iquote .
 libdrgnimpl_la_LIBADD = $(OPENMP_LIBS) $(elfutils_LIBS) -lm
 
+if WITH_DEBUGINFOD
+if ENABLE_DLOPEN_DEBUGINFOD
+libdrgnimpl_la_LIBADD += -ldl
+else
+libdrgnimpl_la_CFLAGS += $(libdebuginfod_CFLAGS)
+libdrgnimpl_la_LIBADD += $(libdebuginfod_LIBS)
+endif
+endif
+
 if WITH_LIBKDUMPFILE
 libdrgnimpl_la_SOURCES += kdump.c
 libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)

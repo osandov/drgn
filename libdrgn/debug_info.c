@@ -28,6 +28,72 @@
 #include "program.h"
 #include "util.h"
 
+#if WITH_DEBUGINFOD
+#if _ELFUTILS_PREREQ(0, 179)
+#define DRGN_DEBUGINFOD_0_179_FUNCTIONS	\
+	X(debuginfod_set_user_data)	\
+	X(debuginfod_get_user_data)	\
+	X(debuginfod_get_url)
+#else
+#define DRGN_DEBUGINFOD_0_179_FUNCTIONS
+#endif
+
+#define DRGN_DEBUGINFOD_FUNCTIONS	\
+	X(debuginfod_begin)		\
+	X(debuginfod_end)		\
+	X(debuginfod_find_debuginfo)	\
+	X(debuginfod_find_executable)	\
+	X(debuginfod_set_progressfn)	\
+	DRGN_DEBUGINFOD_0_179_FUNCTIONS
+
+#if ENABLE_DLOPEN_DEBUGINFOD
+#include <dlfcn.h>
+
+#define X(name) static typeof(&name) drgn_##name;
+DRGN_DEBUGINFOD_FUNCTIONS
+#undef X
+
+__attribute__((__constructor__))
+static void drgn_dlopen_debuginfod(void)
+{
+	void *handle = dlopen(DEBUGINFOD_SONAME, RTLD_LAZY);
+	if (handle) {
+		#define X(name) drgn_##name = dlsym(handle, #name);
+		DRGN_DEBUGINFOD_FUNCTIONS
+		#undef X
+
+		#define X(name) || !drgn_##name
+		if (0 DRGN_DEBUGINFOD_FUNCTIONS) {
+		#undef X
+			#define X(name) drgn_##name = NULL;
+			DRGN_DEBUGINFOD_FUNCTIONS
+			#undef X
+			dlclose(handle);
+		}
+	}
+}
+
+static inline bool drgn_have_debuginfod(void)
+{
+	return drgn_debuginfod_begin != NULL;
+}
+#else
+// GCC and Clang optimize out the function pointer.
+#define X(name) __attribute__((__unused__))		\
+	static const typeof(&name) drgn_##name = name;
+DRGN_DEBUGINFOD_FUNCTIONS
+#undef X
+
+static inline bool drgn_have_debuginfod(void)
+{
+	return true;
+}
+#endif
+
+#undef DRGN_DEBUGINFOD_FUNCTIONS
+#undef DRGN_DEBUGINFOD_0_179_FUNCTIONS
+#endif
+
 static inline Dwarf *drgn_elf_file_dwarf_key(struct drgn_elf_file * const *entry)
 {
 	return (*entry)->dwarf;
@@ -2149,6 +2215,9 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 	drgn_program_register_symbol_finder_impl(prog, &dbinfo->symbol_finder,
 						 "elf", &symbol_finder_ops,
 						 prog, 0);
+#if WITH_DEBUGINFOD
+	dbinfo->debuginfod_client = NULL;
+#endif
 	drgn_module_table_init(&dbinfo->modules);
 	c_string_set_init(&dbinfo->module_names);
 	drgn_dwarf_info_init(dbinfo);
@@ -2161,6 +2230,10 @@ void drgn_debug_info_deinit(struct drgn_debug_info *dbinfo)
 	drgn_debug_info_free_modules(dbinfo, false, true);
 	assert(drgn_module_table_empty(&dbinfo->modules));
 	drgn_module_table_deinit(&dbinfo->modules);
+#if WITH_DEBUGINFOD
+	if (dbinfo->debuginfod_client)
+		drgn_debuginfod_end(dbinfo->debuginfod_client);
+#endif
 	dwfl_end(dbinfo->dwfl);
 }
 

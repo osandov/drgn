@@ -12,6 +12,9 @@
 #ifndef DRGN_DEBUG_INFO_H
 #define DRGN_DEBUG_INFO_H
 
+#if WITH_DEBUGINFOD
+#include <elfutils/debuginfod.h>
+#endif
 #include <elfutils/libdw.h>
 #include <elfutils/libdwfl.h>
 #include <libelf.h>
@@ -142,6 +145,10 @@ struct drgn_debug_info {
 
 	/** DWARF frontend library handle. */
 	Dwfl *dwfl;
+#if WITH_DEBUGINFOD
+	/** debuginfod-client session. */
+	debuginfod_client *debuginfod_client;
+#endif
 	/** Modules keyed by build ID and address range. */
 	struct drgn_module_table modules;
 	/**
