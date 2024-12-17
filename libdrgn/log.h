@@ -86,4 +86,7 @@ void drgn_error_log(enum drgn_log_level level, struct drgn_program *prog,
  * @}
  */
 
+FILE *drgn_program_get_progress_file(struct drgn_program *prog,
+				     int *columns_ret);
+
 #endif /* DRGN_LOG_H */

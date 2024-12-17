@@ -3,6 +3,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <sys/ioctl.h>
 
 #include "log.h"
 #include "program.h"
@@ -80,4 +81,39 @@ void drgn_error_log(enum drgn_log_level level, struct drgn_program *prog,
 	va_start(ap, format);
 	prog->log_fn(prog, prog->log_arg, level, format, ap, err);
 	va_end(ap);
+}
+
+LIBDRGN_PUBLIC void drgn_program_set_progress_file(struct drgn_program *prog,
+						   FILE *file)
+{
+	prog->progress_file = file;
+	prog->default_progress_file = false;
+}
+
+FILE *drgn_program_get_progress_file(struct drgn_program *prog,
+				     int *columns_ret)
+{
+	*columns_ret = -1;
+
+	if (!prog->default_progress_file) {
+		if (prog->progress_file) {
+			int fd = fileno(prog->progress_file);
+			struct winsize winsize;
+			if (fd >= 0 && ioctl(fd, TIOCGWINSZ, &winsize) == 0)
+				*columns_ret = winsize.ws_col;
+		}
+		return prog->progress_file;
+	}
+
+	if (drgn_log_is_enabled(prog, DRGN_LOG_WARNING)
+	    && prog->log_fn == drgn_file_log_fn && prog->log_arg == stderr) {
+		int fd = fileno(stderr);
+		struct winsize winsize;
+		if (fd >= 0 && ioctl(fd, TIOCGWINSZ, &winsize) == 0) {
+			*columns_ret = winsize.ws_col;
+			return stderr;
+		}
+	}
+
+	return NULL;
 }

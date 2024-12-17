@@ -40,6 +40,13 @@
     } while (0)
 #endif
 
+#if PY_VERSION_HEX < 0x030900a1
+static inline PyObject *PyObject_CallNoArgs(PyObject *func)
+{
+	return PyObject_CallFunctionObjArgs(func, NULL);
+}
+#endif
+
 #if PY_VERSION_HEX < 0x030d00a1
 #define PyThreadState_GetUnchecked _PyThreadState_UncheckedGet
 #endif

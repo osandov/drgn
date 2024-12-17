@@ -244,7 +244,9 @@ struct drgn_program {
 	 */
 	drgn_log_fn *log_fn;
 	void *log_arg;
+	FILE *progress_file;
 	enum drgn_log_level log_level;
+	bool default_progress_file;
 
 	/*
 	 * Blocking callbacks.

@@ -1211,6 +1211,12 @@ struct drgn_error *drgn_program_element_info(struct drgn_program *prog,
  * By default, the log file is set to `stderr` and the log level is @ref
  * DRGN_LOG_NONE, so logging is disabled.
  *
+ * Additionally, drgn can display a progress bar for some operations, like
+ * downloading debugging information. By default, progress bars are displayed on
+ * standard error if standard error is a terminal, the log file is set to
+ * `stderr`, and the log level is less than or equal to @ref DRGN_LOG_WARNING,
+ * but this can be changed (@ref drgn_program_set_progress_file()).
+ *
  * @{
  */
 
@@ -1281,6 +1287,13 @@ void drgn_program_set_log_callback(struct drgn_program *prog,
 void drgn_program_get_log_callback(struct drgn_program *prog,
 				   drgn_log_fn **callback_ret,
 				   void **callback_arg_ret);
+
+/**
+ * Write progress bars to the given file.
+ *
+ * @param[in] file File, or @c NULL to disable progress bars.
+ */
+void drgn_program_set_progress_file(struct drgn_program *prog, FILE *file);
 
 /** @} */
 

@@ -186,6 +186,10 @@ Logging
 drgn logs using the standard :mod:`logging` module to a logger named
 ``"drgn"``.
 
+drgn will also display progress bars on standard error if standard error is a
+terminal, the ``"drgn"`` logger has a :class:`~logging.StreamHandler` for
+``stderr``, and its log level is less than or equal to ``WARNING``.
+
 Thread Safety
 -------------
 

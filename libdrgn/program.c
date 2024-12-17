@@ -108,6 +108,7 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_thread_set_init(&prog->thread_set);
 	drgn_program_set_log_level(prog, DRGN_LOG_NONE);
 	drgn_program_set_log_file(prog, stderr);
+	prog->default_progress_file = true;
 	drgn_object_init(&prog->vmemmap, prog);
 }
 
