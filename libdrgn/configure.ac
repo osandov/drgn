@@ -120,6 +120,7 @@ AS_IF([test "x$enable_compiler_warnings" != xno],
       [AX_APPEND_COMPILE_FLAGS([ dnl
        -Wall dnl
        -Wformat-overflow=2 dnl
+       -Wformat-security dnl
        -Wformat-truncation=2 dnl
        -Wimplicit-fallthrough dnl
        -Wmissing-prototypes dnl
