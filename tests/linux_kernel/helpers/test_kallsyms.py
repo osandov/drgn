@@ -54,15 +54,24 @@ KALLSYMS_DATA = b"""\
 
 
 class TestProcKallsyms(TestCase):
-    def test_local_proc_kallsyms(self):
-        finder = _load_proc_kallsyms()
-        compare_local_symbols(self, finder)
-
-    def test_local_proc_kallsyms_with_modules(self):
-        finder = _load_proc_kallsyms(modules=True)
-        compare_local_symbols(self, finder, modules=True)
-
     def test_static_data(self):
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(KALLSYMS_DATA)
+            f.flush()
+            finder = _load_proc_kallsyms(filename=f.name)
+
+        syms = finder(None, None, None, False)
+        expected = [
+            Symbol("null", 0x0, 8, SymbolBinding.UNIQUE, SymbolKind.UNKNOWN),
+            Symbol("local_data", 0x8, 8, SymbolBinding.UNKNOWN, SymbolKind.OBJECT),
+            Symbol("global_bss", 0x10, 16, SymbolBinding.GLOBAL, SymbolKind.OBJECT),
+            Symbol("weak_symbol", 0x20, 32, SymbolBinding.WEAK, SymbolKind.OBJECT),
+            # this one has zero size since it is at the end of vmlinux
+            Symbol("unknown", 0x40, 0, SymbolBinding.UNKNOWN, SymbolKind.UNKNOWN),
+        ]
+        self.assertEqual(syms, expected)
+
+    def test_static_data_with_modules(self):
         with tempfile.NamedTemporaryFile() as f:
             f.write(KALLSYMS_DATA)
             f.flush()
