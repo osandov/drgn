@@ -1,0 +1,41 @@
+0.0.30 (Released December 18th, 2024)
+=====================================
+
+These are some of the highlights of drgn 0.0.30. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.0.30>`_ for the full release
+notes, including more improvements and bug fixes.
+
+This release is relatively small, as most development effort has been focused
+on the upcoming `module API <https://github.com/osandov/drgn/issues/332>`_,
+which is expected to land in the next release.
+
+Symbol Index and Kallsyms
+-------------------------
+
+Stephen Brennan continued his efforts towards `making it possible to debug the
+Linux kernel without full DWARF debugging information
+<https://github.com/osandov/drgn/issues/176>`_. The next step in this release
+was adding new helpers for looking up symbols from kallsyms:
+:func:`~drgn.helpers.linux.kallsyms.load_vmlinux_kallsyms()` and
+:func:`~drgn.helpers.linux.kallsyms.load_module_kallsyms()`. These are built on
+top of a new, generic API for fast symbol lookups: :class:`drgn.SymbolIndex`.
+
+New Python 3.13 REPL
+--------------------
+
+Python 3.13 `added
+<https://docs.python.org/3/whatsnew/3.13.html#a-better-interactive-interpreter>`_
+a vastly improved REPL with multiline editing, colorized output, interactive
+help, and more. drgn now makes use of this REPL when it is available.
+
+Stack Tracing Through Interrupt Handlers
+----------------------------------------
+
+drgn had a longstanding `bug <https://github.com/osandov/drgn/issues/304>`_
+where stack traces would stop at an interrupt handler frame. This release fixes
+that (as long as the kernel is configured to use the ORC unwinder).
+
+Linux 6.13 Support
+------------------
+
+No drgn changes were required to support Linux 6.13 as of rc3.
