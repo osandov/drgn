@@ -607,15 +607,13 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 	for (;; level--) {
 		uint64_t table;
 		bool table_physical;
-		if (level == levels && prog->vmcoreinfo.phys_base &&
+		if (level == levels && prog->vmcoreinfo.have_phys_base &&
 		    it->it.pgtable == prog->vmcoreinfo.swapper_pg_dir) {
-			// Avoid recursive address translation on swapper_pg_dir by
-			// directly resolving to a physical address. Don't do
-			// this if phys_base is 0, since that likely means it
-			// was not present in the vmcoreinfo. It has been
-			// present since Linux kernel commit 401721ecd1dc
-			// ("kexec: export the value of phys_base instead of
-			// symbol address") (in v4.10).
+			// Avoid recursive address translation on swapper_pg_dir
+			// by directly resolving to a physical address.
+			// phys_base has been present since Linux kernel commit
+			// 401721ecd1dc ("kexec: export the value of phys_base
+			// instead of symbol address") (in v4.10).
 			table = it->it.pgtable + prog->vmcoreinfo.phys_base - START_KERNEL_MAP;
 			table_physical = true;
 		} else if (level == levels) {

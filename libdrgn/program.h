@@ -191,6 +191,8 @@ struct drgn_program {
 				bool arm_lpae;
 				/** Whether `CRASHTIME` was in the VMCOREINFO. */
 				bool have_crashtime;
+				/** Whether `phys_base` was in the VMCOREINFO. */
+				bool have_phys_base;
 				/**
 				 * `PAGE_SHIFT` of the kernel (derived from
 				 * `PAGE_SIZE`).

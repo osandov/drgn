@@ -89,6 +89,7 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 						   &prog->vmcoreinfo.phys_base);
 			if (err)
 				return err;
+			prog->vmcoreinfo.have_phys_base = true;
 			break;
 		}
 		@case "NUMBER(KERNELPACMASK)"@
