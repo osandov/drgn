@@ -127,8 +127,12 @@ drgn can be installed using the package manager on some Linux distributions.
 
 * Ubuntu
 
-  Enable the `michel-slm/kernel-utils PPA <https://launchpad.net/~michel-slm/+archive/ubuntu/kernel-utils>`_.
-  Then:
+  All supported Ubuntu releases except for 22.04 (jammy) ships with drgn - but generally the version that
+  was in Debian unstable at the time that Ubuntu release is branched.
+
+  To get the latest version, including on jammy, enable the `michel-slm/kernel-utils PPA <https://launchpad.net/~michel-slm/+archive/ubuntu/kernel-utils>`_.
+
+  To install drgn itself, with or without the PPA:
 
   .. code-block:: console
 
