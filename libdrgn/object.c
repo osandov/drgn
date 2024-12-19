@@ -18,11 +18,11 @@
 #include "type.h"
 #include "util.h"
 
-#define DRGN_OBJECT_INITIALIZER(prog)			\
-	(struct drgn_object){				\
-		.type = drgn_void_type(prog, NULL),	\
-		.encoding = DRGN_OBJECT_ENCODING_NONE,	\
-		.kind = DRGN_OBJECT_ABSENT,		\
+#define DRGN_OBJECT_INITIALIZER(prog)				\
+	(struct drgn_object){					\
+		.type = &(prog)->void_types[DRGN_LANGUAGE_C],	\
+		.encoding = DRGN_OBJECT_ENCODING_NONE,		\
+		.kind = DRGN_OBJECT_ABSENT,			\
 	}
 
 LIBDRGN_PUBLIC
