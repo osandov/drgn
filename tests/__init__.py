@@ -3,6 +3,7 @@
 
 import contextlib
 import functools
+import logging
 import os
 import sys
 from typing import Any, Mapping, NamedTuple, Optional
@@ -455,3 +456,14 @@ def modifyenv(vars: Mapping[str, Optional[str]]):
                 del os.environ[key]
             else:
                 os.environ[key] = old_value
+
+
+@contextlib.contextmanager
+def drgn_log_level(level: int):
+    logger = logging.getLogger("drgn")
+    old_level = logger.getEffectiveLevel()
+    logger.setLevel(level)
+    try:
+        yield
+    finally:
+        logger.setLevel(old_level)
