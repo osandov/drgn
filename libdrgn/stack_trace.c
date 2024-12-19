@@ -117,9 +117,10 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 
 		struct drgn_register_state *regs = trace->frames[frame].regs;
 		struct optional_uint64 pc;
-		const char *name = drgn_stack_frame_name(trace, frame);
-		if (name) {
-			if (!string_builder_append(&str, name))
+		const char *function_name =
+			drgn_stack_frame_function_name(trace, frame);
+		if (function_name) {
+			if (!string_builder_append(&str, function_name))
 				return &drgn_enomem;
 		} else if ((pc = drgn_register_state_get_pc(regs)).has_value) {
 			_cleanup_symbol_ struct drgn_symbol *sym = NULL;
@@ -198,8 +199,9 @@ drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret
 			return &drgn_enomem;
 	}
 
-	const char *name = drgn_stack_frame_name(trace, frame);
-	if (name && !string_builder_appendf(&str, " in %s", name))
+	const char *function_name = drgn_stack_frame_function_name(trace, frame);
+	if (function_name
+	    && !string_builder_appendf(&str, " in %s", function_name))
 		return &drgn_enomem;
 
 	int line, column;
@@ -224,8 +226,42 @@ drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret
 	return NULL;
 }
 
-LIBDRGN_PUBLIC const char *drgn_stack_frame_name(struct drgn_stack_trace *trace,
-						 size_t frame)
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_stack_frame_name(struct drgn_stack_trace *trace,
+					 size_t frame, char **ret)
+{
+	struct drgn_error *err;
+	char *name;
+	const char *function_name = drgn_stack_frame_function_name(trace, frame);
+	if (function_name) {
+		name = strdup(function_name);
+	} else {
+		struct drgn_register_state *regs = trace->frames[frame].regs;
+		struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+		if (pc.has_value) {
+			_cleanup_symbol_ struct drgn_symbol *sym = NULL;
+			err = drgn_program_find_symbol_by_address_internal(trace->prog,
+									   pc.value - !regs->interrupted,
+									   &sym);
+			if (err)
+				return err;
+			if (sym)
+				name = strdup(sym->name);
+			else if (asprintf(&name, "0x%" PRIx64, pc.value) < 0)
+				name = NULL;
+		} else {
+			name = strdup("???");
+		}
+	}
+	if (!name)
+		return &drgn_enomem;
+	*ret = name;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC
+const char *drgn_stack_frame_function_name(struct drgn_stack_trace *trace,
+					   size_t frame)
 {
 	Dwarf_Die *scopes = trace->frames[frame].scopes;
 	size_t num_scopes = trace->frames[frame].num_scopes;
@@ -463,11 +499,12 @@ drgn_stack_frame_find_object(struct drgn_stack_trace *trace, size_t frame_i,
 	}
 	if (!die.addr) {
 not_found:;
-		const char *frame_name = drgn_stack_frame_name(trace, frame_i);
-		if (frame_name) {
+		const char *function_name =
+			drgn_stack_frame_function_name(trace, frame_i);
+		if (function_name) {
 			return drgn_error_format(DRGN_ERROR_LOOKUP,
 						 "could not find '%s' in '%s'",
-						 name, frame_name);
+						 name, function_name);
 		} else {
 			return drgn_error_format(DRGN_ERROR_LOOKUP,
 						 "could not find '%s'", name);
