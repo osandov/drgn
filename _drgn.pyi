@@ -2774,23 +2774,28 @@ class StackFrame:
     (int)1
     """
 
-    name: Final[Optional[str]]
+    name: Final[str]
+    """
+    Name of the function or symbol at this frame.
+
+    This tries to get the best available name for this frame in the following
+    order:
+
+    1. The name of the function in the source code based on debugging
+       information (:attr:`frame.function_name <function_name>`).
+    2. The name of the symbol in the binary (:meth:`frame.symbol().name
+       <symbol>`).
+    3. The program counter in hexadecimal (:attr:`hex(frame.pc) <pc>`).
+    4. The string "???".
+    """
+
+    function_name: Final[Optional[str]]
     """
     Name of the function at this frame, or ``None`` if it could not be
     determined.
 
     The name cannot be determined if debugging information is not available for
-    the function, e.g., because it is implemented in assembly. It may be
-    desirable to use the symbol name or program counter as a fallback:
-
-    .. code-block:: python3
-
-        name = frame.name
-        if name is None:
-            try:
-                name = frame.symbol().name
-            except LookupError:
-                name = hex(frame.pc)
+    the function, e.g., because it is implemented in assembly.
     """
 
     is_inline: Final[bool]

@@ -3718,12 +3718,23 @@ struct drgn_error *drgn_format_stack_frame(struct drgn_stack_trace *trace,
 					   size_t frame, char **ret);
 
 /**
+ * Get the best available name for a stack frame.
+ *
+ * @param[out] ret Returned name. On success, it must be freed with @c free().
+ * On error, it is not modified.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_stack_frame_name(struct drgn_stack_trace *trace,
+					 size_t frame, char **ret);
+
+/**
  * Get the name of the function at a stack frame.
  *
  * @return Function name. This is valid until the stack trace is destroyed; it
  * should not be freed. @c NULL if the name could not be determined.
  */
-const char *drgn_stack_frame_name(struct drgn_stack_trace *trace, size_t frame);
+const char *drgn_stack_frame_function_name(struct drgn_stack_trace *trace,
+					   size_t frame);
 
 /** Return whether a stack frame is for an inlined call. */
 bool drgn_stack_frame_is_inline(struct drgn_stack_trace *trace, size_t frame);
