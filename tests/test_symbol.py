@@ -47,7 +47,6 @@ def elf_symbol_program(*modules):
             module = prog.extra_module(f.name, create=True)[0]
             module.address_range = (start, end)
             module.try_file(f.name, force=True)
-            print(module.loaded_file_path)
     return prog
 
 
