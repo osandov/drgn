@@ -2283,8 +2283,6 @@ class TestStandardDebugInfoFinder(TestCase):
             alt_path.parent.mkdir()
             alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id))
 
-            binary_path = bin_dir / "binary"
-
             self.prog.debug_info_path = ":.debug:" + str(debug_dir)
             for i, debugaltlink in enumerate(
                 (
@@ -2293,6 +2291,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             ):
                 with self.subTest(debugaltlink=debugaltlink):
+                    binary_path = bin_dir / f"binary{i}"
                     binary_path.write_bytes(
                         compile_dwarf(
                             (),
@@ -2303,9 +2302,7 @@ class TestStandardDebugInfoFinder(TestCase):
                         )
                     )
 
-                    module = self.prog.extra_module(bin_dir / "binary", i, create=True)[
-                        0
-                    ]
+                    module = self.prog.extra_module(binary_path, create=True)[0]
                     self.prog.load_module_debug_info(module)
                     self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
                     self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
