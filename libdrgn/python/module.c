@@ -68,10 +68,8 @@ PyObject *Module_and_bool_wrap(struct drgn_module *module, bool b)
 
 static void Module_dealloc(Module *self)
 {
-	if (self->module) {
-		struct drgn_program *prog = drgn_module_program(self->module);
-		Py_DECREF(container_of(prog, Program, prog));
-	}
+	if (self->module)
+		Py_DECREF(Module_prog(self));
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -192,8 +190,7 @@ static PyObject *Module_try_file(Module *self, PyObject *args, PyObject *kwds)
 
 static Program *Module_get_prog(Module *self, void *arg)
 {
-	Program *prog =
-		container_of(drgn_module_program(self->module), Program, prog);
+	Program *prog = Module_prog(self);
 	Py_INCREF(prog);
 	return prog;
 }
