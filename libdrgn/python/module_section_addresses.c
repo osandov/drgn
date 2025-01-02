@@ -20,8 +20,7 @@ static ModuleSectionAddresses *ModuleSectionAddresses_new(PyTypeObject *subtype,
 	ModuleSectionAddresses *ret =
 		(ModuleSectionAddresses *)subtype->tp_alloc(subtype, 0);
 	if (ret) {
-		struct drgn_program *prog = drgn_module_program(module->module);
-		Py_INCREF(container_of(prog, Program, prog));
+		Py_INCREF(Module_prog(module));
 		ret->module = module->module;
 	}
 	return ret;
