@@ -2128,38 +2128,3 @@ drgn_program_element_info(struct drgn_program *prog, struct drgn_type *type,
 	ret->qualified_type = drgn_type_type(underlying_type);
 	return drgn_type_bit_size(ret->qualified_type.type, &ret->bit_size);
 }
-
-LIBDRGN_PUBLIC void
-drgn_program_set_blocking_callback(struct drgn_program *prog,
-				   drgn_program_begin_blocking_fn *begin_callback,
-				   drgn_program_end_blocking_fn *end_callback,
-				   void *callback_arg)
-{
-	prog->begin_blocking_fn = begin_callback;
-	prog->end_blocking_fn = end_callback;
-	prog->blocking_arg = callback_arg;
-}
-
-LIBDRGN_PUBLIC void
-drgn_program_get_blocking_callback(struct drgn_program *prog,
-				   drgn_program_begin_blocking_fn **begin_callback_ret,
-				   drgn_program_end_blocking_fn **end_callback_ret,
-				   void **callback_arg_ret)
-{
-	*begin_callback_ret = prog->begin_blocking_fn;
-	*end_callback_ret = prog->end_blocking_fn;
-	*callback_arg_ret = prog->blocking_arg;
-}
-
-void *drgn_program_begin_blocking(struct drgn_program *prog)
-{
-	if (!prog->begin_blocking_fn)
-		return NULL;
-	return prog->begin_blocking_fn(prog, prog->blocking_arg);
-}
-
-void drgn_program_end_blocking(struct drgn_program *prog, void *state)
-{
-	if (prog->end_blocking_fn)
-		prog->end_blocking_fn(prog, prog->blocking_arg, state);
-}

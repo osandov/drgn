@@ -2160,7 +2160,7 @@ static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 		>= drgn_dwarf_index_cu_vector_size(&ns->dbinfo->dwarf.index_cus)))
 		return NULL;
 
-	drgn_blocking_guard(ns->dbinfo->prog);
+	drgn_blocking_guard();
 
 	struct drgn_error *err = drgn_dwarf_index_update(ns->dbinfo);
 	if (err)

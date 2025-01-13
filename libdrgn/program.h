@@ -261,13 +261,6 @@ struct drgn_program {
 	FILE *progress_file;
 	enum drgn_log_level log_level;
 	bool default_progress_file;
-
-	/*
-	 * Blocking callbacks.
-	 */
-	drgn_program_begin_blocking_fn *begin_blocking_fn;
-	drgn_program_end_blocking_fn *end_blocking_fn;
-	void *blocking_arg;
 };
 
 /** Initialize a @ref drgn_program. */
@@ -469,49 +462,46 @@ drgn_program_register_symbol_finder_impl(struct drgn_program *prog,
 					 const struct drgn_symbol_finder_ops *ops,
 					 void *arg, size_t enable_index);
 
+#if ENABLE_PYTHON
 /**
  * Call before a blocking (I/O or long-running) operation.
  *
- * Must be paired with @ref drgn_program_end_blocking().
+ * Must be paired with @ref drgn_end_blocking().
  *
- * @return Opaque pointer to pass to @ref drgn_program_end_blocking().
+ * @return Opaque pointer to pass to @ref drgn_end_blocking().
  */
-void *drgn_program_begin_blocking(struct drgn_program *prog);
+void *drgn_begin_blocking(void);
 
 /**
  * Call after a blocking (I/O or long-running) operation.
  *
- * @param[in] state Return value of @ref drgn_program_begin_blocking().
+ * @param[in] state Return value of @ref drgn_begin_blocking().
  */
-void drgn_program_end_blocking(struct drgn_program *prog, void *state);
-
-struct drgn_blocking_guard_struct {
-	struct drgn_program *prog;
-	void *state;
-};
-
-static inline struct drgn_blocking_guard_struct
-drgn_blocking_guard_init(struct drgn_program *prog)
+void drgn_end_blocking(void *state);
+#else
+static inline void *drgn_begin_blocking(void)
 {
-	return (struct drgn_blocking_guard_struct){
-		prog, drgn_program_begin_blocking(prog),
-	};
+	return NULL;
 }
 
-static inline void
-drgn_blocking_guard_cleanup(struct drgn_blocking_guard_struct *guard)
+static inline void drgn_end_blocking(void *state)
 {
-	drgn_program_end_blocking(guard->prog, guard->state);
+}
+#endif
+
+static inline void drgn_blocking_guard_cleanup(void **statep)
+{
+	drgn_end_blocking(*statep);
 }
 
 /**
- * Scope guard that wraps @ref drgn_program_begin_blocking() and @ref
- * drgn_program_end_blocking().
+ * Scope guard that wraps @ref drgn_begin_blocking() and @ref
+ * drgn_end_blocking().
  */
-#define drgn_blocking_guard(prog)						\
-	struct drgn_blocking_guard_struct PP_UNIQUE(guard)			\
+#define drgn_blocking_guard()							\
+	void *PP_UNIQUE(guard)							\
 	__attribute__((__cleanup__(drgn_blocking_guard_cleanup), __unused__)) =	\
-	drgn_blocking_guard_init(prog)
+		drgn_begin_blocking()
 
 /**
  * @}

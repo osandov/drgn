@@ -329,7 +329,7 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 	return 0;
 }
 
-static void *drgnpy_begin_blocking(struct drgn_program *prog, void *arg)
+void *drgn_begin_blocking(void)
 {
 	PyThreadState *state = PyThreadState_GetUnchecked();
 	if (state)
@@ -337,7 +337,7 @@ static void *drgnpy_begin_blocking(struct drgn_program *prog, void *arg)
 	return state;
 }
 
-static void drgnpy_end_blocking(struct drgn_program *prog, void *arg, void *state)
+void drgn_end_blocking(void *state)
 {
 	if (state)
 		PyEval_RestoreThread(state);
@@ -355,8 +355,6 @@ static Program *Program_new_impl(const struct drgn_platform *platform)
 	prog->cache = no_cleanup_ptr(cache);
 	pyobjectp_set_init(&prog->objects);
 	drgn_program_init(&prog->prog, platform);
-	drgn_program_set_blocking_callback(&prog->prog, drgnpy_begin_blocking,
-					   drgnpy_end_blocking, NULL);
 	if (Program_init_logging(prog))
 		return NULL;
 	return_ptr(prog);
