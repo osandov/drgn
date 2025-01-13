@@ -5,7 +5,8 @@ ACLOCAL_AMFLAGS = -I m4
 
 .DELETE_ON_ERROR:
 
-AM_CPPFLAGS = -I $(top_srcdir)/include -D_GNU_SOURCE
+AM_CPPFLAGS = -I $(top_srcdir)/include -iquote $(dir $@) \
+	      -iquote $(srcdir)/$(dir $@) -D_GNU_SOURCE
 AM_CFLAGS = $(WARN_CFLAGS) $(SANITIZER_CFLAGS)
 AM_LDFLAGS= $(SANITIZER_LDFLAGS)
 
@@ -134,7 +135,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 
 libdrgnimpl_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden $(OPENMP_CFLAGS) \
 			$(elfutils_CFLAGS)
-libdrgnimpl_la_CPPFLAGS = $(AM_CPPFLAGS) -iquote .
+libdrgnimpl_la_CPPFLAGS = $(AM_CPPFLAGS)
 libdrgnimpl_la_LIBADD = $(OPENMP_LIBS) $(elfutils_LIBS) -lm
 
 if WITH_DEBUGINFOD
@@ -152,6 +153,36 @@ libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
 libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
 endif
 
+if ENABLE_PYTHON
+BUILT_SOURCES += python/docstrings.h
+
+libdrgnimpl_la_SOURCES += python/constants.c \
+			  python/debug_info_options.c \
+			  python/docstrings.c \
+			  python/docstrings.h \
+			  python/drgnpy.h \
+			  python/error.c \
+			  python/helpers.c \
+			  python/language.c \
+			  python/main.c \
+			  python/module.c \
+			  python/module_section_addresses.c \
+			  python/object.c \
+			  python/platform.c \
+			  python/program.c \
+			  python/stack_trace.c \
+			  python/symbol.c \
+			  python/symbol_index.c \
+			  python/test.c \
+			  python/thread.c \
+			  python/type.c \
+			  python/type_kind_set.c \
+			  python/util.c
+
+libdrgnimpl_la_CPPFLAGS += $(PYTHON_CPPFLAGS)
+libdrgnimpl_la_LIBADD += $(PYTHON_LIBS)
+endif
+
 %: %.strswitch build-aux/gen_strswitch.py build-aux/codegen_utils.py
 	$(AM_V_GEN)$(PYTHON) $(word 2, $^) -o $@ $<
 
@@ -167,52 +198,6 @@ drgn_section_name_to_index.inc: build-aux/gen_elf_sections.py build-aux/gen_strs
 elf_sections.h: build-aux/gen_elf_sections.py build-aux/codegen_utils.py
 	$(AM_V_GEN)$(PYTHON) $< -H > $@
 
-lib_LTLIBRARIES = libdrgn.la
-
-libdrgn_la_SOURCES =
-libdrgn_la_LDFLAGS = $(AM_LDFLAGS) -version-info 0:0:0
-libdrgn_la_LIBADD = libdrgnimpl.la
-
-if ENABLE_PYTHON
-BUILT_SOURCES += python/docstrings.h
-
-noinst_LTLIBRARIES += _drgn.la
-endif
-
-_drgn_la_SOURCES = python/constants.c \
-		   python/debug_info_options.c \
-		   python/docstrings.c \
-		   python/docstrings.h \
-		   python/drgnpy.h \
-		   python/error.c \
-		   python/helpers.c \
-		   python/language.c \
-		   python/main.c \
-		   python/module.c \
-		   python/module_section_addresses.c \
-		   python/object.c \
-		   python/platform.c \
-		   python/program.c \
-		   python/stack_trace.c \
-		   python/symbol.c \
-		   python/symbol_index.c \
-		   python/test.c \
-		   python/thread.c \
-		   python/type.c \
-		   python/type_kind_set.c \
-		   python/util.c
-
-_drgn_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden
-_drgn_la_CPPFLAGS = $(AM_CPPFLAGS) $(PYTHON_CPPFLAGS) -iquote $(srcdir)/python \
-		    -iquote python
-_drgn_la_LDFLAGS = $(AM_LDFLAGS) -Wl,--exclude-libs,ALL -avoid-version -module \
-		   -shared -rpath $(pkgpyexecdir)
-_drgn_la_LIBADD = libdrgnimpl.la
-
-if WITH_LIBKDUMPFILE
-_drgn_la_CFLAGS += $(libkdumpfile_CFLAGS)
-endif
-
 python/constants.c: drgn.h build-aux/gen_constants.py
 	$(AM_V_GEN)$(PYTHON) $(word 2, $^) < $< > $@
 
@@ -224,6 +209,12 @@ python/docstrings.c: ../_drgn.pyi $(drgndoc_docstrings_deps)
 
 python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 	$(AM_V_GEN)$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
+
+lib_LTLIBRARIES = libdrgn.la
+
+libdrgn_la_SOURCES =
+libdrgn_la_LDFLAGS = $(AM_LDFLAGS) -version-info 0:0:0
+libdrgn_la_LIBADD = libdrgnimpl.la
 
 EXTRA_DIST = $(ARCH_DEFS_PYS) \
 	     $(STRSWITCH_INCS:.inc=.inc.strswitch) \

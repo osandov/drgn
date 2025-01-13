@@ -123,7 +123,7 @@ class build_ext(_build_ext):
 
     def run(self):
         self.make()
-        so = os.path.join(self.build_temp, ".libs/_drgn.so")
+        so = os.path.join(self.build_temp, ".libs/libdrgn.so")
         if self.inplace:
             self.copy_file(so, self.get_ext_fullpath("_drgn"))
         old_inplace, self.inplace = self.inplace, 0
