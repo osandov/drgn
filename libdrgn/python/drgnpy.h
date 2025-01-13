@@ -331,6 +331,12 @@ extern PyObject *MissingDebugInfoError;
 extern PyObject *ObjectAbsentError;
 extern PyObject *OutOfBoundsError;
 
+PyGILState_STATE drgn_initialize_python(bool *success_ret);
+
+#define drgn_initialize_python_guard(success_ret)				\
+	__attribute__((__cleanup__(PyGILState_Releasep), __unused__))		\
+	PyGILState_STATE PP_UNIQUE(gstate) = drgn_initialize_python(success_ret)
+
 int add_module_constants(PyObject *m);
 int init_logging(void);
 

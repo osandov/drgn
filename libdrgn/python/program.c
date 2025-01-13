@@ -343,6 +343,25 @@ static void drgnpy_end_blocking(struct drgn_program *prog, void *arg, void *stat
 		PyEval_RestoreThread(state);
 }
 
+static Program *Program_new_impl(const struct drgn_platform *platform)
+{
+	_cleanup_pydecref_ PyObject *cache = PyDict_New();
+	if (!cache)
+		return NULL;
+
+	_cleanup_pydecref_ Program *prog = call_tp_alloc(Program);
+	if (!prog)
+		return NULL;
+	prog->cache = no_cleanup_ptr(cache);
+	pyobjectp_set_init(&prog->objects);
+	drgn_program_init(&prog->prog, platform);
+	drgn_program_set_blocking_callback(&prog->prog, drgnpy_begin_blocking,
+					   drgnpy_end_blocking, NULL);
+	if (Program_init_logging(prog))
+		return NULL;
+	return_ptr(prog);
+}
+
 static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 			    PyObject *kwds)
 {
@@ -365,28 +384,39 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 				"platform must be Platform or None");
 		return NULL;
 	}
-
-	_cleanup_pydecref_ PyObject *cache = PyDict_New();
-	if (!cache)
-		return NULL;
-
-	_cleanup_pydecref_ Program *prog = call_tp_alloc(Program);
+	_cleanup_pydecref_ Program *prog = Program_new_impl(platform);
 	if (!prog)
 		return NULL;
-	prog->cache = no_cleanup_ptr(cache);
-	pyobjectp_set_init(&prog->objects);
-	drgn_program_init(&prog->prog, platform);
-	drgn_program_set_blocking_callback(&prog->prog, drgnpy_begin_blocking,
-					   drgnpy_end_blocking, NULL);
 	if (vmcoreinfo) {
 		struct drgn_error *err = drgn_program_parse_vmcoreinfo(
 			&prog->prog, vmcoreinfo, vmcoreinfo_size);
 		if (err)
 			return set_drgn_error(err);
 	}
-	if (Program_init_logging(prog))
-		return NULL;
 	return_ptr(prog);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_create(const struct drgn_platform *platform,
+		    struct drgn_program **ret)
+{
+	bool success;
+	drgn_initialize_python_guard(&success);
+	if (!success)
+		return drgn_error_from_python();
+	Program *prog = Program_new_impl(platform);
+	if (!prog)
+		return drgn_error_from_python();
+	*ret = &prog->prog;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
+{
+	if (prog) {
+		PyGILState_guard();
+		Py_DECREF(container_of(prog, Program, prog));
+	}
 }
 
 static void Program_dealloc(Program *self)

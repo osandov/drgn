@@ -362,3 +362,47 @@ err:
 	Py_DECREF(m);
 	return NULL;
 }
+
+// On return from this function, three things need to be true:
+//
+// 1. The Python interpreter needs to be initialized.
+// 2. The GIL needs to be held (and the caller needs to know whether to release
+//    it to restore the original state).
+// 3. The _drgn module needs to be initialized.
+//
+// This can be called from many possible contexts (drgn CLI, standalone
+// application using libdrgn, etc.), so we have to handle every possible initial
+// state.
+PyGILState_STATE drgn_initialize_python(bool *success_ret)
+{
+	PyGILState_STATE gstate;
+	if (Py_IsInitialized()) {
+		gstate = PyGILState_Ensure();
+	} else {
+		gstate = PyGILState_UNLOCKED;
+		// If the Python interpreter wasn't already initialized, then we
+		// are in a standalone application using libdrgn. Set our
+		// imports up.
+		PyImport_AppendInittab("_drgn", PyInit__drgn);
+		Py_InitializeEx(0);
+		// Note: we don't have a good place to call Py_Finalize(), so we
+		// don't call it.
+#if PY_VERSION_HEX < 0x03070000
+		// Py_Initialize() calls this for us since Python 3.7, and it
+		// was deprecated in Python 3.9.
+		PyEval_InitThreads();
+#endif
+		const char *env = getenv("PYTHONSAFEPATH");
+		if (!env || !env[0])
+			PyRun_SimpleString("import sys\nsys.path.insert(0, '')");
+	}
+
+	bool success = true;
+	if (!PyState_FindModule(&drgnmodule)) {
+		_cleanup_pydecref_ PyObject *m = PyImport_ImportModule("_drgn");
+		if (!m)
+			success = false;
+	}
+	*success_ret = success;
+	return gstate;
+}
