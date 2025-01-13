@@ -177,6 +177,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	drgn_debug_info_deinit(&prog->dbinfo);
 }
 
+#if !ENABLE_PYTHON
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_create(const struct drgn_platform *platform,
 		    struct drgn_program **ret)
@@ -198,6 +199,7 @@ LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
 		free(prog);
 	}
 }
+#endif
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
@@ -1741,18 +1743,14 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_from_core_dump(const char *path, struct drgn_program **ret)
 {
-	struct drgn_error *err;
 	struct drgn_program *prog;
+	struct drgn_error *err = drgn_program_create(NULL, &prog);
+	if (err)
+		return err;
 
-	prog = malloc(sizeof(*prog));
-	if (!prog)
-		return &drgn_enomem;
-
-	drgn_program_init(prog, NULL);
 	err = drgn_program_init_core_dump(prog, path);
 	if (err) {
-		drgn_program_deinit(prog);
-		free(prog);
+		drgn_program_destroy(prog);
 		return err;
 	}
 
@@ -1763,18 +1761,14 @@ drgn_program_from_core_dump(const char *path, struct drgn_program **ret)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_from_core_dump_fd(int fd, struct drgn_program **ret)
 {
-	struct drgn_error *err;
 	struct drgn_program *prog;
+	struct drgn_error *err = drgn_program_create(NULL, &prog);
+	if (err)
+		return err;
 
-	prog = malloc(sizeof(*prog));
-	if (!prog)
-		return &drgn_enomem;
-
-	drgn_program_init(prog, NULL);
 	err = drgn_program_init_core_dump_fd(prog, fd);
 	if (err) {
-		drgn_program_deinit(prog);
-		free(prog);
+		drgn_program_destroy(prog);
 		return err;
 	}
 
@@ -1785,18 +1779,14 @@ drgn_program_from_core_dump_fd(int fd, struct drgn_program **ret)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_from_kernel(struct drgn_program **ret)
 {
-	struct drgn_error *err;
 	struct drgn_program *prog;
+	struct drgn_error *err = drgn_program_create(NULL, &prog);
+	if (err)
+		return err;
 
-	prog = malloc(sizeof(*prog));
-	if (!prog)
-		return &drgn_enomem;
-
-	drgn_program_init(prog, NULL);
 	err = drgn_program_init_kernel(prog);
 	if (err) {
-		drgn_program_deinit(prog);
-		free(prog);
+		drgn_program_destroy(prog);
 		return err;
 	}
 
@@ -1807,18 +1797,14 @@ drgn_program_from_kernel(struct drgn_program **ret)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_from_pid(pid_t pid, struct drgn_program **ret)
 {
-	struct drgn_error *err;
 	struct drgn_program *prog;
+	struct drgn_error *err = drgn_program_create(NULL, &prog);
+	if (err)
+		return err;
 
-	prog = malloc(sizeof(*prog));
-	if (!prog)
-		return &drgn_enomem;
-
-	drgn_program_init(prog, NULL);
 	err = drgn_program_init_pid(prog, pid);
 	if (err) {
-		drgn_program_deinit(prog);
-		free(prog);
+		drgn_program_destroy(prog);
 		return err;
 	}
 

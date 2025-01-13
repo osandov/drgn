@@ -52,7 +52,9 @@ AC_ARG_ENABLE([python],
 	      [], [enable_python=no])
 
 AM_CONDITIONAL([ENABLE_PYTHON], [test "x$enable_python" != xno])
-AM_COND_IF([ENABLE_PYTHON], [MY_PYTHON_DEVEL])
+AM_COND_IF([ENABLE_PYTHON],
+	   [MY_PYTHON_DEVEL
+	    AC_DEFINE(ENABLE_PYTHON)])
 
 PKG_PROG_PKG_CONFIG
 

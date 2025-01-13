@@ -364,3 +364,15 @@ err:
 	Py_DECREF(m);
 	return NULL;
 }
+
+struct drgn_error *drgn_initialize_python(void)
+{
+	Py_Initialize();
+	PyGILState_guard();
+	if (!PyState_FindModule(&drgnmodule)) {
+		_cleanup_pydecref_ PyObject *m = PyInit__drgn();
+		if (!m)
+			return drgn_error_from_python();
+	}
+	return NULL;
+}

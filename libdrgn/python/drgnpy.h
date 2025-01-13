@@ -308,6 +308,8 @@ extern PyObject *MissingDebugInfoError;
 extern PyObject *ObjectAbsentError;
 extern PyObject *OutOfBoundsError;
 
+struct drgn_error *drgn_initialize_python(void);
+
 int add_module_constants(PyObject *m);
 int init_logging(void);
 
