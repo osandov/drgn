@@ -117,7 +117,7 @@ out:
 	return err;
 }
 
-DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
+void *set_drgn_error(struct drgn_error *err)
 {
 	if (err == &drgn_error_python)
 		return NULL;
