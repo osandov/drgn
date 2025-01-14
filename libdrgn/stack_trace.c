@@ -1061,6 +1061,10 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 	}
 	case DRGN_CFI_RULE_AT_DWARF_EXPRESSION:
 	case DRGN_CFI_RULE_DWARF_EXPRESSION:
+		// It is possible for file to be NULL when using built-in ORC.
+		// However, it should be impossible to encounter a DWARF
+		// expression for built-in ORC.
+		assert(file != NULL);
 		err = drgn_eval_cfi_dwarf_expression(prog, file, rule, regs,
 						     buf, size);
 		break;
@@ -1116,7 +1120,7 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 	if (!regs->module)
 		return &drgn_not_found;
 
-	struct drgn_elf_file *file;
+	struct drgn_elf_file *file = NULL;
 	bool interrupted;
 	drgn_register_number ret_addr_regno;
 	/* If we found the module, then we must have the PC. */
