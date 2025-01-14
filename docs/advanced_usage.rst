@@ -204,12 +204,14 @@ Environment Variables
 
 Some of drgn's behavior can be modified through environment variables:
 
-``DRGN_MAX_DEBUG_INFO_ERRORS``
+.. envvar:: DRGN_MAX_DEBUG_INFO_ERRORS
+
     The maximum number of warnings about missing debugging information to log
     on CLI startup or from :meth:`drgn.Program.load_debug_info()`. Any
     additional errors are truncated. The default is 5; -1 is unlimited.
 
-``DRGN_PREFER_ORC_UNWINDER``
+.. envvar:: DRGN_PREFER_ORC_UNWINDER
+
     Whether to prefer using `ORC
     <https://www.kernel.org/doc/html/latest/x86/orc-unwinder.html>`_ over DWARF
     for stack unwinding (0 or 1). The default is 0. Note that drgn will always
@@ -217,17 +219,20 @@ Some of drgn's behavior can be modified through environment variables:
     vice versa. This environment variable is mainly intended for testing and
     may be ignored in the future.
 
-``DRGN_USE_LIBKDUMPFILE_FOR_ELF``
+.. envvar:: DRGN_USE_LIBKDUMPFILE_FOR_ELF
+
     Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default
     is 0. This functionality will be removed in the future.
 
-``DRGN_USE_SYS_MODULE``
+.. envvar:: DRGN_USE_SYS_MODULE
+
     Whether drgn should use ``/sys/module`` to find information about loaded
     kernel modules for the running kernel instead of getting them from the core
     dump (0 or 1). The default is 1. This environment variable is mainly
     intended for testing and may be ignored in the future.
 
-``PYTHON_BASIC_REPL``
+.. envvar:: PYTHON_BASIC_REPL
+
     If non-empty, don't try to use the `new interactive REPL
     <https://docs.python.org/3/whatsnew/3.13.html#a-better-interactive-interpreter>`_
     added in Python 3.13. drgn makes use of the new REPL through internal
