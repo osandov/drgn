@@ -31,6 +31,7 @@
 #include "memory_reader.h"
 #include "minmax.h"
 #include "object.h"
+#include "plugins.h"
 #include "program.h"
 #include "serialize.h"
 #include "symbol.h"
@@ -666,6 +667,7 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 			goto out_segments;
 	}
 
+	drgn_call_plugins_prog("drgn_prog_set", prog);
 	return NULL;
 
 out_segments:
@@ -769,6 +771,8 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 
 	prog->pid = pid;
 	prog->flags |= DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LOCAL;
+
+	drgn_call_plugins_prog("drgn_prog_set", prog);
 	return NULL;
 
 out_segments:

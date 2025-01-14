@@ -200,10 +200,92 @@ program "memory":
 :meth:`drgn.Program.register_object_finder()` are the equivalent methods for
 plugging in types and objects.
 
+.. _writing-plugins:
+
+Writing Plugins
+---------------
+
+In order for drgn to load a plugin automatically, it must be registered as an
+`entry point <https://packaging.python.org/specifications/entry-points/>`_ for
+the ``drgn.plugins`` group. Here is a minimal example. First:
+
+.. code-block:: console
+
+    $ mkdir drgn_plugin_example
+    $ cd drgn_plugin_example
+
+Then, create ``pyproject.toml`` with the following contents:
+
+.. code-block:: toml
+    :caption: pyproject.toml
+    :emphasize-lines: 5-6
+
+    [project]
+    name = 'drgn_plugin_example'
+    version = '0.0.1'
+
+    [project.entry-points.'drgn.plugins']
+    example = 'drgn_plugin_example'
+
+See the `Python Packaging User Guide
+<https://packaging.python.org/guides/writing-pyproject-toml/>`_ for a complete
+description of ``pyproject.toml``. We are most interested in the last two
+lines, which define the entry point. In ``example = 'drgn_plugin_example'``,
+``example`` is the plugin name, and ``drgn_plugin_example`` is the plugin
+module.
+
+Create ``drgn_plugin_example.py`` with the following contents:
+
+.. code-block:: python3
+    :caption: drgn_plugin_example.py
+
+    import drgn
+
+    def example_debug_info_finder(modules: list[drgn.Module]) -> None:
+        if isinstance(module, drgn.MainModule):
+            module.try_file("/my/vmlinux")
+
+    def drgn_prog_set(prog: drgn.Program) -> None:
+        if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
+            prog.register_debug_info_finder(
+                "example", example_debug_info_finder, enable_index=-1
+            )
+    # Optional; the default is 50;
+    drgn_prog_set.drgn_priority = 100
+
+This is a typical usage of the :func:`drgn_prog_set()` hook to register
+finders. See :ref:`plugins` for more details.
+
+After creating the above files, the plugin can be installed with
+``pip install .``.
+
 Environment Variables
 ---------------------
 
 Some of drgn's behavior can be modified through environment variables:
+
+.. envvar:: DRGN_DISABLE_PLUGINS
+
+    Comma-separated list of plugins to disable. Each item is a glob pattern
+    matching plugin entry point names.
+
+.. envvar:: DRGN_PLUGINS
+
+    Comma-separated list of plugins to enable. Each item is either a plugin
+    entry point name, a file path, or a module name. Empty items are ignored.
+
+    An item not containing ``=`` is interpreted as a plugin entry point name.
+    This takes precedence over :envvar:`DRGN_DISABLE_PLUGINS`.
+
+    An item containing ``=`` is interpreted as an extra plugin to load manually
+    instead of via an entry point. The string before ``=`` is the plugin name.
+    The string after ``=`` is the value. If the value contains a ``/``, it is
+    the file path of a Python module. Otherwise, it is a module name.
+
+    So, ``DRGN_DISABLE_PLUGINS=* DRGN_PLUGINS=foo,bar=/hello/world.py,baz=my.module``
+    results in three plugins being loaded: the entry point ``foo``, the file
+    ``/hello/world.py`` as ``bar``, and the module ``my.module`` as ``baz``.
+    All other plugins are disabled.
 
 .. envvar:: DRGN_MAX_DEBUG_INFO_ERRORS
 

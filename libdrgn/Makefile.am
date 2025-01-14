@@ -169,6 +169,7 @@ libdrgnimpl_la_SOURCES += python/constants.c \
 			  python/module_section_addresses.c \
 			  python/object.c \
 			  python/platform.c \
+			  python/plugins.c \
 			  python/program.c \
 			  python/stack_trace.c \
 			  python/symbol.c \

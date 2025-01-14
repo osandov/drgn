@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "linux_kernel.h"
+#include "plugins.h"
 #include "program.h" // IWYU pragma: associated
 #include "util.h"
 
@@ -271,6 +272,7 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	if (err)
 		goto err_platform;
 	prog->kdump_ctx = ctx;
+	drgn_call_plugins_prog("drgn_prog_set", prog);
 	return NULL;
 
 err_platform:

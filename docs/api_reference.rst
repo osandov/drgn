@@ -221,6 +221,37 @@ CLI
 
 .. drgndoc:: cli
 
+.. _plugins:
+
+Plugins
+-------
+
+drgn can be extended with plugins. A drgn plugin is a Python module defining
+one or more hook functions that are called at specific times.
+
+By default, drgn loads installed modules registered as :ref:`entry points
+<writing-plugins>` for the ``drgn.plugins`` group. The :envvar:`DRGN_PLUGINS`
+and :envvar:`DRGN_DISABLE_PLUGINS` environment variables can be used to
+configure this.
+
+The following hooks are currently defined:
+
+.. py:currentmodule:: None
+
+.. function:: drgn_prog_set(prog: drgn.Program) -> None
+
+    Called after the program target has been set (e.g., one of
+    :meth:`drgn.Program.set_core_dump()`, :meth:`drgn.Program.set_kernel()`, or
+    :meth:`drgn.Program.set_pid()` has been called).
+
+A ``drgn_priority`` integer attribute can be assigned to a hook function to
+define when it is called relative to other plugins. Hook functions with lower
+``drgn_priority`` values are called earlier. Functions with equal
+``drgn_priority`` values are called in an unspecified order. The default if not
+defined is 50.
+
+See :ref:`writing-plugins` for an example.
+
 Logging
 -------
 
