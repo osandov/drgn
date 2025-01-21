@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <elfutils/libdwfl.h>
-#ifdef WITH_KDUMPFILE
-#include <libkdumpfile/kdumpfile.h>
-#endif
 
 #include "drgnpy.h"
 #include "../path.h"
