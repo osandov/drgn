@@ -129,6 +129,31 @@ fallback_unwind_aarch64(struct drgn_program *prog,
 	return NULL;
 }
 
+// Unwind a single bl or blr instruction.
+static struct drgn_error *
+bad_call_unwind_aarch64(struct drgn_program *prog,
+			struct drgn_register_state *regs,
+			struct drgn_register_state **ret)
+{
+	struct optional_uint64 lr =
+		drgn_register_state_get_u64(prog, regs, x30);
+	if (!lr.has_value)
+		return &drgn_stop;
+
+	struct drgn_register_state *tmp = drgn_register_state_dup(regs);
+	if (!tmp)
+		return &drgn_enomem;
+
+	// lr contains the the old pc + 4.
+	drgn_register_state_set_pc(prog, tmp, lr.value - 4);
+	// We don't know the old lr.
+	drgn_register_state_unset_has_register(tmp, DRGN_REGISTER_NUMBER(x30));
+	// The interrupted pc is no longer applicable.
+	drgn_register_state_unset_has_register(tmp, DRGN_REGISTER_NUMBER(pc));
+	*ret = tmp;
+	return NULL;
+}
+
 // elf_gregset_t (in PRSTATUS) and struct user_pt_regs have the same layout.
 // This layout is a prefix of the in-kernel struct pt_regs (but we don't care
 // about any of the extra fields).
@@ -491,6 +516,7 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 	.default_dwarf_cfi_row = &default_dwarf_cfi_row_aarch64,
 	.demangle_cfi_registers = demangle_cfi_registers_aarch64,
 	.fallback_unwind = fallback_unwind_aarch64,
+	.bad_call_unwind = bad_call_unwind_aarch64,
 	.pt_regs_get_initial_registers = pt_regs_get_initial_registers_aarch64,
 	.prstatus_get_initial_registers = prstatus_get_initial_registers_aarch64,
 	.linux_kernel_get_initial_registers =
