@@ -770,8 +770,14 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 		if (err)
 			return err;
 		if (!found) {
-			return drgn_error_create(DRGN_ERROR_LOOKUP,
-						 "task not found");
+			if (tid == 0) {
+				return drgn_error_create(DRGN_ERROR_LOOKUP,
+							 "task not found; "
+							 "use stack_trace(idle_task(cpu)) for PID 0");
+			} else {
+				return drgn_error_create(DRGN_ERROR_LOOKUP,
+							 "task not found");
+			}
 		}
 	}
 
