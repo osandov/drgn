@@ -1176,6 +1176,17 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 	return NULL;
 }
 
+static bool drgn_is_bad_call(const struct drgn_register_state *regs)
+{
+	// If the program counter is 0, it's likely that a NULL function pointer
+	// was called. Other than that, it's difficult to differentiate a bad
+	// program counter from a valid program counter that we don't know about
+	// (e.g., because it's JIT compiled). We can add heuristics in the
+	// future.
+	struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+	return pc.has_value && pc.value == 0;
+}
+
 static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 					       uint32_t tid,
 					       const struct drgn_object *obj,
@@ -1227,8 +1238,16 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 
 		err = drgn_unwind_with_cfi(prog, &row, regs, &regs);
 		if (err == &drgn_not_found) {
-			err = prog->platform.arch->fallback_unwind(prog, regs,
-								   &regs);
+			if (drgn_is_bad_call(regs)
+			    && prog->platform.arch->bad_call_unwind) {
+				err = prog->platform.arch->bad_call_unwind(prog,
+									   regs,
+									   &regs);
+			} else {
+				err = prog->platform.arch->fallback_unwind(prog,
+									   regs,
+									   &regs);
+			}
 		}
 		if (err == &drgn_stop)
 			break;

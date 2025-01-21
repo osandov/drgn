@@ -194,6 +194,7 @@ typedef struct drgn_error *
  * - Define the following @ref drgn_architecture_info members:
  *     - @ref default_dwarf_cfi_row (use @ref DRGN_CFI_ROW)
  *     - @ref fallback_unwind
+ *     - @ref bad_call_unwind
  *     - @ref pt_regs_get_initial_registers
  *     - @ref prstatus_get_initial_registers
  *     - @ref linux_kernel_get_initial_registers
@@ -341,6 +342,17 @@ struct drgn_architecture_info {
 	 * drgn_stop.
 	 */
 	struct drgn_error *(*fallback_unwind)(struct drgn_program *,
+					      struct drgn_register_state *,
+					      struct drgn_register_state **);
+	/**
+	 * Try to unwind a stack frame assuming that a call was made to a bad
+	 * program counter.
+	 *
+	 * This should typically undo the effects of a single call instruction
+	 * and nothing more. If this has to read memory, translate @ref
+	 * DRGN_ERROR_FAULT errors to &@ref drgn_stop.
+	 */
+	struct drgn_error *(*bad_call_unwind)(struct drgn_program *,
 					      struct drgn_register_state *,
 					      struct drgn_register_state **);
 	/**

@@ -228,11 +228,36 @@ get_registers_from_frame_pointer(struct drgn_program *prog,
 	return NULL;
 }
 
-// Unwind from a call instruction, assuming that nothing else has been changed
-// since.
-static struct drgn_error *unwind_call(struct drgn_program *prog,
-				      struct drgn_register_state *regs,
-				      struct drgn_register_state **ret)
+
+static struct drgn_error *
+fallback_unwind_x86_64(struct drgn_program *prog,
+		       struct drgn_register_state *regs,
+		       struct drgn_register_state **ret)
+{
+	struct drgn_error *err;
+
+	struct optional_uint64 rbp =
+		drgn_register_state_get_u64(prog, regs, rbp);
+	if (!rbp.has_value)
+		return &drgn_stop;
+
+	err = get_registers_from_frame_pointer(prog, rbp.value, ret);
+	if (err) {
+		if (err->code == DRGN_ERROR_FAULT) {
+			drgn_error_destroy(err);
+			err = &drgn_stop;
+		}
+		return err;
+	}
+	drgn_register_state_set_cfa(prog, regs, rbp.value + 16);
+	return NULL;
+}
+
+// Unwind a single call instruction.
+static struct drgn_error *
+bad_call_unwind_x86_64(struct drgn_program *prog,
+		       struct drgn_register_state *regs,
+		       struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
 
@@ -263,37 +288,6 @@ static struct drgn_error *unwind_call(struct drgn_program *prog,
 	// rsp is after the saved return address.
 	drgn_register_state_set_from_u64(prog, tmp, rsp, rsp.value + 8);
 	*ret = tmp;
-	return NULL;
-}
-
-static struct drgn_error *
-fallback_unwind_x86_64(struct drgn_program *prog,
-		       struct drgn_register_state *regs,
-		       struct drgn_register_state **ret)
-{
-	struct drgn_error *err;
-
-	// If the program counter is 0, it's likely that a NULL function pointer
-	// was called. Assume that the only thing we need to unwind is a single
-	// call instruction.
-	struct optional_uint64 pc = drgn_register_state_get_pc(regs);
-	if (pc.has_value && pc.value == 0)
-		return unwind_call(prog, regs, ret);
-
-	struct optional_uint64 rbp =
-		drgn_register_state_get_u64(prog, regs, rbp);
-	if (!rbp.has_value)
-		return &drgn_stop;
-
-	err = get_registers_from_frame_pointer(prog, rbp.value, ret);
-	if (err) {
-		if (err->code == DRGN_ERROR_FAULT) {
-			drgn_error_destroy(err);
-			err = &drgn_stop;
-		}
-		return err;
-	}
-	drgn_register_state_set_cfa(prog, regs, rbp.value + 16);
 	return NULL;
 }
 
@@ -663,6 +657,7 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	DRGN_ARCHITECTURE_REGISTERS,
 	.default_dwarf_cfi_row = &default_dwarf_cfi_row_x86_64,
 	.fallback_unwind = fallback_unwind_x86_64,
+	.bad_call_unwind = bad_call_unwind_x86_64,
 	.pt_regs_get_initial_registers = pt_regs_get_initial_registers_x86_64,
 	.prstatus_get_initial_registers = prstatus_get_initial_registers_x86_64,
 	.linux_kernel_get_initial_registers =
