@@ -177,6 +177,14 @@ drgn_register_state_set_has_register_range(struct drgn_register_state *regs,
 					   drgn_register_number first_regno,
 					   drgn_register_number last_regno);
 
+/**
+ * Mark a register as unknown in a @ref drgn_register_state.
+ *
+ * @param[in] regno Register number to mark as unknown.
+ */
+void drgn_register_state_unset_has_register(struct drgn_register_state *regs,
+					    drgn_register_number regno);
+
 /** A `uint64_t` which may or may not be present. */
 struct optional_uint64 {
 	uint64_t value;

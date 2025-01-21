@@ -64,6 +64,13 @@ static void drgn_register_state_set_known(struct drgn_register_state *regs,
 	bitset[i / CHAR_BIT] |= 1 << (i % CHAR_BIT);
 }
 
+static void drgn_register_state_set_unknown(struct drgn_register_state *regs,
+					    uint32_t i)
+{
+	unsigned char *bitset = drgn_register_state_known_bitset(regs);
+	bitset[i / CHAR_BIT] &= ~(1 << (i % CHAR_BIT));
+}
+
 bool drgn_register_state_has_register(const struct drgn_register_state *regs,
 				      drgn_register_number regno)
 {
@@ -87,6 +94,13 @@ drgn_register_state_set_has_register_range(struct drgn_register_state *regs,
 	assert(last_regno < regs->num_regs);
 	for (uint32_t regno = first_regno; regno <= last_regno; regno++)
 		drgn_register_state_set_known(regs, regno + 2);
+}
+
+void drgn_register_state_unset_has_register(struct drgn_register_state *regs,
+					    drgn_register_number regno)
+{
+	if (regno < regs->num_regs)
+		drgn_register_state_set_unknown(regs, (uint32_t)regno + 2);
 }
 
 struct optional_uint64
