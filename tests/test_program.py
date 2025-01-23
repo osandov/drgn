@@ -162,6 +162,10 @@ class TestProgram(TestCase):
             TypeError, "language must be Language", setattr, prog, "language", "CPP"
         )
 
+    def test_language_del(self):
+        with self.assertRaises(AttributeError):
+            del Program().language
+
 
 class TestMemory(TestCase):
     def test_simple_read(self):

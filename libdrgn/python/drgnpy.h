@@ -91,6 +91,18 @@ static inline PyObject *PyObject_CallOneArg(PyObject *callable, PyObject *arg)
 		Py_RETURN_FALSE;	\
 } while (0)
 
+/**
+ * Return from a PyGetSetDef setter with an error if attempting to delete the
+ * attribute.
+ */
+#define SETTER_NO_DELETE(name, value) do {				\
+	if (!(value)) {							\
+		PyErr_Format(PyExc_AttributeError,			\
+			     "can't delete '%s' attribute", (name));	\
+		return -1;						\
+	}								\
+} while (0)
+
 static inline void pydecrefp(void *p)
 {
 	Py_XDECREF(*(PyObject **)p);

@@ -214,6 +214,7 @@ static PyObject *Module_get_address_range(Module *self, void *arg)
 
 static int Module_set_address_range(Module *self, PyObject *value, void *arg)
 {
+	SETTER_NO_DELETE("address_range", value);
 	struct drgn_error *err;
 	if (value == Py_None) {
 		err = drgn_module_set_address_range(self->module, -1, -1);
@@ -258,6 +259,7 @@ static PyObject *Module_get_build_id(Module *self, void *arg)
 
 static int Module_set_build_id(Module *self, PyObject *value, void *arg)
 {
+	SETTER_NO_DELETE("build_id", value);
 	struct drgn_error *err;
 	if (value == Py_None) {
 		err = drgn_module_set_build_id(self->module, NULL, 0);
@@ -300,6 +302,7 @@ static PyObject *Module_get_##which##_file_status(Module *self, void *arg)	\
 static int Module_set_##which##_file_status(Module *self, PyObject *value,	\
 					    void *arg)				\
 {										\
+	SETTER_NO_DELETE(#which, value);					\
 	if (!PyObject_TypeCheck(value,						\
 				(PyTypeObject *)ModuleFileStatus_class)) {	\
 		PyErr_SetString(PyExc_TypeError,				\

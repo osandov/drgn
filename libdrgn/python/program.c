@@ -1286,6 +1286,7 @@ static PyObject *Program_get_debug_info_path(Program *self, void *arg)
 
 static int Program_set_debug_info_path(Program *self, PyObject *value, void *arg)
 {
+	SETTER_NO_DELETE("debug_info_path", value);
 	const char *path;
 	if (value == Py_None) {
 		path = NULL;
@@ -1909,6 +1910,7 @@ static PyObject *Program_get_language(Program *self, void *arg)
 
 static int Program_set_language(Program *self, PyObject *value, void *arg)
 {
+	SETTER_NO_DELETE("language", value);
 	if (!PyObject_TypeCheck(value, &Language_type)) {
 		PyErr_SetString(PyExc_TypeError, "language must be Language");
 		return -1;

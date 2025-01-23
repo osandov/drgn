@@ -351,6 +351,11 @@ class TestModule(TestCase):
         with self.assertRaisesRegex(ValueError, "invalid module address range"):
             module.address_range = (2**64 - 1, 2**64 - 1)
 
+    def test_address_range_del(self):
+        module = Program().extra_module("/foo/bar", create=True)[0]
+        with self.assertRaises(AttributeError):
+            del module.address_range
+
     def test_build_id(self):
         module = Program().extra_module("/foo/bar", create=True)[0]
 
@@ -375,6 +380,11 @@ class TestModule(TestCase):
         module = Program().extra_module("/foo/bar", create=True)[0]
         with self.assertRaisesRegex(ValueError, "build ID cannot be empty"):
             module.build_id = b""
+
+    def test_build_id_del(self):
+        module = Program().extra_module("/foo/bar", create=True)[0]
+        with self.assertRaises(AttributeError):
+            del module.build_id
 
     def test_find_by_address(self):
         prog = Program()
@@ -455,6 +465,8 @@ class TestModule(TestCase):
 
         setattr(module, status_attr, ModuleFileStatus.WANT)
         self.assertEqual(getattr(module, status_attr), ModuleFileStatus.WANT)
+
+        self.assertRaises(AttributeError, delattr, module, status_attr)
 
     def test_loaded_file_status(self):
         self._test_file_status("loaded")
