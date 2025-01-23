@@ -56,6 +56,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 crc32.h \
 			 debug_info.c \
 			 debug_info.h \
+			 debug_info_options.c \
+			 debug_info_options.h \
 			 drgn_internal.h \
 			 drgn_section_name_to_index.inc \
 			 dwarf_constants.c \
@@ -178,6 +180,7 @@ noinst_LTLIBRARIES += _drgn.la
 endif
 
 _drgn_la_SOURCES = python/constants.c \
+		   python/debug_info_options.c \
 		   python/docstrings.c \
 		   python/docstrings.h \
 		   python/drgnpy.h \

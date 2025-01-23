@@ -1271,29 +1271,28 @@ static PyObject *Program_module(Program *self, PyObject *arg)
 	return Module_wrap(module);
 }
 
-static PyObject *Program_get_debug_info_path(Program *self, void *arg)
+static DebugInfoOptions *Program_get_debug_info_options(Program *self, void *arg)
 {
-	return PyUnicode_FromString(drgn_program_debug_info_path(&self->prog));
+	DebugInfoOptions *options = call_tp_alloc(DebugInfoOptions);
+	if (options) {
+		options->options = drgn_program_debug_info_options(&self->prog);
+		options->prog = self;
+		Py_INCREF(self);
+	}
+	return options;
 }
 
-static int Program_set_debug_info_path(Program *self, PyObject *value, void *arg)
+static int Program_set_debug_info_options(Program *self, PyObject *value, void *arg)
 {
-	SETTER_NO_DELETE("debug_info_path", value);
-	const char *path;
-	if (value == Py_None) {
-		path = NULL;
-	} else {
-		if (!PyUnicode_Check(value)) {
-			PyErr_SetString(PyExc_TypeError,
-					"debug_info_path must be str or None");
-			return -1;
-		}
-		path = PyUnicode_AsUTF8(value);
-		if (!path)
-			return -1;
+	SETTER_NO_DELETE("debug_info_options", value);
+	if (!PyObject_TypeCheck(value, &DebugInfoOptions_type)) {
+		PyErr_SetString(PyExc_TypeError,
+				"debug_info_options must be DebugInfoOptions");
+		return -1;
 	}
 	struct drgn_error *err =
-		drgn_program_set_debug_info_path(&self->prog, path);
+		drgn_debug_info_options_copy(drgn_program_debug_info_options(&self->prog),
+					     ((DebugInfoOptions *)value)->options);
 	if (err) {
 		set_drgn_error(err);
 		return -1;
@@ -1997,8 +1996,9 @@ static PyGetSetDef Program_getset[] = {
 	 drgn_Program_platform_DOC},
 	{"language", (getter)Program_get_language, (setter)Program_set_language,
 	 drgn_Program_language_DOC},
-	{"debug_info_path", (getter)Program_get_debug_info_path,
-	 (setter)Program_set_debug_info_path, drgn_Program_debug_info_path_DOC},
+	{"debug_info_options", (getter)Program_get_debug_info_options,
+	 (setter)Program_set_debug_info_options,
+	 drgn_Program_debug_info_options_DOC},
 	{},
 };
 

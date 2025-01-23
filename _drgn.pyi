@@ -968,34 +968,8 @@ class Program:
         Return the names of enabled debugging information finders, in order.
         """
         ...
-    debug_info_path: Optional[str]
-    """
-    Directories to search for debugging information files.
-
-    The standard debugging information finder supports searching for files by
-    *build ID* (a unique byte string present in both the :ref:`loaded file
-    <module-loaded-file>` and the :ref:`debug file <module-debug-file>`) and by
-    *debug link* (a name and checksum in the loaded file that refers to the
-    debug file).
-
-    This setting controls what directories the standard debugging information
-    finder searches. It is a sequence of paths separated by colons (``:``).
-
-    Searches by build ID ignore relative paths. They check under each absolute
-    path for a file named ``.build-id/xx/yyyy`` (for loaded files) or
-    ``.build-id/xx/yyyy.debug`` (for debug files), where ``xxyyyy`` is the
-    lowercase hexadecimal representation of the build ID.
-
-    Searches by debug link check every path for a file with the name given by
-    the debug link. Relative paths are relative to the directory containing the
-    loaded file. An empty path means the directory containing the loaded file.
-
-    The default is ``:.debug:/usr/lib/debug``, which should work out of the box
-    on most Linux distributions.
-
-    If ``None``, then searches by build ID and debug link are disabled (unless
-    the debug link is an absolute path).
-    """
+    debug_info_options: DebugInfoOptions
+    """Default options for debugging information searches."""
 
     def load_debug_info(
         self,
@@ -1402,6 +1376,54 @@ class FindObjectFlags(enum.Flag):
     ""
     ANY = ...
     ""
+
+class DebugInfoOptions:
+    """
+    Options for debugging information searches.
+
+    All of these options can be reassigned.
+    """
+
+    def __init__(
+        self,
+        __options: Optional[DebugInfoOptions] = None,
+        *,
+        directories: Iterable[Path] = ...,
+    ) -> None:
+        """
+        Create a ``DebugInfoOptions``.
+
+        :param options: If given, create a copy of the given options.
+            Otherwise, use the default options.
+
+        Any remaining arguments override the copied/default options.
+        """
+        ...
+    directories: Tuple[str, ...]
+    """
+    Directories to search for debugging information files.
+
+    The standard debugging information finder supports searching for files by
+    *build ID* (a unique byte string present in both the :ref:`loaded file
+    <module-loaded-file>` and the :ref:`debug file <module-debug-file>`) and by
+    *debug link* (a name and checksum in the loaded file that refers to the
+    debug file).
+
+    This option contains the directories that the standard debugging
+    information finder searches.
+
+    Searches by build ID ignore relative paths. They check under each absolute
+    path for a file named ``.build-id/xx/yyyy`` (for loaded files) or
+    ``.build-id/xx/yyyy.debug`` (for debug files), where ``xxyyyy`` is the
+    lowercase hexadecimal representation of the build ID.
+
+    Searches by debug link check every path for a file with the name given by
+    the debug link. Relative paths are relative to the directory containing the
+    loaded file. An empty path means the directory containing the loaded file.
+
+    The default is ``("", ".debug", "/usr/lib/debug")``, which should work out
+    of the box on most Linux distributions.
+    """
 
 def get_default_prog() -> Program:
     """

@@ -7,6 +7,7 @@
 #include "drgn_internal.h"
 
 struct depmod_index;
+struct drgn_debug_info_options;
 struct drgn_module_standard_files_state;
 
 struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog);
@@ -32,10 +33,11 @@ linux_kernel_loaded_module_iterator_create(struct drgn_program *prog,
 
 struct drgn_error *
 drgn_module_try_vmlinux_files(struct drgn_module *module,
-			      struct drgn_module_standard_files_state *state);
+			      const struct drgn_debug_info_options *options);
 
 struct drgn_error *
 drgn_module_try_linux_kmod_files(struct drgn_module *module,
+				 const struct drgn_debug_info_options *options,
 				 struct drgn_module_standard_files_state *state);
 
 #define KDUMP_SIGNATURE "KDUMP   "

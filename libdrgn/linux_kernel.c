@@ -622,7 +622,7 @@ not_found:
 
 struct drgn_error *
 drgn_module_try_vmlinux_files(struct drgn_module *module,
-			      struct drgn_module_standard_files_state *state)
+			      const struct drgn_debug_info_options *options)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
@@ -639,19 +639,18 @@ drgn_module_try_vmlinux_files(struct drgn_module *module,
 		"/lib/modules/%s/vmlinux.debug",
 	};
 	STRING_BUILDER(sb);
-	const char *debug_dir;
-	size_t debug_dir_len;
-	drgn_program_for_each_debug_dir(prog, debug_dir, debug_dir_len) {
-		if (debug_dir_len == 0 || debug_dir[0] != '/')
+	for (size_t i = 0; options->directories[i]; i++) {
+		const char *debug_dir = options->directories[i];
+		if (debug_dir[0] != '/')
 			continue;
 		array_for_each(format, debug_dir_paths) {
-			if (!string_builder_appendn(&sb, debug_dir,
-						    debug_dir_len)
+			if (!string_builder_append(&sb, debug_dir)
 			    || !string_builder_appendf(&sb, *format, osrelease)
 			    || !string_builder_null_terminate(&sb))
 				return &drgn_enomem;
-			err = drgn_module_try_standard_file(module, sb.str, -1,
-							    true, NULL);
+			err = drgn_module_try_standard_file(module, options,
+							    sb.str, -1, true,
+							    NULL);
 			if (err || !drgn_module_wants_file(module))
 				return err;
 			sb.len = 0;
@@ -668,8 +667,8 @@ drgn_module_try_vmlinux_files(struct drgn_module *module,
 		if (!string_builder_appendf(&sb, *format, osrelease)
 		    || !string_builder_null_terminate(&sb))
 			return &drgn_enomem;
-		err = drgn_module_try_standard_file(module, sb.str, -1, true,
-						    NULL);
+		err = drgn_module_try_standard_file(module, options, sb.str, -1,
+						    true, NULL);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 		sb.len = 0;
@@ -679,6 +678,7 @@ drgn_module_try_vmlinux_files(struct drgn_module *module,
 
 struct drgn_error *
 drgn_module_try_linux_kmod_files(struct drgn_module *module,
+				 const struct drgn_debug_info_options *options,
 				 struct drgn_module_standard_files_state *state)
 {
 	struct drgn_error *err;
@@ -749,19 +749,18 @@ drgn_module_try_linux_kmod_files(struct drgn_module *module,
 
 	const char *osrelease = prog->vmcoreinfo.osrelease;
 	STRING_BUILDER(sb);
-	const char *debug_dir;
-	size_t debug_dir_len;
-	drgn_program_for_each_debug_dir(prog, debug_dir, debug_dir_len) {
-		if (debug_dir_len == 0 || debug_dir[0] != '/')
+	for (size_t i = 0; options->directories[i]; i++) {
+		const char *debug_dir = options->directories[i];
+		if (debug_dir[0] != '/')
 			continue;
 		// Debian, Ubuntu:
 		// $debug_dir/lib/modules/$(uname -r)/$ko_name
-		if (!string_builder_appendn(&sb, debug_dir, debug_dir_len)
+		if (!string_builder_append(&sb, debug_dir)
 		    || !string_builder_appendn(&sb, depmod_path, ko_len)
 		    || !string_builder_null_terminate(&sb))
 			return &drgn_enomem;
-		err = drgn_module_try_standard_file(module, sb.str, -1, true,
-						    NULL);
+		err = drgn_module_try_standard_file(module, options, sb.str, -1,
+						    true, NULL);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 
@@ -770,8 +769,8 @@ drgn_module_try_linux_kmod_files(struct drgn_module *module,
 		if (!string_builder_append(&sb, ".debug")
 		    || !string_builder_null_terminate(&sb))
 			return &drgn_enomem;
-		err = drgn_module_try_standard_file(module, sb.str, -1, true,
-						    NULL);
+		err = drgn_module_try_standard_file(module, options, sb.str, -1,
+						    true, NULL);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	}
@@ -781,7 +780,8 @@ drgn_module_try_linux_kmod_files(struct drgn_module *module,
 	    !string_builder_appendn(&sb, depmod_path, depmod_path_len) ||
 	    !string_builder_null_terminate(&sb))
 		return &drgn_enomem;
-	return drgn_module_try_standard_file(module, sb.str, -1, true, NULL);
+	return drgn_module_try_standard_file(module, options, sb.str, -1, true,
+					     NULL);
 }
 
 // This has a weird calling convention so that the caller can call

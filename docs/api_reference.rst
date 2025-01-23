@@ -11,6 +11,8 @@ Programs
 .. drgndoc:: ProgramFlags
 .. drgndoc:: FindObjectFlags
 
+.. drgndoc:: DebugInfoOptions
+
 .. drgndoc:: Thread
 
 .. _api-filenames:

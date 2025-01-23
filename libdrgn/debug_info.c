@@ -1058,30 +1058,10 @@ drgn_program_enabled_debug_info_finders(struct drgn_program *prog,
 					 names_ret, count_ret);
 }
 
-static const char *drgn_default_debug_info_path = ":.debug:/usr/lib/debug";
-
-LIBDRGN_PUBLIC
-const char *drgn_program_debug_info_path(struct drgn_program *prog)
+LIBDRGN_PUBLIC struct drgn_debug_info_options *
+drgn_program_debug_info_options(struct drgn_program *prog)
 {
-	return prog->dbinfo.debug_info_path;
-}
-
-LIBDRGN_PUBLIC
-struct drgn_error *drgn_program_set_debug_info_path(struct drgn_program *prog,
-						    const char *path)
-{
-	char *new_path;
-	if (path) {
-		new_path = strdup(path);
-		if (!new_path)
-			return &drgn_enomem;
-	} else {
-		new_path = NULL;
-	}
-	if (prog->dbinfo.debug_info_path != drgn_default_debug_info_path)
-		free((char *)prog->dbinfo.debug_info_path);
-	prog->dbinfo.debug_info_path = new_path;
-	return NULL;
+	return &prog->dbinfo.options;
 }
 
 static struct drgn_error *
@@ -1792,10 +1772,10 @@ drgn_module_try_supplementary_debug_file_log(struct drgn_module *module,
 }
 
 static struct drgn_error *
-drgn_module_try_standard_supplementary_files(struct drgn_module *module)
+drgn_module_try_standard_supplementary_files(struct drgn_module *module,
+					     const struct drgn_debug_info_options *options)
 {
 	struct drgn_error *err;
-	struct drgn_program *prog = module->prog;
 
 	const char *debug_file_path;
 	const char *debugaltlink_path;
@@ -1848,15 +1828,13 @@ drgn_module_try_standard_supplementary_files(struct drgn_module *module)
 	//    outside of the debug directory.
 	const char *dwz = strstr(debugaltlink_path, "/.dwz/");
 	if (dwz) {
-		const char *debug_dir;
-		size_t debug_dir_len;
-		drgn_program_for_each_debug_dir(prog, debug_dir, debug_dir_len) {
-			if (debug_dir_len == 0 || debug_dir[0] != '/')
+		for (size_t i = 0; options->directories[i]; i++) {
+			const char *debug_dir = options->directories[i];
+			if (debug_dir[0] != '/')
 				continue;
 
 			sb.len = 0;
-			if (!string_builder_appendn(&sb, debug_dir,
-						    debug_dir_len)
+			if (!string_builder_append(&sb, debug_dir)
 			    || !string_builder_append(&sb, dwz)
 			    || !string_builder_null_terminate(&sb))
 				return &drgn_enomem;
@@ -1886,8 +1864,9 @@ drgn_module_wanted_supplementary_debug_file_is_new(struct drgn_module *module,
 }
 
 struct drgn_error *
-drgn_module_try_standard_file(struct drgn_module *module, const char *path,
-			      int fd, bool check_build_id,
+drgn_module_try_standard_file(struct drgn_module *module,
+			      const struct drgn_debug_info_options *options,
+			      const char *path, int fd, bool check_build_id,
 			      const uint32_t *expected_crc)
 {
 	struct drgn_error *err;
@@ -1900,7 +1879,8 @@ drgn_module_try_standard_file(struct drgn_module *module, const char *path,
 	// If the wanted supplementary debug file changed, try finding it again.
 	if (drgn_module_wanted_supplementary_debug_file_is_new(module,
 					orig_supplementary_file_generation)) {
-		err = drgn_module_try_standard_supplementary_files(module);
+		err = drgn_module_try_standard_supplementary_files(module,
+								   options);
 		if (err)
 			return err;
 	}
@@ -1944,6 +1924,7 @@ drgn_debug_info_set_map_files_segments(struct drgn_debug_info *dbinfo,
 
 static struct drgn_error *
 drgn_module_try_proc_files_for_shared_library(struct drgn_module *module,
+					      const struct drgn_debug_info_options *options,
 					      bool *tried)
 {
 	struct drgn_error *err;
@@ -1976,8 +1957,9 @@ drgn_module_try_proc_files_for_shared_library(struct drgn_module *module,
 		int fd = open(path, O_RDONLY);
 		if (fd >= 0) {
 			*tried = true;
-			return drgn_module_try_standard_file(module, path, fd,
-							     false, NULL);
+			return drgn_module_try_standard_file(module, options,
+							     path, fd, false,
+							     NULL);
 		} else {
 			// We found a match in the cache, but we couldn't open
 			// it. If it doesn't exist anymore, then we need to
@@ -2033,6 +2015,7 @@ drgn_module_try_proc_files_for_shared_library(struct drgn_module *module,
 			if (fd >= 0) {
 				*tried = true;
 				err = drgn_module_try_standard_file(module,
+								    options,
 								    path, fd,
 								    false,
 								    NULL);
@@ -2059,6 +2042,7 @@ drgn_module_try_proc_files_for_shared_library(struct drgn_module *module,
 }
 
 static struct drgn_error *drgn_module_try_proc_files(struct drgn_module *module,
+						     const struct drgn_debug_info_options *options,
 						     bool *tried)
 {
 	struct drgn_program *prog = module->prog;
@@ -2077,10 +2061,11 @@ static struct drgn_error *drgn_module_try_proc_files(struct drgn_module *module,
 			return NULL;
 		}
 		*tried = true;
-		return drgn_module_try_standard_file(module, path, fd, false,
-						     NULL);
+		return drgn_module_try_standard_file(module, options, path, fd,
+						     false, NULL);
 	} else if (module->kind == DRGN_MODULE_SHARED_LIBRARY) {
 		return drgn_module_try_proc_files_for_shared_library(module,
+								     options,
 								     tried);
 	} else {
 		return NULL;
@@ -2088,7 +2073,8 @@ static struct drgn_error *drgn_module_try_proc_files(struct drgn_module *module,
 }
 
 static struct drgn_error *
-drgn_module_try_files_by_build_id(struct drgn_module *module)
+drgn_module_try_files_by_build_id(struct drgn_module *module,
+				  const struct drgn_debug_info_options *options)
 {
 	struct drgn_error *err;
 
@@ -2100,12 +2086,11 @@ drgn_module_try_files_by_build_id(struct drgn_module *module)
 		return NULL;
 
 	STRING_BUILDER(sb);
-	const char *debug_dir;
-	size_t debug_dir_len;
-	drgn_program_for_each_debug_dir(module->prog, debug_dir, debug_dir_len) {
-		if (debug_dir_len == 0 || debug_dir[0] != '/')
+	for (size_t i = 0; options->directories[i]; i++) {
+		const char *debug_dir = options->directories[i];
+		if (debug_dir[0] != '/')
 			continue;
-		if (!string_builder_appendn(&sb, debug_dir, debug_dir_len)
+		if (!string_builder_append(&sb, debug_dir)
 		    || !string_builder_appendf(&sb, "/.build-id/%c%c/%s.debug",
 					       build_id_str[0], build_id_str[1],
 					       &build_id_str[2])
@@ -2114,16 +2099,18 @@ drgn_module_try_files_by_build_id(struct drgn_module *module)
 		// We trust the build ID encoded in the path and don't check it
 		// again.
 		if (module->debug_file_status == DRGN_MODULE_FILE_WANT) {
-			err = drgn_module_try_standard_file(module, sb.str, -1,
-							    false, NULL);
+			err = drgn_module_try_standard_file(module, options,
+							    sb.str, -1, false,
+							    NULL);
 			if (err || !drgn_module_wants_file(module))
 				return err;
 		}
 		if (module->loaded_file_status == DRGN_MODULE_FILE_WANT) {
 			// Remove the ".debug" extension.
 			sb.str[sb.len - sizeof(".debug") + 1] = '\0';
-			err = drgn_module_try_standard_file(module, sb.str, -1,
-							    false, NULL);
+			err = drgn_module_try_standard_file(module, options,
+							    sb.str, -1, false,
+							    NULL);
 			if (err || !drgn_module_wants_file(module))
 				return err;
 		}
@@ -2133,7 +2120,8 @@ drgn_module_try_files_by_build_id(struct drgn_module *module)
 }
 
 static struct drgn_error *
-drgn_module_try_files_by_gnu_debuglink(struct drgn_module *module)
+drgn_module_try_files_by_gnu_debuglink(struct drgn_module *module,
+				       const struct drgn_debug_info_options *options)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
@@ -2181,42 +2169,40 @@ drgn_module_try_files_by_gnu_debuglink(struct drgn_module *module)
 	STRING_BUILDER(sb);
 	if (debuglink[0] == '/') {
 		// debuglink is absolute. Try it directly.
-		err = drgn_module_try_standard_file(module, debuglink, -1,
-						    false, &crc);
+		err = drgn_module_try_standard_file(module, options, debuglink,
+						    -1, false, &crc);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	} else if (file->path[0] && debuglink[0]) {
 		// debuglink is relative. Try it in the debug directories.
 		const char *slash = strrchr(file->path, '/');
 		size_t dirslash_len = slash ? slash - file->path + 1 : 0;
-		const char *debug_dir;
-		size_t debug_dir_len;
-		drgn_program_for_each_debug_dir(prog, debug_dir, debug_dir_len) {
+		for (size_t i = 0; options->directories[i]; i++) {
+			const char *debug_dir = options->directories[i];
 			// If debug_dir is empty, then try:
 			// $(dirname $path)/$debuglink
 			// If debug_dir is relative, then try:
 			// $(dirname $path)/$debug_dir/$debuglink
 			// If debug_dir is absolute, then try:
 			// $debug_dir/$(dirname $path)/$debuglink
-			if (debug_dir_len > 0 && debug_dir[0] == '/') {
+			if (debug_dir[0] == '/') {
 				if (file->path[0] != '/')
 					continue;
-				if (!string_builder_appendn(&sb, debug_dir,
-							    debug_dir_len))
+				if (!string_builder_append(&sb, debug_dir))
 					return &drgn_enomem;
 			}
 			if (!string_builder_appendn(&sb, file->path,
 						    dirslash_len)
-			    || (debug_dir_len > 0 && debug_dir[0] != '/'
-				&& (!string_builder_appendn(&sb, debug_dir,
-							    debug_dir_len)
+			    || (debug_dir[0] && debug_dir[0] != '/'
+				&& (!string_builder_append(&sb, debug_dir)
 				    || !string_builder_appendc(&sb, '/')))
 			    || !string_builder_appendn(&sb, debuglink,
 						       debuglink_len)
 			    || !string_builder_null_terminate(&sb))
 				return &drgn_enomem;
-			err = drgn_module_try_standard_file(module, sb.str, -1,
-							    false, &crc);
+			err = drgn_module_try_standard_file(module, options,
+							    sb.str, -1, false,
+							    &crc);
 			if (err || !drgn_module_wants_file(module))
 				return err;
 			sb.len = 0;
@@ -2227,21 +2213,16 @@ drgn_module_try_files_by_gnu_debuglink(struct drgn_module *module)
 
 static struct drgn_error *
 drgn_module_try_standard_files(struct drgn_module *module,
+			       const struct drgn_debug_info_options *options,
 			       struct drgn_module_standard_files_state *state)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
 
-	if (prog->dbinfo.debug_info_path) {
-		drgn_module_try_files_log(module,
-					  "trying standard paths in \"%s\" for",
-					  prog->dbinfo.debug_info_path);
-	} else {
-		drgn_module_try_files_log(module, "trying standard paths for");
-	}
+	drgn_module_try_files_log(module, "trying standard paths for");
 
 	// If we need a supplementary file, try that first.
-	err = drgn_module_try_standard_supplementary_files(module);
+	err = drgn_module_try_standard_supplementary_files(module, options);
 	if (err || !drgn_module_wants_file(module))
 		return err;
 
@@ -2286,7 +2267,8 @@ drgn_module_try_standard_files(struct drgn_module *module,
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	} else if (drgn_program_is_userspace_process(prog)) {
-		err = drgn_module_try_proc_files(module, &tried_proc_symlink);
+		err = drgn_module_try_proc_files(module, options,
+						 &tried_proc_symlink);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	}
@@ -2297,7 +2279,7 @@ drgn_module_try_standard_files(struct drgn_module *module,
 	// us from trying a file with the wrong build ID.
 	const bool had_build_id = module->build_id_len > 0;
 	if (had_build_id) {
-		err = drgn_module_try_files_by_build_id(module);
+		err = drgn_module_try_files_by_build_id(module, options);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	}
@@ -2307,12 +2289,12 @@ drgn_module_try_standard_files(struct drgn_module *module,
 	// paths.
 	if (module->kind == DRGN_MODULE_MAIN
 	    && (module->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-		err = drgn_module_try_vmlinux_files(module, state);
+		err = drgn_module_try_vmlinux_files(module, options);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	} else if (module->kind == DRGN_MODULE_RELOCATABLE
 		   && (module->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-		err = drgn_module_try_linux_kmod_files(module, state);
+		err = drgn_module_try_linux_kmod_files(module, options, state);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	// Otherwise, if the module name looks like a path (i.e., it contains a
@@ -2323,8 +2305,9 @@ drgn_module_try_standard_files(struct drgn_module *module,
 	} else if (module->kind != DRGN_MODULE_VDSO
 		   && !tried_proc_symlink
 		   && strchr(module->name, '/')) {
-		err = drgn_module_try_standard_file(module, module->name, -1,
-						    true, NULL);
+		err = drgn_module_try_standard_file(module, options,
+						    module->name, -1, true,
+						    NULL);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	}
@@ -2333,14 +2316,14 @@ drgn_module_try_standard_files(struct drgn_module *module,
 	// file and gotten a build ID from it. Try to find the debug file by
 	// build ID now.
 	if (!had_build_id) {
-		err = drgn_module_try_files_by_build_id(module);
+		err = drgn_module_try_files_by_build_id(module, options);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	}
 
 	// We might have a loaded file with a .gnu_debuglink. Try to find the
 	// corresponding debug file.
-	return drgn_module_try_files_by_gnu_debuglink(module);
+	return drgn_module_try_files_by_gnu_debuglink(module, options);
 }
 
 static void
@@ -2354,11 +2337,24 @@ drgn_standard_module_file_find(struct drgn_module * const *modules,
 			       size_t num_modules, void *arg)
 {
 	struct drgn_error *err;
+	struct drgn_debug_info_options *options =
+		&modules[0]->prog->dbinfo.options;
+
+	if (drgn_log_is_enabled(modules[0]->prog, DRGN_LOG_DEBUG)) {
+		_cleanup_free_ char *options_str =
+			drgn_format_debug_info_options(options);
+		if (!options_str)
+			return &drgn_enomem;
+		drgn_log_debug(modules[0]->prog,
+			       "trying standard debug info finder with %s",
+			       options_str);
+	}
 
 	_cleanup_(drgn_module_standard_files_state_deinit)
 		struct drgn_module_standard_files_state state = {};
 	for (size_t i = 0; i < num_modules; i++) {
-		err = drgn_module_try_standard_files(modules[i], &state);
+		err = drgn_module_try_standard_files(modules[i], options,
+						     &state);
 		if (err)
 			return err;
 	}
@@ -5452,7 +5448,7 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 					"standard",
 					&standard_debug_info_finder_ops,
 					prog, 0);
-	dbinfo->debug_info_path = drgn_default_debug_info_path;
+	drgn_debug_info_options_init(&dbinfo->options);
 #if WITH_DEBUGINFOD
 	dbinfo->debuginfod_client = NULL;
 	if (drgn_have_debuginfod()) {
@@ -5474,8 +5470,7 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 void drgn_debug_info_deinit(struct drgn_debug_info *dbinfo)
 {
 	free(dbinfo->map_files_segments);
-	if (dbinfo->debug_info_path != drgn_default_debug_info_path)
-		free((char *)dbinfo->debug_info_path);
+	drgn_debug_info_options_deinit(&dbinfo->options);
 #if WITH_DEBUGINFOD
 	if (dbinfo->debuginfod_client)
 		drgn_debuginfod_end(dbinfo->debuginfod_client);

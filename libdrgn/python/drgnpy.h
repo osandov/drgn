@@ -199,6 +199,14 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_debug_info_options *options;
+	// If this is a Program's default debug info options, the Program.
+	// Otherwise, NULL.
+	Program *prog;
+} DebugInfoOptions;
+
+typedef struct {
+	PyObject_HEAD
 	struct drgn_thread thread;
 } Thread;
 
@@ -288,6 +296,7 @@ extern PyObject *SupplementaryFileKind_class;
 extern PyObject *SymbolBinding_class;
 extern PyObject *SymbolKind_class;
 extern PyObject *TypeKind_class;
+extern PyTypeObject DebugInfoOptions_type;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
 extern PyTypeObject ExtraModule_type;

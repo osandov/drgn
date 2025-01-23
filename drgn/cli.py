@@ -209,6 +209,20 @@ def _main() -> None:
         "which is assumed not to correspond to a loaded executable, library, or module. "
         "This option may be given more than once",
     )
+    symbol_group.add_argument(
+        "--debug-directory",
+        dest="debug_directories",
+        metavar="PATH",
+        type=str,
+        action="append",
+        help="search for debugging symbols by build ID and debug link in the given directory. "
+        "This option may be given more than once",
+    )
+    symbol_group.add_argument(
+        "--no-default-debug-directories",
+        action="store_true",
+        help="don't search for debugging symbols by build ID and debug link in the standard locations",
+    )
 
     advanced_group = parser.add_argument_group("advanced")
     advanced_group.add_argument(
@@ -308,6 +322,16 @@ def _main() -> None:
     except ValueError as e:
         # E.g., "not an ELF core file"
         sys.exit(f"error: {e}")
+
+    if args.debug_directories is not None:
+        if args.no_default_debug_directories:
+            prog.debug_info_options.directories = args.debug_directories
+        else:
+            prog.debug_info_options.directories = (
+                tuple(args.debug_directories) + prog.debug_info_options.directories
+            )
+    elif args.no_default_debug_directories:
+        prog.debug_info_options.directories = ()
 
     if args.default_symbols is None:
         args.default_symbols = {"default": True, "main": True}

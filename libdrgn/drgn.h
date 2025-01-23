@@ -1650,12 +1650,51 @@ drgn_program_enabled_debug_info_finders(struct drgn_program *prog,
 					const char ***names_ret,
 					size_t *count_ret);
 
-/** Colon-separated directories to search for debugging information files. */
-const char *drgn_program_debug_info_path(struct drgn_program *prog);
+/** Options for debugging information searches. */
+struct drgn_debug_info_options;
 
-/** Set the directories to search for debugging information files. */
-struct drgn_error *drgn_program_set_debug_info_path(struct drgn_program *prog,
-						    const char *path);
+/** Create a @ref drgn_debug_info_options with the default settings. */
+struct drgn_error *
+drgn_debug_info_options_create(struct drgn_debug_info_options **ret);
+
+/** Destroy a @ref drgn_debug_info_options. */
+void
+drgn_debug_info_options_destroy(struct drgn_debug_info_options *options);
+
+/** Set all options in @p dst to the same as @p src. */
+struct drgn_error *
+drgn_debug_info_options_copy(struct drgn_debug_info_options *dst,
+			     const struct drgn_debug_info_options *src);
+
+/**
+ * Get the list of directories to search for debugging information files.
+ *
+ * @return Null-terminated list of directories. Valid until @ref
+ * drgn_debug_info_options_set_directories() or @ref
+ * drgn_debug_info_options_destroy() is called on @p options.
+ */
+const char * const *
+drgn_debug_info_options_get_directories(const struct drgn_debug_info_options *options);
+
+/**
+ * Set the list of directories to search for debugging information files.
+ *
+ * @param[in] value Null-terminated list of directories. It is copied, so it
+ * need not remain valid after this function returns.
+ */
+struct drgn_error *
+drgn_debug_info_options_set_directories(struct drgn_debug_info_options *options,
+					const char * const *value)
+	__attribute__((__nonnull__(1, 2)));
+
+/**
+ * Get the default debugging information options for @p prog.
+ *
+ * @return Program options. May be modified as needed. Must not be passed to
+ * @ref drgn_debug_info_options_destroy().
+ */
+struct drgn_debug_info_options *
+drgn_program_debug_info_options(struct drgn_program *prog);
 
 /**
  * Try to use the given file for a module.

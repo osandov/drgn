@@ -576,7 +576,7 @@ class TestModuleTryFile(TestCase):
 class TestLinuxUserspaceCoreDump(TestCase):
     def setUp(self):
         self.prog = Program()
-        self.prog.debug_info_path = None
+        self.prog.debug_info_options.directories = ()
         self.prog.set_enabled_debug_info_finders(["standard"])
 
     def test_loaded_modules(self):
@@ -1735,7 +1735,7 @@ class TestLoadModuleDebugInfo(TestCase):
 class TestStandardDebugInfoFinder(TestCase):
     def setUp(self):
         self.prog = Program()
-        self.prog.debug_info_path = None
+        self.prog.debug_info_options.directories = ()
         self.prog.set_enabled_debug_info_finders(["standard"])
 
     def test_by_module_name(self):
@@ -1890,7 +1890,7 @@ class TestStandardDebugInfoFinder(TestCase):
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
             module.build_id = build_id
 
-            self.prog.debug_info_path = ":.debug:" + str(debug_dir)
+            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -1918,7 +1918,7 @@ class TestStandardDebugInfoFinder(TestCase):
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
             module.build_id = build_id
 
-            self.prog.debug_info_path = ":.debug:" + str(debug_dir)
+            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -1947,7 +1947,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
 
-            self.prog.debug_info_path = ":.debug:" + str(debug_dir)
+            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -1975,7 +1975,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            self.prog.debug_info_path = ":.debug:" + str(debug_dir)
+            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
             for i, debug_path in enumerate(
                 (
                     bin_dir / "binary.debug",
@@ -2062,7 +2062,7 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_path.write_bytes(debug_file_contents)
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
-            self.prog.debug_info_path = ""
+            self.prog.debug_info_options.directories = ("",)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.WANT)
 
@@ -2283,7 +2283,7 @@ class TestStandardDebugInfoFinder(TestCase):
             alt_path.parent.mkdir()
             alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id))
 
-            self.prog.debug_info_path = ":.debug:" + str(debug_dir)
+            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
             for i, debugaltlink in enumerate(
                 (
                     bin_dir / "debug/.dwz/alt.debug",

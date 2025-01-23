@@ -20,6 +20,7 @@
 
 #include "binary_search_tree.h"
 #include "cfi.h"
+#include "debug_info_options.h"
 #include "drgn_internal.h"
 #include "dwarf_info.h"
 #include "elf_symtab.h"
@@ -86,8 +87,7 @@ struct drgn_debug_info {
 
 	struct drgn_handler_list debug_info_finders;
 	struct drgn_debug_info_finder standard_debug_info_finder;
-	/** See @ref drgn_program_debug_info_path(). */
-	const char *debug_info_path;
+	struct drgn_debug_info_options options;
 	/**
 	 * Counter used to detect when loading debugging information is
 	 * attempted.
@@ -292,16 +292,10 @@ struct drgn_module_standard_files_state {
 
 // Always takes ownership of fd. Attempts to resolve the real path of path.
 struct drgn_error *
-drgn_module_try_standard_file(struct drgn_module *module, const char *path,
-			      int fd, bool check_build_id,
+drgn_module_try_standard_file(struct drgn_module *module,
+			      const struct drgn_debug_info_options *options,
+			      const char *path, int fd, bool check_build_id,
 			      const uint32_t *expected_crc);
-
-#define drgn_program_for_each_debug_dir(prog, debug_dir, debug_dir_len)		\
-	for (debug_dir = (prog)->dbinfo.debug_info_path;			\
-	     debug_dir								\
-	     && (debug_dir_len = strchrnul(debug_dir, ':') - debug_dir, 1);	\
-	     debug_dir = debug_dir[debug_dir_len] == '\0'			\
-			 ? NULL : debug_dir + debug_dir_len + 1)
 
 static inline bool drgn_module_wants_file(struct drgn_module *module)
 {

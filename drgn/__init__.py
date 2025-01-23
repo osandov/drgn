@@ -49,6 +49,7 @@ from typing import Union
 from _drgn import (
     NULL,
     Architecture,
+    DebugInfoOptions,
     ExtraModule,
     FaultError,
     FindObjectFlags,
@@ -115,6 +116,7 @@ from drgn.internal.version import __version__ as __version__  # noqa: F401
 
 __all__ = (
     "Architecture",
+    "DebugInfoOptions",
     "ExtraModule",
     "FaultError",
     "FindObjectFlags",
