@@ -1301,75 +1301,20 @@ static int Program_set_debug_info_path(Program *self, PyObject *value, void *arg
 	return 0;
 }
 
-DEFINE_VECTOR(path_arg_vector, struct path_arg);
-
-static void path_arg_vector_cleanup(struct path_arg_vector *path_args)
-{
-	vector_for_each(path_arg_vector, path_arg, path_args)
-		path_cleanup(path_arg);
-	path_arg_vector_deinit(path_args);
-}
-
 static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 					 PyObject *kwds)
 {
 	static char *keywords[] = {"paths", "default", "main", NULL};
 	struct drgn_error *err;
-	PyObject *paths_obj = Py_None;
+	PATH_SEQUENCE_ARG(paths, .allow_none = true);
 	int load_default = 0;
 	int load_main = 0;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|Opp:load_debug_info",
-					 keywords, &paths_obj, &load_default,
-					 &load_main))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&pp:load_debug_info",
+					 keywords, path_sequence_converter,
+					 &paths, &load_default, &load_main))
 		return NULL;
-
-	_cleanup_(path_arg_vector_cleanup)
-		struct path_arg_vector path_args = VECTOR_INIT;
-	_cleanup_free_ const char **paths = NULL;
-	if (paths_obj != Py_None) {
-		_cleanup_pydecref_ PyObject *it = PyObject_GetIter(paths_obj);
-		if (!it)
-			return NULL;
-
-		Py_ssize_t length_hint = PyObject_LengthHint(paths_obj, 1);
-		if (length_hint == -1)
-			return NULL;
-		if (!path_arg_vector_reserve(&path_args, length_hint)) {
-			PyErr_NoMemory();
-			return NULL;
-		}
-
-		for (;;) {
-			_cleanup_pydecref_ PyObject *item = PyIter_Next(it);
-			if (!item)
-				break;
-
-			struct path_arg *path_arg =
-				path_arg_vector_append_entry(&path_args);
-			if (!path_arg) {
-				PyErr_NoMemory();
-				return NULL;
-			}
-			memset(path_arg, 0, sizeof(*path_arg));
-			if (!path_converter(item, path_arg)) {
-				path_arg_vector_pop(&path_args);
-				return NULL;
-			}
-		}
-		if (PyErr_Occurred())
-			return NULL;
-
-		paths = malloc_array(path_arg_vector_size(&path_args),
-				     sizeof(*paths));
-		if (!paths) {
-			PyErr_NoMemory();
-			return NULL;
-		}
-		for (size_t i = 0; i < path_arg_vector_size(&path_args); i++)
-			paths[i] = path_arg_vector_at(&path_args, i)->path;
-	}
-	err = drgn_program_load_debug_info(&self->prog, paths,
-					   path_arg_vector_size(&path_args),
+	err = drgn_program_load_debug_info(&self->prog, paths.paths,
+					   path_sequence_size(&paths),
 					   load_default, load_main);
 	if (err) {
 		set_drgn_error(err);

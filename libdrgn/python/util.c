@@ -5,6 +5,7 @@
 #include <stdarg.h>
 
 #include "drgnpy.h"
+#include "../vector.h"
 
 int append_string(PyObject *parts, const char *s)
 {
@@ -160,6 +161,89 @@ void path_cleanup(struct path_arg *path)
 {
 	Py_CLEAR(path->bytes);
 	Py_CLEAR(path->object);
+}
+
+DEFINE_VECTOR_FUNCTIONS(path_arg_vector);
+
+int path_sequence_converter(PyObject *o, void *p)
+{
+	if (o == NULL) {
+		path_sequence_cleanup(p);
+		return 1;
+	}
+
+	struct path_sequence_arg *paths = p;
+
+	if (paths->allow_none && o == Py_None)
+		return 1;
+
+	_cleanup_pydecref_ PyObject *it = PyObject_GetIter(o);
+	if (!it)
+		return 0;
+
+	Py_ssize_t length_hint = PyObject_LengthHint(o, 1);
+	if (length_hint == -1)
+		return 0;
+	if (!path_arg_vector_reserve(&paths->args, length_hint)) {
+		PyErr_NoMemory();
+		return 0;
+	}
+
+	for (;;) {
+		_cleanup_pydecref_ PyObject *item = PyIter_Next(it);
+		if (!item)
+			break;
+
+		struct path_arg *path_arg =
+			path_arg_vector_append_entry(&paths->args);
+		if (!path_arg) {
+			PyErr_NoMemory();
+			return 0;
+		}
+		memset(path_arg, 0, sizeof(*path_arg));
+		if (!path_converter(item, path_arg)) {
+			path_arg_vector_pop(&paths->args);
+			return 0;
+		}
+	}
+	if (PyErr_Occurred())
+		return 0;
+
+	size_t n = path_arg_vector_size(&paths->args);
+	if (paths->null_terminate) {
+		if (n == SIZE_MAX) {
+			PyErr_NoMemory();
+			return 0;
+		}
+		n++;
+	}
+	paths->paths = malloc_array(n, sizeof(paths->paths[0]));
+	if (!paths->paths) {
+		PyErr_NoMemory();
+		return 0;
+	}
+
+	for (size_t i = 0; i < path_arg_vector_size(&paths->args); i++)
+		paths->paths[i] = path_arg_vector_at(&paths->args, i)->path;
+	if (paths->null_terminate)
+		paths->paths[path_arg_vector_size(&paths->args)] = NULL;
+
+	return Py_CLEANUP_SUPPORTED;
+}
+
+void path_sequence_cleanup(struct path_sequence_arg *paths)
+{
+	free(paths->paths);
+	paths->paths = NULL;
+	vector_for_each(path_arg_vector, path_arg, &paths->args)
+		path_cleanup(path_arg);
+	path_arg_vector_deinit(&paths->args);
+	path_arg_vector_init(&paths->args);
+}
+
+size_t path_sequence_size(struct path_sequence_arg *paths)
+{
+	return path_arg_vector_size(&paths->args);
 }
 
 int enum_converter(PyObject *o, void *p)

@@ -19,6 +19,7 @@
 #include "../pp.h"
 #include "../program.h"
 #include "../symbol.h"
+#include "../vector.h"
 
 /* These were added in Python 3.7. */
 #ifndef Py_UNREACHABLE
@@ -436,6 +437,22 @@ void path_cleanup(struct path_arg *path);
 #define PATH_ARG(name, ...)				\
 	__attribute__((__cleanup__(path_cleanup)))	\
 	struct path_arg name = { __VA_ARGS__ }
+
+DEFINE_VECTOR_TYPE(path_arg_vector, struct path_arg);
+
+struct path_sequence_arg {
+	bool allow_none;
+	bool null_terminate;
+	struct path_arg_vector args;
+	const char **paths;
+};
+int path_sequence_converter(PyObject *o, void *p);
+void path_sequence_cleanup(struct path_sequence_arg *paths);
+size_t path_sequence_size(struct path_sequence_arg *paths);
+
+#define PATH_SEQUENCE_ARG(name, ...)						\
+	__attribute__((__cleanup__(path_sequence_cleanup)))			\
+	struct path_sequence_arg name = { .args = VECTOR_INIT, __VA_ARGS__ }
 
 struct enum_arg {
 	PyObject *type;
