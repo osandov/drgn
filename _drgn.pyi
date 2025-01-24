@@ -1028,6 +1028,24 @@ class Program:
         :attr:`Module.loaded_file_status` and :attr:`Module.debug_file_status`.
         """
         ...
+
+    def find_standard_debug_info(
+        self, modules: Iterable[Module], options: Optional[DebugInfoOptions] = None
+    ) -> None:
+        """
+        Load debugging information for the given modules from the standard
+        locations.
+
+        This is equivalent to the ``standard`` debugging information finder
+        that is registered by default. It is intended for use by other
+        debugging information finders that need a variation of the standard
+        finder (e.g., after installing something or setting specific options).
+
+        :param modules: Modules to load debugging information for.
+        :param options: Options to use when searching for debugging
+            information. If ``None`` or not given, this uses
+            :attr:`self.debug_info_options <debug_info_options>`.
+        """
     cache: Dict[Any, Any]
     """
     Dictionary for caching program metadata.

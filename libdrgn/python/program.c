@@ -1332,8 +1332,6 @@ static PyObject *Program_load_default_debug_info(Program *self)
 	Py_RETURN_NONE;
 }
 
-DEFINE_VECTOR(drgn_module_vector, struct drgn_module *);
-
 static PyObject *Program_load_module_debug_info(Program *self, PyObject *args)
 {
 	size_t num_modules = PyTuple_GET_SIZE(args);
@@ -1361,6 +1359,73 @@ static PyObject *Program_load_module_debug_info(Program *self, PyObject *args)
 
 	struct drgn_error *err =
 		drgn_load_module_debug_info(modules, &num_modules);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+DEFINE_VECTOR(drgn_module_vector, struct drgn_module *);
+
+static PyObject *Program_find_standard_debug_info(Program *self, PyObject *args,
+						  PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"modules", "options", NULL};
+	PyObject *modules_obj;
+	PyObject *options_obj = Py_None;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O|O:find_standard_debug_info",
+					 keywords, &modules_obj, &options_obj))
+	    return NULL;
+
+	_cleanup_pydecref_ PyObject *it = PyObject_GetIter(modules_obj);
+	if (!it)
+		return NULL;
+
+	Py_ssize_t length_hint = PyObject_LengthHint(modules_obj, 1);
+	if (length_hint == -1)
+		return 0;
+
+	VECTOR(drgn_module_vector, modules);
+	if (!drgn_module_vector_reserve(&modules, length_hint))
+		return PyErr_NoMemory();
+
+	for (;;) {
+		_cleanup_pydecref_ PyObject *item = PyIter_Next(it);
+		if (!item)
+			break;
+
+		if (!PyObject_TypeCheck(item, &Module_type)) {
+			return PyErr_Format(PyExc_TypeError,
+					    "expected Module, not %s",
+					    Py_TYPE(item)->tp_name);
+		}
+		struct drgn_module *module = ((Module *)item)->module;
+		if (module->prog != &self->prog) {
+			PyErr_SetString(PyExc_ValueError,
+					"module from wrong program");
+			return NULL;
+		}
+		if (!drgn_module_vector_append(&modules, &module))
+			return PyErr_NoMemory();
+	}
+	if (PyErr_Occurred())
+		return NULL;
+
+	struct drgn_debug_info_options *options;
+	if (options_obj == Py_None) {
+		options = NULL;
+	} else if (PyObject_TypeCheck(options_obj, &DebugInfoOptions_type)) {
+		options = ((DebugInfoOptions *)options_obj)->options;
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+				"options must be DebugInfoOptions or None");
+		return NULL;
+	}
+
+	err = drgn_find_standard_debug_info(drgn_module_vector_begin(&modules),
+					    drgn_module_vector_size(&modules),
+					    options);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -1915,6 +1980,10 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_load_default_debug_info_DOC},
 	{"load_module_debug_info", (PyCFunction)Program_load_module_debug_info,
 	 METH_VARARGS, drgn_Program_load_module_debug_info_DOC},
+	{"find_standard_debug_info",
+	 (PyCFunction)Program_find_standard_debug_info,
+	 METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_find_standard_debug_info_DOC},
 	{"__getitem__", (PyCFunction)Program_subscript, METH_O | METH_COEXIST,
 	 drgn_Program___getitem___DOC},
 	{"__contains__", (PyCFunction)Program_contains, METH_O | METH_COEXIST,

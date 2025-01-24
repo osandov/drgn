@@ -19,6 +19,7 @@ import unittest.mock
 
 from _drgn_util.elf import ET, PT, SHF, SHT
 from drgn import (
+    DebugInfoOptions,
     MainModule,
     MissingDebugInfoError,
     ModuleFileStatus,
@@ -1953,6 +1954,32 @@ class TestStandardDebugInfoFinder(TestCase):
             self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.loaded_file_path, str(loadable_path))
             self.assertEqual(module.debug_file_path, str(debug_path))
+
+    def test_by_build_id_method(self):
+        build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
+
+        with tempfile.TemporaryDirectory(
+            prefix="bin-"
+        ) as bin_dir, tempfile.TemporaryDirectory(prefix="debug-") as debug_dir:
+            bin_dir = Path(bin_dir)
+            debug_dir = Path(debug_dir)
+
+            build_id_dir = debug_dir / ".build-id" / build_id.hex()[:2]
+            build_id_dir.mkdir(parents=True)
+            binary_path = build_id_dir / build_id.hex()[2:]
+            binary_path.write_bytes(compile_dwarf((), sections=(ALLOCATED_SECTION,)))
+
+            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module.build_id = build_id
+
+            self.prog.find_standard_debug_info(
+                [module],
+                options=DebugInfoOptions(directories=("", ".debug", str(debug_dir))),
+            )
+            self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
+            self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
+            self.assertEqual(module.loaded_file_path, str(binary_path))
+            self.assertEqual(module.debug_file_path, str(binary_path))
 
     def test_by_gnu_debuglink(self):
         with tempfile.TemporaryDirectory(

@@ -1697,6 +1697,17 @@ struct drgn_debug_info_options *
 drgn_program_debug_info_options(struct drgn_program *prog);
 
 /**
+ * Load debugging information for the given modules from the standard locations.
+ *
+ * @param[in] options Options to use, or @p NULL to use the program's default
+ * options.
+ */
+struct drgn_error *
+drgn_find_standard_debug_info(struct drgn_module * const *modules,
+			      size_t num_modules,
+			      struct drgn_debug_info_options *options);
+
+/**
  * Try to use the given file for a module.
  *
  * @param[in] path Path to file.

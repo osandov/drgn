@@ -121,10 +121,11 @@ an example for getting debugging symbols on Fedora Linux using DNF:
             + sorted(packages)
         )
 
-        # Leave the rest to the standard debug info finder.
+        # Now that it's installed, try the standard locations.
+        modules[0].prog.find_standard_debug_info(modules)
 
 
-    prog.register_debug_info_finder("dnf", dnf_debug_info_finder, enable_index=0)
+    prog.register_debug_info_finder("dnf", dnf_debug_info_finder, enable_index=-1)
 
 Currently, debug info finders must be configured explicitly by the user. In the
 future, there will be a plugin system for doing so automatically.

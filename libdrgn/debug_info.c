@@ -2219,6 +2219,11 @@ drgn_module_try_standard_files(struct drgn_module *module,
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
 
+	// This can't happen when called from the standard debug info finder,
+	// but it can from drgn_find_standard_debug_info().
+	if (!drgn_module_wants_file(module))
+		return NULL;
+
 	drgn_module_try_files_log(module, "trying standard paths for");
 
 	// If we need a supplementary file, try that first.
@@ -2333,12 +2338,11 @@ drgn_module_standard_files_state_deinit(struct drgn_module_standard_files_state 
 }
 
 static struct drgn_error *
-drgn_standard_module_file_find(struct drgn_module * const *modules,
-			       size_t num_modules, void *arg)
+drgn_standard_debug_info_find(struct drgn_module * const *modules,
+			      size_t num_modules, void *arg)
 {
 	struct drgn_error *err;
-	struct drgn_debug_info_options *options =
-		&modules[0]->prog->dbinfo.options;
+	struct drgn_debug_info_options *options = arg;
 
 	if (drgn_log_is_enabled(modules[0]->prog, DRGN_LOG_DEBUG)) {
 		_cleanup_free_ char *options_str =
@@ -2346,7 +2350,9 @@ drgn_standard_module_file_find(struct drgn_module * const *modules,
 		if (!options_str)
 			return &drgn_enomem;
 		drgn_log_debug(modules[0]->prog,
-			       "trying standard debug info finder with %s",
+			       "trying standard debug info finder with %s%s",
+			       options == &modules[0]->prog->dbinfo.options
+			       ? "" : "given ",
 			       options_str);
 	}
 
@@ -2359,6 +2365,27 @@ drgn_standard_module_file_find(struct drgn_module * const *modules,
 			return err;
 	}
 	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_find_standard_debug_info(struct drgn_module * const *modules,
+			      size_t num_modules,
+			      struct drgn_debug_info_options *options)
+{
+	if (num_modules == 0)
+		return NULL;
+
+	struct drgn_program *prog = modules[0]->prog;
+	for (size_t i = 0; i < num_modules; i++) {
+		if (modules[i]->prog != prog) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "modules are from different programs");
+		}
+	}
+
+	if (!options)
+		options = &modules[0]->prog->dbinfo.options;
+	return drgn_standard_debug_info_find(modules, num_modules, options);
 }
 
 #if WITH_DEBUGINFOD
@@ -5441,13 +5468,13 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 						 prog, 0);
 	const struct drgn_debug_info_finder_ops
 		standard_debug_info_finder_ops = {
-			.find = drgn_standard_module_file_find,
+			.find = drgn_standard_debug_info_find,
 		};
 	drgn_program_register_debug_info_finder_impl(prog,
 					&dbinfo->standard_debug_info_finder,
 					"standard",
 					&standard_debug_info_finder_ops,
-					prog, 0);
+					&dbinfo->options, 0);
 	drgn_debug_info_options_init(&dbinfo->options);
 #if WITH_DEBUGINFOD
 	dbinfo->debuginfod_client = NULL;
