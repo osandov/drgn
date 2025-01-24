@@ -1687,6 +1687,73 @@ drgn_debug_info_options_set_directories(struct drgn_debug_info_options *options,
 					const char * const *value)
 	__attribute__((__nonnull__(1, 2)));
 
+/** Get whether to try module names that look like filesystem paths. */
+bool
+drgn_debug_info_options_get_try_module_name(const struct drgn_debug_info_options *options);
+
+/** Set whether to try module names that look like filesystem paths. */
+void
+drgn_debug_info_options_set_try_module_name(struct drgn_debug_info_options *options,
+					    bool value);
+
+/** Get whether to try files by build ID. */
+bool
+drgn_debug_info_options_get_try_build_id(const struct drgn_debug_info_options *options);
+
+/** Set whether to try files by build ID. */
+void
+drgn_debug_info_options_set_try_build_id(struct drgn_debug_info_options *options,
+					 bool value);
+
+/** Get whether to try files by debug link. */
+bool
+drgn_debug_info_options_get_try_debug_link(const struct drgn_debug_info_options *options);
+
+/** Set whether to try files by debug link. */
+void
+drgn_debug_info_options_set_try_debug_link(struct drgn_debug_info_options *options,
+					   bool value);
+
+/** Get whether to try files via procfs for local processes. */
+bool
+drgn_debug_info_options_get_try_procfs(const struct drgn_debug_info_options *options);
+
+/** Set whether to try files via procfs for local processes. */
+void
+drgn_debug_info_options_set_try_procfs(struct drgn_debug_info_options *options,
+				       bool value);
+
+/** Get whether to try the vDSO embedded in a process's memory/core dump. */
+bool
+drgn_debug_info_options_get_try_embedded_vdso(const struct drgn_debug_info_options *options);
+
+/** Set whether to try the vDSO embedded in a process's memory/core dump. */
+void
+drgn_debug_info_options_set_try_embedded_vdso(struct drgn_debug_info_options *options,
+					      bool value);
+
+/**
+ * Get whether to reuse a module's loaded file as its debug file or vice versa.
+ */
+bool
+drgn_debug_info_options_get_try_reuse(const struct drgn_debug_info_options *options);
+
+/**
+ * Set whether to reuse a module's loaded file as its debug file or vice versa.
+ */
+void
+drgn_debug_info_options_set_try_reuse(struct drgn_debug_info_options *options,
+				      bool value);
+
+/** Get whether to try finding supplementary files. */
+bool
+drgn_debug_info_options_get_try_supplementary(const struct drgn_debug_info_options *options);
+
+/** Set whether to try finding supplementary files. */
+void
+drgn_debug_info_options_set_try_supplementary(struct drgn_debug_info_options *options,
+					      bool value);
+
 /**
  * Get the default debugging information options for @p prog.
  *

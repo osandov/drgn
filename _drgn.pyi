@@ -1407,6 +1407,13 @@ class DebugInfoOptions:
         __options: Optional[DebugInfoOptions] = None,
         *,
         directories: Iterable[Path] = ...,
+        try_module_name: bool = ...,
+        try_build_id: bool = ...,
+        try_debug_link: bool = ...,
+        try_procfs: bool = ...,
+        try_embedded_vdso: bool = ...,
+        try_reuse: bool = ...,
+        try_supplementary: bool = ...,
     ) -> None:
         """
         Create a ``DebugInfoOptions``.
@@ -1421,26 +1428,77 @@ class DebugInfoOptions:
     """
     Directories to search for debugging information files.
 
-    The standard debugging information finder supports searching for files by
-    *build ID* (a unique byte string present in both the :ref:`loaded file
-    <module-loaded-file>` and the :ref:`debug file <module-debug-file>`) and by
-    *debug link* (a name and checksum in the loaded file that refers to the
-    debug file).
+    Defaults to ``("", ".debug", "/usr/lib/debug")``, which should work out of
+    the box on most Linux distributions.
 
-    This option contains the directories that the standard debugging
-    information finder searches.
+    This controls searches by build ID (see :attr:`try_build_id`) and debug
+    link (see :attr:`try_debug_link`).
+    """
+    try_module_name: bool
+    """
+    If the name of a module resembles a filesystem path, try the file at that
+    path.
 
-    Searches by build ID ignore relative paths. They check under each absolute
-    path for a file named ``.build-id/xx/yyyy`` (for loaded files) or
+    Defaults to ``True``.
+    """
+    try_build_id: bool
+    """
+    Try finding files using build IDs.
+
+    Defaults to ``True``.
+
+    A *build ID* is a unique byte string present in a module's :ref:`loaded
+    file <module-loaded-file>` and :ref:`debug file <module-debug-file>`. If
+    configured correctly, it is also present in core dumps and provides a
+    reliable way to identify the correct files for a module.
+
+    Searches by build ID check under each absolute path in :attr:`directories`
+    for a file named ``.build-id/xx/yyyy`` (for loaded files) or
     ``.build-id/xx/yyyy.debug`` (for debug files), where ``xxyyyy`` is the
     lowercase hexadecimal representation of the build ID.
+    """
+    try_debug_link: bool
+    """
+    Try finding files using debug links.
 
-    Searches by debug link check every path for a file with the name given by
-    the debug link. Relative paths are relative to the directory containing the
-    loaded file. An empty path means the directory containing the loaded file.
+    Defaults to ``True``.
 
-    The default is ``("", ".debug", "/usr/lib/debug")``, which should work out
-    of the box on most Linux distributions.
+    A *debug link* is a pointer in a module's :ref:`loaded file
+    <module-loaded-file>` to its :ref:`debug file <module-debug-file>`. It
+    consists of a name and a checksum.
+
+    Searches by debug link check every path in :attr:`directories` for a file
+    with a matching name and checksum. Relative paths in :attr:`directories`
+    are relative to the directory containing the loaded file. An empty path in
+    :attr:`directories` means the directory containing the loaded file.
+    """
+    try_procfs: bool
+    """
+    For local processes, try getting files via the ``proc`` filesystem (e.g.,
+    :manpage:`proc_pid_exe(5)`, :manpage:`proc_pid_map_files(5)`).
+
+    Defaults to ``True``.
+    """
+    try_embedded_vdso: bool
+    """
+    Try reading the vDSO embedded in a process's memory/core dump.
+
+    Defaults to ``True``.
+
+    The entire (stripped) vDSO is included in core dumps, so this is a reliable
+    way to get it.
+    """
+    try_reuse: bool
+    """
+    Try reusing a module's loaded file as its debug file and vice versa.
+
+    Defaults to ``True``.
+    """
+    try_supplementary: bool
+    """
+    Try finding :ref:`supplementary files <module-supplementary-debug-file>`.
+
+    Defaults to ``True``.
     """
 
 def get_default_prog() -> Program:

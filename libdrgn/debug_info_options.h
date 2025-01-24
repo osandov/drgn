@@ -8,7 +8,14 @@
 
 // X macro expanding to all debug info options.
 #define DRGN_DEBUG_INFO_OPTIONS				\
-	LIST_OPTION(directories)
+	LIST_OPTION(directories)			\
+	BOOL_OPTION(try_module_name, true)		\
+	BOOL_OPTION(try_build_id, true)			\
+	BOOL_OPTION(try_debug_link, true)		\
+	BOOL_OPTION(try_procfs, true)			\
+	BOOL_OPTION(try_embedded_vdso, true)		\
+	BOOL_OPTION(try_reuse, true)			\
+	BOOL_OPTION(try_supplementary, true)
 
 struct drgn_debug_info_options {
 #define LIST_OPTION(name) const char * const *name;

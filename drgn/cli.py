@@ -14,7 +14,7 @@ import pkgutil
 import runpy
 import shutil
 import sys
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import drgn
 from drgn.internal.repl import interact, readline
@@ -146,6 +146,55 @@ def _displayhook(value: Any) -> None:
     setattr(builtins, "_", value)
 
 
+class _DebugInfoOptionAction(argparse.Action):
+    _choices: Dict[str, Tuple[str, Any]]
+
+    @staticmethod
+    def _bool_options(value: bool) -> Dict[str, Tuple[str, bool]]:
+        return {
+            option: ("try_" + option.replace("-", "_"), value)
+            for option in (
+                "module-name",
+                "build-id",
+                "debug-link",
+                "procfs",
+                "embedded-vdso",
+                "reuse",
+                "supplementary",
+            )
+        }
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: Optional[str] = None,
+    ) -> None:
+        dest = getattr(namespace, self.dest, None)
+        if dest is None:
+            dest = {}
+            setattr(namespace, self.dest, dest)
+
+        for option in values.split(","):
+            try:
+                name, value = self._choices[option]
+            except KeyError:
+                raise argparse.ArgumentError(
+                    self,
+                    f"invalid option: {option!r} (choose from {', '.join(self._choices)})",
+                )
+            dest[name] = value
+
+
+class _TryDebugInfoOptionAction(_DebugInfoOptionAction):
+    _choices = _DebugInfoOptionAction._bool_options(True)
+
+
+class _NoDebugInfoOptionAction(_DebugInfoOptionAction):
+    _choices = _DebugInfoOptionAction._bool_options(False)
+
+
 def _main() -> None:
     handler = logging.StreamHandler()
     color = hasattr(sys.stderr, "fileno") and os.isatty(sys.stderr.fileno())
@@ -207,6 +256,24 @@ def _main() -> None:
         action="append",
         help="load additional debugging symbols from the given file, "
         "which is assumed not to correspond to a loaded executable, library, or module. "
+        "This option may be given more than once",
+    )
+    symbol_group.add_argument(
+        "--try-symbols-by",
+        dest="symbols_by",
+        metavar="METHOD[,METHOD...]",
+        action=_TryDebugInfoOptionAction,
+        help="enable loading debugging symbols using the given methods. "
+        "Choices are " + ", ".join(_TryDebugInfoOptionAction._choices) + ". "
+        "This option may be given more than once",
+    )
+    symbol_group.add_argument(
+        "--no-symbols-by",
+        dest="symbols_by",
+        metavar="METHOD[,METHOD...]",
+        action=_NoDebugInfoOptionAction,
+        help="disable loading debugging symbols using the given methods. "
+        "Choices are " + ", ".join(_NoDebugInfoOptionAction._choices) + ". "
         "This option may be given more than once",
     )
     symbol_group.add_argument(
@@ -322,6 +389,10 @@ def _main() -> None:
     except ValueError as e:
         # E.g., "not an ELF core file"
         sys.exit(f"error: {e}")
+
+    if args.symbols_by:
+        for option, value in args.symbols_by.items():
+            setattr(prog.debug_info_options, option, value)
 
     if args.debug_directories is not None:
         if args.no_default_debug_directories:

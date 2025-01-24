@@ -30,6 +30,22 @@ class TestDebugInfoOptions(TestCase):
         with self.assertRaises(TypeError):
             DebugInfoOptions().directories = None
 
+    def test_bool_default(self):
+        self.assertIs(DebugInfoOptions().try_build_id, True)
+
+    def test_bool_init(self):
+        self.assertIs(DebugInfoOptions(try_build_id=False).try_build_id, False)
+
+    def test_bool_copy(self):
+        self.assertIs(
+            DebugInfoOptions(DebugInfoOptions(try_build_id=False)).try_build_id, False
+        )
+
+    def test_bool_set(self):
+        options = DebugInfoOptions()
+        options.try_build_id = False
+        self.assertIs(options.try_build_id, False)
+
     def test_del(self):
         with self.assertRaises(AttributeError):
             del DebugInfoOptions().directories

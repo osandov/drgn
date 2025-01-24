@@ -1678,10 +1678,14 @@ static const uint64_t MAX_MEMORY_READ_FOR_DEBUG_INFO = UINT64_C(1048576);
 })
 
 static struct drgn_error *
-drgn_module_try_vdso_in_core(struct drgn_module *module)
+drgn_module_try_vdso_in_core(struct drgn_module *module,
+			     const struct drgn_debug_info_options *options)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
+
+	if (!options->try_embedded_vdso)
+		return NULL;
 
 	// The Linux kernel has included the entire vDSO in core dumps since
 	// Linux kernel commit f47aef55d9a1 ("[PATCH] i386 vDSO: use
@@ -1776,6 +1780,9 @@ drgn_module_try_standard_supplementary_files(struct drgn_module *module,
 					     const struct drgn_debug_info_options *options)
 {
 	struct drgn_error *err;
+
+	if (!options->try_supplementary)
+		return NULL;
 
 	const char *debug_file_path;
 	const char *debugaltlink_path;
@@ -2047,6 +2054,9 @@ static struct drgn_error *drgn_module_try_proc_files(struct drgn_module *module,
 {
 	struct drgn_program *prog = module->prog;
 
+	if (!options->try_procfs)
+		return NULL;
+
 	*tried = false;
 	if (module->kind == DRGN_MODULE_MAIN) {
 #define FORMAT "/proc/%ld/exe"
@@ -2077,6 +2087,9 @@ drgn_module_try_files_by_build_id(struct drgn_module *module,
 				  const struct drgn_debug_info_options *options)
 {
 	struct drgn_error *err;
+
+	if (!options->try_build_id)
+		return NULL;
 
 	size_t build_id_len;
 	const char *build_id_str =
@@ -2125,6 +2138,9 @@ drgn_module_try_files_by_gnu_debuglink(struct drgn_module *module,
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
+
+	if (!options->try_debug_link)
+		return NULL;
 
 	struct drgn_elf_file *file = module->loaded_file;
 	if (!file || !file->scns[DRGN_SCN_GNU_DEBUGLINK])
@@ -2233,7 +2249,8 @@ drgn_module_try_standard_files(struct drgn_module *module,
 
 	// If a previous attempt used a loadable file with debug info but didn't
 	// want both, we might be able to reuse it.
-	if (module->loaded_file_status == DRGN_MODULE_FILE_WANT) {
+	if (options->try_reuse
+	    && module->loaded_file_status == DRGN_MODULE_FILE_WANT) {
 		struct drgn_elf_file *reuse_file = NULL;
 		if (module->debug_file && module->debug_file->is_loadable)
 			reuse_file = module->debug_file;
@@ -2250,7 +2267,8 @@ drgn_module_try_standard_files(struct drgn_module *module,
 				return err;
 		}
 	}
-	if (module->debug_file_status == DRGN_MODULE_FILE_WANT
+	if (options->try_reuse
+	    && module->debug_file_status == DRGN_MODULE_FILE_WANT
 	    && module->loaded_file
 	    && drgn_elf_file_has_dwarf(module->loaded_file)) {
 		drgn_log_debug(prog,
@@ -2268,7 +2286,7 @@ drgn_module_try_standard_files(struct drgn_module *module,
 	// symlink in /proc.
 	bool tried_proc_symlink = false;
 	if (module->kind == DRGN_MODULE_VDSO) {
-		err = drgn_module_try_vdso_in_core(module);
+		err = drgn_module_try_vdso_in_core(module, options);
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	} else if (drgn_program_is_userspace_process(prog)) {
@@ -2308,6 +2326,7 @@ drgn_module_try_standard_files(struct drgn_module *module,
 	// /proc symlink, then we already tried the file that the path is
 	// supposed to refer to, so don't try again.
 	} else if (module->kind != DRGN_MODULE_VDSO
+		   && options->try_module_name
 		   && !tried_proc_symlink
 		   && strchr(module->name, '/')) {
 		err = drgn_module_try_standard_file(module, options,

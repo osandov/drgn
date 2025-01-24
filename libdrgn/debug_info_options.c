@@ -233,7 +233,6 @@ static bool drgn_format_debug_info_options_list(struct string_builder *sb,
 	return string_builder_append(sb, i == 1 ? ",)" : ")");
 }
 
-__attribute__((__unused__))
 static bool drgn_format_debug_info_options_bool(struct string_builder *sb,
 						const char *name, bool *first,
 						bool value, bool default_value)
