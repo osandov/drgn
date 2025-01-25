@@ -290,6 +290,20 @@ def _main() -> None:
         action="store_true",
         help="don't search for debugging symbols by build ID and debug link in the standard locations",
     )
+    symbol_group.add_argument(
+        "--kernel-directory",
+        dest="kernel_directories",
+        metavar="PATH",
+        type=str,
+        action="append",
+        help="search for the kernel image and loadable kernel modules in the given directory. "
+        "This option may be given more than once",
+    )
+    symbol_group.add_argument(
+        "--no-default-kernel-directories",
+        action="store_true",
+        help="don't search for the kernel image and loadable kernel modules in the standard locations",
+    )
 
     advanced_group = parser.add_argument_group("advanced")
     advanced_group.add_argument(
@@ -403,6 +417,17 @@ def _main() -> None:
             )
     elif args.no_default_debug_directories:
         prog.debug_info_options.directories = ()
+
+    if args.kernel_directories is not None:
+        if args.no_default_kernel_directories:
+            prog.debug_info_options.kernel_directories = args.kernel_directories
+        else:
+            prog.debug_info_options.kernel_directories = (
+                tuple(args.kernel_directories)
+                + prog.debug_info_options.kernel_directories
+            )
+    elif args.no_default_kernel_directories:
+        prog.debug_info_options.kernel_directories = ()
 
     if args.default_symbols is None:
         args.default_symbols = {"default": True, "main": True}

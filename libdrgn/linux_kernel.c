@@ -468,54 +468,32 @@ static struct drgn_error *depmod_index_validate(struct depmod_index *depmod)
 	return NULL;
 }
 
-__attribute__((__format__(__printf__, 2, 3)))
 static struct drgn_error *depmod_index_init(struct depmod_index *depmod,
-					    const char *path_format,
-					    ...)
+					    char *_path, int fd)
 {
 	struct drgn_error *err;
-
-	va_list ap;
-	va_start(ap, path_format);
-	int r = vasprintf(&depmod->path, path_format, ap);
-	va_end(ap);
-	if (r < 0)
-		return &drgn_enomem;
-
-	int fd = open(depmod->path, O_RDONLY);
-	if (fd == -1) {
-		err = drgn_error_create_os("open", errno, depmod->path);
-		goto out_path;
-	}
+	_cleanup_free_ char *path = _path; // Take ownership of path.
 
 	struct stat st;
-	if (fstat(fd, &st) == -1) {
-		err = drgn_error_create_os("fstat", errno, depmod->path);
-		goto out_fd;
-	}
+	if (fstat(fd, &st) == -1)
+		return drgn_error_create_os("fstat", errno, path);
 
-	if (st.st_size > SIZE_MAX) {
-		err = &drgn_enomem;
-		goto out_fd;
-	}
+	if (st.st_size > SIZE_MAX)
+		return &drgn_enomem;
 
 	void *addr = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-	if (addr == MAP_FAILED) {
-		err = drgn_error_create_os("mmap", errno, depmod->path);
-		goto out_fd;
-	}
+	if (addr == MAP_FAILED)
+		return drgn_error_create_os("mmap", errno, path);
 
+	depmod->path = no_cleanup_ptr(path);
 	depmod->addr = addr;
 	depmod->len = st.st_size;
-
 	err = depmod_index_validate(depmod);
-	if (err)
+	if (err) {
 		depmod_index_deinit(depmod);
-out_fd:
-	close(fd);
-out_path:
-	if (err)
-		free(depmod->path);
+		depmod->path = NULL;
+		depmod->len = 0;
+	}
 	return err;
 }
 
@@ -620,14 +598,12 @@ not_found:
 	return NULL;
 }
 
-struct drgn_error *
-drgn_module_try_vmlinux_files(struct drgn_module *module,
-			      const struct drgn_debug_info_options *options)
+static struct drgn_error *
+drgn_module_try_vmlinux_in_debug_directories(struct drgn_module *module,
+					     const struct drgn_debug_info_options *options,
+					     struct string_builder *sb)
 {
 	struct drgn_error *err;
-	struct drgn_program *prog = module->prog;
-	const char *osrelease = prog->vmcoreinfo.osrelease;
-
 	// Paths relative to the debug directory where vmlinux might be
 	// installed.
 	static const char * const debug_dir_paths[] = {
@@ -638,14 +614,58 @@ drgn_module_try_vmlinux_files(struct drgn_module *module,
 		// SUSE:
 		"/lib/modules/%s/vmlinux.debug",
 	};
-	STRING_BUILDER(sb);
 	for (size_t i = 0; options->directories[i]; i++) {
 		const char *debug_dir = options->directories[i];
 		if (debug_dir[0] != '/')
 			continue;
+		sb->len = 0;
+		if (!string_builder_append(sb, debug_dir))
+			return &drgn_enomem;
+		size_t debug_dir_len = sb->len;
 		array_for_each(format, debug_dir_paths) {
-			if (!string_builder_append(&sb, debug_dir)
-			    || !string_builder_appendf(&sb, *format, osrelease)
+			sb->len = debug_dir_len;
+			if (!string_builder_appendf(sb, *format,
+						    module->prog->vmcoreinfo.osrelease)
+			    || !string_builder_null_terminate(sb))
+				return &drgn_enomem;
+			err = drgn_module_try_standard_file(module, options,
+							    sb->str, -1, true,
+							    NULL);
+			if (err || !drgn_module_wants_file(module))
+				return err;
+		}
+	}
+	return NULL;
+}
+
+struct drgn_error *
+drgn_module_try_vmlinux_files(struct drgn_module *module,
+			      const struct drgn_debug_info_options *options)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = module->prog;
+
+	const char *osrelease = prog->vmcoreinfo.osrelease;
+	STRING_BUILDER(sb);
+	for (size_t i = 0; options->kernel_directories[i]; i++) {
+		const char *kernel_dir = options->kernel_directories[i];
+
+		if (kernel_dir[0]) {
+			sb.len = 0;
+			if (!string_builder_append(&sb, kernel_dir))
+				return &drgn_enomem;
+		} else {
+			// Empty path. Try under the debug directories first.
+			err = drgn_module_try_vmlinux_in_debug_directories(module,
+									   options,
+									   &sb);
+			if (err || !drgn_module_wants_file(module))
+				return err;
+
+			// Try /boot/vmlinux-$osrelease.
+			sb.len = 0;
+			if (!string_builder_append(&sb, "/boot/vmlinux-")
+			    || !string_builder_append(&sb, osrelease)
 			    || !string_builder_null_terminate(&sb))
 				return &drgn_enomem;
 			err = drgn_module_try_standard_file(module, options,
@@ -653,25 +673,128 @@ drgn_module_try_vmlinux_files(struct drgn_module *module,
 							    NULL);
 			if (err || !drgn_module_wants_file(module))
 				return err;
+
+			// Try /lib/modules/$osrelease as the kernel directory.
 			sb.len = 0;
+			if (!string_builder_append(&sb, "/lib/modules/")
+			    || !string_builder_append(&sb, osrelease))
+				return &drgn_enomem;
+		}
+
+		// Paths relative to the kernel directory where vmlinux might be
+		// installed.
+		static const char * const kernel_dir_paths[] = {
+			"/build/vmlinux",
+			"/vmlinux",
+		};
+		size_t kernel_dir_len = sb.len;
+		array_for_each(path, kernel_dir_paths) {
+			if (!string_builder_append(&sb, *path)
+			    || !string_builder_null_terminate(&sb))
+				return &drgn_enomem;
+			err = drgn_module_try_standard_file(module, options,
+							    sb.str, -1, true,
+							    NULL);
+			if (err || !drgn_module_wants_file(module))
+				return err;
+			sb.len = kernel_dir_len;
 		}
 	}
 
-	// Absolute paths where vmlinux might be installed.
-	static const char * const paths[] = {
-		"/boot/vmlinux-%s",
-		"/lib/modules/%s/build/vmlinux",
-		"/lib/modules/%s/vmlinux",
-	};
-	array_for_each(format, paths) {
-		if (!string_builder_appendf(&sb, *format, osrelease)
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_open_modules_dep(struct drgn_program *prog,
+		      const struct drgn_debug_info_options *options,
+		      struct depmod_index *modules_dep)
+{
+	struct drgn_error *err;
+
+	if (modules_dep->addr)
+		return NULL;
+
+	STRING_BUILDER(sb);
+	_cleanup_close_ int fd = -1;
+	for (size_t i = 0; options->kernel_directories[i]; i++) {
+		const char *kernel_dir = options->kernel_directories[i];
+
+		sb.len = 0;
+		if (kernel_dir[0]) {
+			if (!string_builder_append(&sb, kernel_dir))
+				return &drgn_enomem;
+		} else {
+			// Empty path. Try /lib/modules/$osrelease.
+			if (!string_builder_append(&sb, "/lib/modules/")
+			    || !string_builder_append(&sb,
+						      prog->vmcoreinfo.osrelease))
+				return &drgn_enomem;
+		}
+		if (!string_builder_append(&sb, "/modules.dep.bin")
 		    || !string_builder_null_terminate(&sb))
 			return &drgn_enomem;
-		err = drgn_module_try_standard_file(module, options, sb.str, -1,
-						    true, NULL);
+		fd = open(sb.str, O_RDONLY);
+		if (fd >= 0)
+			break;
+		drgn_log_debug(prog, "%s: %m", sb.str);
+	}
+	if (fd < 0) {
+		drgn_log_debug(prog, "couldn't find depmod index");
+fail:
+		// Set addr so that we don't try again.
+		modules_dep->addr = MAP_FAILED;
+		return NULL;
+	}
+
+	err = depmod_index_init(modules_dep, string_builder_steal(&sb), fd);
+	if (err) {
+		if (drgn_error_is_fatal(err))
+			return err;
+		drgn_error_log_warning(prog, err,
+				       "couldn't open depmod index: ");
+		drgn_error_destroy(err);
+		goto fail;
+	}
+	drgn_log_debug(prog, "found depmod index %s", modules_dep->path);
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_module_try_depmod_in_debug_directories(struct drgn_module *module,
+					    const struct drgn_debug_info_options *options,
+					    struct string_builder *sb,
+					    const char *depmod_path, size_t ko_len)
+{
+	struct drgn_error *err;
+	for (size_t i = 0; options->directories[i]; i++) {
+		const char *debug_dir = options->directories[i];
+		if (debug_dir[0] != '/')
+			continue;
+		sb->len = 0;
+		// Debian, Ubuntu:
+		// $debug_dir/lib/modules/$(uname -r)/$ko_name
+		if (!string_builder_append(sb, debug_dir)
+		    || !string_builder_append(sb, "/lib/modules/")
+		    || !string_builder_append(sb,
+					      module->prog->vmcoreinfo.osrelease)
+		    || !string_builder_appendc(sb, '/')
+		    || !string_builder_appendn(sb, depmod_path, ko_len)
+		    || !string_builder_null_terminate(sb))
+			return &drgn_enomem;
+		err = drgn_module_try_standard_file(module, options, sb->str,
+						    -1, true, NULL);
 		if (err || !drgn_module_wants_file(module))
 			return err;
-		sb.len = 0;
+
+		// Fedora, CentOS, SUSE:
+		// $debug_dir/lib/modules/$(uname -r)/$ko_name.debug
+		if (!string_builder_append(sb, ".debug")
+		    || !string_builder_null_terminate(sb))
+			return &drgn_enomem;
+		err = drgn_module_try_standard_file(module, options, sb->str,
+						    -1, true, NULL);
+		if (err || !drgn_module_wants_file(module))
+			return err;
 	}
 	return NULL;
 }
@@ -685,24 +808,9 @@ drgn_module_try_linux_kmod_files(struct drgn_module *module,
 	struct drgn_program *prog = module->prog;
 	struct depmod_index *modules_dep = &state->modules_dep;
 
-	if (!modules_dep->addr) {
-		err = depmod_index_init(modules_dep,
-					"/lib/modules/%s/modules.dep.bin",
-					prog->vmcoreinfo.osrelease);
-		if (err) {
-			if (drgn_error_is_fatal(err))
-				return err;
-			drgn_error_log_debug(prog, err,
-					     "couldn't open depmod index: ");
-			drgn_error_destroy(err);
-			modules_dep->path = NULL;
-			modules_dep->addr = MAP_FAILED;
-			modules_dep->len = 0;
-		} else {
-			drgn_log_debug(prog, "opened depmod index %s",
-				       modules_dep->path);
-		}
-	}
+	err = drgn_open_modules_dep(prog, options, modules_dep);
+	if (err)
+		return err;
 	if (modules_dep->len == 0)
 		return NULL;
 
@@ -747,26 +855,33 @@ drgn_module_try_linux_kmod_files(struct drgn_module *module,
 		name_end = dot;
 	}
 
-	const char *osrelease = prog->vmcoreinfo.osrelease;
 	STRING_BUILDER(sb);
-	for (size_t i = 0; options->directories[i]; i++) {
-		const char *debug_dir = options->directories[i];
-		if (debug_dir[0] != '/')
-			continue;
-		// Debian, Ubuntu:
-		// $debug_dir/lib/modules/$(uname -r)/$ko_name
-		if (!string_builder_append(&sb, debug_dir)
-		    || !string_builder_appendn(&sb, depmod_path, ko_len)
-		    || !string_builder_null_terminate(&sb))
-			return &drgn_enomem;
-		err = drgn_module_try_standard_file(module, options, sb.str, -1,
-						    true, NULL);
-		if (err || !drgn_module_wants_file(module))
-			return err;
+	for (size_t i = 0; options->kernel_directories[i]; i++) {
+		const char *kernel_dir = options->kernel_directories[i];
 
-		// Fedora, CentOS, SUSE:
-		// $debug_dir/lib/modules/$(uname -r)/$ko_name.debug
-		if (!string_builder_append(&sb, ".debug")
+		if (kernel_dir[0]) {
+			sb.len = 0;
+			if (!string_builder_append(&sb, kernel_dir))
+				return &drgn_enomem;
+		} else {
+			// Empty path. Try under the debug directories first.
+			err = drgn_module_try_depmod_in_debug_directories(module,
+									  options,
+									  &sb,
+									  depmod_path,
+									  ko_len);
+			if (err || !drgn_module_wants_file(module))
+				return err;
+
+			// Try /lib/modules/$osrelease as the kernel directory.
+			sb.len = 0;
+			if (!string_builder_append(&sb, "/lib/modules/")
+			    || !string_builder_append(&sb,
+						      prog->vmcoreinfo.osrelease))
+				return &drgn_enomem;
+		}
+		if (!string_builder_appendc(&sb, '/')
+		    || !string_builder_appendn(&sb, depmod_path, depmod_path_len)
 		    || !string_builder_null_terminate(&sb))
 			return &drgn_enomem;
 		err = drgn_module_try_standard_file(module, options, sb.str, -1,
@@ -774,14 +889,7 @@ drgn_module_try_linux_kmod_files(struct drgn_module *module,
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	}
-
-	sb.len = 0;
-	if (!string_builder_appendf(&sb, "/lib/modules/%s/", osrelease) ||
-	    !string_builder_appendn(&sb, depmod_path, depmod_path_len) ||
-	    !string_builder_null_terminate(&sb))
-		return &drgn_enomem;
-	return drgn_module_try_standard_file(module, options, sb.str, -1, true,
-					     NULL);
+	return NULL;
 }
 
 // This has a weird calling convention so that the caller can call

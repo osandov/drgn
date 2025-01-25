@@ -12,6 +12,10 @@ static const char * const drgn_debug_info_options_default_directories[] = {
 	"", ".debug", "/usr/lib/debug", NULL
 };
 
+static const char * const drgn_debug_info_options_default_kernel_directories[] = {
+	"", NULL
+};
+
 void drgn_debug_info_options_init(struct drgn_debug_info_options *options)
 {
 #define LIST_OPTION(name)	\

@@ -1414,6 +1414,7 @@ class DebugInfoOptions:
         try_embedded_vdso: bool = ...,
         try_reuse: bool = ...,
         try_supplementary: bool = ...,
+        kernel_directories: Iterable[Path] = ...,
     ) -> None:
         """
         Create a ``DebugInfoOptions``.
@@ -1432,7 +1433,8 @@ class DebugInfoOptions:
     the box on most Linux distributions.
 
     This controls searches by build ID (see :attr:`try_build_id`) and debug
-    link (see :attr:`try_debug_link`).
+    link (see :attr:`try_debug_link`), and for kernel files (see
+    :attr:`kernel_directories`).
     """
     try_module_name: bool
     """
@@ -1499,6 +1501,16 @@ class DebugInfoOptions:
     Try finding :ref:`supplementary files <module-supplementary-debug-file>`.
 
     Defaults to ``True``.
+    """
+    kernel_directories: Tuple[str, ...]
+    """
+    Directories to search for the kernel image and loadable kernel modules.
+
+    Defaults to ``("",)``.
+
+    An empty path means to check standard paths (e.g.,
+    :file:`/boot/vmlinux-{release}`, :file:`/lib/modules/{release}`) absolutely
+    and under each absolute path in :attr:`directories`.
     """
 
 def get_default_prog() -> Program:

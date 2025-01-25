@@ -15,7 +15,8 @@
 	BOOL_OPTION(try_procfs, true)			\
 	BOOL_OPTION(try_embedded_vdso, true)		\
 	BOOL_OPTION(try_reuse, true)			\
-	BOOL_OPTION(try_supplementary, true)
+	BOOL_OPTION(try_supplementary, true)		\
+	LIST_OPTION(kernel_directories)
 
 struct drgn_debug_info_options {
 #define LIST_OPTION(name) const char * const *name;

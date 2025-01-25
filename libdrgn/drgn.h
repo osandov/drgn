@@ -1755,6 +1755,27 @@ drgn_debug_info_options_set_try_supplementary(struct drgn_debug_info_options *op
 					      bool value);
 
 /**
+ * Get the list of directories to search for kernel debugging information files.
+ *
+ * @return Null-terminated list of directories. Valid until @ref
+ * drgn_debug_info_options_set_kernel_directories() or @ref
+ * drgn_debug_info_options_destroy() is called on @p options.
+ */
+const char * const *
+drgn_debug_info_options_get_kernel_directories(const struct drgn_debug_info_options *options);
+
+/**
+ * Set the list of directories to search for kernel debugging information files.
+ *
+ * @param[in] value Null-terminated list of directories. It is copied, so it
+ * need not remain valid after this function returns.
+ */
+struct drgn_error *
+drgn_debug_info_options_set_kernel_directories(struct drgn_debug_info_options *options,
+					       const char * const *value)
+	__attribute__((__nonnull__(1, 2)));
+
+/**
  * Get the default debugging information options for @p prog.
  *
  * @return Program options. May be modified as needed. Must not be passed to
