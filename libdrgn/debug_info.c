@@ -2230,7 +2230,7 @@ drgn_module_try_files_by_gnu_debuglink(struct drgn_module *module,
 static struct drgn_error *
 drgn_module_try_standard_files(struct drgn_module *module,
 			       const struct drgn_debug_info_options *options,
-			       struct drgn_module_standard_files_state *state)
+			       struct drgn_standard_debug_info_find_state *state)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
@@ -2350,12 +2350,6 @@ drgn_module_try_standard_files(struct drgn_module *module,
 	return drgn_module_try_files_by_gnu_debuglink(module, options);
 }
 
-static void
-drgn_module_standard_files_state_deinit(struct drgn_module_standard_files_state *state)
-{
-	depmod_index_deinit(&state->modules_dep);
-}
-
 static struct drgn_error *
 drgn_standard_debug_info_find(struct drgn_module * const *modules,
 			      size_t num_modules, void *arg)
@@ -2375,8 +2369,8 @@ drgn_standard_debug_info_find(struct drgn_module * const *modules,
 			       options_str);
 	}
 
-	_cleanup_(drgn_module_standard_files_state_deinit)
-		struct drgn_module_standard_files_state state = {};
+	_cleanup_(drgn_standard_debug_info_find_state_deinit)
+		struct drgn_standard_debug_info_find_state state = {};
 	for (size_t i = 0; i < num_modules; i++) {
 		err = drgn_module_try_standard_files(modules[i], options,
 						     &state);

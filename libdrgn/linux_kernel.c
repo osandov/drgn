@@ -413,7 +413,7 @@ struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog)
  * changes in the future, we can reevaluate this.
  */
 
-void depmod_index_deinit(struct depmod_index *depmod)
+static void depmod_index_deinit(struct depmod_index *depmod)
 {
 	if (depmod->len > 0)
 		munmap(depmod->addr, depmod->len);
@@ -596,6 +596,12 @@ static struct drgn_error *depmod_index_find(struct depmod_index *depmod,
 not_found:
 	*path_ret = NULL;
 	return NULL;
+}
+
+void
+drgn_standard_debug_info_find_state_deinit(struct drgn_standard_debug_info_find_state *state)
+{
+	depmod_index_deinit(&state->modules_dep);
 }
 
 static struct drgn_error *
@@ -802,7 +808,7 @@ drgn_module_try_depmod_in_debug_directories(struct drgn_module *module,
 struct drgn_error *
 drgn_module_try_linux_kmod_files(struct drgn_module *module,
 				 const struct drgn_debug_info_options *options,
-				 struct drgn_module_standard_files_state *state)
+				 struct drgn_standard_debug_info_find_state *state)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
