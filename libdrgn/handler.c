@@ -69,8 +69,7 @@ struct drgn_error *drgn_handler_list_set_enabled(struct drgn_handler_list *list,
 						 size_t count, const char *what)
 {
 	// Put all of the handlers in a hash table of tagged pointers.
-	_cleanup_(drgn_handler_table_deinit)
-		struct drgn_handler_table table = HASH_TABLE_INIT;
+	HASH_TABLE(drgn_handler_table, table);
 	drgn_handler_list_for_each_registered(handler, list) {
 		uintptr_t entry = (uintptr_t)handler;
 		if (drgn_handler_table_insert(&table, &entry, NULL) < 0)

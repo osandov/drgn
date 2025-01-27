@@ -595,6 +595,14 @@ DEFINE_VECTOR_FUNCTIONS(vector)
 #define VECTOR_INIT { { 0 } }
 
 /**
+ * Define and initialize an empty @ref vector of type @p vector_type named @p
+ * vector that is automatically deinitialized when it goes out of scope.
+ */
+#define VECTOR(vector_type, vector)				\
+	__attribute__((__cleanup__(vector_type##_deinit)))	\
+	struct vector_type vector = VECTOR_INIT
+
+/**
  * Iterate over every entry in a @ref vector.
  *
  * This is roughly equivalent to

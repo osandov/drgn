@@ -2004,8 +2004,7 @@ drgn_module_try_proc_files_for_shared_library(struct drgn_module *module,
 		drgn_log_debug(prog, "%s: %m", path);
 		return NULL;
 	}
-	_cleanup_(drgn_map_files_segment_vector_deinit)
-		struct drgn_map_files_segment_vector segments = VECTOR_INIT;
+	VECTOR(drgn_map_files_segment_vector, segments);
 	bool sorted = true;
 	bool found = false;
 	struct dirent *ent;
@@ -4493,8 +4492,7 @@ process_get_mapped_files(struct process_loaded_module_iterator *it)
 	bool logged_readlink_eperm = false, logged_stat_eperm = false;
 	// While we're reading /proc/$pid/maps, we might as well cache the
 	// segments for drgn_module_try_proc_files_for_shared_library().
-	_cleanup_(drgn_map_files_segment_vector_deinit)
-		struct drgn_map_files_segment_vector map_files_segments = VECTOR_INIT;
+	VECTOR(drgn_map_files_segment_vector, map_files_segments);
 	struct drgn_mapped_file_segments segments = DRGN_MAPPED_FILE_SEGMENTS_INIT;
 	for (;;) {
 		errno = 0;
@@ -5098,8 +5096,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	err = drgn_loaded_module_iterator_create(prog, &it);
 	if (err)
 		return err;
-	_cleanup_(drgn_module_vector_deinit)
-		struct drgn_module_vector modules = VECTOR_INIT;
+	VECTOR(drgn_module_vector, modules);
 	struct drgn_module *module;
 	while (!(err = drgn_module_iterator_next(it, &module, NULL)) && module) {
 		// Reset DONT_WANT to WANT.

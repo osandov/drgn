@@ -402,8 +402,7 @@ struct drgn_error *drgn_module_parse_orc(struct drgn_module *module)
 		}
 	}
 
-	_cleanup_(uint64_range_vector_deinit)
-		struct uint64_range_vector preferred = VECTOR_INIT;
+	VECTOR(uint64_range_vector, preferred);
 
 	err = remove_fdes_from_orc(module, indices, &preferred, &num_entries);
 	if (err)

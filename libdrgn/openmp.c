@@ -46,7 +46,7 @@ static int drgn_num_online_cpu_cores(void)
 			   + 1];
 
 	int num_cores = 0;
-	_cleanup_(int_set_deinit) struct int_set cpus_seen = HASH_TABLE_INIT;
+	HASH_TABLE(int_set, cpus_seen);
 
 	_cleanup_fclose_ FILE *online = fopen("/sys/devices/system/cpu/online", "r");
 	if (!online)

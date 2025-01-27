@@ -1857,7 +1857,7 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
 			   bool physical, size_t max_size, char **ret)
 {
-	_cleanup_(char_vector_deinit) struct char_vector str = VECTOR_INIT;
+	VECTOR(char_vector, str);
 	for (;;) {
 		struct drgn_error *err = drgn_program_untagged_addr(prog, &address);
 		if (err)

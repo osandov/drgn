@@ -1680,6 +1680,14 @@ DEFINE_HASH_SET_FUNCTIONS(table, hash_func, eq_func)
 #define HASH_TABLE_INIT { hash_table_empty_chunk }
 
 /**
+ * Define and initialize an empty @ref hash_table of type @p table_type named @p
+ * table that is automatically deinitialized when it goes out of scope.
+ */
+#define HASH_TABLE(table_type, table)				\
+	__attribute__((__cleanup__(table_type##_deinit)))	\
+	struct table_type table = HASH_TABLE_INIT
+
+/**
  * @defgroup HashTableHelpers Hash table helpers
  *
  * Hash functions and comparators for use with @ref HashTables.

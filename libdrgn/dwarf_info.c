@@ -1821,8 +1821,7 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 
 	drgn_init_num_threads();
 
-	_cleanup_(drgn_module_vector_deinit)
-		struct drgn_module_vector modules = VECTOR_INIT;
+	VECTOR(drgn_module_vector, modules);
 	{
 		struct drgn_module *module = dbinfo->modules_pending_indexing;
 		do {
@@ -2712,8 +2711,7 @@ struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
 	if (!dwarf)
 		return drgn_error_libdw();
 
-	_cleanup_(dwarf_die_vector_deinit)
-		struct dwarf_die_vector dies = VECTOR_INIT;
+	VECTOR(dwarf_die_vector, dies);
 	Dwarf_Die *cu_die = dwarf_die_vector_append_entry(&dies);
 	if (!cu_die)
 		return &drgn_enomem;
@@ -3941,8 +3939,7 @@ drgn_dwarf_frame_base(struct drgn_program *prog, struct drgn_elf_file *file,
 						      NULL, regs, expr,
 						      expr_size)))
 		return err;
-	_cleanup_(uint64_vector_deinit)
-		struct uint64_vector stack = VECTOR_INIT;
+	VECTOR(uint64_vector, stack);
 	for (;;) {
 		err = drgn_eval_dwarf_expression(&ctx, &stack, remaining_ops);
 		if (err)
@@ -4778,8 +4775,7 @@ struct drgn_error *drgn_dwarf_scopes_names(Dwarf_Die *scopes,
 {
 	struct drgn_error *err;
 	Dwarf_Die die;
-	_cleanup_(const_char_p_vector_deinit)
-		struct const_char_p_vector vec = VECTOR_INIT;
+	VECTOR(const_char_p_vector, vec);
 	for (size_t scope = 0; scope < num_scopes; scope++) {
 		if (dwarf_child(&scopes[scope], &die) != 0)
 			continue;
@@ -5872,8 +5868,7 @@ drgn_array_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			   struct drgn_type **ret)
 {
 	struct drgn_error *err;
-	_cleanup_(array_dimension_vector_deinit)
-		struct array_dimension_vector dimensions = VECTOR_INIT;
+	VECTOR(array_dimension_vector, dimensions);
 	struct array_dimension *dimension;
 	Dwarf_Die child;
 	int r = dwarf_child(die, &child);
@@ -6718,12 +6713,9 @@ static struct drgn_error *drgn_parse_dwarf_cfi(struct drgn_dwarf_cfi *cfi,
 					      &file->module->dwarf.datarel_base);
 	}
 
-	_cleanup_(drgn_dwarf_cie_vector_deinit)
-		struct drgn_dwarf_cie_vector cies = VECTOR_INIT;
-	_cleanup_(drgn_dwarf_fde_vector_deinit)
-		struct drgn_dwarf_fde_vector fdes = VECTOR_INIT;
-	_cleanup_(drgn_dwarf_cie_map_deinit)
-		struct drgn_dwarf_cie_map cie_map = HASH_TABLE_INIT;
+	VECTOR(drgn_dwarf_cie_vector, cies);
+	VECTOR(drgn_dwarf_fde_vector, fdes);
+	HASH_TABLE(drgn_dwarf_cie_map, cie_map);
 
 	struct drgn_elf_file_section_buffer buffer;
 	err = drgn_elf_file_section_buffer_read(&buffer, file, scn);
@@ -7354,8 +7346,7 @@ drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
 			       void *buf, size_t size)
 {
 	struct drgn_error *err;
-	_cleanup_(uint64_vector_deinit) struct uint64_vector stack =
-		VECTOR_INIT;
+	VECTOR(uint64_vector, stack);
 
 	if (rule->push_cfa) {
 		struct optional_uint64 cfa = drgn_register_state_get_cfa(regs);
