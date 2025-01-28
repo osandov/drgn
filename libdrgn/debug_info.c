@@ -4969,6 +4969,80 @@ load_debug_info_try_provided_supplementary_files(struct drgn_module *module,
 }
 
 static struct drgn_error *
+load_debug_info_try_provided_vmlinux(struct drgn_module *module,
+				     struct load_debug_info_state *state)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = module->prog;
+	bool logged_trying = false;
+	for (auto it = load_debug_info_provided_table_first(&state->provided);
+	     it.entry;
+	     it = load_debug_info_provided_table_next(it)) {
+		vector_for_each(load_debug_info_file_vector, file,
+				&it.entry->files) {
+			int r = elf_is_vmlinux(file->elf);
+			if (r < 0) {
+				drgn_log_debug(prog, "%s: %s", file->path,
+					       elf_errmsg(-1));
+			}
+			if (r <= 0)
+				continue;
+
+			if (!logged_trying) {
+				drgn_module_try_files_log(module,
+							  "(Linux version %s): trying provided files for",
+							  prog->vmcoreinfo.osrelease);
+				logged_trying = true;
+			}
+
+			const char *release;
+			ssize_t release_len =
+				elf_vmlinux_release(file->elf, &release);
+			if (release_len < 0) {
+				drgn_log_debug(prog, "%s: %s", file->path,
+					       elf_errmsg(-1));
+				continue;
+			} else if (release_len == 0) {
+				drgn_log_debug(prog, "%s: %s Linux version not found",
+					       module->name, file->path);
+				continue;
+			}
+
+			if (strlen(prog->vmcoreinfo.osrelease) == release_len
+			    && memcmp(release, prog->vmcoreinfo.osrelease,
+				      release_len) == 0) {
+				drgn_log_debug(prog, "%s: %s Linux version matches",
+					       module->name, file->path);
+			} else {
+				drgn_log_debug(prog,
+					       "%s: %s Linux version (%.*s) does not match",
+					       module->name, file->path,
+					       release_len > INT_MAX
+					       ? INT_MAX : (int)release_len,
+					       release);
+				continue;
+			}
+
+			if (!it.entry->matched) {
+				state->unmatched_provided--;
+				it.entry->matched = true;
+			}
+
+			err = drgn_module_try_file_internal(module, file->path,
+							    file->fd, true,
+							    NULL);
+			file->fd = -1;
+			if (err)
+				return err;
+			if (module->loaded_file_status != DRGN_MODULE_FILE_WANT
+			    && module->debug_file_status != DRGN_MODULE_FILE_WANT)
+				break;
+		}
+	}
+	return NULL;
+}
+
+static struct drgn_error *
 load_debug_info_try_provided_files(struct drgn_module *module,
 				   struct load_debug_info_state *state)
 {
@@ -4981,7 +5055,7 @@ load_debug_info_try_provided_files(struct drgn_module *module,
 	const void *build_id;
 	size_t build_id_len;
 	drgn_module_build_id(module, &build_id, &build_id_len);
-	if (build_id_len != 0) {
+	if (build_id_len > 0) {
 		// Look up the provided file even if we don't need it so that it
 		// counts as matched.
 		struct load_debug_info_provided *provided =
@@ -5006,6 +5080,18 @@ load_debug_info_try_provided_files(struct drgn_module *module,
 					return err;
 			}
 		}
+	} else if (module->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL
+		   && drgn_module_kind(module) == DRGN_MODULE_MAIN) {
+		// Before Linux kernel commit 0935288c6e00 ("kdump: append
+		// kernel build-id string to VMCOREINFO") (in v5.9) and in a few
+		// broken stable versions (see
+		// ignore_broken_vmcoreinfo_build_id()), we can't get the
+		// vmlinux build ID from a kernel core dump. Fall back to
+		// checking every provided file for a vmlinux file with a
+		// matching version.
+		err = load_debug_info_try_provided_vmlinux(module, state);
+		if (err)
+			return err;
 	}
 	return NULL;
 }

@@ -3,7 +3,7 @@
 
 import os
 
-from drgn import Program, RelocatableModule
+from drgn import MainModule, Program, RelocatableModule
 from drgn.helpers.linux.module import find_module
 from tests import modifyenv
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
@@ -18,6 +18,23 @@ def iter_proc_modules():
         for line in f:
             tokens = line.split()
             yield tokens[0], int(tokens[5], 16)
+
+
+class TestLoadDebugInfo(LinuxKernelTestCase):
+    def test_no_build_id(self):
+        prog = Program()
+        prog.set_kernel()
+        prog.set_enabled_debug_info_finders([])
+        for module, _ in prog.loaded_modules():
+            if isinstance(module, MainModule):
+                module.build_id = None
+                break
+        else:
+            self.fail("main module not found")
+        prog.load_debug_info([self.prog.main_module().debug_file_path])
+        self.assertEqual(
+            prog.main_module().debug_file_path, self.prog.main_module().debug_file_path
+        )
 
 
 class TestModule(LinuxKernelTestCase):

@@ -164,6 +164,7 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 				// We consider a file to be vmlinux if it has an
 				// .init.text section and is not relocatable
 				// (which excludes kernel modules).
+				// Keep this in sync with elf_is_vmlinux().
 				file->is_vmlinux = ehdr->e_type != ET_REL;
 				index = DRGN_SECTION_INDEX_NUM;
 			} else {
@@ -760,4 +761,103 @@ bool drgn_elf_file_address_range(struct drgn_elf_file *file,
 								  start_ret,
 								  end_ret);
 	}
+}
+
+// Keep this in sync with drgn_elf_file_create().
+int elf_is_vmlinux(Elf *elf)
+{
+	GElf_Ehdr ehdr_mem, *ehdr = gelf_getehdr(elf, &ehdr_mem);
+	if (!ehdr)
+		return -1;
+
+	if (ehdr->e_type == ET_REL)
+		return 0;
+
+	size_t shstrndx;
+	if (elf_getshdrstrndx(elf, &shstrndx))
+		return -1;
+	Elf_Scn *scn = NULL;
+	while ((scn = elf_nextscn(elf, scn))) {
+		GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
+		if (!shdr)
+			return -1;
+
+		if (shdr->sh_type != SHT_PROGBITS)
+			continue;
+
+		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+		if (!scnname)
+			return -1;
+
+		if (strcmp(scnname, ".init.text") == 0)
+			return 1;
+	}
+	return 0;
+}
+
+ssize_t elf_vmlinux_release(Elf *elf, const char **ret)
+{
+	Elf_Scn *scn = NULL;
+	while ((scn = elf_nextscn(elf, scn))) {
+		GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
+		if (!shdr)
+			return -1;
+
+		if (shdr->sh_type != SHT_SYMTAB || shdr->sh_entsize == 0)
+			continue;
+
+		Elf_Data *data = elf_getdata(scn, NULL);
+		if (!data)
+			return -1;
+
+		size_t num_syms = shdr->sh_size / shdr->sh_entsize;
+		for (size_t i = 0; i < num_syms; i++) {
+			GElf_Sym sym_mem, *sym = gelf_getsym(data, i, &sym_mem);
+			if (!sym)
+				return -1;
+
+			static const char prefix[] = "Linux version ";
+
+			if (GELF_ST_TYPE(sym->st_info) != STT_OBJECT
+			    || GELF_ST_BIND(sym->st_info) != STB_GLOBAL
+			    || sym->st_size < sizeof(prefix) - 1)
+				continue;
+
+			const char *name = elf_strptr(elf, shdr->sh_link,
+						      sym->st_name);
+			if (!name)
+				return -1;
+			if (strcmp(name, "linux_banner") != 0)
+				continue;
+
+			GElf_Shdr sym_shdr_mem, *sym_shdr =
+				gelf_getshdr(elf_getscn(elf, sym->st_shndx),
+					     &sym_shdr_mem);
+			if (!sym_shdr)
+				return -1;
+
+			int64_t offset = sym_shdr->sh_offset
+					 + sym->st_value - sym_shdr->sh_addr;
+			Elf_Data *banner_data =
+				elf_getdata_rawchunk(elf, offset, sym->st_size,
+						     ELF_T_BYTE);
+			if (!banner_data)
+				return -1;
+
+			if (memcmp(banner_data->d_buf, prefix,
+				   sizeof(prefix) - 1) != 0)
+				return 0;
+
+			const char *release = (const char *)banner_data->d_buf
+					      + (sizeof(prefix) - 1);
+			const char *space =
+				memchr(release, ' ',
+				       banner_data->d_size - (sizeof(prefix) - 1));
+			if (!space)
+				return 0;
+			*ret = release;
+			return space - release;
+		}
+	}
+	return 0;
 }

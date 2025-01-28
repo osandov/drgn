@@ -259,6 +259,21 @@ drgn_elf_file_section_buffer_read(struct drgn_elf_file_section_buffer *buffer,
 bool drgn_elf_file_address_range(struct drgn_elf_file *file,
 				 uint64_t *start_ret, uint64_t *end_ret);
 
+/**
+ * Return whether an ELF file is a vmlinux file.
+ *
+ * @return > 0 if the file is vmlinux, 0 if it is not, < 0 on libelf error.
+ */
+int elf_is_vmlinux(Elf *elf);
+
+/**
+ * Get the Linux release from a vmlinux file.
+ *
+ * @param[out] ret Returned release.
+ * @return Length of @p ret on success, 0 if not found, < 0 on libelf error.
+ */
+ssize_t elf_vmlinux_release(Elf *elf, const char **ret);
+
 /** @} */
 
 #endif /* DRGN_ELF_FILE_H */
