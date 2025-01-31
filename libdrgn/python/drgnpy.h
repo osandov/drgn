@@ -286,6 +286,7 @@ typedef struct {
 
 extern PyObject *Architecture_class;
 extern PyObject *FindObjectFlags_class;
+extern PyObject *KmodSearchMethod_class;
 extern PyObject *ModuleFileStatus_class;
 extern PyObject *ModuleSectionAddresses_class;
 extern PyObject *PlatformFlags_class;

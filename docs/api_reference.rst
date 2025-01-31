@@ -12,6 +12,7 @@ Programs
 .. drgndoc:: FindObjectFlags
 
 .. drgndoc:: DebugInfoOptions
+.. drgndoc:: KmodSearchMethod
 
 .. drgndoc:: Thread
 

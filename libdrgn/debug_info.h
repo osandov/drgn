@@ -287,10 +287,37 @@ struct depmod_index {
 	size_t len;
 };
 
+DEFINE_VECTOR_TYPE(char_p_vector, char *);
+
+DEFINE_HASH_MAP_TYPE(drgn_kmod_walk_module_map, const char *,
+		     struct char_p_vector);
+
+DEFINE_VECTOR_TYPE(drgn_kmod_walk_stack,
+		   struct drgn_kmod_walk_stack_entry);
+
+struct drgn_kmod_walk_inode {
+	dev_t dev;
+	ino_t ino;
+};
+
+DEFINE_HASH_SET_TYPE(drgn_kmod_walk_inode_set, struct drgn_kmod_walk_inode);
+
+struct drgn_kmod_walk_state {
+	struct drgn_kmod_walk_module_map modules;
+	struct drgn_kmod_walk_stack stack;
+	struct string_builder path;
+	struct drgn_kmod_walk_inode_set visited_dirs;
+	const char * const *next_kernel_dir;
+	const char * const *next_debug_dir;
+};
+
 // State kept by standard debug info finder for all modules it's working on.
 // Currently it's only used to cache locations of Linux kernel loadable modules.
 struct drgn_standard_debug_info_find_state {
+	struct drgn_module * const *modules;
+	size_t num_modules;
 	struct depmod_index modules_dep;
+	struct drgn_kmod_walk_state kmod_walk;
 };
 
 void

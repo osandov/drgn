@@ -16,6 +16,7 @@ class ConstantClass(NamedTuple):
 CONSTANTS = (
     ConstantClass("Architecture", "Enum", r"DRGN_ARCH_([a-zA-Z0-9_]+)"),
     ConstantClass("FindObjectFlags", "Flag", r"DRGN_FIND_OBJECT_([a-zA-Z0-9_]+)"),
+    ConstantClass("KmodSearchMethod", "Enum", r"DRGN_KMOD_SEARCH_([a-zA-Z0-9_]+)"),
     ConstantClass("ModuleFileStatus", "Enum", r"DRGN_MODULE_FILE_([a-zA-Z0-9_]+)"),
     ConstantClass(
         "PlatformFlags",

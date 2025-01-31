@@ -188,11 +188,20 @@ class _DebugInfoOptionAction(argparse.Action):
 
 
 class _TryDebugInfoOptionAction(_DebugInfoOptionAction):
-    _choices = _DebugInfoOptionAction._bool_options(True)
+    _choices = {
+        **_DebugInfoOptionAction._bool_options(True),
+        "kmod=depmod": ("try_kmod", drgn.KmodSearchMethod.DEPMOD),
+        "kmod=walk": ("try_kmod", drgn.KmodSearchMethod.WALK),
+        "kmod=depmod-or-walk": ("try_kmod", drgn.KmodSearchMethod.DEPMOD_OR_WALK),
+        "kmod=depmod-and-walk": ("try_kmod", drgn.KmodSearchMethod.DEPMOD_AND_WALK),
+    }
 
 
 class _NoDebugInfoOptionAction(_DebugInfoOptionAction):
-    _choices = _DebugInfoOptionAction._bool_options(False)
+    _choices = {
+        **_DebugInfoOptionAction._bool_options(False),
+        "kmod": ("try_kmod", drgn.KmodSearchMethod.NONE),
+    }
 
 
 def _main() -> None:

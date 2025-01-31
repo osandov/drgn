@@ -2370,7 +2370,17 @@ drgn_standard_debug_info_find(struct drgn_module * const *modules,
 	}
 
 	_cleanup_(drgn_standard_debug_info_find_state_deinit)
-		struct drgn_standard_debug_info_find_state state = {};
+		struct drgn_standard_debug_info_find_state state = {
+			.modules = modules,
+			.num_modules = num_modules,
+			.kmod_walk = {
+				.modules = HASH_TABLE_INIT,
+				.stack = VECTOR_INIT,
+				.path = STRING_BUILDER_INIT,
+				.visited_dirs = HASH_TABLE_INIT,
+				.next_kernel_dir = options->kernel_directories,
+			},
+		};
 	for (size_t i = 0; i < num_modules; i++) {
 		err = drgn_module_try_standard_files(modules[i], options,
 						     &state);

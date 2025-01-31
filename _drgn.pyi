@@ -1415,6 +1415,7 @@ class DebugInfoOptions:
         try_reuse: bool = ...,
         try_supplementary: bool = ...,
         kernel_directories: Iterable[Path] = ...,
+        try_kmod: KmodSearchMethod = ...,
     ) -> None:
         """
         Create a ``DebugInfoOptions``.
@@ -1511,6 +1512,62 @@ class DebugInfoOptions:
     An empty path means to check standard paths (e.g.,
     :file:`/boot/vmlinux-{release}`, :file:`/lib/modules/{release}`) absolutely
     and under each absolute path in :attr:`directories`.
+    """
+    try_kmod: KmodSearchMethod
+    """
+    How to search for loadable kernel modules.
+
+    Defaults to :attr:`KmodSearchMethod.DEPMOD_OR_WALK`.
+    """
+
+class KmodSearchMethod(enum.Enum):
+    """
+    Methods of searching for loadable kernel module debugging information.
+
+    In addition to searching by build ID, there are currently two methods of
+    searching for debugging information specific to loadable kernel modules:
+
+    1. Using :manpage:`depmod(8)` metadata. This looks for :command:`depmod`
+       metadata (specifically, :file:`modules.dep.bin`) at the top level of
+       each directory in :attr:`DebugInfoOptions.kernel_directories` (an empty
+       path means :file:`/lib/modules/{release}`). The metadata is used to
+       quickly find the path of each module, which is then checked relative to
+       each directory specified by :attr:`DebugInfoOptions.kernel_directories`.
+
+       This method is faster but typically only applicable to installed
+       kernels.
+    2. Walking kernel directories. This traverses each directory specified by
+       :attr:`DebugInfoOptions.kernel_directories` looking for ``.ko`` files.
+       Module names are matched to filenames before the ``.ko`` extension and
+       with dashes (``-``) replaced with underscores (``_``).
+
+       This method is slower but not limited to installed kernels.
+
+    Debugging information searches can be configured to use one, both, or
+    neither method.
+    """
+
+    NONE = ...
+    """Don't search using kernel module-specific methods."""
+    DEPMOD = ...
+    """Search using :command:`depmod` metadata."""
+    WALK = ...
+    """Search by walking kernel directories."""
+    DEPMOD_OR_WALK = ...
+    """
+    Search using :command:`depmod` metadata, falling back to walking kernel
+    directories only if no :command:`depmod` metadata is found.
+
+    Since :command:`depmod` metadata is expected to be reliable if present,
+    this is the default.
+    """
+    DEPMOD_AND_WALK = ...
+    """
+    Search using :command:`depmod` metadata and by walking kernel directories.
+
+    Unlike :attr:`DEPMOD_OR_WALK`, if :command:`depmod` metadata is found but
+    doesn't result in the desired debugging information, this will still walk
+    kernel directories.
     """
 
 def get_default_prog() -> Program:

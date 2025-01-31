@@ -1,7 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from drgn import DebugInfoOptions, Program
+from drgn import DebugInfoOptions, KmodSearchMethod, Program
 from tests import TestCase
 
 
@@ -45,6 +45,31 @@ class TestDebugInfoOptions(TestCase):
         options = DebugInfoOptions()
         options.try_build_id = False
         self.assertIs(options.try_build_id, False)
+
+    def test_enum_default(self):
+        self.assertEqual(DebugInfoOptions().try_kmod, KmodSearchMethod.DEPMOD_OR_WALK)
+
+    def test_enum_init(self):
+        self.assertEqual(
+            DebugInfoOptions(try_kmod=KmodSearchMethod.WALK).try_kmod,
+            KmodSearchMethod.WALK,
+        )
+        self.assertRaises(TypeError, DebugInfoOptions, try_kmod=False)
+
+    def test_enum_copy(self):
+        self.assertEqual(
+            DebugInfoOptions(
+                DebugInfoOptions(try_kmod=KmodSearchMethod.DEPMOD)
+            ).try_kmod,
+            KmodSearchMethod.DEPMOD,
+        )
+
+    def test_enum_set(self):
+        options = DebugInfoOptions()
+        options.try_kmod = KmodSearchMethod.DEPMOD_AND_WALK
+        self.assertEqual(options.try_kmod, KmodSearchMethod.DEPMOD_AND_WALK)
+        with self.assertRaises(TypeError):
+            options.try_kmod = False
 
     def test_del(self):
         with self.assertRaises(AttributeError):

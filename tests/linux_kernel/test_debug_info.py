@@ -2,8 +2,16 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import os
+from pathlib import Path
+import tempfile
 
-from drgn import MainModule, Program, RelocatableModule
+from drgn import (
+    DebugInfoOptions,
+    KmodSearchMethod,
+    MainModule,
+    Program,
+    RelocatableModule,
+)
 from drgn.helpers.linux.module import find_module
 from tests import modifyenv
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
@@ -20,21 +28,51 @@ def iter_proc_modules():
             yield tokens[0], int(tokens[5], 16)
 
 
-class TestLoadDebugInfo(LinuxKernelTestCase):
-    def test_no_build_id(self):
+class TestDebugInfo(LinuxKernelTestCase):
+    def test_debug_info(self):
+        # This is actually two test cases squished into one to avoid indexing
+        # vmlinux another time.
         prog = Program()
         prog.set_kernel()
         prog.set_enabled_debug_info_finders([])
-        for module, _ in prog.loaded_modules():
-            if isinstance(module, MainModule):
-                module.build_id = None
-                break
-        else:
-            self.fail("main module not found")
-        prog.load_debug_info([self.prog.main_module().debug_file_path])
-        self.assertEqual(
-            prog.main_module().debug_file_path, self.prog.main_module().debug_file_path
-        )
+
+        with self.subTest("vmlinux_no_build_id"):
+            for module, _ in prog.loaded_modules():
+                if isinstance(module, MainModule):
+                    module.build_id = None
+                    break
+            else:
+                self.fail("main module not found")
+            prog.load_debug_info([self.prog.main_module().debug_file_path])
+            self.assertEqual(
+                prog.main_module().debug_file_path,
+                self.prog.main_module().debug_file_path,
+            )
+
+        with self.subTest("kmod_walk"), tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir = Path(temp_dir)
+            found_modules = set()
+            for i, module in enumerate(self.prog.modules()):
+                if isinstance(module, RelocatableModule) and module.debug_file_path:
+                    found_modules.add(module.name)
+                    link = temp_dir / str(i) / (module.name + ".ko")
+                    link.parent.mkdir()
+                    link.symlink_to(module.debug_file_path)
+
+            modules = [
+                module
+                for module, _ in prog.loaded_modules()
+                if module.name in found_modules
+            ]
+            prog.find_standard_debug_info(
+                modules,
+                options=DebugInfoOptions(
+                    kernel_directories=(temp_dir,), try_kmod=KmodSearchMethod.WALK
+                ),
+            )
+            for module in modules:
+                with self.subTest(module=module.name):
+                    self.assertIsNotNone(module.debug_file_path)
 
 
 class TestModule(LinuxKernelTestCase):

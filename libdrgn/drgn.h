@@ -1775,6 +1775,24 @@ drgn_debug_info_options_set_kernel_directories(struct drgn_debug_info_options *o
 					       const char * const *value)
 	__attribute__((__nonnull__(1, 2)));
 
+/** Methods of searching for loadable kernel module debugging information. */
+enum drgn_kmod_search_method {
+	DRGN_KMOD_SEARCH_NONE,
+	DRGN_KMOD_SEARCH_DEPMOD,
+	DRGN_KMOD_SEARCH_WALK,
+	DRGN_KMOD_SEARCH_DEPMOD_OR_WALK,
+	DRGN_KMOD_SEARCH_DEPMOD_AND_WALK,
+} __attribute__((__packed__));
+
+/** Get how to search for loadable kernel module debugging information. */
+enum drgn_kmod_search_method
+drgn_debug_info_options_get_try_kmod(const struct drgn_debug_info_options *options);
+
+/** Set how to search for loadable kernel module debugging information. */
+void
+drgn_debug_info_options_set_try_kmod(struct drgn_debug_info_options *options,
+				     enum drgn_kmod_search_method value);
+
 /**
  * Get the default debugging information options for @p prog.
  *

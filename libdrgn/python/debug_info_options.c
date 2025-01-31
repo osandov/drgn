@@ -71,6 +71,8 @@ static PyObject *DebugInfoOptions_get_##name(DebugInfoOptions *self, void *arg)	
 }										\
 DebugInfoOptions_SETTER(name)
 
+#define drgn_kmod_search_method_class KmodSearchMethod_class
+
 #define ENUM_OPTION(name, type, default_value)					\
 static int DebugInfoOptions_##name##_converter(PyObject *o, void *p)		\
 {										\

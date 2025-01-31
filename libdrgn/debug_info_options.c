@@ -248,6 +248,38 @@ static bool drgn_format_debug_info_options_bool(struct string_builder *sb,
 	       && string_builder_append(sb, value ? "True" : "False");
 }
 
+static bool
+drgn_kmod_search_method_format(struct string_builder *sb, const char *name,
+			       bool *first, enum drgn_kmod_search_method value,
+			       enum drgn_kmod_search_method default_value)
+{
+	// Skip options set to the default.
+	if (value == default_value)
+		return true;
+	const char *s;
+	SWITCH_ENUM(value) {
+	case DRGN_KMOD_SEARCH_NONE:
+		s = "NONE";
+		break;
+	case DRGN_KMOD_SEARCH_DEPMOD:
+		s = "DEPMOD";
+		break;
+	case DRGN_KMOD_SEARCH_WALK:
+		s = "WALK";
+		break;
+	case DRGN_KMOD_SEARCH_DEPMOD_OR_WALK:
+		s = "DEPMOD_OR_WALK";
+		break;
+	case DRGN_KMOD_SEARCH_DEPMOD_AND_WALK:
+		s = "DEPMOD_AND_WALK";
+		break;
+	default:
+		UNREACHABLE();
+	}
+	return drgn_format_debug_info_options_common(sb, name, first)
+	       && string_builder_append(sb, s);
+}
+
 char *drgn_format_debug_info_options(struct drgn_debug_info_options *options)
 {
 	STRING_BUILDER(sb);

@@ -598,9 +598,60 @@ not_found:
 	return NULL;
 }
 
+DEFINE_VECTOR_FUNCTIONS(char_p_vector);
+
+DEFINE_HASH_MAP_FUNCTIONS(drgn_kmod_walk_module_map, c_string_key_hash_pair,
+			  c_string_key_eq);
+
+struct drgn_kmod_walk_stack_entry {
+	DIR *dir;
+	size_t path_len;
+};
+
+DEFINE_VECTOR_FUNCTIONS(drgn_kmod_walk_stack);
+
+static inline struct hash_pair
+drgn_kmod_walk_inode_hash_pair(const struct drgn_kmod_walk_inode *entry)
+{
+	return hash_pair_from_avalanching_hash(hash_combine(entry->dev, entry->ino));
+}
+
+static inline bool
+drgn_kmod_walk_inode_eq(const struct drgn_kmod_walk_inode *a,
+			const struct drgn_kmod_walk_inode *b)
+{
+	return a->dev == b->dev && a->ino == b->ino;
+}
+
+DEFINE_HASH_SET_FUNCTIONS(drgn_kmod_walk_inode_set,
+			  drgn_kmod_walk_inode_hash_pair,
+			  drgn_kmod_walk_inode_eq);
+
+static void
+drgn_kmod_walk_module_map_entry_deinit(struct drgn_kmod_walk_module_map_entry *entry)
+{
+	vector_for_each(char_p_vector, path, &entry->value)
+		free(*path);
+	char_p_vector_deinit(&entry->value);
+}
+
+static void
+drgn_kmod_walk_state_deinit(struct drgn_kmod_walk_state *state)
+{
+	drgn_kmod_walk_inode_set_deinit(&state->visited_dirs);
+	string_builder_deinit(&state->path);
+	vector_for_each(drgn_kmod_walk_stack, entry, &state->stack)
+		closedir(entry->dir);
+	drgn_kmod_walk_stack_deinit(&state->stack);
+	hash_table_for_each(drgn_kmod_walk_module_map, it, &state->modules)
+		drgn_kmod_walk_module_map_entry_deinit(it.entry);
+	drgn_kmod_walk_module_map_deinit(&state->modules);
+}
+
 void
 drgn_standard_debug_info_find_state_deinit(struct drgn_standard_debug_info_find_state *state)
 {
+	drgn_kmod_walk_state_deinit(&state->kmod_walk);
 	depmod_index_deinit(&state->modules_dep);
 }
 
@@ -805,28 +856,21 @@ drgn_module_try_depmod_in_debug_directories(struct drgn_module *module,
 	return NULL;
 }
 
-struct drgn_error *
-drgn_module_try_linux_kmod_files(struct drgn_module *module,
-				 const struct drgn_debug_info_options *options,
-				 struct drgn_standard_debug_info_find_state *state)
+static struct drgn_error *
+drgn_module_try_linux_kmod_depmod(struct drgn_module *module,
+				  const struct drgn_debug_info_options *options,
+				  struct drgn_standard_debug_info_find_state *state)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
-	struct depmod_index *modules_dep = &state->modules_dep;
-
-	err = drgn_open_modules_dep(prog, options, modules_dep);
-	if (err)
-		return err;
-	if (modules_dep->len == 0)
-		return NULL;
 
 	const char *depmod_path;
 	size_t depmod_path_len;
-	err = depmod_index_find(modules_dep, module->name, &depmod_path,
+	err = depmod_index_find(&state->modules_dep, module->name, &depmod_path,
 				&depmod_path_len);
 	if (err) {
-		drgn_error_log_debug(prog, err,
-				     "couldn't parse depmod index: ");
+		drgn_error_log_warning(prog, err,
+				       "couldn't parse depmod index: ");
 		drgn_error_destroy(err);
 		return NULL;
 	}
@@ -895,6 +939,301 @@ drgn_module_try_linux_kmod_files(struct drgn_module *module,
 		if (err || !drgn_module_wants_file(module))
 			return err;
 	}
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_kmod_walk_next_dir(struct drgn_program *prog,
+			const struct drgn_debug_info_options *options,
+			struct drgn_kmod_walk_state *state)
+{
+	struct string_builder *path = &state->path;
+	for (;;) {
+		if (state->next_debug_dir) {
+			const char *debug_dir = *state->next_debug_dir++;
+			if (debug_dir && debug_dir[0] != '/')
+				continue;
+
+			path->len = 0;
+			if (debug_dir) {
+				if (!string_builder_append(path, debug_dir))
+					return &drgn_enomem;
+			} else {
+				state->next_debug_dir = NULL;
+			}
+			if (!string_builder_append(path, "/lib/modules/")
+			    || !string_builder_append(path,
+						      prog->vmcoreinfo.osrelease))
+				return &drgn_enomem;
+		} else {
+			const char *kernel_dir = *state->next_kernel_dir;
+			if (!kernel_dir)
+				return &drgn_stop;
+			state->next_kernel_dir++;
+			if (kernel_dir[0]) {
+				path->len = 0;
+				if (!string_builder_append(path, kernel_dir))
+					return &drgn_enomem;
+			} else {
+				state->next_debug_dir = options->directories;
+				continue;
+			}
+		}
+
+		if (!string_builder_null_terminate(path))
+			return &drgn_enomem;
+		struct drgn_kmod_walk_stack_entry entry = {
+			.dir = opendir(path->str),
+			.path_len = path->len,
+		};
+		if (!entry.dir) {
+			drgn_log_debug(prog, "opendir: %s: %m", path->str);
+			continue;
+		}
+		if (!drgn_kmod_walk_stack_append(&state->stack, &entry)) {
+			closedir(entry.dir);
+			return &drgn_enomem;
+		}
+		drgn_log_debug(prog, "searching for kernel modules in %s",
+			       path->str);
+		return NULL;
+	}
+}
+
+static struct drgn_error *
+drgn_kmod_walk(struct drgn_program *prog,
+	       const struct drgn_debug_info_options *options,
+	       struct drgn_kmod_walk_state *state,
+	       struct drgn_kmod_walk_module_map_entry *current)
+{
+	struct drgn_error *err;
+	struct string_builder *path = &state->path;
+
+	for (;;) {
+		if (drgn_kmod_walk_stack_empty(&state->stack)) {
+			err = drgn_kmod_walk_next_dir(prog, options, state);
+			if (err)
+				return err;
+		}
+
+		struct drgn_kmod_walk_stack_entry *top =
+			drgn_kmod_walk_stack_last(&state->stack);
+		errno = 0;
+		struct dirent *ent = readdir(top->dir);
+		if (!ent) {
+			if (errno) {
+				path->str[top->path_len] = '\0';
+				drgn_log_debug(prog, "%s: readdir: %m",
+					       path->str);
+			}
+			closedir(top->dir);
+			drgn_kmod_walk_stack_pop(&state->stack);
+			continue;
+		}
+
+		// Skip "." and "..".
+		if (ent->d_name[0] == '.'
+		    && (!ent->d_name[1]
+			|| (ent->d_name[1] == '.' && !ent->d_name[2])))
+			continue;
+
+		bool is_directory = false;
+		if (ent->d_type == DT_LNK || ent->d_type == DT_UNKNOWN) {
+			struct stat st;
+			if (fstatat(dirfd(top->dir), ent->d_name, &st, 0) < 0) {
+				path->str[top->path_len] = '\0';
+				drgn_log_debug(prog, "%s/%s: fstatat: %m",
+					       path->str, ent->d_name);
+				continue;
+			}
+			if (S_ISDIR(st.st_mode))
+				is_directory = true;
+			else if (!S_ISREG(st.st_mode))
+				continue;
+		} else if (ent->d_type == DT_DIR) {
+			is_directory = true;
+		} else if (ent->d_type != DT_REG) {
+			continue;
+		}
+
+		if (is_directory) {
+			path->len = top->path_len;
+			if (!string_builder_appendc(path, '/')
+			    || !string_builder_append(path, ent->d_name)
+			    || !string_builder_null_terminate(path))
+				return &drgn_enomem;
+
+			_cleanup_close_ int fd =
+				openat(dirfd(top->dir), ent->d_name,
+				       O_RDONLY | O_DIRECTORY);
+			if (fd < 0) {
+				drgn_log_debug(prog, "openat: %s: %m",
+					       path->str);
+				continue;
+			}
+
+			struct stat st;
+			if (fstat(fd, &st) < 0) {
+				drgn_log_debug(prog, "fstat: %s: %m",
+					       path->str);
+				continue;
+			}
+			struct drgn_kmod_walk_inode inode = {
+				.dev = st.st_dev,
+				.ino = st.st_ino,
+			};
+			int r = drgn_kmod_walk_inode_set_insert(&state->visited_dirs,
+								&inode, NULL);
+			if (r < 0)
+				return &drgn_enomem;
+			if (r == 0) {
+				drgn_log_debug(prog,
+					       "%s is cycle or duplicate; skipping",
+					       path->str);
+				continue;
+			}
+
+			struct drgn_kmod_walk_stack_entry entry = {
+				.dir = fdopendir(fd),
+				.path_len = path->len,
+			};
+			if (!entry.dir) {
+				drgn_log_debug(prog, "fdopendir: %s: %m",
+					       path->str);
+				continue;
+			}
+			fd = -1; // entry.dir owns fd now.
+			if (!drgn_kmod_walk_stack_append(&state->stack,
+							 &entry)) {
+				closedir(entry.dir);
+				return &drgn_enomem;
+			}
+		} else {
+			// Match anything where the first extension is ".ko".
+			char *dot = strchr(ent->d_name, '.');
+			if (!dot || dot[1] != 'k' || dot[2] != 'o'
+			    || (dot[3] != '\0' && dot[3] != '.'))
+				continue;
+
+			// Borrow the path string builder to build the module
+			// name (removing extensions and replacing '-' with
+			// '_').
+			path->len = top->path_len;
+			if (!string_builder_appendn(path, ent->d_name,
+						    dot - ent->d_name)
+			    || !string_builder_null_terminate(path))
+				return &drgn_enomem;
+			char *dash = &path->str[top->path_len];
+			while ((dash = strchr(dash, '-')))
+				*dash++ = '_';
+
+			// Find the module (if wanted).
+			const char *module_name = &path->str[top->path_len];
+			auto it = drgn_kmod_walk_module_map_search(&state->modules,
+								   &module_name);
+			if (!it.entry)
+				continue;
+
+			size_t name_len = strlen(ent->d_name);
+			size_t path_len;
+			if (__builtin_add_overflow(top->path_len, name_len,
+						   &path_len)
+			    || __builtin_add_overflow(path_len, 2, &path_len))
+				return &drgn_enomem;
+			_cleanup_free_ char *file_path = malloc(path_len);
+			if (!file_path)
+				return &drgn_enomem;
+			memcpy(file_path, path->str, top->path_len);
+			file_path[top->path_len] = '/';
+			memcpy(&file_path[top->path_len + 1], ent->d_name,
+			       name_len + 1);
+			drgn_log_debug(prog, "found kernel module %s", file_path);
+
+			if (!char_p_vector_append(&it.entry->value, &file_path))
+				return &drgn_enomem;
+			file_path = NULL; // it.entry->value owns file_path now.
+
+			// If the file matches the current module, return it.
+			// Otherwise, keep going.
+			if (it.entry == current)
+				return NULL;
+		}
+	}
+}
+
+struct drgn_error *
+drgn_module_try_linux_kmod_files(struct drgn_module *module,
+				 const struct drgn_debug_info_options *options,
+				 struct drgn_standard_debug_info_find_state *state)
+{
+	struct drgn_error *err;
+
+	if (options->try_kmod == DRGN_KMOD_SEARCH_NONE)
+		return NULL;
+
+	if (options->try_kmod != DRGN_KMOD_SEARCH_WALK) {
+		err = drgn_open_modules_dep(module->prog, options,
+					    &state->modules_dep);
+		if (err)
+			return err;
+		if (state->modules_dep.len > 0) {
+			err = drgn_module_try_linux_kmod_depmod(module, options,
+								state);
+			if (err
+			    || options->try_kmod != DRGN_KMOD_SEARCH_DEPMOD_AND_WALK
+			    || !drgn_module_wants_file(module))
+				return err;
+		}
+		if (options->try_kmod == DRGN_KMOD_SEARCH_DEPMOD)
+			return NULL;
+	}
+
+	if (drgn_kmod_walk_module_map_empty(&state->kmod_walk.modules)) {
+		for (size_t i = 0; i < state->num_modules; i++) {
+			if (!drgn_module_wants_file(state->modules[i]))
+				continue;
+			struct drgn_kmod_walk_module_map_entry entry = {
+				.key = state->modules[i]->name,
+				.value = VECTOR_INIT,
+			};
+			if (drgn_kmod_walk_module_map_insert(&state->kmod_walk.modules,
+							     &entry, NULL) < 0)
+				return &drgn_enomem;
+		}
+	}
+
+	const char *module_name = module->name;
+	auto it = drgn_kmod_walk_module_map_search(&state->kmod_walk.modules,
+						   &module_name);
+	size_t i = 0;
+	for (;;) {
+		if (i >= char_p_vector_size(&it.entry->value)) {
+			// No matches remaining for this module. Clear the old
+			// matches and find another one.
+			vector_for_each(char_p_vector, path, &it.entry->value)
+				free(*path);
+			char_p_vector_clear(&it.entry->value);
+			i = 0;
+
+			err = drgn_kmod_walk(module->prog, options,
+					     &state->kmod_walk, it.entry);
+			if (err == &drgn_stop)
+				break;
+			else if (err)
+				return err;
+		}
+		char *path = *char_p_vector_at(&it.entry->value, i++);
+		err = drgn_module_try_standard_file(module, options, path, -1,
+						    true, NULL);
+		if (err)
+			return err;
+		if (!drgn_module_wants_file(module))
+			break;
+	}
+	// We won't need any more matches for this module.
+	drgn_kmod_walk_module_map_entry_deinit(it.entry);
+	drgn_kmod_walk_module_map_delete_iterator(&state->kmod_walk.modules,
+						  it);
 	return NULL;
 }
 

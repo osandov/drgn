@@ -16,7 +16,9 @@
 	BOOL_OPTION(try_embedded_vdso, true)		\
 	BOOL_OPTION(try_reuse, true)			\
 	BOOL_OPTION(try_supplementary, true)		\
-	LIST_OPTION(kernel_directories)
+	LIST_OPTION(kernel_directories)			\
+	ENUM_OPTION(try_kmod, drgn_kmod_search_method,	\
+		    DRGN_KMOD_SEARCH_DEPMOD_OR_WALK)
 
 struct drgn_debug_info_options {
 #define LIST_OPTION(name) const char * const *name;
