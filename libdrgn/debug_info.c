@@ -251,10 +251,8 @@ DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_module_address_tree, node,
 
 static void drgn_module_free_section_addresses(struct drgn_module *module)
 {
-	for (auto it =
-	     drgn_module_section_address_map_first(&module->section_addresses);
-	     it.entry;
-	     it = drgn_module_section_address_map_next(it))
+	hash_table_for_each(drgn_module_section_address_map, it,
+			    &module->section_addresses)
 		free(it.entry->key);
 }
 
@@ -4536,9 +4534,7 @@ process_loaded_module_iterator_destroy(struct drgn_module_iterator *_it)
 {
 	struct process_loaded_module_iterator *it =
 		container_of(_it, struct process_loaded_module_iterator, u.it);
-	for (struct process_mapped_files_iterator files_it =
-	     process_mapped_files_first(&it->files);
-	     files_it.entry; files_it = process_mapped_files_next(files_it)) {
+	hash_table_for_each(process_mapped_files, files_it, &it->files) {
 		free((char *)files_it.entry->file->path);
 		drgn_mapped_file_destroy(files_it.entry->file);
 	}
@@ -4721,10 +4717,7 @@ core_loaded_module_iterator_destroy(struct drgn_module_iterator *_it)
 {
 	struct core_loaded_module_iterator *it =
 		container_of(_it, struct core_loaded_module_iterator, u.it);
-	for (struct core_mapped_files_iterator files_it =
-	     core_mapped_files_first(&it->files);
-	     files_it.entry;
-	     files_it = core_mapped_files_next(files_it))
+	hash_table_for_each(core_mapped_files, files_it, &it->files)
 		drgn_mapped_file_destroy(*files_it.entry);
 	core_mapped_files_deinit(&it->files);
 	userspace_loaded_module_iterator_deinit(&it->u);
@@ -4893,10 +4886,8 @@ load_debug_info_add_provided_file(struct drgn_program *prog,
 
 static void load_debug_info_state_deinit(struct load_debug_info_state *state)
 {
-	for (struct load_debug_info_provided_table_iterator it =
-	     load_debug_info_provided_table_first(&state->provided);
-	     it.entry;
-	     it = load_debug_info_provided_table_next(it)) {
+	hash_table_for_each(load_debug_info_provided_table, it,
+			    &state->provided) {
 		vector_for_each(load_debug_info_file_vector, file,
 				&it.entry->files) {
 			elf_end(file->elf);
@@ -4975,9 +4966,8 @@ load_debug_info_try_provided_vmlinux(struct drgn_module *module,
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
 	bool logged_trying = false;
-	for (auto it = load_debug_info_provided_table_first(&state->provided);
-	     it.entry;
-	     it = load_debug_info_provided_table_next(it)) {
+	hash_table_for_each(load_debug_info_provided_table, it,
+			    &state->provided) {
 		vector_for_each(load_debug_info_file_vector, file,
 				&it.entry->files) {
 			int r = elf_is_vmlinux(file->elf);
@@ -5286,10 +5276,8 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	}
 
 	if (state.unmatched_provided != 0) {
-		for (struct load_debug_info_provided_table_iterator pit =
-		     load_debug_info_provided_table_first(&state.provided);
-		     pit.entry;
-		     pit = load_debug_info_provided_table_next(pit)) {
+		hash_table_for_each(load_debug_info_provided_table, pit,
+				    &state.provided) {
 			if (!pit.entry->matched) {
 				vector_for_each(load_debug_info_file_vector,
 						file, &pit.entry->files) {
@@ -5416,8 +5404,8 @@ elf_symbols_search(const char *name, uint64_t addr,
 			if (err)
 				return err;
 		}
-		for (auto it = drgn_module_table_first(&prog->dbinfo.modules);
-		     it.entry; it = drgn_module_table_next(it)) {
+		hash_table_for_each(drgn_module_table, it,
+				    &prog->dbinfo.modules) {
 			err = drgn_module_elf_symbols_search(*it.entry, name,
 							     addr, flags,
 							     builder);
@@ -5498,8 +5486,7 @@ void drgn_debug_info_deinit(struct drgn_debug_info *dbinfo)
 			finder->ops.destroy(finder->arg);
 	);
 	drgn_dwarf_info_deinit(dbinfo);
-	for (auto it = drgn_module_table_first(&dbinfo->modules); it.entry;
-	     it = drgn_module_table_next(it))
+	hash_table_for_each(drgn_module_table, it, &dbinfo->modules)
 		drgn_module_destroy(*it.entry);
 	drgn_module_table_deinit(&dbinfo->modules);
 }

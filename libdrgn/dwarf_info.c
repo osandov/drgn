@@ -165,13 +165,11 @@ drgn_namespace_dwarf_index_deinit(struct drgn_namespace_dwarf_index *dindex)
 {
 	drgn_error_destroy(dindex->saved_err);
 	array_for_each(tag_map, dindex->map) {
-		for (auto it = drgn_dwarf_index_die_map_first(tag_map); it.entry;
-		     it = drgn_dwarf_index_die_map_next(it))
+		hash_table_for_each(drgn_dwarf_index_die_map, it, tag_map)
 			drgn_dwarf_index_die_vector_deinit(&it.entry->value);
 		drgn_dwarf_index_die_map_deinit(tag_map);
 	}
-	for (auto it = drgn_namespace_table_first(&dindex->children); it.entry;
-	     it = drgn_namespace_table_next(it)) {
+	hash_table_for_each(drgn_namespace_table, it, &dindex->children) {
 		drgn_namespace_dwarf_index_deinit(*it.entry);
 		free(*it.entry);
 	}
@@ -1738,8 +1736,7 @@ drgn_dwarf_specification_map_merge(struct drgn_dwarf_specification_map *dst,
 				   struct drgn_error *err)
 {
 	if (!err) {
-		for (auto it = drgn_dwarf_specification_map_first(src);
-		     it.entry; it = drgn_dwarf_specification_map_next(it)) {
+		hash_table_for_each(drgn_dwarf_specification_map, it, src) {
 			if (drgn_dwarf_specification_map_insert(dst, it.entry,
 								NULL) < 0) {
 				err = &drgn_enomem;
@@ -1797,8 +1794,7 @@ drgn_dwarf_base_type_map_merge(struct drgn_dwarf_base_type_map *dst,
 			       struct drgn_error *err)
 {
 	if (!err) {
-		for (auto it = drgn_dwarf_base_type_map_first(src); it.entry;
-		     it = drgn_dwarf_base_type_map_next(it)) {
+		hash_table_for_each(drgn_dwarf_base_type_map, it, src) {
 			if (drgn_dwarf_base_type_map_insert(dst, it.entry, NULL)
 			    < 0) {
 				err = &drgn_enomem;

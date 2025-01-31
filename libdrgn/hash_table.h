@@ -1688,6 +1688,17 @@ DEFINE_HASH_SET_FUNCTIONS(table, hash_func, eq_func)
 	struct table_type table = HASH_TABLE_INIT
 
 /**
+ * Iterate over every entry in a @ref hash_table.
+ *
+ * @param[in] table_type Name of hash table type.
+ * @param[out] it Name of iterator variable.
+ * @param[in] table Hash table to iterate over.
+ */
+#define hash_table_for_each(table_type, it, table)				\
+	for (struct table_type##_iterator it = table_type##_first(table);	\
+	     it.entry; it = table_type##_next(it))
+
+/**
  * @defgroup HashTableHelpers Hash table helpers
  *
  * Hash functions and comparators for use with @ref HashTables.

@@ -170,9 +170,7 @@ static PyObject *LoggerCacheWrapper_clear(PyObject *self)
 	if (!pyobjectp_set_empty(&programs)) {
 		if (cache_logging_status())
 			return NULL;
-		for (struct pyobjectp_set_iterator it =
-		     pyobjectp_set_first(&programs);
-		     it.entry; it = pyobjectp_set_next(it)) {
+		hash_table_for_each(pyobjectp_set, it, &programs) {
 			Program *prog = (Program *)*it.entry;
 			drgn_program_set_log_level(&prog->prog,
 						   cached_log_level);
@@ -395,9 +393,7 @@ static void Program_dealloc(Program *self)
 {
 	Program_deinit_logging(self);
 	drgn_program_deinit(&self->prog);
-	for (struct pyobjectp_set_iterator it =
-	     pyobjectp_set_first(&self->objects); it.entry;
-	     it = pyobjectp_set_next(it))
+	hash_table_for_each(pyobjectp_set, it, &self->objects)
 		Py_DECREF(*it.entry);
 	pyobjectp_set_deinit(&self->objects);
 	Py_XDECREF(self->cache);
@@ -406,9 +402,7 @@ static void Program_dealloc(Program *self)
 
 static int Program_traverse(Program *self, visitproc visit, void *arg)
 {
-	for (struct pyobjectp_set_iterator it =
-	     pyobjectp_set_first(&self->objects); it.entry;
-	     it = pyobjectp_set_next(it))
+	hash_table_for_each(pyobjectp_set, it, &self->objects)
 		Py_VISIT(*it.entry);
 	Py_VISIT(self->cache);
 	return 0;
@@ -416,9 +410,7 @@ static int Program_traverse(Program *self, visitproc visit, void *arg)
 
 static int Program_clear(Program *self)
 {
-	for (struct pyobjectp_set_iterator it =
-	     pyobjectp_set_first(&self->objects); it.entry;
-	     it = pyobjectp_set_next(it))
+	hash_table_for_each(pyobjectp_set, it, &self->objects)
 		Py_DECREF(*it.entry);
 	pyobjectp_set_deinit(&self->objects);
 	pyobjectp_set_init(&self->objects);

@@ -1353,9 +1353,7 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 	}
 	drgn_typep_vector_deinit(&prog->created_types);
 
-	for (struct drgn_dedupe_type_set_iterator it =
-	     drgn_dedupe_type_set_first(&prog->dedupe_types);
-	     it.entry; it = drgn_dedupe_type_set_next(it))
+	hash_table_for_each(drgn_dedupe_type_set, it, &prog->dedupe_types)
 		free(*it.entry);
 	drgn_dedupe_type_set_deinit(&prog->dedupe_types);
 

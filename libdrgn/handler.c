@@ -105,8 +105,7 @@ struct drgn_error *drgn_handler_list_set_enabled(struct drgn_handler_list *list,
 	}
 
 	// The remaining handlers in the hash table are disabled. Insert them.
-	for (auto it = drgn_handler_table_first(&table); it.entry;
-	     it = drgn_handler_table_next(it)) {
+	hash_table_for_each(drgn_handler_table, it, &table) {
 		struct drgn_handler *handler = (struct drgn_handler *)*it.entry;
 		handler->enabled = false;
 		*handlerp = handler;
