@@ -347,6 +347,20 @@ static PyObject *Module_get_loaded_file_bias(Module *self, void *arg)
 	return PyLong_FromUint64(drgn_module_loaded_file_bias(self->module));
 }
 
+static int Module_set_loaded_file_bias(Module *self, PyObject *value, void *arg)
+{
+	if (!drgn_module_loaded_file_path(self->module)) {
+		PyErr_Format(PyExc_ValueError,
+			     "module does not have a loaded file");
+		return -1;
+	}
+	uint64_t new_bias = PyLong_AsUint64(value);
+	if (PyErr_Occurred())
+		return -1;
+	self->module->loaded_file_bias = new_bias;
+	return 0;
+}
+
 static PyObject *Module_get_debug_file_path(Module *self, void *arg)
 {
 	const char *path = drgn_module_debug_file_path(self->module);
@@ -360,6 +374,20 @@ static PyObject *Module_get_debug_file_bias(Module *self, void *arg)
 	if (!drgn_module_debug_file_path(self->module))
 		Py_RETURN_NONE;
 	return PyLong_FromUint64(drgn_module_debug_file_bias(self->module));
+}
+
+static int Module_set_debug_file_bias(Module *self, PyObject *value, void *arg)
+{
+	if (!drgn_module_debug_file_path(self->module)) {
+		PyErr_Format(PyExc_ValueError,
+			     "module does not have a debug file");
+		return -1;
+	}
+	uint64_t new_bias = PyLong_AsUint64(value);
+	if (PyErr_Occurred())
+		return -1;
+	self->module->debug_file_bias = new_bias;
+	return 0;
 }
 
 static PyObject *Module_get_supplementary_debug_file_kind(Module *self,
@@ -408,14 +436,16 @@ static PyGetSetDef Module_getset[] = {
 	 drgn_Module_loaded_file_status_DOC},
 	{"loaded_file_path", (getter)Module_get_loaded_file_path, NULL,
 	 drgn_Module_loaded_file_path_DOC},
-	{"loaded_file_bias", (getter)Module_get_loaded_file_bias, NULL,
+	{"loaded_file_bias", (getter)Module_get_loaded_file_bias,
+	 (setter)Module_set_loaded_file_bias,
 	 drgn_Module_loaded_file_bias_DOC},
 	{"debug_file_status", (getter)Module_get_debug_file_status,
 	 (setter)Module_set_debug_file_status,
 	 drgn_Module_debug_file_status_DOC},
 	{"debug_file_path", (getter)Module_get_debug_file_path, NULL,
 	 drgn_Module_debug_file_path_DOC},
-	{"debug_file_bias", (getter)Module_get_debug_file_bias, NULL,
+	{"debug_file_bias", (getter)Module_get_debug_file_bias,
+	 (setter)Module_set_debug_file_bias,
 	 drgn_Module_debug_file_bias_DOC},
 	{"supplementary_debug_file_kind",
 	 (getter)Module_get_supplementary_debug_file_kind, NULL,
