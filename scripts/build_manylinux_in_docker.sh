@@ -13,6 +13,8 @@ sed -i -e 's/mirrorlist/#mirrorlist/g' \
 
 yum install -y \
 	bzip2-devel \
+	json-c-devel \
+	libcurl-devel \
 	libzstd-devel \
 	lzo-devel \
 	snappy-devel \
@@ -38,13 +40,7 @@ elfutils_url=https://sourceware.org/elfutils/ftp/$elfutils_version/elfutils-$elf
 mkdir /tmp/elfutils
 cd /tmp/elfutils
 curl -L "$elfutils_url" | tar -xj --strip-components=1
-# We don't bother with debuginfod support for a few reasons:
-#
-# 1. It depends on libcurl, which would pull in a bunch of transitive
-#    dependencies.
-# 2. libdw loads libdebuginfod with dlopen(), which auditwheel misses.
-# 3. drgn hasn't been tested with debuginfod.
-./configure --disable-libdebuginfod --disable-debuginfod
+./configure --enable-libdebuginfod --disable-debuginfod --with-zlib --with-bzlib --with-lzma --with-zstd
 make -j$(($(nproc) + 1))
 make install
 
@@ -85,7 +81,8 @@ build_for_python() {
 
 for pybin in /opt/python/cp*/bin; do
 	if build_for_python "$pybin/python"; then
-		"$pybin/pip" wheel . --no-deps -w /tmp/wheels/
+		CONFIGURE_FLAGS="--with-debuginfod --disable-dlopen-debuginfod --with-libkdumpfile" \
+			"$pybin/pip" wheel . --no-deps -w /tmp/wheels/
 	fi
 done
 
