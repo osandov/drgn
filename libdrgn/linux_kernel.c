@@ -1457,31 +1457,74 @@ kernel_module_set_build_id(struct drgn_module *module,
 	_cleanup_free_ void *buf = NULL;
 	size_t capacity = 0;
 
-	// n = mod->notes_attrs->notes
-	uint64_t n;
 	err = drgn_object_member(&attrs, module_obj, "notes_attrs");
 	if (err)
 		return err;
-	err = drgn_object_member_dereference(&tmp, &attrs, "notes");
-	if (err)
-		return err;
-	err = drgn_object_read_unsigned(&tmp, &n);
-	if (err)
-		return err;
 
-	// attrs = mod->notes_attrs->attrs
-	err = drgn_object_member_dereference(&attrs, &attrs, "attrs");
-	if (err)
-		return err;
+	bool group = true;
+	uint64_t n;
+	err = drgn_object_member_dereference(&attrs, &attrs, "grp");
+	if (!err) {
+		// Since Linux kernel commit 4723f16de64e ("module: sysfs: Add
+		// notes attributes through attribute_group") (in v6.14), we
+		// have to iterate over struct attribute_group::bin_attrs, a
+		// null-terminated array of struct bin_attribute pointers.
 
-	for (uint64_t i = 0; i < n; i++) {
+		// attr = mod->notes_attrs->grp.bin_attrs
+		err = drgn_object_member(&attrs, &attrs, "bin_attrs");
+		if (err)
+			return err;
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+		// Before that, there was no struct attribute_group for notes,
+		// so we iterate over struct module_notes_attrs::attrs, an array
+		// of struct bin_attribute with a length given by struct
+		// module_notes_attrs::notes.
+		group = false;
+		// n = mod->notes_attrs->notes
+		err = drgn_object_member_dereference(&tmp, &attrs, "notes");
+		if (err)
+			return err;
+		err = drgn_object_read_unsigned(&tmp, &n);
+		if (err)
+			return err;
+
+		// attrs = mod->notes_attrs->attrs
+		err = drgn_object_member_dereference(&attrs, &attrs, "attrs");
+		if (err)
+			return err;
+	} else {
+		return err;
+	}
+
+	// If we're not using struct attribute_group, we know how many
+	// attributes there are.
+	for (uint64_t i = 0; group || i < n; i++) {
 		// attr = attrs[i]
 		err = drgn_object_subscript(&attr, &attrs, i);
 		if (err)
 			return err;
 
-		// address = attr.private
-		err = drgn_object_member(&tmp, &attr, "private");
+		if (group) {
+			// If we're using struct attribute_group, we stop when
+			// we hit a NULL pointer.
+			err = drgn_object_read(&attr, &attr);
+			if (err)
+				return err;
+			bool truthy;
+			err = drgn_object_bool(&attr, &truthy);
+			if (err)
+				return err;
+			if (!truthy)
+				break;
+		} else {
+			// attr = &attrs[i]
+			err = drgn_object_address_of(&attr, &attr);
+			if (err)
+				return err;
+		}
+
+		// address = attr->private
+		err = drgn_object_member_dereference(&tmp, &attr, "private");
 		if (err)
 			return err;
 		uint64_t address;
@@ -1489,8 +1532,8 @@ kernel_module_set_build_id(struct drgn_module *module,
 		if (err)
 			return err;
 
-		// size = attr.size
-		err = drgn_object_member(&tmp, &attr, "size");
+		// size = attr->size
+		err = drgn_object_member_dereference(&tmp, &attr, "size");
 		if (err)
 			return err;
 		uint64_t size;
@@ -1633,50 +1676,107 @@ kernel_module_set_section_addresses(struct drgn_module *module,
 	if (err)
 		return err;
 
-	// i = mod->sect_attrs->nsections
+	bool group = true;
+	uint64_t nsections;
 	err = drgn_object_member_dereference(&tmp, &attrs, "nsections");
-	if (err)
-		return err;
-	uint64_t i;
-	err = drgn_object_read_unsigned(&tmp, &i);
-	if (err)
-		return err;
+	if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+		// Since Linux kernel commit d8959b947a8d ("module: sysfs: Drop
+		// member 'module_sect_attrs::nsections'") (in v6.14), we have
+		// to iterate over struct attribute_group::bin_attrs, a
+		// null-terminated array of struct bin_attribute pointers.
 
-	// attrs = mod->sect_attrs->attrs
-	err = drgn_object_member_dereference(&attrs, &attrs, "attrs");
-	if (err)
-		return err;
+		// attrs = mod->sect_attrs->grp.bin_attrs
+		err = drgn_object_member_dereference(&attrs, &attrs, "grp");
+		if (err)
+			return err;
+		err = drgn_object_member(&attrs, &attrs, "bin_attrs");
+		if (err)
+			return err;
+	} else if (!err) {
+		// Before that, struct module_sect_attrs::grp still exists.
+		// However, since Linux kernel commit ed66f991bb19 ("module:
+		// Refactor section attr into bin attribute") (in v5.8), the
+		// sections are in struct attribute_group::bin_attrs, and before
+		// that, they're in struct attribute_group::attrs. Additionally,
+		// we'd then have to get the containing struct module_sect_attr
+		// to get the section address.
+		//
+		// Instead, it's easier to iterate over struct
+		// module_sect_attrs::attrs, an array of struct module_sect_attr
+		// with a length given by struct module_sect_attrs::nsections.
+		group = false;
+		// nsections = mod->sect_attrs->nsections
+		err = drgn_object_read_unsigned(&tmp, &nsections);
+		if (err)
+			return err;
 
-	while (i-- > 0) {
+		// attrs = mod->sect_attrs->attrs
+		err = drgn_object_member_dereference(&attrs, &attrs, "attrs");
+		if (err)
+			return err;
+	} else {
+		return err;
+	}
+
+	// If we're not using struct attribute_group, we know how many
+	// attributes there are.
+	for (uint64_t i = 0; group || i < nsections; i++) {
 		// attr = attrs[i]
 		err = drgn_object_subscript(&attr, &attrs, i);
 		if (err)
 			return err;
 
-		// address = attr.address
-		err = drgn_object_member(&tmp, &attr, "address");
-		if (err)
-			return err;
+		if (group) {
+			// If we're using struct attribute_group, we stop when
+			// we hit a NULL pointer.
+			err = drgn_object_read(&attr, &attr);
+			if (err)
+				return err;
+			bool truthy;
+			err = drgn_object_bool(&attr, &truthy);
+			if (err)
+				return err;
+			if (!truthy)
+				break;
+			// Since Linux kernel commit 4b2c11e4aaf7 ("module:
+			// sysfs: Drop member 'module_sect_attr::address'") (in
+			// v6.14), the section address is in struct
+			// bin_attribute::private.
+			err = drgn_object_member_dereference(&tmp, &attr,
+							     "private");
+		} else {
+			// Before that, the section address is in struct
+			// module_sect_attr::address.
+			err = drgn_object_member(&tmp, &attr, "address");
+			if (err)
+				return err;
+		}
 		uint64_t address;
 		err = drgn_object_read_unsigned(&tmp, &address);
 		if (err)
 			return err;
 
-		// Since Linux kernel commit ed66f991bb19 ("module: Refactor
-		// section attr into bin attribute") (in v5.8), the section name
-		// is module_sect_attr.battr.attr.name. Before that, it is
-		// simply module_sect_attr.name.
-
-		// attr = attr.battr.attr
-		err = drgn_object_member(&attr, &attr, "battr");
-		if (!err) {
-			err = drgn_object_member(&attr, &attr, "attr");
+		if (group) {
+			// attr = attr->attr
+			err = drgn_object_member_dereference(&attr, &attr,
+							     "attr");
 			if (err)
 				return err;
 		} else {
-			if (err->code != DRGN_ERROR_LOOKUP)
+			// Since Linux kernel commit ed66f991bb19 ("module:
+			// Refactor section attr into bin attribute") (in v5.8),
+			// the section name is module_sect_attr.battr.attr.name.
+			// Before that, it is simply module_sect_attr.name.
+
+			// attr = attr.battr.attr
+			err = drgn_object_member(&attr, &attr, "battr");
+			if (!err) {
+				err = drgn_object_member(&attr, &attr, "attr");
+				if (err)
+					return err;
+			} else if (!drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 				return err;
-			drgn_error_destroy(err);
+			}
 		}
 		err = drgn_object_member(&tmp, &attr, "name");
 		if (err)
