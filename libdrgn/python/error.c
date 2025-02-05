@@ -73,6 +73,29 @@ void clear_drgn_in_python(void)
 	drgn_in_python = false;
 }
 
+struct drgn_error *drgn_fault_error_from_python(PyObject *exc_value)
+{
+	struct drgn_error *err = NULL;
+	PyObject *message = NULL, *address = NULL;
+
+	message = PyObject_GetAttrString(exc_value, "message");
+	if (!message) {
+		PyErr_Clear();
+		goto out;
+	}
+	address = PyObject_GetAttrString(exc_value, "address");
+	if (!message) {
+		PyErr_Clear();
+		goto out;
+	}
+	err = drgn_error_create_fault(PyUnicode_AsUTF8(message), PyLong_AsUint64(address));
+
+out:
+	Py_XDECREF(message);
+	Py_XDECREF(address);
+	return err;
+}
+
 struct drgn_error *drgn_error_from_python(void)
 {
 	PyObject *exc_type, *exc_value, *exc_traceback, *exc_message;
@@ -86,6 +109,11 @@ struct drgn_error *drgn_error_from_python(void)
 	if (drgn_in_python) {
 		PyErr_Restore(exc_type, exc_value, exc_traceback);
 		return &drgn_error_python;
+	}
+
+	if ((PyTypeObject *)exc_type == &FaultError_type && exc_value) {
+		err = drgn_fault_error_from_python(exc_value);
+		goto out;
 	}
 
 	type = ((PyTypeObject *)exc_type)->tp_name;
