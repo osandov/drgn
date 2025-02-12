@@ -7,6 +7,7 @@ sys.path.append(os.path.abspath("exts"))
 master_doc = "index"
 
 extensions = [
+    "details",
     "drgndoc.ext",
     "linuxsrc",
     "setuptools_config",

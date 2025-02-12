@@ -1,3 +1,8 @@
+details {
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+}
+
 div.admonition {
     padding-bottom: 0;
 }
@@ -5,6 +10,20 @@ div.admonition {
 div.admonition p.admonition-title {
     font-size: 17px;
     font-weight: bold;
+}
+
+div.tip {
+    background-color: #DFD;
+    border-color: #ACA;
+}
+
+div.scroll-y pre {
+    max-height: 20em;
+    overflow-y: auto;
+}
+
+div.tutorial pre {
+    border-left: 5px solid #5A5;
 }
 
 @media screen and (min-width: 875px) {

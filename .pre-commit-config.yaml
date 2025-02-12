@@ -9,6 +9,7 @@ repos:
     rev: 24.8.0
     hooks:
     -   id: black
+        exclude: ^docs/exts/details\.py$
 -   repo: https://github.com/pycqa/flake8
     rev: 7.1.1
     hooks:

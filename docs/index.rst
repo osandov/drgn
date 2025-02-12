@@ -34,6 +34,7 @@ Table of Contents
     api_reference
     helpers
     support_matrix
+    tutorials
     case_studies
     getting_debugging_symbols
     release_highlights
