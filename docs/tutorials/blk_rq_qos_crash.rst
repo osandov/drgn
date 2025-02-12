@@ -17,6 +17,12 @@ something in the block layer.
 
 A core dump and debugging symbols are provided for you to follow along with.
 
+This tutorial is also available as a video:
+
+.. raw:: html
+
+    <iframe width="560" height="315" src="https://www.youtube.com/embed/s5TvkvMiV_M?si=_EjaR7gpyGcACeS7" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
 Setup
 -----
 
