@@ -66,7 +66,7 @@ Package Manager
 
 drgn can be installed using the package manager on some Linux distributions.
 
-.. image:: https://repology.org/badge/vertical-allrepos/drgn.svg
+.. image:: https://repology.org/badge/vertical-allrepos/drgn.svg?exclude_unsupported=1
     :target: https://repology.org/project/drgn/versions
     :alt: Packaging Status
 
