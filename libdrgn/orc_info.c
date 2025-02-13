@@ -21,6 +21,8 @@
 
 DEFINE_VECTOR(uint64_range_vector, struct uint64_range);
 
+#define ORC_HEADER_SIZE 20
+
 void drgn_module_orc_info_deinit(struct drgn_module *module)
 {
 	free(module->orc.entries);
@@ -227,20 +229,20 @@ static int orc_version_from_header(const void *buffer)
 
 	// Linux kernel commit fb799447ae29 ("x86,objtool: Split
 	// UNWIND_HINT_EMPTY in two") (in v6.4)
-	static const uint8_t orc_hash_6_4[20] = {
+	static const uint8_t orc_hash_6_4[ORC_HEADER_SIZE] = {
 		0xfe, 0x5d, 0x32, 0xbf, 0x58, 0x1b, 0xd6, 0x3b, 0x2c, 0xa9,
 		0xa5, 0xc6, 0x5b, 0xa5, 0xa6, 0x25, 0xea, 0xb3, 0xfe, 0x24,
 	};
 	// Linux kernel commit ffb1b4a41016 ("x86/unwind/orc: Add 'signal' field
 	// to ORC metadata") (in v6.3)
-	static const uint8_t orc_hash_6_3[20] = {
+	static const uint8_t orc_hash_6_3[ORC_HEADER_SIZE] = {
 		0xdb, 0x84, 0xae, 0xd4, 0x10, 0x3b, 0x31, 0xdd, 0x51, 0xe0,
 		0x17, 0xf8, 0xf7, 0x97, 0x83, 0xca, 0x98, 0x5c, 0x2c, 0x51,
 	};
 
-	if (memcmp(buffer, orc_hash_6_4, 20) == 0)
+	if (memcmp(buffer, orc_hash_6_4, ORC_HEADER_SIZE) == 0)
 		return 3;
-	else if (memcmp(buffer, orc_hash_6_3, 20) == 0)
+	else if (memcmp(buffer, orc_hash_6_3, ORC_HEADER_SIZE) == 0)
 		return 2;
 	return -1;
 }
@@ -321,7 +323,7 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 		if (err)
 			return err;
 		module->orc.version = -1;
-		if (orc_header->d_size == 20)
+		if (orc_header->d_size == ORC_HEADER_SIZE)
 			module->orc.version = orc_version_from_header(orc_header->d_buf);
 		if (module->orc.version < 0) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
@@ -364,7 +366,7 @@ static struct drgn_error *
 copy_builtin_orc_buffers(struct drgn_module *module, uint64_t num_entries,
 			 uint64_t unwind, uint64_t unwind_ip, uint64_t header)
 {
-	uint8_t header_data[20];
+	uint8_t header_data[ORC_HEADER_SIZE];
 
 	struct drgn_error *err;
 
@@ -452,7 +454,7 @@ static struct drgn_error *drgn_read_vmlinux_orc(struct drgn_module *module)
 	    || (unwind_end - unwind_start) / sizeof(struct drgn_orc_entry) != num_entries)
 		return drgn_error_create(DRGN_ERROR_OTHER, "invalid built-in orc_unwind range");
 
-	if (header_start && header_end && header_end - header_start != 20)
+	if (header_start && header_end && header_end - header_start != ORC_HEADER_SIZE)
 		return drgn_error_create(DRGN_ERROR_OTHER, "invalid built-in orc_header size");
 
 	return copy_builtin_orc_buffers(module, num_entries, unwind_start,
