@@ -3,8 +3,10 @@
 
 #include <gelf.h>
 #include <libelf.h>
+#include <lzma.h>
 #include <stdlib.h>
 
+#include "array.h"
 #include "debug_info.h"
 #include "elf_file.h"
 #include "elf_symtab.h"
@@ -21,13 +23,22 @@ static struct drgn_error *find_elf_file_symtab(struct drgn_elf_file *file,
 					       Elf_Scn **scn_ret,
 					       GElf_Word *strtab_idx_ret,
 					       GElf_Word *num_local_symbols_ret,
-					       bool *full_symtab_ret)
+					       bool *full_symtab_ret,
+					       Elf_Scn **gnu_debugdata_ret)
 {
 	Elf_Scn *scn = NULL;
+	size_t shstrndx;
+	if (elf_getshdrstrndx(file->elf, &shstrndx))
+		return drgn_error_libelf();
 	while ((scn = elf_nextscn(file->elf, scn))) {
 		GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
 		if (!shdr)
 			return drgn_error_libelf();
+
+		const char *scnname = elf_strptr(file->elf, shstrndx, shdr->sh_name);
+		if (scnname && gnu_debugdata_ret && shdr->sh_type == SHT_PROGBITS
+		    && strcmp(".gnu_debugdata", scnname) == 0)
+			*gnu_debugdata_ret = scn;
 
 		if (shdr->sh_type == SHT_SYMTAB
 		    || shdr->sh_type == SHT_DYNSYM) {
@@ -46,54 +57,104 @@ static struct drgn_error *find_elf_file_symtab(struct drgn_elf_file *file,
 }
 
 static struct drgn_error *
-find_module_elf_symtab(struct drgn_module *module)
+drgn_error_lzma(lzma_ret code)
 {
+	switch (code) {
+		case LZMA_MEM_ERROR:
+			return &drgn_enomem;
+		case LZMA_OPTIONS_ERROR:
+			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						 "lzma: invalid options");
+		case LZMA_FORMAT_ERROR:
+		case LZMA_DATA_ERROR:
+		case LZMA_BUF_ERROR:
+			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						 "lzma: format error (%d)", code);
+		default:
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "lzma: unknown error (%d)", code);
+	}
+}
+
+static struct drgn_error *
+load_gnu_debugdata_file(struct drgn_module *module, Elf_Scn *gnu_debugdata_scn)
+{
+	if (module->gnu_debugdata_file)
+		return NULL;
+
+	Elf_Data *gnu_debugdata_data;
 	struct drgn_error *err;
+	err = read_elf_section(gnu_debugdata_scn, &gnu_debugdata_data);
+	if (err)
+		return err;
 
-	if (!module->elf_symtab_pending_files)
-		return NULL;
+	_cleanup_(lzma_end) lzma_stream stream = LZMA_STREAM_INIT;
+	uint64_t memlimit = UINT64_MAX;
+	lzma_ret ret = lzma_stream_decoder(&stream, UINT64_MAX, 0);
+	if (ret != LZMA_OK)
+		return drgn_error_lzma(ret);
 
-	if (module->elf_symtab.num_symbols > 0 && !module->have_full_symtab) {
-		module->elf_symtab_pending_files = 0;
-		return NULL;
+	stream.next_in = gnu_debugdata_data->d_buf;
+	stream.avail_in = gnu_debugdata_data->d_size;
+
+	size_t datasize = 2 * gnu_debugdata_data->d_size;
+	_cleanup_free_ void *data = malloc(datasize);
+
+	stream.next_out = data;
+	stream.avail_out = gnu_debugdata_data->d_size;
+
+	size_t bytes_decoded;
+	while (1) {
+		ret = lzma_code(&stream, LZMA_RUN);
+		if (ret != LZMA_OK && ret != LZMA_STREAM_END)
+			return drgn_error_lzma(ret);
+
+		bytes_decoded = (void *)stream.next_out - data;
+		if (ret == LZMA_STREAM_END)
+			datasize = bytes_decoded;
+		else
+			datasize *= 2;
+
+		data = realloc(data, datasize);
+		if (!data)
+			return &drgn_enomem;
+
+		stream.next_out = data + bytes_decoded;
+		stream.avail_out = datasize - bytes_decoded;
+		if (ret == LZMA_STREAM_END)
+			break;
 	}
 
-	struct drgn_elf_file *file = NULL;
-	uint64_t bias;
-	Elf_Scn *symtab_scn;
-	GElf_Word strtab_idx, num_local_symbols;
-	bool full_symtab = false;
+	Elf *elf = elf_memory(data, bytes_decoded);
+	if (!elf)
+		return drgn_error_libelf();
 
-	if (module->elf_symtab_pending_files & DRGN_MODULE_FILE_MASK_DEBUG) {
-		err = find_elf_file_symtab(module->debug_file,
-					   module->debug_file_bias, &file,
-					   &bias, &symtab_scn, &strtab_idx,
-					   &num_local_symbols, &full_symtab);
-		if (err)
-			return err;
-	}
+	err = drgn_elf_file_create(module, module->loaded_file->path, -1, data, elf,
+				   &module->gnu_debugdata_file);
+	if (err)
+		elf_end(elf);
+	else
+		data = NULL;
+	return err;
+}
 
-	if (!full_symtab &&
-	    (module->elf_symtab_pending_files & DRGN_MODULE_FILE_MASK_LOADED)) {
-		err = find_elf_file_symtab(module->loaded_file,
-					   module->loaded_file_bias, &file,
-					   &bias, &symtab_scn, &strtab_idx,
-					   &num_local_symbols, &full_symtab);
-		if (err)
-			return err;
-	}
-
-	if (!file) {
-		drgn_log_debug(module->prog, "%s: no ELF symbol table",
-			       module->name);
-		module->elf_symtab_pending_files = 0;
-		return NULL;
-	}
+static struct drgn_error *
+append_module_elf_symtab(struct drgn_module *module, struct drgn_elf_file *file,
+			 uint64_t bias, Elf_Scn *symtab_scn, GElf_Word strtab_idx,
+			 GElf_Word num_local_symbols)
+{
+	size_t i = 0;
+	while (i < array_size(module->elf_symtab) && module->elf_symtab[i].file)
+		i++;
+	if (i == array_size(module->elf_symtab))
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "reached maximum number of ELF symbol tables");
 
 	Elf_Scn *strtab_scn = elf_getscn(file->elf, strtab_idx);
 	if (!strtab_scn)
 		return drgn_error_libelf();
 
+	struct drgn_error *err;
 	Elf_Data *data, *strtab_data;
 	if ((err = read_elf_section(symtab_scn, &data))
 	    || (err = read_elf_section(strtab_scn, &strtab_data)))
@@ -113,54 +174,135 @@ find_module_elf_symtab(struct drgn_module *module)
 			return err;
 	}
 
-	module->elf_symtab.file = file;
-	module->elf_symtab.bias = bias;
-	module->elf_symtab.data = data->d_buf;
-	module->elf_symtab.num_symbols =
+	module->elf_symtab[i].file = file;
+	module->elf_symtab[i].bias = bias;
+	module->elf_symtab[i].data = data->d_buf;
+	module->elf_symtab[i].num_symbols =
 		data->d_size
 		/ (drgn_elf_file_is_64_bit(file)
 		   ? sizeof(Elf64_Sym) : sizeof(Elf32_Sym));
 	if (num_local_symbols < 1)
 		num_local_symbols = 1;
-	if (num_local_symbols > module->elf_symtab.num_symbols)
-		num_local_symbols = module->elf_symtab.num_symbols;
-	module->elf_symtab.num_local_symbols = num_local_symbols;
-	module->elf_symtab.strtab = strtab_data;
-	module->elf_symtab.shndx = shndx_data;
+	if (num_local_symbols > module->elf_symtab[i].num_symbols)
+		num_local_symbols = module->elf_symtab[i].num_symbols;
+	module->elf_symtab[i].num_local_symbols = num_local_symbols;
+	module->elf_symtab[i].strtab = strtab_data;
+	module->elf_symtab[i].shndx = shndx_data;
 	module->elf_symtab_pending_files = 0;
-	module->have_full_symtab = full_symtab;
+	return NULL;
+}
 
-	drgn_log_debug(module->prog,
-		       "%s: found ELF %ssymbol table with %zu symbols",
-		       module->name, full_symtab ? "" : "dynamic ",
-		       module->elf_symtab.num_symbols);
+static struct drgn_error *
+find_module_elf_symtab(struct drgn_module *module)
+{
+	struct drgn_error *err;
+
+	if (!module->elf_symtab_pending_files)
+		return NULL;
+
+	if (module->elf_symtab[0].num_symbols > 0 && !module->have_full_symtab) {
+		module->elf_symtab_pending_files = 0;
+		return NULL;
+	}
+
+	struct drgn_elf_file *file = NULL;
+	uint64_t bias;
+	Elf_Scn *symtab_scn;
+	GElf_Word strtab_idx, num_local_symbols;
+	bool full_symtab = false;
+
+	if (module->elf_symtab_pending_files & DRGN_MODULE_FILE_MASK_DEBUG) {
+		err = find_elf_file_symtab(module->debug_file,
+					   module->debug_file_bias, &file,
+					   &bias, &symtab_scn, &strtab_idx,
+					   &num_local_symbols, &full_symtab,
+					   NULL);
+		if (err)
+			return err;
+	}
+
+	Elf_Scn *gnu_debugdata_scn = NULL;
+	if (!full_symtab &&
+	    (module->elf_symtab_pending_files & DRGN_MODULE_FILE_MASK_LOADED)) {
+		err = find_elf_file_symtab(module->loaded_file,
+					   module->loaded_file_bias, &file,
+					   &bias, &symtab_scn, &strtab_idx,
+					   &num_local_symbols, &full_symtab,
+					   &gnu_debugdata_scn);
+		if (err)
+			return err;
+	}
+
+	if (!file && !gnu_debugdata_scn) {
+		drgn_log_debug(module->prog, "%s: no ELF symbol table",
+			       module->name);
+		module->elf_symtab_pending_files = 0;
+		return NULL;
+	}
+
+	int sym_tab = 0;
+	if (file) {
+		err = append_module_elf_symtab(module, file, bias, symtab_scn, strtab_idx,
+					num_local_symbols);
+		if (err)
+			return err;
+
+		module->have_full_symtab = full_symtab;
+		drgn_log_debug(module->prog,
+			"%s: found ELF %ssymbol table with %zu symbols",
+			module->name, full_symtab ? "" : "dynamic ",
+			module->elf_symtab[sym_tab].num_symbols);
+		sym_tab++;
+	}
+
+	if (!full_symtab && gnu_debugdata_scn) {
+		err = load_gnu_debugdata_file(module, gnu_debugdata_scn);
+		if (err)
+			return err;
+		err = find_elf_file_symtab(module->gnu_debugdata_file,
+					   module->loaded_file_bias, &file,
+					   &bias, &symtab_scn, &strtab_idx,
+					   &num_local_symbols, &full_symtab,
+					   NULL);
+		if (err)
+			return err;
+		err = append_module_elf_symtab(module, file, bias, symtab_scn, strtab_idx,
+					num_local_symbols);
+		if (err)
+			return err;
+		module->have_full_symtab = full_symtab;
+		drgn_log_debug(module->prog,
+			"%s: found ELF .gnu_debugdata symbol table with %zu symbols",
+			module->name, module->elf_symtab[sym_tab].num_symbols);
+
+	}
 
 	return NULL;
 }
 
-static size_t elf_symbol_shndx(struct drgn_module *module, size_t sym_idx,
-			       const GElf_Sym *sym)
+static size_t elf_symbol_shndx(struct drgn_module *module, int sym_tab,
+			       size_t sym_idx, const GElf_Sym *sym)
 {
 	if (sym->st_shndx < SHN_LORESERVE)
 		return sym->st_shndx;
 	if (sym->st_shndx == SHN_XINDEX
-	    && module->elf_symtab.shndx
+	    && module->elf_symtab[sym_tab].shndx
 	    && sym_idx <
-	       module->elf_symtab.shndx->d_size / sizeof(uint32_t)) {
+	       module->elf_symtab[sym_tab].shndx->d_size / sizeof(uint32_t)) {
 		uint32_t tmp;
 		memcpy(&tmp,
-		       (const char *)module->elf_symtab.shndx->d_buf
+		       (const char *)module->elf_symtab[sym_tab].shndx->d_buf
 		       + sym_idx * sizeof(uint32_t),
 		       sizeof(uint32_t));
-		if (drgn_elf_file_bswap(module->elf_symtab.file))
+		if (drgn_elf_file_bswap(module->elf_symtab[sym_tab].file))
 			tmp = bswap_32(tmp);
 		return tmp;
 	}
 	return SHN_UNDEF;
 }
 
-static bool elf_symbol_address(struct drgn_module *module, size_t sym_idx,
-			       const GElf_Sym *sym, uint64_t *ret)
+static bool elf_symbol_address(struct drgn_module *module, int sym_tab,
+			       size_t sym_idx, const GElf_Sym *sym, uint64_t *ret)
 {
 	uint64_t addr = sym->st_value;
 
@@ -172,16 +314,16 @@ static bool elf_symbol_address(struct drgn_module *module, size_t sym_idx,
 	// currently support V1 of the 64-bit PowerPC ELF ABI where st_value is
 	// the address of a "function descriptor" instead of the function entry
 	// point.
-	if (module->elf_symtab.file->platform.arch->arch == DRGN_ARCH_ARM
+	if (module->elf_symtab[sym_tab].file->platform.arch->arch == DRGN_ARCH_ARM
 	    && GELF_ST_TYPE(sym->st_info) == STT_FUNC)
 		addr &= ~1;
 
-	addr += module->elf_symtab.bias;
-	if (module->elf_symtab.file->is_relocatable) {
-		size_t shndx = elf_symbol_shndx(module, sym_idx, sym);
+	addr += module->elf_symtab[sym_tab].bias;
+	if (module->elf_symtab[sym_tab].file->is_relocatable) {
+		size_t shndx = elf_symbol_shndx(module, sym_tab, sym_idx, sym);
 		if (shndx == SHN_UNDEF)
 			return false;
-		Elf_Scn *scn = elf_getscn(module->elf_symtab.file->elf, shndx);
+		Elf_Scn *scn = elf_getscn(module->elf_symtab[sym_tab].file->elf, shndx);
 		if (!scn)
 			return false;
 		GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
@@ -265,13 +407,14 @@ static bool better_sizeless_addr_match(const GElf_Sym *a, uint64_t a_addr,
 	       > elf_symbol_binding_precedence(b);
 }
 
-static bool addr_in_sym_section(struct drgn_module *module, size_t sym_idx,
-				const GElf_Sym *sym, uint64_t unbiased_addr)
+static bool addr_in_sym_section(struct drgn_module *module, int sym_tab,
+				size_t sym_idx, const GElf_Sym *sym,
+				uint64_t unbiased_addr)
 {
-	size_t shndx = elf_symbol_shndx(module, sym_idx, sym);
+	size_t shndx = elf_symbol_shndx(module, sym_tab, sym_idx, sym);
 	if (shndx == SHN_UNDEF)
 		return false;
-	Elf_Scn *scn = elf_getscn(module->elf_symtab.file->elf, shndx);
+	Elf_Scn *scn = elf_getscn(module->elf_symtab[sym_tab].file->elf, shndx);
 	if (!scn)
 		return false;
 	GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
@@ -287,15 +430,16 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 			       struct drgn_symbol_result_builder *builder)
 {
 	struct drgn_error *err;
+	int sym_tab = 0;
 
 	err = find_module_elf_symtab(module);
 	if (err)
 		return err;
-	if (module->elf_symtab.num_symbols == 0)
+	if (module->elf_symtab[sym_tab].num_symbols == 0)
 		return NULL;
 
-	const bool is_64_bit = drgn_elf_file_is_64_bit(module->elf_symtab.file);
-	const bool bswap = drgn_elf_file_bswap(module->elf_symtab.file);
+	const bool is_64_bit = drgn_elf_file_is_64_bit(module->elf_symtab[sym_tab].file);
+	const bool bswap = drgn_elf_file_bswap(module->elf_symtab[sym_tab].file);
 	const size_t sym_size =
 		is_64_bit ? sizeof(Elf64_Sym) : sizeof(Elf32_Sym);
 
@@ -310,6 +454,7 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 	// sizeless_sym_idx last seen with GCC 12.
 	uint64_t sizeless_addr = 0;
 	size_t sizeless_sym_idx = 0;
+	int sizeless_sym_tab = 0;
 	Elf64_Sym sizeless_sym;
 	// The maximum end address of any symbol starting before the given
 	// address. Any symbol with size 0 starting before this is either
@@ -329,8 +474,9 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 	// over that match, so we can skip local symbols.
 	//
 	// Otherwise, skip the undefined symbol at index 0.
-	for (size_t i = best_sym ? module->elf_symtab.num_local_symbols : 1;
-	     i < module->elf_symtab.num_symbols; i++) {
+	while (sym_tab < array_size(module->elf_symtab) && module->elf_symtab[sym_tab].file) {
+	for (size_t i = best_sym ? module->elf_symtab[sym_tab].num_local_symbols : 1;
+	     i < module->elf_symtab[sym_tab].num_symbols; i++) {
 		Elf64_Sym elf_sym;
 #define visit_elf_sym_members(visit_scalar_member, visit_raw_member) do {	\
 	visit_scalar_member(st_name);						\
@@ -341,7 +487,7 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 	visit_scalar_member(st_size);						\
 } while (0)
 		deserialize_struct64(&elf_sym, Elf32_Sym, visit_elf_sym_members,
-				     module->elf_symtab.data + i * sym_size,
+				     module->elf_symtab[sym_tab].data + i * sym_size,
 				     is_64_bit, bswap);
 #undef visit_elf_sym_members
 
@@ -350,10 +496,10 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 			continue;
 
 		// Ignore symbols with an out-of-bounds name.
-		if (elf_sym.st_name >= module->elf_symtab.strtab->d_size)
+		if (elf_sym.st_name >= module->elf_symtab[sym_tab].strtab->d_size)
 			continue;
 		const char *elf_sym_name =
-			(const char *)module->elf_symtab.strtab->d_buf
+			(const char *)module->elf_symtab[sym_tab].strtab->d_buf
 			+ elf_sym.st_name;
 
 		if ((flags & DRGN_FIND_SYMBOL_NAME)
@@ -381,7 +527,7 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 		}
 
 		uint64_t elf_sym_addr;
-		if (!elf_symbol_address(module, i, &elf_sym, &elf_sym_addr))
+		if (!elf_symbol_address(module, sym_tab, i, &elf_sym, &elf_sym_addr))
 			continue;
 
 		if (flags & DRGN_FIND_SYMBOL_ADDR) {
@@ -430,17 +576,19 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 				// Otherwise, if we're searching by address and
 				// we find a matching local symbol, then we can
 				// skip past the remaining local symbols.
-				if (i < module->elf_symtab.num_local_symbols)
-					i = module->elf_symtab.num_local_symbols - 1;
+				if (i < module->elf_symtab[sym_tab].num_local_symbols)
+					i = module->elf_symtab[sym_tab].num_local_symbols - 1;
 			}
 		}
+	}
+	sym_tab++;
 	}
 
 	if (sizeless_name
 	    && drgn_symbol_result_builder_count(builder) == 0
 	    && sizeless_addr >= max_end_addr
-	    && addr_in_sym_section(module, sizeless_sym_idx, &sizeless_sym,
-				   addr - module->elf_symtab.bias)
+	    && addr_in_sym_section(module, sizeless_sym_tab, sizeless_sym_idx, &sizeless_sym,
+				   addr - module->elf_symtab[sizeless_sym_tab].bias)
 	    && !drgn_symbol_result_builder_add_from_elf(builder, sizeless_name,
 							sizeless_addr,
 							&sizeless_sym))

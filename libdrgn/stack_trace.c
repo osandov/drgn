@@ -1205,14 +1205,14 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "cannot unwind stack without platform");
 	}
-	if (drgn_program_is_userspace_process(prog)) {
-		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
-					 "stack unwinding is not yet supported for live processes");
-	} else if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		   && !drgn_program_is_userspace_core(prog)) {
-		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
-					 "stack unwinding is not supported for this program");
-	}
+	//if (drgn_program_is_userspace_process(prog)) {
+	//	return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+	//				 "stack unwinding is not yet supported for live processes");
+	//} else if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+	//	   && !drgn_program_is_userspace_core(prog)) {
+	//	return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+	//				 "stack unwinding is not supported for this program");
+	//}
 
 	size_t trace_capacity = 1;
 	struct drgn_stack_trace *trace =
