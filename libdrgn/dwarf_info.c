@@ -3500,6 +3500,19 @@ drgn_eval_dwarf_expression(struct drgn_dwarf_expression_context *ctx,
 							   address_size,
 							   &uvalue)))
 				return err;
+addr:
+			/*
+			 * If the address is not in the module's address range,
+			 * then it's probably something special like a Linux
+			 * per-CPU variable (which isn't actually a variable
+			 * address but an offset). Don't apply the bias in that
+			 * case.
+			 */
+			if (ctx->file->module->start
+			    <= uvalue + ctx->file->module->debug_file_bias
+			    && uvalue + ctx->file->module->debug_file_bias
+			       < ctx->file->module->end)
+				uvalue += ctx->file->module->debug_file_bias;
 			PUSH(uvalue);
 			break;
 		case DW_OP_const1u:
@@ -3562,8 +3575,19 @@ drgn_eval_dwarf_expression(struct drgn_dwarf_expression_context *ctx,
 			PUSH_MASK(uvalue);
 			break;
 		case DW_OP_addrx:
-		case DW_OP_constx:
 		case DW_OP_GNU_addr_index:
+			if (!ctx->cu_die.addr) {
+				ctx->bb.pos = ctx->bb.prev;
+				return NULL;
+			}
+			if ((err = drgn_dwarf_next_addrx(&ctx->bb, ctx->file,
+							 &ctx->cu_die,
+							 address_size,
+							 &ctx->cu_addr_base,
+							 &uvalue)))
+				return err;
+			goto addr;
+		case DW_OP_constx:
 		case DW_OP_GNU_const_index:
 			if (!ctx->cu_die.addr) {
 				ctx->bb.pos = ctx->bb.prev;
@@ -4627,17 +4651,6 @@ absent:
 		drgn_object_reinit(ret, &type, DRGN_OBJECT_ABSENT);
 		err = NULL;
 	} else if (bit_offset >= 0) {
-		uint64_t biased_address =
-			address + file->module->debug_file_bias;
-		/*
-		 * If the address is not in the module's address range, then
-		 * it's probably something special like a Linux per-CPU variable
-		 * (which isn't actually a variable address but an offset).
-		 * Don't apply the bias in that case.
-		 */
-		if (file->module->start <= biased_address
-		    && biased_address < file->module->end)
-			address = biased_address;
 		err = drgn_object_set_reference_internal(ret, &type, address,
 							 bit_offset);
 	} else if (type.encoding == DRGN_OBJECT_ENCODING_BUFFER) {
