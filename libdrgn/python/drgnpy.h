@@ -351,6 +351,12 @@ void *set_error_type_name(const char *format,
 
 PyObject *Module_wrap(struct drgn_module *module);
 PyObject *Module_and_bool_wrap(struct drgn_module *module, bool b);
+static inline Program *Module_prog(Module *module)
+{
+	struct drgn_program *prog = drgn_module_program(module->module);
+	return container_of(prog, Program, prog);
+}
+
 int add_WantedSupplementaryFile(PyObject *m);
 int init_module_section_addresses(void);
 

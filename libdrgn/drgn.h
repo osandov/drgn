@@ -1314,7 +1314,7 @@ drgn_module_find_or_create_relocatable(struct drgn_program *prog,
 				       struct drgn_module **ret, bool *new_ret);
 
 /**
- * Find a created Linux kernel loadable module from a ``struct module`` object.
+ * Find a created Linux kernel loadable module from a ``struct module *`` object.
  *
  * @param[out] new_ret @c true if the module was newly created, @c false if it
  * was found.
@@ -1324,7 +1324,7 @@ drgn_module_find_linux_kernel_loadable(const struct drgn_object *module_obj,
 				       struct drgn_module **ret);
 
 /**
- * Find a Linux kernel loadable module from a ``struct module`` object, creating
+ * Find a Linux kernel loadable module from a ``struct module *`` object, creating
  * it if it doesn't already exist.
  *
  * @param[out] new_ret @c true if the module was newly created, @c false if it
@@ -1569,6 +1569,26 @@ drgn_module_wanted_supplementary_debug_file(struct drgn_module *module,
 					    const char **supplementary_path_ret,
 					    const void **checksum_ret,
 					    size_t *checksum_len_ret);
+
+/**
+ * Return the object associated with this module.
+ *
+ * For some modules, there may be an object related to it. For example, drgn
+ * automatically identifies the Linux kernel `struct module *` associated with
+ * loadable modules, and associates it with them. Users may set or replace an
+ * associated object with @ref drgn_set_module_object().
+ *
+ * @param[out] ret Initialized object where the module object is placed
+ */
+struct drgn_error *
+drgn_module_object(const struct drgn_module *module, struct drgn_object *ret);
+
+/**
+ * Set the object associated with this module.
+ * @param[in] obj A new (or replacement) object for the module
+ */
+struct drgn_error *
+drgn_module_set_object(struct drgn_module *module, const struct drgn_object *obj);
 
 /** Debugging information finder callback table. */
 struct drgn_debug_info_finder_ops {
