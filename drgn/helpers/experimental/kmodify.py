@@ -1336,13 +1336,12 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
             call_args.append(_Symbol(".data", section=True, offset=len(data)))
             data.extend(value)
         else:
-            if isinstance(arg, Object):
-                if i < len(func_type.parameters):
-                    arg = implicit_convert(func_type.parameters[i].type, arg)
-                else:
-                    arg = _default_argument_promotions(arg)
-            else:
+            if not isinstance(arg, Object):
                 arg = Object(prog, value=arg)
+            if i < len(func_type.parameters):
+                arg = implicit_convert(func_type.parameters[i].type, arg)
+            else:
+                arg = _default_argument_promotions(arg)
 
             type = _underlying_type(arg.type_)
             if type.kind not in {
