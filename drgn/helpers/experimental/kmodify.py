@@ -400,7 +400,7 @@ def _write_elf(
 class _Integer:
     def __init__(self, size: int, value: IntegerLike) -> None:
         self.size = size
-        self.value = operator.index(value) & ((1 << (size * 8)) - 1)
+        self.value = operator.index(value)
 
 
 class _Symbol(NamedTuple):
@@ -503,7 +503,8 @@ class _CodeGen_x86_64:
             b"\xC3"
         )
 
-    def _mov_imm(self, value: int, reg: int) -> None:
+    def _mov_imm(self, i: _Integer, reg: int, sign_extend_bits: int = 0) -> None:
+        value = i.value & ((1 << max(i.size * 8, sign_extend_bits)) - 1)
         assert value >= 0 and value <= 0xFFFFFFFFFFFFFFFF
         assert reg < 16
         if value <= 0xFFFFFFFF:
@@ -556,7 +557,8 @@ class _CodeGen_x86_64:
             self.code.extend(b"\x48\x89\x84\x24")
             self.code.extend(offset.to_bytes(4, "little", signed=True))
 
-    def _store_imm_on_stack(self, value: int, offset: int) -> None:
+    def _store_imm_on_stack(self, i: _Integer, offset: int) -> None:
+        value = i.value & ((1 << max(i.size * 8, 64)) - 1)
         if (0 <= value <= 0x7FFFFFFF) or (
             0xFFFFFFFF80000000 <= value <= 0xFFFFFFFFFFFFFFFF
         ):
@@ -571,7 +573,7 @@ class _CodeGen_x86_64:
                 self.code.extend(offset.to_bytes(4, "little", signed=True))
             self.code.extend((value & 0xFFFFFFFF).to_bytes(4, "little"))
         else:
-            self._mov_imm(value, self._rax)
+            self._mov_imm(i, self._rax, 64)
             self._store_rax_on_stack(offset)
 
     def _store_symbol_on_stack(self, sym: _Symbol, offset: int) -> None:
@@ -583,13 +585,21 @@ class _CodeGen_x86_64:
             if i < len(self._argument_registers):
                 reg = self._argument_registers[i]
                 if isinstance(arg, _Integer):
-                    self._mov_imm(arg.value, reg)
+                    # Clang/LLVM as of version 19 relies on <32-bit arguments
+                    # being sign-extended to 32 bits despite this not being
+                    # guaranteed by the psABI. It's unclear whether this will
+                    # be resolved by changing LLVM or the psABI, so work around
+                    # it for now. See:
+                    # https://groups.google.com/g/x86-64-abi/c/h7FFh30oS3s/m/Gksanh3WAAAJ
+                    # https://github.com/llvm/llvm-project/issues/12579
+                    # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=46942
+                    self._mov_imm(arg, reg, 32)
                 else:
                     self._mov_symbol(arg, reg)
             else:
                 stack_offset = 8 * (i - len(self._argument_registers))
                 if isinstance(arg, _Integer):
-                    self._store_imm_on_stack(arg.value, stack_offset)
+                    self._store_imm_on_stack(arg, stack_offset)
                 else:
                     self._store_symbol_on_stack(arg, stack_offset)
 
@@ -638,7 +648,7 @@ class _CodeGen_x86_64:
             raise NotImplementedError(
                 "return values larger than 8 bytes not implemented"
             )
-        self._mov_imm(value.value, self._rax)
+        self._mov_imm(value, self._rax)
         # Jump to the function epilogue. If this return is the last operation,
         # we can fall through instead of jumping.
         if not last:
@@ -654,7 +664,7 @@ class _CodeGen_x86_64:
             )
         # mov %rax, %rdx
         self.code.extend(b"\x48\x89\xC2")
-        self._mov_imm(value.value, self._rax)
+        self._mov_imm(value, self._rax)
         # Jump to the function epilogue if the last return value was non-zero.
         self.code.extend(
             # test %rdx, %rdx
