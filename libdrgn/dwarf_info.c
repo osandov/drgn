@@ -1131,7 +1131,7 @@ index_cu_first_pass(struct drgn_dwarf_specification_map *specifications,
 	const char *debug_info_buffer = cu->file->scn_data[cu->scn]->d_buf;
 	unsigned int depth = 0;
 	for (;;) {
-		size_t die_addr = (uintptr_t)buffer->bb.pos;
+		uintptr_t die_addr = (uintptr_t)buffer->bb.pos;
 
 		uint64_t code;
 		if ((err = binary_buffer_next_uleb128(&buffer->bb, &code)))
@@ -1426,9 +1426,9 @@ index_cu_second_pass(struct drgn_debug_info *dbinfo,
 	Elf_Data *debug_str = cu->file->scn_data[DRGN_SCN_DEBUG_STR];
 	unsigned int depth = 0;
 	uint8_t depth1_tag = 0;
-	size_t depth1_addr = 0;
+	uintptr_t depth1_addr = 0;
 	for (;;) {
-		size_t die_addr = (uintptr_t)buffer->bb.pos;
+		uintptr_t die_addr = (uintptr_t)buffer->bb.pos;
 
 		uint64_t code;
 		if ((err = binary_buffer_next_uleb128(&buffer->bb, &code)))
