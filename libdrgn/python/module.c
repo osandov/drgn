@@ -68,10 +68,8 @@ PyObject *Module_and_bool_wrap(struct drgn_module *module, bool b)
 
 static void Module_dealloc(Module *self)
 {
-	if (self->module) {
-		struct drgn_program *prog = drgn_module_program(self->module);
-		Py_DECREF(container_of(prog, Program, prog));
-	}
+	if (self->module)
+		Py_DECREF(Module_prog(self));
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -192,8 +190,7 @@ static PyObject *Module_try_file(Module *self, PyObject *args, PyObject *kwds)
 
 static Program *Module_get_prog(Module *self, void *arg)
 {
-	Program *prog =
-		container_of(drgn_module_program(self->module), Program, prog);
+	Program *prog = Module_prog(self);
 	Py_INCREF(prog);
 	return prog;
 }
@@ -284,6 +281,35 @@ static int Module_set_build_id(Module *self, PyObject *value, void *arg)
 		set_drgn_error(err);
 		return -1;
 	}
+	return 0;
+}
+
+static DrgnObject *Module_get_object(Module *self, void *arg)
+{
+
+	Program *prog_obj = Module_prog(self);
+	_cleanup_pydecref_ DrgnObject *ret = DrgnObject_alloc(prog_obj);
+	if (!ret)
+		return NULL;
+
+	struct drgn_error *err = drgn_module_object(self->module, &ret->obj);
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(ret);
+}
+
+static int Module_set_object(Module *self, PyObject *value, void *arg)
+{
+	SETTER_NO_DELETE("object", value);
+	if (!PyObject_TypeCheck(value, &DrgnObject_type)) {
+		PyErr_SetString(PyExc_TypeError, "object must be a drgn.Object");
+		return -1;
+	}
+	DrgnObject *object = (DrgnObject *)value;
+
+	struct drgn_error *err = drgn_module_set_object(self->module, &object->obj);
+	if (err)
+		set_drgn_error(err);
 	return 0;
 }
 
@@ -403,6 +429,8 @@ static PyGetSetDef Module_getset[] = {
 	 (setter)Module_set_address_range, drgn_Module_address_range_DOC},
 	{"build_id", (getter)Module_get_build_id, (setter)Module_set_build_id,
 	 drgn_Module_build_id_DOC},
+	{"object", (getter)Module_get_object, (setter)Module_set_object,
+	 drgn_Module_object_DOC},
 	{"loaded_file_status", (getter)Module_get_loaded_file_status,
 	 (setter)Module_set_loaded_file_status,
 	 drgn_Module_loaded_file_status_DOC},

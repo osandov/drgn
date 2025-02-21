@@ -41,7 +41,8 @@ struct drgn_module_orc_info {
 	 * Base for calculating program counter corresponding to an ORC unwinder
 	 * entry.
 	 *
-	 * This is the address of the `.orc_unwind_ip` ELF section.
+	 * This is the address of the `.orc_unwind_ip` ELF section. It is the
+	 * actual loaded location, with any bias already applied.
 	 *
 	 * @sa drgn_module_orc_info::entries
 	 */
@@ -72,11 +73,14 @@ struct drgn_module_orc_info {
 	unsigned int num_entries;
 	/** Version of the ORC format. See @ref orc.h. */
 	int version;
+	/** Whether to byte swap data */
+	bool bswap;
 };
 
 void drgn_module_orc_info_deinit(struct drgn_module *module);
 
-struct drgn_error *drgn_module_parse_orc(struct drgn_module *module);
+struct drgn_error *drgn_module_parse_orc(struct drgn_module *module,
+					 bool use_builtin);
 
 bool drgn_module_should_prefer_orc_cfi(struct drgn_module *module, uint64_t pc);
 

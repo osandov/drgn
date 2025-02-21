@@ -838,12 +838,11 @@ class Program:
         self, module_obj: Object, *, create: Literal[False] = False
     ) -> RelocatableModule:
         """
-        Find a Linux kernel loadable module from a ``struct module`` object.
+        Find a Linux kernel loadable module from a ``struct module *`` object.
 
         Note that kernel modules are represented as relocatable modules.
 
-        :param module_obj: ``struct module`` or ``struct module *`` object for
-            the kernel module.
+        :param module_obj: ``struct module *`` object for the kernel module.
         :return: Relocatable module with a name and address matching
             *module_obj*.
         :raises LookupError: if no matching module has been created
@@ -855,14 +854,13 @@ class Program:
         self, module_obj: Object, *, create: Literal[True]
     ) -> Tuple[RelocatableModule, bool]:
         """
-        Find or create a Linux kernel loadable module from a ``struct module``
+        Find or create a Linux kernel loadable module from a ``struct module *``
         object.
 
         If a new module is created, its :attr:`~Module.address_range` and
         :attr:`~RelocatableModule.section_addresses` are set from *module_obj*.
 
-        :param module_obj: ``struct module`` or ``struct module *`` object for
-            the kernel module.
+        :param module_obj: `struct module *`` object for the kernel module.
         :return: Module and ``True`` if it was newly created or ``False`` if it
             was found.
         """
@@ -1665,6 +1663,14 @@ class Module:
     state/core dump when possible. Otherwise, when a file is assigned to the
     module, it is set to the file's build ID if it is not already set. It can
     also be set manually.
+    """
+    object: Object
+    """
+    The object associated with this module.
+
+    For Linux kernel loadable modules, this is the ``struct module *``
+    associated with the kernel module. For other kinds, this is currently an
+    absent object. The object may be set manually.
     """
     loaded_file_status: ModuleFileStatus
     """Status of the module's :ref:`loaded file <module-loaded-file>`."""
