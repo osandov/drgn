@@ -331,7 +331,7 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
             else:
                 python_executable = "/usr/bin/python3"
                 # Skip excessively slow tests when emulating.
-                tests_expression = "-k 'not test_slab_cache_for_each_allocated_object'"
+                tests_expression = "-k 'not test_slab_cache_for_each_allocated_object and not test_mtree_load_three_levels'"
 
             if _kdump_works(kernel):
                 kdump_command = """\
