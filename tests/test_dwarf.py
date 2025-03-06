@@ -249,6 +249,22 @@ def with_and_without_dw_form_indirect(f):
     return wrapper
 
 
+class TestInvalidDwarf(TestCase):
+    def test_name_out_of_bounds(self):
+        with self.assertRaisesRegex(Exception, "name is out of bounds"):
+            prog = dwarf_program(
+                DwarfDie(
+                    DW_TAG.base_type,
+                    (
+                        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
+                        DwarfAttrib(DW_AT.name, DW_FORM.strp, 0xDEADBEEF),
+                    ),
+                )
+            )
+            # Force indexing.
+            "foo" in prog
+
+
 class TestTypes(TestCase):
     def test_unknown_tag(self):
         prog = dwarf_program(wrap_test_type_dies(DwarfDie(0x9999, ())))

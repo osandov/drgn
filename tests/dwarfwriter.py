@@ -66,6 +66,7 @@ def _compile_debug_abbrev(units, use_dw_form_indirect):
 
 
 def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirect):
+    offset_size = 4  # We only emit the 32-bit format for now.
     byteorder = "little" if little_endian else "big"
     all_labels = set()
     labels = {}
@@ -114,6 +115,8 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
             elif attrib.form == DW_FORM.block1:
                 buf.append(len(value))
                 buf.extend(value)
+            elif attrib.form == DW_FORM.strp:
+                buf.extend(value.to_bytes(offset_size, byteorder))
             elif attrib.form == DW_FORM.string:
                 buf.extend(value.encode())
                 buf.append(0)
@@ -123,7 +126,7 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
             elif attrib.form == DW_FORM.ref_sig8:
                 buf.extend(value.to_bytes(8, byteorder))
             elif attrib.form == DW_FORM.sec_offset:
-                buf.extend(b"\0\0\0\0")
+                buf.extend(bytes(offset_size))
             elif attrib.form == DW_FORM.flag_present:
                 pass
             elif attrib.form == DW_FORM.exprloc:
@@ -163,7 +166,7 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
         if unit.type in (DW_UT.type, DW_UT.split_type):
             buf.extend(unit.type_signature.to_bytes(8, byteorder))  # type_signature
             relocations.append((len(buf), unit.type_offset))
-            buf.extend(b"\0\0\0\0")  # type_offset
+            buf.extend(bytes(offset_size))  # type_offset
         else:
             assert unit.type_signature is None
             assert unit.type_offset is None
