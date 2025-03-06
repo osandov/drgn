@@ -11,17 +11,20 @@ from drgn.helpers.linux.net import get_net_ns_by_inode, netdev_get_by_name
 from drgn.helpers.linux.tc import qdisc_lookup
 from tests import classCleanups
 from tests.linux_kernel import LinuxKernelTestCase
+from util import verrevcmp
 
 try:
-    from pyroute2 import NetNS
-    from pyroute2.netlink.exceptions import NetlinkError
+    import pyroute2
 
-    have_pyroute2 = True
+    # Before Pyroute2 commit 1eb08312de30 ("iproute/linux: try to improve flags
+    # when sending del messages") (in v0.6.10), Pyroute2 passes an invalid flag
+    # to deletion requests, resulting in ENOTSUP errors.
+    have_pyroute2 = verrevcmp(getattr(pyroute2, "__version__", "0"), "0.6.10") >= 0
 except ImportError:
     have_pyroute2 = False
 
 
-@unittest.skipUnless(have_pyroute2, "pyroute2 not found")
+@unittest.skipUnless(have_pyroute2, "pyroute2 >= 0.6.10 not found")
 class TestTc(LinuxKernelTestCase):
     @classmethod
     @classCleanups
@@ -33,7 +36,7 @@ class TestTc(LinuxKernelTestCase):
                 cls.name = "".join(
                     random.choice(string.ascii_letters) for _ in range(16)
                 )
-                cls.ns = NetNS(cls.name, flags=os.O_CREAT | os.O_EXCL)
+                cls.ns = pyroute2.NetNS(cls.name, flags=os.O_CREAT | os.O_EXCL)
             except FileExistsError:
                 pass
         cls.addClassCleanup(cls.ns.remove)
@@ -41,7 +44,7 @@ class TestTc(LinuxKernelTestCase):
     def test_qdisc_lookup(self):
         try:
             self.ns.link("add", ifname="dummy0", kind="dummy")
-        except NetlinkError:
+        except pyroute2.NetlinkError:
             self.skipTest("kernel does not support dummy interface (CONFIG_DUMMY)")
 
         dummy = self.ns.link_lookup(ifname="dummy0")[0]
@@ -57,7 +60,7 @@ class TestTc(LinuxKernelTestCase):
                 bands=3,
                 priomap=[1, 2, 2, 2, 1, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
             )
-        except NetlinkError:
+        except pyroute2.NetlinkError:
             self.ns.link("delete", ifname="dummy0")
             self.skipTest(
                 "kernel does not support Multi Band Priority Queueing (CONFIG_NET_SCH_PRIO)"
@@ -65,7 +68,7 @@ class TestTc(LinuxKernelTestCase):
         # tc qdisc add dev dummy0 parent 1:1 handle 10: sfq
         try:
             self.ns.tc("add", kind="sfq", index=dummy, parent="1:1", handle="10:")
-        except NetlinkError:
+        except pyroute2.NetlinkError:
             self.ns.link("delete", ifname="dummy0")
             self.skipTest(
                 "kernel does not support Stochastic Fairness Queueing (CONFIG_NET_SCH_SFQ)"
@@ -82,7 +85,7 @@ class TestTc(LinuxKernelTestCase):
                 burst=1600,
                 limit=3000,
             )
-        except NetlinkError:
+        except pyroute2.NetlinkError:
             self.ns.link("delete", ifname="dummy0")
             self.skipTest(
                 "kernel does not support Token Bucket Filter (CONFIG_NET_SCH_TBF)"
@@ -92,7 +95,7 @@ class TestTc(LinuxKernelTestCase):
         # tc qdisc add dev dummy0 ingress
         try:
             self.ns.tc("add", kind="ingress", index=dummy)
-        except NetlinkError:
+        except pyroute2.NetlinkError:
             self.ns.link("delete", ifname="dummy0")
             self.skipTest(
                 "kernel does not support ingress Qdisc (CONFIG_NET_SCH_INGRESS)"
