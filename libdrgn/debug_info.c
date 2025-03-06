@@ -5064,7 +5064,7 @@ load_debug_info_try_provided_vmlinux(struct drgn_module *module,
 				      release_len) == 0) {
 				drgn_log_debug(prog, "%s: %s Linux version matches",
 					       module->name, file->path);
-			} else {
+			} else if (strlen(prog->vmcoreinfo.osrelease) > 0) {
 				drgn_log_debug(prog,
 					       "%s: %s Linux version (%.*s) does not match",
 					       module->name, file->path,
@@ -5072,6 +5072,8 @@ load_debug_info_try_provided_vmlinux(struct drgn_module *module,
 					       ? INT_MAX : (int)release_len,
 					       release);
 				continue;
+			} else {
+				drgn_log_debug(prog, "Linux version in VMCOREINFO not found");
 			}
 
 			if (!it.entry->matched) {
