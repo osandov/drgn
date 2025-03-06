@@ -159,9 +159,6 @@ class TestElfSymbol(TestCase):
                 self.assertEqual(prog.symbols(0xFFFF0009), [expected])
 
     def test_by_address_sizeless_subsumed(self):
-        import unittest.util
-
-        unittest.util._MAX_LENGTH = 999999999
         label = ElfSymbol("label", 0xFFFF0008, 0x0, STT.FUNC, STB.LOCAL)
         subsume = ElfSymbol("subsume", 0xFFFF0004, 0x8, STT.FUNC, STB.LOCAL)
         less = ElfSymbol("less", 0xFFFF0000, 0x4, STT.FUNC, STB.LOCAL)
