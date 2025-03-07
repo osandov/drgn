@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Mapping, NamedTuple, Sequence
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
+from util import KernelVersion
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
