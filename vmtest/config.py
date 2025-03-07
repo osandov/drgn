@@ -432,6 +432,12 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
         1 if flavor.name == "default" else 0,
     ]
     patch_level = 0
+    if (
+        arch.name == "aarch64"
+        and flavor.name == "alternative"
+        and KernelVersion("5.18.18") <= KernelVersion(version) < KernelVersion("5.19")
+    ):
+        patch_level += 1
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
     if patch_level:

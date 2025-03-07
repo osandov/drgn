@@ -1,0 +1,42 @@
+From 656f46da75e198bec61e4f2cc425d9fc9b2679cc Mon Sep 17 00:00:00 2001
+Message-ID: <656f46da75e198bec61e4f2cc425d9fc9b2679cc.1741383572.git.osandov@osandov.com>
+From: Omar Sandoval <osandov@osandov.com>
+Date: Fri, 7 Mar 2025 13:38:13 -0800
+Subject: [PATCH] Revert "Makefile: link with -z noexecstack
+ --no-warn-rwx-segments"
+
+This reverts commit d81aa6bfff835ceea33c192d394f03e4a59cd12c.
+
+This results in a missing build ID on arm64 on v5.18-stable starting
+with v5.18.18 if CONFIG_MODVERSIONS=y. In mainline and LTS kernels, this
+was fixed properly by commit 99cb0d917ffa ("arch: fix broken BuildID for
+arm64 and riscv") (in v6.2), but that had a bunch of followup fixes.
+Commit 7b4537199a4a ("kbuild: link symbol CRCs at final link, removing
+CONFIG_MODULE_REL_CRCS") (in v5.19) also somehow works around it. Older
+stable branches didn't get this noexecstack change, so that leaves us
+with just v5.18 that needs this revert.
+
+Signed-off-by: Omar Sandoval <osandov@osandov.com>
+---
+ Makefile | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index fc7efcdab0a2..31e952dc676d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1031,11 +1031,6 @@ KBUILD_CFLAGS   += $(KCFLAGS)
+ KBUILD_LDFLAGS_MODULE += --build-id=sha1
+ LDFLAGS_vmlinux += --build-id=sha1
+ 
+-KBUILD_LDFLAGS	+= -z noexecstack
+-ifeq ($(CONFIG_LD_IS_BFD),y)
+-KBUILD_LDFLAGS	+= $(call ld-option,--no-warn-rwx-segments)
+-endif
+-
+ ifeq ($(CONFIG_STRIP_ASM_SYMS),y)
+ LDFLAGS_vmlinux	+= $(call ld-option, -X,)
+ endif
+-- 
+2.48.1
+

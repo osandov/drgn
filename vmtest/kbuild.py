@@ -146,6 +146,10 @@ _PATCHES = (
         name="lib-raid6-add-option-to-skip-algo-benchmarking.patch",
         versions=((None, KernelVersion("5.0")),),
     ),
+    _Patch(
+        name="5.18-Revert-Makefile-link-with-z-noexecstack-no-warn-rwx-.patch",
+        versions=((KernelVersion("5.18.18"), KernelVersion("5.19")),),
+    ),
 )
 
 
