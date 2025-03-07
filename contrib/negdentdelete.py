@@ -37,7 +37,7 @@ def for_each_child_dentry(dentry: Object) -> Iterator[Object]:
             dentry.d_children.address_of_(),
             "d_sib",
         )
-    except LookupError:
+    except AttributeError:
         return list_for_each_entry(
             "struct dentry", dentry.d_subdirs.address_of_(), "d_child"
         )
