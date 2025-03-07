@@ -18,14 +18,22 @@ jobs:
           git init
           git fetch --filter=blob:none "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_BASE_REF" "$GITHUB_REF"
       - name: Check for DCO sign-offs
+        shell: bash
         run: |
-          no_sign_off="$(git log --no-merges --grep=Signed-off-by --invert-grep "FETCH_HEAD..$GITHUB_SHA")"
-          if [ -z "$no_sign_off" ]; then
+          status=0
+          while read -r commit; do
+              author="$(git show --no-patch --pretty='format:%an <%ae>' "$commit")"
+              if ! git show --no-patch --pretty='format:%(trailers:key=Signed-off-by,valueonly)' "$commit" | grep -Fxq "$author"; then
+                  if [ $status -eq 0 ]; then
+                      echo "The following commits are missing a Developer Certificate of Origin sign-off;"
+                      echo "see https://github.com/osandov/drgn/blob/main/CONTRIBUTING.rst#signing-off"
+                      echo
+                  fi
+                  status=1
+                  git show --no-patch "$commit"
+              fi
+          done < <(git rev-list --no-merges "FETCH_HEAD..$GITHUB_SHA")
+          if [ $status -eq 0 ]; then
               echo "All commits have a Developer Certificate of Origin sign-off"
-          else
-              echo "The following commits are missing a Developer Certificate of Origin sign-off;"
-              echo "see https://github.com/osandov/drgn/blob/main/CONTRIBUTING.rst#signing-off"
-              echo
-              echo "$no_sign_off"
-              exit 1
           fi
+          exit $status
