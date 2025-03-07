@@ -512,6 +512,7 @@ static void drgn_module_destroy(struct drgn_module *module)
 	drgn_elf_file_destroy(module->supplementary_debug_file);
 	if (module->debug_file != module->loaded_file)
 		drgn_elf_file_destroy(module->debug_file);
+	drgn_elf_file_destroy(module->gnu_debugdata_file);
 	drgn_elf_file_destroy(module->loaded_file);
 	free(module->build_id);
 	free(module->name);
@@ -1320,7 +1321,7 @@ drgn_module_maybe_use_elf_file(struct drgn_module *module,
 		// We should only be here if we want a file.
 		assert(drgn_module_wants_file(module));
 		use_loaded = module->loaded_file_status == DRGN_MODULE_FILE_WANT
-			     && file->is_loadable;
+			     && (file->is_loadable || module->kind == DRGN_MODULE_EXTRA);
 		has_dwarf = drgn_elf_file_has_dwarf(file);
 		use_debug = drgn_module_wants_debug_file(module) && has_dwarf;
 	}
