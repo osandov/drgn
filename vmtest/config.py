@@ -286,7 +286,7 @@ ARCHITECTURES = {
                 """,
             },
             kernel_org_compiler_name="aarch64-linux",
-            qemu_options=("-M", "virt", "-cpu", "cortex-a57"),
+            qemu_options=("-M", "virt", "-cpu", "cortex-a76"),
             qemu_console="ttyAMA0",
         ),
         Architecture(
