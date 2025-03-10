@@ -53,18 +53,37 @@ class TestVMCore(LinuxVMCoreTestCase):
         # why anyone would run these tests from kdump otherwise.
         self.assertEqual(crashed_thread.object.comm.string_(), b"selfdestruct")
 
+    def _test_crashed_thread_stack_trace(self, trace):
+        # This assumes that we crashed using the drgn_test kmod. Note that on
+        # supported architectures, drgn_test_crash_func() is called from an IRQ
+        # handler that interrupts drgn_test_crash_store().
+        trace_iter = iter(trace)
+        for frame in trace_iter:
+            if frame.name == "drgn_test_crash_func":
+                break
+        else:
+            self.fail("drgn_test_crash_func frame not found")
+
+        for frame in trace_iter:
+            if frame.name == "drgn_test_crash_store":
+                break
+        else:
+            self.fail(
+                "drgn_test_crash_store frame not found below drgn_test_crash_func"
+            )
+
     def test_crashed_thread_stack_trace(self):
         self._skip_if_cpu0_on_s390x()
-        self.assertIn("sysrq", str(self.prog.crashed_thread().stack_trace()))
+        self._test_crashed_thread_stack_trace(self.prog.crashed_thread().stack_trace())
 
     def test_crashed_thread_stack_trace_by_tid(self):
         self._skip_if_cpu0_on_s390x()
-        self.assertIn(
-            "sysrq", str(self.prog.stack_trace(self.prog.crashed_thread().tid))
+        self._test_crashed_thread_stack_trace(
+            self.prog.stack_trace(self.prog.crashed_thread().tid)
         )
 
     def test_crashed_thread_stack_trace_by_task_struct(self):
         self._skip_if_cpu0_on_s390x()
-        self.assertIn(
-            "sysrq", str(self.prog.stack_trace(self.prog.crashed_thread().object))
+        self._test_crashed_thread_stack_trace(
+            self.prog.stack_trace(self.prog.crashed_thread().object)
         )

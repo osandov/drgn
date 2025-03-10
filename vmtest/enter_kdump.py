@@ -65,6 +65,14 @@ def main() -> None:
         if cpus:
             os.sched_setaffinity(0, cpus)
 
+    # Try the drgn_test kmod crash method first.
+    try:
+        with open("/sys/kernel/drgn_test/crash", "w") as f:
+            f.write("1")
+    except FileNotFoundError:
+        pass
+
+    # Fall back to sysrq-trigger.
     with open("/proc/sysrq-trigger", "w") as f:
         f.write("c")
 

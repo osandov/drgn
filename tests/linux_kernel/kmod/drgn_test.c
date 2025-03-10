@@ -12,6 +12,7 @@
 
 #include <linux/completion.h>
 #include <linux/io.h>
+#include <linux/irq_work.h>
 #include <linux/kernel.h>
 #include <linux/kexec.h>
 #include <linux/kthread.h>
@@ -36,6 +37,7 @@
 #ifdef CONFIG_STACKDEPOT
 #include <linux/stackdepot.h>
 #endif
+#include <linux/sysfs.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
@@ -1385,8 +1387,78 @@ DEFINE_KMODIFY_TEST_ARGS(
 )
 #endif
 
+#ifdef CONFIG_SYSFS
+
+// Crash from an IRQ handler on architectures where drgn supports unwinding
+// through IRQ handlers.
+#ifdef __x86_64__
+#define DRGN_TEST_IRQ_CRASH
+#endif
+
+static __noreturn noinline_for_stack void drgn_test_crash_func(struct irq_work *work)
+{
+	panic("drgn_test\n");
+}
+
+#ifdef DRGN_TEST_IRQ_CRASH
+static DEFINE_IRQ_WORK(drgn_test_crash_irq_work, drgn_test_crash_func);
+#endif
+
+static ssize_t drgn_test_crash_store(struct kobject *kobj,
+				     struct kobj_attribute *attr,
+				     const char *buf, size_t count)
+{
+	int ret, val;
+
+	ret = kstrtoint(buf, 0, &val);
+	if (ret < 0)
+		return ret;
+	if (val != 1)
+		return -EINVAL;
+
+#ifdef DRGN_TEST_IRQ_CRASH
+	preempt_disable();
+	irq_work_queue(&drgn_test_crash_irq_work);
+	// Spin until we get interrupted and crash.
+	while (1);
+#else
+	drgn_test_crash_func(NULL);
+#endif
+}
+
+static struct kobj_attribute drgn_test_crash_attr =
+	__ATTR(crash, 0200, NULL, drgn_test_crash_store);
+
+static struct attribute_group drgn_test_attr_group = {
+	.attrs = (struct attribute *[]){
+		&drgn_test_crash_attr.attr,
+		NULL,
+	},
+};
+
+static struct kobject *drgn_test_kobj;
+
+static int __init drgn_test_sysfs_init(void)
+{
+	drgn_test_kobj = kobject_create_and_add("drgn_test", kernel_kobj);
+	if (!drgn_test_kobj)
+		return -ENOMEM;
+
+	return sysfs_create_group(drgn_test_kobj, &drgn_test_attr_group);
+}
+
+static void drgn_test_sysfs_exit(void)
+{
+	kobject_put(drgn_test_kobj);
+}
+#else
+static inline int drgn_test_sysfs_init(void) { return 0; }
+static inline void drgn_test_sysfs_exit(void) {}
+#endif
+
 static void drgn_test_exit(void)
 {
+	drgn_test_sysfs_exit();
 	drgn_test_slab_exit();
 	drgn_test_percpu_exit();
 	drgn_test_maple_tree_exit();
@@ -1436,6 +1508,9 @@ static int __init drgn_test_init(void)
 	if (ret)
 		goto out;
 	ret = drgn_test_idr_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_sysfs_init();
 out:
 	if (ret)
 		drgn_test_exit();
