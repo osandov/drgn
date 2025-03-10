@@ -575,9 +575,9 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 		if (err)
 			return set_drgn_error(err);
 
-		err = drgn_object_slice(&member, obj, member_type,
-					members[i].bit_offset,
-					member_bit_field_size);
+		err = drgn_object_fragment(&member, obj, member_type,
+					   members[i].bit_offset,
+					   member_bit_field_size);
 		if (err)
 			return set_drgn_error(err);
 
@@ -622,8 +622,8 @@ static PyObject *DrgnObject_array_value(struct drgn_object *obj,
 
 	DRGN_OBJECT(element, drgn_object_program(obj));
 	for (uint64_t i = 0; i < length; i++) {
-		err = drgn_object_slice(&element, obj, element_type,
-					i * element_bit_size, 0);
+		err = drgn_object_fragment(&element, obj, element_type,
+					   i * element_bit_size, 0);
 		if (err)
 			return set_drgn_error(err);
 

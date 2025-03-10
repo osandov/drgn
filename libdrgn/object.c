@@ -565,10 +565,10 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 }
 
 struct drgn_error *
-drgn_object_slice_internal(struct drgn_object *res,
-			   const struct drgn_object *obj,
-			   const struct drgn_object_type *type,
-			   uint64_t bit_offset, uint64_t bit_field_size)
+drgn_object_fragment_internal(struct drgn_object *res,
+			      const struct drgn_object *obj,
+			      const struct drgn_object_type *type,
+			      uint64_t bit_offset, uint64_t bit_field_size)
 {
 	struct drgn_error *err;
 
@@ -617,9 +617,9 @@ drgn_object_slice_internal(struct drgn_object *res,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_object_slice(struct drgn_object *res, const struct drgn_object *obj,
-		  struct drgn_qualified_type qualified_type,
-		  uint64_t bit_offset, uint64_t bit_field_size)
+drgn_object_fragment(struct drgn_object *res, const struct drgn_object *obj,
+		     struct drgn_qualified_type qualified_type,
+		     uint64_t bit_offset, uint64_t bit_field_size)
 {
 	struct drgn_error *err;
 	if (drgn_object_program(res) != drgn_object_program(obj)) {
@@ -630,8 +630,8 @@ drgn_object_slice(struct drgn_object *res, const struct drgn_object *obj,
 	err = drgn_object_type(qualified_type, bit_field_size, &type);
 	if (err)
 		return err;
-	return drgn_object_slice_internal(res, obj, &type, bit_offset,
-					  bit_field_size);
+	return drgn_object_fragment_internal(res, obj, &type, bit_offset,
+					     bit_field_size);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1225,9 +1225,9 @@ drgn_compound_object_is_zero(const struct drgn_object *obj,
 		if (err)
 			return err;
 
-		err = drgn_object_slice(&member, obj, member_type,
-					members[i].bit_offset,
-					member_bit_field_size);
+		err = drgn_object_fragment(&member, obj, member_type,
+					   members[i].bit_offset,
+					   member_bit_field_size);
 		if (err)
 			return err;
 
@@ -1254,8 +1254,8 @@ drgn_array_object_is_zero(const struct drgn_object *obj,
 	DRGN_OBJECT(element, drgn_object_program(obj));
 	length = drgn_type_length(underlying_type);
 	for (i = 0; i < length; i++) {
-		err = drgn_object_slice(&element, obj, element_type,
-					i * element_bit_size, 0);
+		err = drgn_object_fragment(&element, obj, element_type,
+					   i * element_bit_size, 0);
 		if (err)
 			return err;
 
@@ -1383,7 +1383,7 @@ drgn_object_reinterpret(struct drgn_object *res,
 			struct drgn_qualified_type qualified_type,
 			const struct drgn_object *obj)
 {
-	return drgn_object_slice(res, obj, qualified_type, 0, 0);
+	return drgn_object_fragment(res, obj, qualified_type, 0, 0);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1586,8 +1586,8 @@ drgn_object_subscript(struct drgn_object *res, const struct drgn_object *obj,
 						      index * element.bit_size,
 						      0);
 	} else {
-		return drgn_object_slice(res, obj, element.qualified_type,
-					 index * element.bit_size, 0);
+		return drgn_object_fragment(res, obj, element.qualified_type,
+					    index * element.bit_size, 0);
 	}
 }
 
@@ -1613,8 +1613,8 @@ drgn_object_member(struct drgn_object *res, const struct drgn_object *obj,
 	err = drgn_member_type(member, &member_type, &member_bit_field_size);
 	if (err)
 		return err;
-	return drgn_object_slice(res, obj, member_type, member_bit_offset,
-				 member_bit_field_size);
+	return drgn_object_fragment(res, obj, member_type, member_bit_offset,
+				    member_bit_field_size);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

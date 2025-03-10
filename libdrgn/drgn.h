@@ -2504,7 +2504,7 @@ struct drgn_error *drgn_object_copy(struct drgn_object *res,
 				    const struct drgn_object *obj);
 
 /**
- * Get a @ref drgn_object from a "slice" of an object.
+ * Get a @ref drgn_object from a "fragment" of an object.
  *
  * This is a low-level interface used to implement @ref drgn_object_subscript(),
  * @ref drgn_object_member(), and @ref drgn_object_reinterpret(). Those
@@ -2529,11 +2529,11 @@ struct drgn_error *drgn_object_copy(struct drgn_object *res,
  * bits. Otherwise, 0.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_object_slice(struct drgn_object *res,
-				     const struct drgn_object *obj,
-				     struct drgn_qualified_type qualified_type,
-				     uint64_t bit_offset,
-				     uint64_t bit_field_size);
+struct drgn_error *drgn_object_fragment(struct drgn_object *res,
+					const struct drgn_object *obj,
+					struct drgn_qualified_type qualified_type,
+					uint64_t bit_offset,
+					uint64_t bit_field_size);
 
 /**
  * Get a @ref drgn_object from dereferencing a pointer object with an offset.
@@ -2543,7 +2543,7 @@ struct drgn_error *drgn_object_slice(struct drgn_object *res,
  * convenient, but this function can be more efficient if accessing multiple
  * elements or the same member multiple times.
  *
- * @sa drgn_object_slice
+ * @sa drgn_object_fragment
  *
  * @param[out] res Dereferenced object.
  * @param[in] obj Pointer object.
