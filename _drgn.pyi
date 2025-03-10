@@ -54,6 +54,10 @@ class IntegerLike(Protocol):
 
     Parameters annotated with this type expect an integer which may be given as
     a Python :class:`int` or an :class:`Object` with integer type.
+
+    .. note::
+        This is equivalent to :class:`typing.SupportsIndex` except that it is
+        not runtime-checkable.
     """
 
     def __index__(self) -> int: ...
@@ -2398,6 +2402,20 @@ class Object:
         For enums, this returns an ``int``. For structures and unions, this
         returns a ``dict`` of members. For arrays, this returns a ``list`` of
         values.
+
+        .. note::
+            Helpers that wish to accept an argument that may be an
+            :class:`Object` or an :class:`int` should use
+            :func:`operator.index()` and :class:`IntegerLike` instead:
+
+            .. code-block:: python3
+
+                import operator
+                from drgn import IntegerLike
+
+                def my_helper(i: IntegerLike) -> ...:
+                    value = operator.index(i)  # Returns an int
+                    ...
 
         :raises FaultError: if reading the object causes a bad memory access
         :raises TypeError: if this object has an unreadable type (e.g.,
