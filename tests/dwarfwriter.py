@@ -385,10 +385,8 @@ def dwarf_sections(
     return sections
 
 
-def compile_dwarf(
-    dies,
-    little_endian=True,
-    bits=64,
+def create_dwarf_file(
+    units_or_dies,
     *,
     version=4,
     lang=None,
@@ -397,13 +395,15 @@ def compile_dwarf(
     split=None,
     sections=(),
     build_id=None,
+    little_endian=True,
+    bits=64,
 ):
     return create_elf_file(
         ET.EXEC,
         sections=[
             *sections,
             *dwarf_sections(
-                dies,
+                units_or_dies,
                 little_endian=little_endian,
                 bits=bits,
                 version=version,

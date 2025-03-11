@@ -29,7 +29,7 @@ from drgn import (
     VdsoModule,
 )
 from tests import TestCase, modifyenv
-from tests.dwarfwriter import compile_dwarf
+from tests.dwarfwriter import create_dwarf_file
 from tests.elfwriter import ElfSection, create_elf_file
 from tests.resources import get_resource
 
@@ -67,7 +67,7 @@ def NamedTemporaryElfFile(*, loadable=True, debug=True, build_id=None, sections=
         sections = (ALLOCATED_SECTION,) + sections
     with tempfile.NamedTemporaryFile() as f:
         if debug:
-            f.write(compile_dwarf((), sections=sections, build_id=build_id))
+            f.write(create_dwarf_file((), sections=sections, build_id=build_id))
         else:
             f.write(create_elf_file(ET.EXEC, sections=sections, build_id=build_id))
         f.flush()
@@ -372,11 +372,11 @@ class TestModuleTryFile(TestCase):
             debug_dir = Path(debug_dir)
 
             alt_path = debug_dir / "alt.debug"
-            alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id))
+            alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
             binary_path = bin_dir / "binary"
             binary_path.write_bytes(
-                compile_dwarf(
+                create_dwarf_file(
                     (),
                     sections=(
                         ALLOCATED_SECTION,
@@ -441,11 +441,11 @@ class TestModuleTryFile(TestCase):
             debug_dir = Path(debug_dir)
 
             alt_path = debug_dir / "alt.debug"
-            alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id[::-1]))
+            alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id[::-1]))
 
             binary_path = bin_dir / "binary"
             binary_path.write_bytes(
-                compile_dwarf(
+                create_dwarf_file(
                     (),
                     sections=(
                         ALLOCATED_SECTION,
@@ -506,7 +506,7 @@ class TestModuleTryFile(TestCase):
             debug_dir = Path(debug_dir)
 
             alt_path = debug_dir / "alt.debug"
-            alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id))
+            alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
             module.build_id = build_id
@@ -538,7 +538,7 @@ class TestModuleTryFile(TestCase):
             debug_dir = Path(debug_dir)
 
             alt_path = debug_dir / "alt.debug"
-            alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id))
+            alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
             module.build_id = build_id
@@ -1886,7 +1886,9 @@ class TestStandardDebugInfoFinder(TestCase):
             build_id_dir = debug_dir / ".build-id" / build_id.hex()[:2]
             build_id_dir.mkdir(parents=True)
             binary_path = build_id_dir / build_id.hex()[2:]
-            binary_path.write_bytes(compile_dwarf((), sections=(ALLOCATED_SECTION,)))
+            binary_path.write_bytes(
+                create_dwarf_file((), sections=(ALLOCATED_SECTION,))
+            )
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
             module.build_id = build_id
@@ -1914,7 +1916,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 create_elf_file(ET.EXEC, sections=(ALLOCATED_SECTION,))
             )
             debug_path = build_id_dir / (build_id.hex()[2:] + ".debug")
-            debug_path.write_bytes(compile_dwarf(()))
+            debug_path.write_bytes(create_dwarf_file(()))
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
             module.build_id = build_id
@@ -1944,7 +1946,7 @@ class TestStandardDebugInfoFinder(TestCase):
             build_id_dir = debug_dir / ".build-id" / build_id.hex()[:2]
             build_id_dir.mkdir(parents=True)
             debug_path = build_id_dir / (build_id.hex()[2:] + ".debug")
-            debug_path.write_bytes(compile_dwarf(()))
+            debug_path.write_bytes(create_dwarf_file(()))
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
 
@@ -1967,7 +1969,9 @@ class TestStandardDebugInfoFinder(TestCase):
             build_id_dir = debug_dir / ".build-id" / build_id.hex()[:2]
             build_id_dir.mkdir(parents=True)
             binary_path = build_id_dir / build_id.hex()[2:]
-            binary_path.write_bytes(compile_dwarf((), sections=(ALLOCATED_SECTION,)))
+            binary_path.write_bytes(
+                create_dwarf_file((), sections=(ALLOCATED_SECTION,))
+            )
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
             module.build_id = build_id
@@ -1988,7 +1992,7 @@ class TestStandardDebugInfoFinder(TestCase):
             bin_dir = Path(bin_dir)
             debug_dir = Path(debug_dir)
 
-            debug_file_contents = compile_dwarf(())
+            debug_file_contents = create_dwarf_file(())
             crc = binascii.crc32(debug_file_contents)
 
             loadable_path = bin_dir / "binary"
@@ -2041,7 +2045,7 @@ class TestStandardDebugInfoFinder(TestCase):
             bin_dir = Path(bin_dir)
             debug_dir = Path(debug_dir)
 
-            debug_file_contents = compile_dwarf(())
+            debug_file_contents = create_dwarf_file(())
             crc = binascii.crc32(debug_file_contents)
             debug_path = debug_dir / "binary.debug"
 
@@ -2071,7 +2075,7 @@ class TestStandardDebugInfoFinder(TestCase):
         with tempfile.TemporaryDirectory(prefix="bin-") as bin_dir:
             bin_dir = Path(bin_dir)
 
-            debug_file_contents = compile_dwarf(())
+            debug_file_contents = create_dwarf_file(())
             crc = binascii.crc32(debug_file_contents)
 
             loadable_path = bin_dir / "binary"
@@ -2126,11 +2130,11 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_dir = Path(debug_dir)
 
             alt_path = debug_dir / "alt.debug"
-            alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id))
+            alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
             binary_path = bin_dir / "binary"
             binary_path.write_bytes(
-                compile_dwarf(
+                create_dwarf_file(
                     (),
                     sections=(
                         ALLOCATED_SECTION,
@@ -2158,7 +2162,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
             binary_path = bin_dir / "binary"
             binary_path.write_bytes(
-                compile_dwarf(
+                create_dwarf_file(
                     (),
                     sections=(
                         ALLOCATED_SECTION,
@@ -2194,11 +2198,11 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_dir = Path(debug_dir)
 
             alt_path = debug_dir / "alt.debug"
-            alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id))
+            alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
             binary_path = bin_dir / "binary"
             binary_path.write_bytes(
-                compile_dwarf(
+                create_dwarf_file(
                     (),
                     sections=(
                         ALLOCATED_SECTION,
@@ -2232,7 +2236,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
             binary_path = bin_dir / "binary"
             binary_path.write_bytes(
-                compile_dwarf(
+                create_dwarf_file(
                     (),
                     sections=(
                         ALLOCATED_SECTION,
@@ -2274,11 +2278,11 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_dir = Path(debug_dir)
 
             alt_path = debug_dir / "alt.debug"
-            alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id))
+            alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
             binary_path = bin_dir / "binary"
             binary_path.write_bytes(
-                compile_dwarf(
+                create_dwarf_file(
                     (),
                     sections=(
                         ALLOCATED_SECTION,
@@ -2308,7 +2312,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
             alt_path = debug_dir / ".dwz/alt.debug"
             alt_path.parent.mkdir()
-            alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id))
+            alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
             self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
             for i, debugaltlink in enumerate(
@@ -2320,7 +2324,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 with self.subTest(debugaltlink=debugaltlink):
                     binary_path = bin_dir / f"binary{i}"
                     binary_path.write_bytes(
-                        compile_dwarf(
+                        create_dwarf_file(
                             (),
                             sections=(
                                 ALLOCATED_SECTION,
@@ -2350,11 +2354,11 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_dir = Path(debug_dir)
 
             alt_path = debug_dir / "alt.debug"
-            alt_path.write_bytes(compile_dwarf((), build_id=alt_build_id[::-1]))
+            alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id[::-1]))
 
             binary_path = bin_dir / "binary"
             binary_path.write_bytes(
-                compile_dwarf(
+                create_dwarf_file(
                     (),
                     sections=(
                         ALLOCATED_SECTION,
@@ -2389,7 +2393,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
             binary_path = bin_dir / "binary"
             binary_path.write_bytes(
-                compile_dwarf(
+                create_dwarf_file(
                     (),
                     sections=(
                         ALLOCATED_SECTION,

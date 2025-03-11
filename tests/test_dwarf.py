@@ -47,7 +47,7 @@ from tests.dwarfwriter import (
     DwarfDie,
     DwarfLabel,
     DwarfUnit,
-    compile_dwarf,
+    create_dwarf_file,
 )
 
 bool_die = DwarfDie(
@@ -209,7 +209,7 @@ def add_extra_dwarf(prog, path):
 def dwarf_program(*args, segments=None, **kwds):
     prog = Program()
     with tempfile.NamedTemporaryFile() as f:
-        f.write(compile_dwarf(*args, **kwds))
+        f.write(create_dwarf_file(*args, **kwds))
         f.flush()
         add_extra_dwarf(prog, f.name)
 
@@ -6890,7 +6890,7 @@ class TestSplitDwarf(TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with open(os.path.join(temp_dir, "split.dwo"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.split_compile,
                             DwarfDie(
@@ -6910,7 +6910,7 @@ class TestSplitDwarf(TestCase):
                 )
             with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.skeleton,
                             DwarfDie(
@@ -6937,7 +6937,7 @@ class TestSplitDwarf(TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.skeleton,
                             DwarfDie(
@@ -6975,7 +6975,7 @@ class TestSplitDwarf(TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with open(os.path.join(temp_dir, "split.dwo"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.split_compile,
                             DwarfDie(
@@ -6994,7 +6994,7 @@ class TestSplitDwarf(TestCase):
                 )
             with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.skeleton,
                             DwarfDie(
@@ -7032,7 +7032,7 @@ class TestSplitDwarf(TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with open(os.path.join(temp_dir, "split.dwo"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.split_compile,
                             DwarfDie(
@@ -7048,7 +7048,7 @@ class TestSplitDwarf(TestCase):
                 )
             with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.skeleton,
                             DwarfDie(
@@ -7072,7 +7072,7 @@ class TestSplitDwarf(TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.skeleton,
                             DwarfDie(
@@ -7107,7 +7107,7 @@ class TestSplitDwarf(TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with open(os.path.join(temp_dir, "split.dwo"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.split_compile,
                             DwarfDie(
@@ -7123,7 +7123,7 @@ class TestSplitDwarf(TestCase):
                 )
             with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
                 f.write(
-                    compile_dwarf(
+                    create_dwarf_file(
                         DwarfUnit(
                             DW_UT.skeleton,
                             DwarfDie(
