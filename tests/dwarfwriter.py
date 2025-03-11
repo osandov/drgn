@@ -31,6 +31,7 @@ class DwarfDie(NamedTuple):
 class DwarfUnit(NamedTuple):
     type: DW_UT
     die: DwarfDie
+    die_label: Optional[str] = None
     dwo_id: Optional[int] = None
     type_signature: Optional[int] = None
     type_offset: Optional[str] = None
@@ -184,6 +185,8 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
             assert unit.type_signature is None
             assert unit.type_offset is None
 
+        if unit.die_label is not None:
+            aux(buf, DwarfLabel(unit.die_label), 0)
         aux(buf, unit.die, 0)
 
         unit_length = len(buf) - unit_offset - 4
