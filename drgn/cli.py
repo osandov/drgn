@@ -492,6 +492,12 @@ def _main() -> None:
         help="don't print any logs or download progress",
     )
     parser.add_argument(
+        "-e",
+        dest="exec",
+        metavar="CODE",
+        help="an expression or statement to evaluate, instead of running in interactive mode",
+    )
+    parser.add_argument(
         "script",
         metavar="ARG",
         type=str,
@@ -502,7 +508,7 @@ def _main() -> None:
 
     args = parser.parse_args()
 
-    if args.script:
+    if args.script and not args.exec:
         # A common mistake users make is running drgn $core_dump, which tries
         # to run $core_dump as a Python script. Rather than failing later with
         # some inscrutable syntax or encoding error, try to catch this early
@@ -518,7 +524,7 @@ def _main() -> None:
             )
         elif script_type == "elf":
             sys.exit(f"error: {args.script[0]} is a binary, not a drgn script")
-    else:
+    elif not args.exec:
         print(version, file=sys.stderr, flush=True)
 
     if args.log_level == "none":
@@ -564,7 +570,11 @@ def _main() -> None:
 
     _load_debugging_symbols(prog, args, color)
 
-    if args.script:
+    if args.exec:
+        sys.path.insert(0, "")
+        sys.argv = ["-e"] + args.script
+        exec(args.exec, default_globals(prog))
+    elif args.script:
         sys.argv = args.script
         script = args.script[0]
         if pkgutil.get_importer(script) is None:
