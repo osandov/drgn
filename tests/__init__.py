@@ -17,6 +17,7 @@ from drgn import (
     Object,
     Platform,
     PlatformFlags,
+    PrimitiveType,
     Program,
     Type,
     TypeEnumerator,
@@ -126,6 +127,7 @@ def assertReprPrettyEqualsStr(obj):
 _IDENTICAL_EQ_TYPES = (
     type(None),
     Language,
+    PrimitiveType,
     Program,
     TypeEnumerator,
     TypeKind,
