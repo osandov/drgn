@@ -68,19 +68,16 @@ def _compile_debug_abbrev(units, use_dw_form_indirect):
 def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirect):
     offset_size = 4  # We only emit the 32-bit format for now.
     byteorder = "little" if little_endian else "big"
-    all_labels = set()
     labels = {}
-    relocations = []
+    references = []
+    unit_references = []
     code = 1
     decl_file = 1
 
     def aux(buf, die, depth):
         if isinstance(die, DwarfLabel):
-            # For now, labels are only supported within a unit, but make sure
-            # they're unique across all units.
-            if die.name in all_labels:
+            if die.name in labels:
                 raise ValueError(f"duplicate label {die.name!r}")
-            all_labels.add(die.name)
             labels[die.name] = len(buf)
             return
 
@@ -120,9 +117,26 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
             elif attrib.form == DW_FORM.string:
                 buf.extend(value.encode())
                 buf.append(0)
+            elif attrib.form == DW_FORM.ref1:
+                unit_references.append((len(buf), 1, value))
+                buf.append(0)
+            elif attrib.form == DW_FORM.ref2:
+                unit_references.append((len(buf), 2, value))
+                buf.extend(bytes(2))
             elif attrib.form == DW_FORM.ref4:
-                relocations.append((len(buf), value))
-                buf.extend(b"\0\0\0\0")
+                unit_references.append((len(buf), 4, value))
+                buf.extend(bytes(4))
+            elif attrib.form == DW_FORM.ref8:
+                unit_references.append((len(buf), 8, value))
+                buf.extend(bytes(8))
+            elif attrib.form == DW_FORM.ref_udata:
+                assert (
+                    value in labels
+                ), "DW_FORM_ref_udata can only be used for backreferences"
+                _append_uleb128(buf, labels[value] - unit_offset)
+            elif attrib.form == DW_FORM.ref_addr:
+                references.append((len(buf), offset_size, value))
+                buf.extend(bytes(offset_size))
             elif attrib.form == DW_FORM.ref_sig8:
                 buf.extend(value.to_bytes(8, byteorder))
             elif attrib.form == DW_FORM.sec_offset:
@@ -142,14 +156,13 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
     debug_info = bytearray()
     debug_types = bytearray()
     for unit in units:
-        labels.clear()
-        relocations.clear()
+        unit_references.clear()
         decl_file = 1
         if version == 4 and unit.type in (DW_UT.type, DW_UT.split_type):
             buf = debug_types
         else:
             buf = debug_info
-        orig_len = len(buf)
+        unit_offset = len(buf)
         buf.extend(b"\0\0\0\0")  # unit_length
         buf.extend(version.to_bytes(2, byteorder))  # version
         if version >= 5:
@@ -165,7 +178,7 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
             assert unit.dwo_id is None
         if unit.type in (DW_UT.type, DW_UT.split_type):
             buf.extend(unit.type_signature.to_bytes(8, byteorder))  # type_signature
-            relocations.append((len(buf), unit.type_offset))
+            unit_references.append((len(buf), offset_size, unit.type_offset))
             buf.extend(bytes(offset_size))  # type_offset
         else:
             assert unit.type_signature is None
@@ -173,12 +186,16 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
 
         aux(buf, unit.die, 0)
 
-        unit_length = len(buf) - orig_len - 4
-        buf[orig_len : orig_len + 4] = unit_length.to_bytes(4, byteorder)
+        unit_length = len(buf) - unit_offset - 4
+        buf[unit_offset : unit_offset + 4] = unit_length.to_bytes(4, byteorder)
 
-        for offset, label in relocations:
-            die_offset = labels[label] - orig_len
-            buf[offset : offset + 4] = die_offset.to_bytes(4, byteorder)
+        for offset, size, label in unit_references:
+            die_offset = labels[label] - unit_offset
+            buf[offset : offset + size] = die_offset.to_bytes(size, byteorder)
+
+    for offset, size, label in references:
+        buf[offset : offset + size] = labels[label].to_bytes(size, byteorder)
+
     return debug_info, debug_types
 
 

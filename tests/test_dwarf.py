@@ -344,6 +344,32 @@ class TestTypes(TestCase):
         )
         self.assertRaisesRegex(Exception, "unknown DWARF encoding", prog.type, "TEST")
 
+    def test_reference_forms(self):
+        for form in (
+            DW_FORM.ref1,
+            DW_FORM.ref2,
+            DW_FORM.ref4,
+            DW_FORM.ref8,
+            DW_FORM.ref_udata,
+            DW_FORM.ref_addr,
+        ):
+            with self.subTest(form=form):
+                prog = dwarf_program(
+                    (
+                        *labeled_int_die,
+                        DwarfDie(
+                            DW_TAG.typedef,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST"),
+                                DwarfAttrib(DW_AT.type, form, "int_die"),
+                            ),
+                        ),
+                    )
+                )
+                self.assertIdentical(
+                    prog.type("TEST").type, prog.int_type("int", 4, True)
+                )
+
     def test_int_type_byteorder(self):
         prog = dwarf_program(
             wrap_test_type_dies(

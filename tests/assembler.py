@@ -5,6 +5,7 @@ from collections import namedtuple
 
 
 def _append_uleb128(buf, value):
+    assert value >= 0
     while True:
         byte = value & 0x7F
         value >>= 7
