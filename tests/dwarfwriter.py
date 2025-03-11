@@ -301,16 +301,18 @@ def _compile_debug_line(units, little_endian, bits, version):
 _UNIT_TAGS = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit})
 
 
-def dwarf_sections(
+def create_dwarf_file(
     units_or_dies,
-    little_endian=True,
-    bits=64,
     *,
     version=4,
     lang=None,
     use_dw_form_indirect=False,
     compress=None,
     split=None,
+    sections=(),
+    build_id=None,
+    little_endian=True,
+    bits=64,
 ):
     assert compress in (None, "zlib-gnu", "zlib-gabi")
     assert split in (None, "dwo")
@@ -371,7 +373,7 @@ def dwarf_sections(
         )
         return name
 
-    sections = [
+    dwarf_sections = [
         debug_section(
             ".debug_abbrev", _compile_debug_abbrev(units, use_dw_form_indirect)
         ),
@@ -379,40 +381,13 @@ def dwarf_sections(
         debug_section(".debug_str", b"\0"),
     ]
     if not split:
-        sections.append(debug_section(".debug_line", debug_line))
+        dwarf_sections.append(debug_section(".debug_line", debug_line))
     if debug_types:
-        sections.append(debug_section(".debug_types", debug_types))
-    return sections
+        dwarf_sections.append(debug_section(".debug_types", debug_types))
 
-
-def create_dwarf_file(
-    units_or_dies,
-    *,
-    version=4,
-    lang=None,
-    use_dw_form_indirect=False,
-    compress=None,
-    split=None,
-    sections=(),
-    build_id=None,
-    little_endian=True,
-    bits=64,
-):
     return create_elf_file(
         ET.EXEC,
-        sections=[
-            *sections,
-            *dwarf_sections(
-                units_or_dies,
-                little_endian=little_endian,
-                bits=bits,
-                version=version,
-                lang=lang,
-                use_dw_form_indirect=use_dw_form_indirect,
-                compress=compress,
-                split=split,
-            ),
-        ],
+        sections=[*sections, *dwarf_sections],
         build_id=build_id,
         little_endian=little_endian,
         bits=bits,
