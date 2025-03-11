@@ -33,24 +33,6 @@ from tests.dwarfwriter import create_dwarf_file
 from tests.elfwriter import ElfSection, create_elf_file
 from tests.resources import get_resource
 
-
-def gnu_debuglink_section(path, crc):
-    path = os.fsencode(path)
-    return ElfSection(
-        name=".gnu_debuglink",
-        sh_type=SHT.PROGBITS,
-        data=path + bytes(4 - len(path) % 4) + crc.to_bytes(4, "little"),
-    )
-
-
-def gnu_debugaltlink_section(path, build_id):
-    return ElfSection(
-        name=".gnu_debugaltlink",
-        sh_type=SHT.PROGBITS,
-        data=os.fsencode(path) + b"\0" + build_id,
-    )
-
-
 ALLOCATED_SECTION = ElfSection(
     name=".bss",
     sh_type=SHT.PROGBITS,
@@ -62,14 +44,14 @@ ALLOCATED_SECTION = ElfSection(
 
 
 @contextlib.contextmanager
-def NamedTemporaryElfFile(*, loadable=True, debug=True, build_id=None, sections=()):
+def NamedTemporaryElfFile(*, loadable=True, debug=True, sections=(), **kwargs):
     if loadable:
         sections = (ALLOCATED_SECTION,) + sections
     with tempfile.NamedTemporaryFile() as f:
         if debug:
-            f.write(create_dwarf_file((), sections=sections, build_id=build_id))
+            f.write(create_dwarf_file((), sections=sections, **kwargs))
         else:
-            f.write(create_elf_file(ET.EXEC, sections=sections, build_id=build_id))
+            f.write(create_elf_file(ET.EXEC, sections=sections, **kwargs))
         f.flush()
         yield f
 
@@ -378,11 +360,9 @@ class TestModuleTryFile(TestCase):
             binary_path.write_bytes(
                 create_dwarf_file(
                     (),
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debugaltlink_section(alt_path, alt_build_id),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
                     build_id=build_id,
+                    gnu_debugaltlink=(alt_path, alt_build_id),
                 )
             )
 
@@ -447,11 +427,9 @@ class TestModuleTryFile(TestCase):
             binary_path.write_bytes(
                 create_dwarf_file(
                     (),
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debugaltlink_section(alt_path, alt_build_id),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
                     build_id=build_id,
+                    gnu_debugaltlink=(alt_path, alt_build_id),
                 )
             )
 
@@ -511,8 +489,8 @@ class TestModuleTryFile(TestCase):
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
             module.build_id = build_id
             with NamedTemporaryElfFile(
-                sections=(gnu_debugaltlink_section(alt_path, alt_build_id),),
                 build_id=build_id,
+                gnu_debugaltlink=(alt_path, alt_build_id),
             ) as f1:
                 module.try_file(f1.name)
             self.assertEqual(
@@ -543,8 +521,8 @@ class TestModuleTryFile(TestCase):
             module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
             module.build_id = build_id
             with NamedTemporaryElfFile(
-                sections=(gnu_debugaltlink_section(alt_path, alt_build_id),),
                 build_id=build_id,
+                gnu_debugaltlink=(alt_path, alt_build_id),
             ) as f:
                 module.try_file(f.name)
             self.assertEqual(
@@ -1816,7 +1794,7 @@ class TestStandardDebugInfoFinder(TestCase):
         alt_build_id = b"\xfe\xdc\xba\x98\x76\x54\x32\x10"
 
         with NamedTemporaryElfFile(
-            sections=(gnu_debugaltlink_section("alt.debug", alt_build_id),),
+            gnu_debugaltlink=("alt.debug", alt_build_id),
         ) as f:
             module = self.prog.extra_module(f.name, create=True)[0]
             module.loaded_file_status = ModuleFileStatus.DONT_WANT
@@ -1999,10 +1977,8 @@ class TestStandardDebugInfoFinder(TestCase):
             loadable_path.write_bytes(
                 create_elf_file(
                     ET.EXEC,
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debuglink_section("binary.debug", crc),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debuglink=("binary.debug", crc),
                 )
             )
 
@@ -2053,10 +2029,8 @@ class TestStandardDebugInfoFinder(TestCase):
             loadable_path.write_bytes(
                 create_elf_file(
                     ET.EXEC,
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debuglink_section(debug_path, crc),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debuglink=(debug_path, crc),
                 )
             )
 
@@ -2082,10 +2056,8 @@ class TestStandardDebugInfoFinder(TestCase):
             loadable_path.write_bytes(
                 create_elf_file(
                     ET.EXEC,
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debuglink_section("binary.debug", crc ^ 1),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debuglink=("binary.debug", crc ^ 1),
                 )
             )
 
@@ -2136,10 +2108,8 @@ class TestStandardDebugInfoFinder(TestCase):
             binary_path.write_bytes(
                 create_dwarf_file(
                     (),
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debugaltlink_section(alt_path, alt_build_id),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debugaltlink=(alt_path, alt_build_id),
                 )
             )
 
@@ -2164,10 +2134,8 @@ class TestStandardDebugInfoFinder(TestCase):
             binary_path.write_bytes(
                 create_dwarf_file(
                     (),
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debugaltlink_section(debug_dir / "alt.debug", alt_build_id),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debugaltlink=(debug_dir / "alt.debug", alt_build_id),
                 )
             )
 
@@ -2204,10 +2172,8 @@ class TestStandardDebugInfoFinder(TestCase):
             binary_path.write_bytes(
                 create_dwarf_file(
                     (),
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debugaltlink_section(alt_path, alt_build_id),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debugaltlink=(alt_path, alt_build_id),
                 )
             )
 
@@ -2238,10 +2204,8 @@ class TestStandardDebugInfoFinder(TestCase):
             binary_path.write_bytes(
                 create_dwarf_file(
                     (),
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debugaltlink_section(debug_dir / "alt.debug", alt_build_id),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debugaltlink=(debug_dir / "alt.debug", alt_build_id),
                 )
             )
 
@@ -2284,11 +2248,10 @@ class TestStandardDebugInfoFinder(TestCase):
             binary_path.write_bytes(
                 create_dwarf_file(
                     (),
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debugaltlink_section(
-                            Path(os.path.relpath(alt_path, bin_dir)), alt_build_id
-                        ),
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debugaltlink=(
+                        Path(os.path.relpath(alt_path, bin_dir)),
+                        alt_build_id,
                     ),
                 )
             )
@@ -2326,10 +2289,8 @@ class TestStandardDebugInfoFinder(TestCase):
                     binary_path.write_bytes(
                         create_dwarf_file(
                             (),
-                            sections=(
-                                ALLOCATED_SECTION,
-                                gnu_debugaltlink_section(debugaltlink, alt_build_id),
-                            ),
+                            sections=(ALLOCATED_SECTION,),
+                            gnu_debugaltlink=(debugaltlink, alt_build_id),
                         )
                     )
 
@@ -2360,11 +2321,9 @@ class TestStandardDebugInfoFinder(TestCase):
             binary_path.write_bytes(
                 create_dwarf_file(
                     (),
-                    sections=(
-                        ALLOCATED_SECTION,
-                        gnu_debugaltlink_section(alt_path, alt_build_id),
-                    ),
+                    sections=(ALLOCATED_SECTION,),
                     build_id=build_id,
+                    gnu_debugaltlink=(alt_path, alt_build_id),
                 )
             )
 
@@ -2572,7 +2531,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
             loadable=False,
             debug=True,
             build_id=build_id,
-            sections=(gnu_debugaltlink_section("alt.debug", alt_build_id),),
+            gnu_debugaltlink=("alt.debug", alt_build_id),
         ) as debug_file, NamedTemporaryElfFile(
             loadable=False, debug=True, build_id=alt_build_id
         ) as alt_f:
@@ -2610,7 +2569,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
             loadable=False,
             debug=True,
             build_id=build_id,
-            sections=(gnu_debugaltlink_section("alt.debug", alt_build_id),),
+            gnu_debugaltlink=("alt.debug", alt_build_id),
         ) as debug_file:
             self.server.build_ids[build_id] = {
                 "executable": loadable_file.name,
@@ -2644,7 +2603,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
 
         with NamedTemporaryElfFile(
             build_id=build_id,
-            sections=(gnu_debugaltlink_section("alt.debug", alt_build_id),),
+            gnu_debugaltlink=("alt.debug", alt_build_id),
         ) as f, NamedTemporaryElfFile(
             loadable=False, debug=True, build_id=alt_build_id
         ) as alt_f:
@@ -2673,7 +2632,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
 
         with NamedTemporaryElfFile(
             build_id=build_id,
-            sections=(gnu_debugaltlink_section("alt.debug", alt_build_id),),
+            gnu_debugaltlink=("alt.debug", alt_build_id),
         ) as f:
             module = self.prog.extra_module("foo", create=True)[0]
             module.try_file(f.name)

@@ -1,8 +1,9 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import os
 import struct
-from typing import List, NamedTuple, Optional, Sequence
+from typing import List, NamedTuple, Optional, Sequence, Tuple, Union
 import zlib
 
 from _drgn_util.elf import ET, PT, SHF, SHN, SHT, STB, STT, STV
@@ -121,6 +122,12 @@ def create_elf_file(
     symbols: Sequence[ElfSymbol] = (),
     *,
     build_id: Optional[bytes] = None,
+    gnu_debuglink: Optional[
+        Tuple[Union[str, bytes, "os.PathLike[str]", "os.PathLike[bytes]"], int]
+    ] = None,
+    gnu_debugaltlink: Optional[
+        Tuple[Union[str, bytes, "os.PathLike[str]", "os.PathLike[bytes]"], bytes]
+    ] = None,
     little_endian: bool = True,
     bits: int = 64,
 ):
@@ -157,6 +164,32 @@ def create_elf_file(
         sections.append(
             ElfSection(name=".note.gnu.build-id", sh_type=SHT.NOTE, data=build_id_note)
         )
+
+    if gnu_debuglink is not None:
+        gnu_debuglink_path, gnu_debuglink_crc = gnu_debuglink
+        gnu_debuglink_path = os.fsencode(gnu_debuglink_path)
+        sections.append(
+            ElfSection(
+                name=".gnu_debuglink",
+                sh_type=SHT.PROGBITS,
+                data=gnu_debuglink_path
+                + bytes(4 - len(gnu_debuglink_path) % 4)
+                + gnu_debuglink_crc.to_bytes(4, "little"),
+            )
+        )
+
+    if gnu_debugaltlink is not None:
+        gnu_debugaltlink_path, gnu_debugaltlink_build_id = gnu_debugaltlink
+        sections.append(
+            ElfSection(
+                name=".gnu_debugaltlink",
+                sh_type=SHT.PROGBITS,
+                data=os.fsencode(gnu_debugaltlink_path)
+                + b"\0"
+                + gnu_debugaltlink_build_id,
+            )
+        )
+
     shnum = 0
     phnum = 0
     shstrtab = bytearray(1)

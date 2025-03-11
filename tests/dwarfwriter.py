@@ -310,9 +310,9 @@ def create_dwarf_file(
     compress=None,
     split=None,
     sections=(),
-    build_id=None,
     little_endian=True,
     bits=64,
+    **kwargs,
 ):
     assert compress in (None, "zlib-gnu", "zlib-gabi")
     assert split in (None, "dwo")
@@ -388,7 +388,7 @@ def create_dwarf_file(
     return create_elf_file(
         ET.EXEC,
         sections=[*sections, *dwarf_sections],
-        build_id=build_id,
         little_endian=little_endian,
         bits=bits,
+        **kwargs,
     )
