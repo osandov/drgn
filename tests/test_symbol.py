@@ -7,43 +7,50 @@ import tempfile
 from _drgn_util.elf import ET, PT, SHF, SHT, STB, STT
 from drgn import Program, Symbol, SymbolBinding, SymbolIndex, SymbolKind
 from tests import TestCase
-from tests.dwarfwriter import dwarf_sections
 from tests.elfwriter import ElfSection, ElfSymbol, create_elf_file
 
 
 def create_elf_symbol_file(symbols):
-    sections = dwarf_sections(())
     # Create a section for the symbols to reference and the corresponding
-    # segment for address lookups.
-    min_address = min(symbol.value for symbol in symbols)
-    max_address = max(symbol.value + symbol.size for symbol in symbols)
-    size = max(max_address - min_address, 4096)
-    sections.append(
+    # segment for address lookups. It must be SHF_ALLOC and must not be
+    # SHT_NOBITS or SHT_NOTE for the file to be loadable.
+    start = min(symbol.value for symbol in symbols) & ~7
+    end = (max(symbol.value + max(symbol.size, 1) for symbol in symbols) + 7) & ~7
+    size = end - start
+    assert size <= 4096, "symbols are too far apart; file would be too large"
+    sections = [
         ElfSection(
-            name=".foo",
-            sh_type=SHT.NOBITS,
+            name=".data",
+            sh_type=SHT.PROGBITS,
             sh_flags=SHF.ALLOC,
             p_type=PT.LOAD,
-            vaddr=min_address,
+            vaddr=start,
             memsz=size,
-        )
-    )
+            data=bytes(size),
+        ),
+    ]
     symbols = [
         symbol._replace(
             shindex=len(sections) if symbol.shindex is None else symbol.shindex
         )
         for symbol in symbols
     ]
-    return create_elf_file(ET.EXEC, sections, symbols), min_address, min_address + size
+    return create_elf_file(ET.EXEC, sections, symbols), start, end
 
 
 def elf_symbol_program(*modules):
     prog = Program()
+    address_ranges = []
     for symbols in modules:
         with tempfile.NamedTemporaryFile() as f:
             contents, start, end = create_elf_symbol_file(symbols)
             f.write(contents)
             f.flush()
+            for i, (other_start, other_end) in enumerate(address_ranges):
+                assert (
+                    end <= other_start or start >= other_end
+                ), f"module {len(address_ranges)} overlaps module {i}"
+            address_ranges.append((start, end))
             module = prog.extra_module(f.name, create=True)[0]
             module.address_range = (start, end)
             module.try_file(f.name, force=True)
