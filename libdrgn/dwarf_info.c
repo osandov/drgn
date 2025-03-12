@@ -1147,7 +1147,6 @@ index_cu_first_pass(struct drgn_dwarf_specification_map *specifications,
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index_cu *cu = buffer->cu;
-	const char *debug_info_buffer = cu->file->scn_data[cu->scn]->d_buf;
 	unsigned int depth = 0;
 	for (;;) {
 		uintptr_t die_addr = (uintptr_t)buffer->bb.pos;
@@ -1168,7 +1167,7 @@ index_cu_first_pass(struct drgn_dwarf_specification_map *specifications,
 
 		uint8_t *insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
 		bool declaration = false;
-		uintptr_t specification = 0;
+		const char *specification = NULL;
 		const char *sibling = NULL;
 		uint8_t insn;
 		uint8_t extra_die_flags = 0;
@@ -1294,7 +1293,11 @@ sibling:
 								      &tmp)))
 					return err;
 specification:
-				specification = (uintptr_t)cu->buf + tmp;
+				if (tmp >= cu->len) {
+					return binary_buffer_error(&buffer->bb,
+								   "reference is out of bounds");
+				}
+				specification = cu->buf + tmp;
 				break;
 			case INSN_SPECIFICATION_REF_ADDR4:
 				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
@@ -1306,7 +1309,12 @@ specification:
 								  &tmp)))
 					return err;
 specification_ref_addr:
-				specification = (uintptr_t)debug_info_buffer + tmp;
+				if (tmp >= cu->file->scn_data[cu->scn]->d_size) {
+					return binary_buffer_error(&buffer->bb,
+								   "reference is out of bounds");
+				}
+				specification = (char *)cu->file->scn_data[cu->scn]->d_buf
+						+ tmp;
 				break;
 			case INSN_SPECIFICATION_REF_ALT4:
 				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
@@ -1318,8 +1326,12 @@ specification_ref_addr:
 								  &tmp)))
 					return err;
 specification_ref_alt:
-				specification = ((uintptr_t)cu->file->alt_debug_info_data->d_buf
-						 + tmp);
+				if (tmp >= cu->file->alt_debug_info_data->d_size) {
+					return binary_buffer_error(&buffer->bb,
+								   "reference is out of bounds");
+				}
+				specification = (char *)cu->file->alt_debug_info_data->d_buf
+						+ tmp;
 				break;
 			case INSN_INDIRECT:
 			case INSN_SIBLING_INDIRECT:
@@ -1356,7 +1368,8 @@ skip:
 			 */
 			if (!declaration
 			    && !index_specification(specifications,
-						    specification, die_addr))
+						    (uintptr_t)specification,
+						    die_addr))
 				return &drgn_enomem;
 		}
 
