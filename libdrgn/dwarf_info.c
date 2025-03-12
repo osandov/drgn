@@ -1479,7 +1479,7 @@ index_cu_second_pass(struct drgn_debug_info *dbinfo,
 		uint8_t *insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
 		const char *name = NULL;
 		bool declaration = false;
-		bool specification = false;
+		const char *specification = NULL;
 		const char *sibling = NULL;
 		uint8_t insn;
 		uint8_t extra_die_flags = 0;
@@ -1507,9 +1507,6 @@ indirect_insn:;
 									   &skip)))
 					return err;
 				goto skip;
-			case INSN_SPECIFICATION_REF_UDATA:
-				specification = true;
-				fallthrough;
 			case INSN_SKIP_LEB128:
 				if ((err = binary_buffer_skip_leb128(&buffer->bb)))
 					return err;
@@ -1628,25 +1625,70 @@ name_alt_strp:
 				break;
 			}
 			case INSN_SPECIFICATION_REF1:
-				specification = true;
-				skip = 1;
-				goto skip;
+				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
+									  &tmp)))
+					return err;
+				goto specification;
 			case INSN_SPECIFICATION_REF2:
-				specification = true;
-				skip = 2;
-				goto skip;
+				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto specification;
 			case INSN_SPECIFICATION_REF4:
-			case INSN_SPECIFICATION_REF_ADDR4:
-			case INSN_SPECIFICATION_REF_ALT4:
-				specification = true;
-				skip = 4;
-				goto skip;
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto specification;
 			case INSN_SPECIFICATION_REF8:
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
+				goto specification;
+			case INSN_SPECIFICATION_REF_UDATA:
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &tmp)))
+					return err;
+specification:
+				if (tmp >= cu->len) {
+					return binary_buffer_error(&buffer->bb,
+								   "reference is out of bounds");
+				}
+				specification = cu->buf + tmp;
+				break;
+			case INSN_SPECIFICATION_REF_ADDR4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto specification_ref_addr;
 			case INSN_SPECIFICATION_REF_ADDR8:
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
+specification_ref_addr:
+				if (tmp >= cu->file->scn_data[cu->scn]->d_size) {
+					return binary_buffer_error(&buffer->bb,
+								   "reference is out of bounds");
+				}
+				specification = (char *)cu->file->scn_data[cu->scn]->d_buf
+						+ tmp;
+				break;
+			case INSN_SPECIFICATION_REF_ALT4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto specification_ref_alt;
 			case INSN_SPECIFICATION_REF_ALT8:
-				specification = true;
-				skip = 8;
-				goto skip;
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
+specification_ref_alt:
+				if (tmp >= cu->file->alt_debug_info_data->d_size) {
+					return binary_buffer_error(&buffer->bb,
+								   "reference is out of bounds");
+				}
+				specification = (char *)cu->file->alt_debug_info_data->d_buf
+						+ tmp;
+				break;
 			case INSN_INDIRECT:
 			case INSN_SIBLING_INDIRECT:
 			case INSN_NAME_INDIRECT:
