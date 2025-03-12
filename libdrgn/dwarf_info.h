@@ -196,6 +196,12 @@ struct drgn_dwarf_info {
 	struct drgn_dwarf_specification_map specifications;
 	/** Indexed compilation units. */
 	struct drgn_dwarf_index_cu_vector index_cus;
+	/**
+	 * Lookup table for indexed compilation units sorted on buffer address.
+	 *
+	 * Size is equal to that of @ref index_cus.
+	 */
+	struct drgn_dwarf_index_cu_lookup *index_cu_lookup;
 
 	/**
 	 * Cache of parsed types.

@@ -137,6 +137,14 @@ struct drgn_dwarf_index_cu {
 	Dwarf_CU *libdw_cu;
 };
 
+/** Indexed CU lookup table entry. */
+struct drgn_dwarf_index_cu_lookup {
+	/** Address of CU data (@ref drgn_dwarf_index_cu::buf). */
+	uintptr_t buf;
+	/** Index of CU in @ref drgn_dwarf_info::index_cus. */
+	size_t index;
+};
+
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_cu_vector);
 DEFINE_VECTOR(drgn_module_vector, struct drgn_module *);
 
@@ -184,6 +192,7 @@ void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo)
 	dbinfo->dwarf.global.parent = NULL;
 	drgn_dwarf_base_type_map_init(&dbinfo->dwarf.base_types);
 	drgn_dwarf_specification_map_init(&dbinfo->dwarf.specifications);
+	free(dbinfo->dwarf.index_cu_lookup);
 	drgn_dwarf_index_cu_vector_init(&dbinfo->dwarf.index_cus);
 	drgn_dwarf_type_map_init(&dbinfo->dwarf.types);
 	drgn_dwarf_type_map_init(&dbinfo->dwarf.cant_be_incomplete_array_types);
@@ -1718,10 +1727,10 @@ next:
 	return NULL;
 }
 
-static inline int drgn_dwarf_index_cu_cmp(const void *_a, const void *_b)
+static inline int drgn_dwarf_index_cu_lookup_cmp(const void *_a, const void *_b)
 {
-	uintptr_t a = (uintptr_t)((struct drgn_dwarf_index_cu *)_a)->buf;
-	uintptr_t b = (uintptr_t)((struct drgn_dwarf_index_cu *)_b)->buf;
+	uintptr_t a = ((struct drgn_dwarf_index_cu_lookup *)_a)->buf;
+	uintptr_t b = ((struct drgn_dwarf_index_cu_lookup *)_b)->buf;
 	return (a > b) - (a < b);
 }
 
@@ -1729,16 +1738,21 @@ static inline int drgn_dwarf_index_cu_cmp(const void *_a, const void *_b)
 static struct drgn_dwarf_index_cu *
 drgn_dwarf_index_find_cu(struct drgn_debug_info *dbinfo, uintptr_t die_addr)
 {
-	struct drgn_dwarf_index_cu *cus =
-		drgn_dwarf_index_cu_vector_begin(&dbinfo->dwarf.index_cus);
-	#define less_than_cu_buf(a, b) (*(a) < (uintptr_t)(b)->buf)
-	size_t i = binary_search_gt(cus,
+	struct drgn_dwarf_index_cu_lookup *lookup =
+		dbinfo->dwarf.index_cu_lookup;
+	#define less_than_cu_lookup_buf(a, b) (*(a) < (b)->buf)
+	size_t i = binary_search_gt(lookup,
 				    drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus),
-				    &die_addr, less_than_cu_buf);
+				    &die_addr, less_than_cu_lookup_buf);
 	#undef less_than_cu_buf
-	if (i == 0 || die_addr - (uintptr_t)cus[i - 1].buf >= cus[i - 1].len)
+	if (i == 0)
 		return NULL;
-	return &cus[i - 1];
+	struct drgn_dwarf_index_cu *cu =
+		drgn_dwarf_index_cu_vector_at(&dbinfo->dwarf.index_cus,
+					      lookup[i - 1].index);
+	if (die_addr - lookup[i - 1].buf >= cu->len)
+		return NULL;
+	return cu;
 }
 
 // If there wasn't already an error, merge src into dst, and return an error if
@@ -1934,6 +1948,34 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 		}
 		#pragma omp barrier
 
+		// Update the CU lookup table. This can be done by one thread in
+		// parallel with reading CUs.
+		#pragma omp master
+		if (drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus)
+		    > dbinfo->dwarf.global.cus_indexed) {
+			struct drgn_dwarf_index_cu_lookup *lookup =
+				realloc_array(dbinfo->dwarf.index_cu_lookup,
+					      drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus),
+					      sizeof(lookup[0]));
+			if (lookup) {
+				dbinfo->dwarf.index_cu_lookup = lookup;
+				for (size_t i = dbinfo->dwarf.global.cus_indexed;
+				     i < drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus);
+				     i++) {
+					struct drgn_dwarf_index_cu *cu =
+						drgn_dwarf_index_cu_vector_at(&dbinfo->dwarf.index_cus, i);
+					lookup[i].buf = (uintptr_t)cu->buf;
+					lookup[i].index = i;
+				}
+				qsort(lookup,
+				      drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus),
+				      sizeof(lookup[0]),
+				      drgn_dwarf_index_cu_lookup_cmp);
+			} else {
+				thread_err = &drgn_enomem;
+			}
+		}
+
 		// Read the abbreviation tables of new CUs.
 		#pragma omp for schedule(dynamic) nowait
 		for (size_t i = dbinfo->dwarf.global.cus_indexed;
@@ -2073,9 +2115,6 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 		dbinfo->dwarf.global.saved_err = err;
 		return drgn_error_copy(err);
 	}
-	qsort(drgn_dwarf_index_cu_vector_begin(&dbinfo->dwarf.index_cus),
-	      drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus),
-	      sizeof(struct drgn_dwarf_index_cu), drgn_dwarf_index_cu_cmp);
 	dbinfo->modules_pending_indexing = NULL;
 	dbinfo->dwarf.global.cus_indexed =
 		drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus);
