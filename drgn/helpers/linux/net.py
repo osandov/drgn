@@ -34,6 +34,7 @@ __all__ = (
     "sk_fullsock",
     "sk_nulls_for_each",
     "skb_shinfo",
+    "is_pp_page",
 )
 
 
@@ -260,3 +261,37 @@ def skb_shinfo(skb: Object) -> Object:
         return cast("struct skb_shared_info *", skb.head + skb.end)
     else:
         return cast("struct skb_shared_info *", skb.end)
+
+
+def _poison_pointer_delta(prog: Program) -> int:
+    # The value of POISON_POINTER_DELTA depends on
+    # CONFIG_ILLEGAL_POINTER_VALUE, which varies by architecture and kernel
+    # version. To avoid hard-coding values, derive the value from
+    # TIMER_ENTRY_STATIC, which we can find in any statically-defined timer.
+    # This still requires hard-coding an offset, but that offset is the same on
+    # all architectures and kernel versions since Linux kernel commit
+    # b8a0255db958 ("include/linux/poison.h: use POISON_POINTER_DELTA for
+    # poison pointers") (in v4.5).
+    try:
+        return prog.cache["POISON_POINTER_DELTA"]
+    except KeyError:
+        pass
+    TIMER_ENTRY_STATIC = prog["poll_spurious_irq_timer"].entry.next.value_()
+    POISON_POINTER_DELTA = TIMER_ENTRY_STATIC - 0x300
+    prog.cache["POISON_POINTER_DELTA"] = POISON_POINTER_DELTA
+    return POISON_POINTER_DELTA
+
+
+def is_pp_page(page: Object) -> bool:
+    """
+    Check if given page is a page_pool page.
+
+    :param page: ``struct page *``
+    """
+    PP_SIGNATURE = _poison_pointer_delta(page.prog_) + 0x40
+    PP_MAGIC_MASK = ~0x3
+
+    try:
+        return (page.pp_magic & PP_MAGIC_MASK) == PP_SIGNATURE
+    except AttributeError:
+        return False
