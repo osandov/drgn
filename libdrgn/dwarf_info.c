@@ -1831,6 +1831,7 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 
 	drgn_init_num_threads();
 
+	// Gather linked list of modules into a vector that we can parallelize.
 	VECTOR(drgn_module_vector, modules);
 	{
 		struct drgn_module *module = dbinfo->modules_pending_indexing;
@@ -1860,15 +1861,15 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 			return &drgn_enomem;
 	}
 
-	size_t old_cus_size =
-		drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus);
-
 	struct drgn_error *err = NULL;
+	size_t new_cus_size;
 	#pragma omp parallel num_threads(drgn_num_threads)
 	{
 		struct drgn_error *thread_err = NULL;
-		struct drgn_dwarf_index_cu_vector *cus;
 		int thread_num = omp_get_thread_num();
+
+		// Enumerate CUs in new modules.
+		struct drgn_dwarf_index_cu_vector *cus;
 		if (thread_num == 0) {
 			cus = &dbinfo->dwarf.index_cus;
 		} else {
@@ -1876,7 +1877,7 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 			drgn_dwarf_index_cu_vector_init(cus);
 		}
 
-		#pragma omp for schedule(dynamic)
+		#pragma omp for schedule(dynamic) nowait
 		for (size_t i = 0; i < drgn_module_vector_size(&modules); i++) {
 			if (thread_err)
 				continue;
@@ -1892,36 +1893,49 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 				drgn_error_destroy(thread_err);
 			else
 				err = thread_err;
+			thread_err = NULL;
 		}
-	}
-	if (err)
-		goto err;
+		#pragma omp barrier
 
-	struct drgn_dwarf_index_cu_vector *cus = &dbinfo->dwarf.index_cus;
+		// Merge the per-thread CUs into dbinfo (and free them).
+		#pragma omp master
+		{
+			if (!err) {
+				new_cus_size =
+					drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus);
+				for (int i = 0; i < drgn_num_threads - 1; i++)
+					new_cus_size += drgn_dwarf_index_cu_vector_size(&threads[i].cus);
 
-	size_t new_cus_size = drgn_dwarf_index_cu_vector_size(cus);
-	for (int i = 0; i < drgn_num_threads - 1; i++)
-		new_cus_size += drgn_dwarf_index_cu_vector_size(&threads[i].cus);
-	if (new_cus_size == old_cus_size)
-		return NULL;
+				if (new_cus_size > dbinfo->dwarf.global.cus_indexed) {
+					if (drgn_dwarf_index_cu_vector_reserve(&dbinfo->dwarf.index_cus,
+									       new_cus_size)) {
+						for (int i = 0; i < drgn_num_threads - 1; i++) {
+							drgn_dwarf_index_cu_vector_extend(&dbinfo->dwarf.index_cus,
+											  &threads[i].cus);
+							drgn_dwarf_index_cu_vector_deinit(&threads[i].cus);
+						}
+					} else {
+						err = &drgn_enomem;
+					}
+				}
+			}
+			if (err) {
+				for (int i = 0; i < drgn_num_threads - 1; i++)
+					drgn_dwarf_index_cu_vector_deinit(&threads[i].cus);
+				// If there was an error, we'd like to avoid
+				// doing any more work, but we can't break out
+				// of an OpenMP parallel region. Set the number
+				// of CUs to the old number so the remaining
+				// loops are essentially no-ops.
+				new_cus_size = dbinfo->dwarf.global.cus_indexed;
+				drgn_dwarf_index_cu_vector_resize(&dbinfo->dwarf.index_cus,
+								  new_cus_size);
+			}
+		}
+		#pragma omp barrier
 
-	if (!drgn_dwarf_index_cu_vector_reserve(cus, new_cus_size)) {
-		for (int i = 0; i < drgn_num_threads - 1; i++)
-			drgn_dwarf_index_cu_vector_deinit(&threads[i].cus);
-		err = &drgn_enomem;
-		goto err;
-	}
-
-	for (int i = 0; i < drgn_num_threads - 1; i++) {
-		drgn_dwarf_index_cu_vector_extend(cus, &threads[i].cus);
-		drgn_dwarf_index_cu_vector_deinit(&threads[i].cus);
-	}
-
-	#pragma omp parallel num_threads(drgn_num_threads)
-	{
-		struct drgn_error *thread_err = NULL;
+		// Do the first indexing pass.
 		struct drgn_dwarf_specification_map *specifications;
-		int thread_num = omp_get_thread_num();
 		if (thread_num == 0) {
 			specifications = &dbinfo->dwarf.specifications;
 		} else {
@@ -1929,13 +1943,13 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 			drgn_dwarf_specification_map_init(specifications);
 		}
 
-		#pragma omp for schedule(dynamic)
+		#pragma omp for schedule(dynamic) nowait
 		for (size_t i = dbinfo->dwarf.global.cus_indexed;
-		     i < drgn_dwarf_index_cu_vector_size(cus); i++) {
+		     i < new_cus_size; i++) {
 			if (thread_err)
 				continue;
 			struct drgn_dwarf_index_cu *cu =
-				drgn_dwarf_index_cu_vector_at(cus, i);
+				drgn_dwarf_index_cu_vector_at(&dbinfo->dwarf.index_cus, i);
 			thread_err = read_cu(cu);
 			if (!thread_err) {
 				struct drgn_dwarf_index_cu_buffer buffer;
@@ -1951,22 +1965,28 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 				drgn_error_destroy(thread_err);
 			else
 				err = thread_err;
+			thread_err = NULL;
 		}
-	}
-	for (int i = 0; i < drgn_num_threads - 1; i++) {
-		err = drgn_dwarf_specification_map_merge(&dbinfo->dwarf.specifications,
-							 &threads[i].specifications,
-							 err);
-	}
-	if (err)
-		goto err;
+		#pragma omp barrier
 
-	#pragma omp parallel num_threads(drgn_num_threads)
-	{
-		struct drgn_error *thread_err = NULL;
+		// Merge the per-thread specification maps into dbinfo (and free
+		// them).
+		#pragma omp master
+		{
+			for (int i = 0; i < drgn_num_threads - 1; i++) {
+				err = drgn_dwarf_specification_map_merge(&dbinfo->dwarf.specifications,
+									 &threads[i].specifications,
+									 err);
+			}
+			// Same error handling trick as above.
+			if (err)
+				new_cus_size = dbinfo->dwarf.global.cus_indexed;
+		}
+		#pragma omp barrier
+
+		// Do the second indexing pass.
 		struct drgn_dwarf_index_die_map *map;
 		struct drgn_dwarf_base_type_map *base_types;
-		int thread_num = omp_get_thread_num();
 		if (thread_num == 0) {
 			map = dbinfo->dwarf.global.map;
 			base_types = &dbinfo->dwarf.base_types;
@@ -1980,11 +2000,11 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 
 		#pragma omp for schedule(dynamic)
 		for (size_t i = dbinfo->dwarf.global.cus_indexed;
-		     i < drgn_dwarf_index_cu_vector_size(cus); i++) {
+		     i < new_cus_size; i++) {
 			if (thread_err)
 				continue;
 			struct drgn_dwarf_index_cu *cu =
-				drgn_dwarf_index_cu_vector_at(cus, i);
+				drgn_dwarf_index_cu_vector_at(&dbinfo->dwarf.index_cus, i);
 			struct drgn_dwarf_index_cu_buffer buffer;
 			drgn_dwarf_index_cu_buffer_init(&buffer, cu);
 			buffer.bb.pos += cu_header_size(cu);
@@ -1992,6 +2012,8 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 							  base_types, &buffer);
 		}
 
+		// Merge the per-thread DIE and base type maps into dbinfo (and
+		// free them).
 		#pragma omp for schedule(dynamic) nowait
 		for (size_t i = 0; i <= array_size(dbinfo->dwarf.global.map); i++) {
 			if (i < array_size(dbinfo->dwarf.global.map)) {
@@ -2020,16 +2042,15 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 	}
 
 	if (err) {
-err:
 		dbinfo->dwarf.global.saved_err = err;
 		return drgn_error_copy(err);
 	}
-	qsort(drgn_dwarf_index_cu_vector_begin(cus),
-	      drgn_dwarf_index_cu_vector_size(cus),
+	qsort(drgn_dwarf_index_cu_vector_begin(&dbinfo->dwarf.index_cus),
+	      drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus),
 	      sizeof(struct drgn_dwarf_index_cu), drgn_dwarf_index_cu_cmp);
 	dbinfo->modules_pending_indexing = NULL;
 	dbinfo->dwarf.global.cus_indexed =
-		drgn_dwarf_index_cu_vector_size(cus);
+		drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus);
 	return NULL;
 }
 
