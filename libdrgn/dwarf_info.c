@@ -386,12 +386,14 @@ static const char *drgn_dwarf_dwo_name(Dwarf_Die *die)
 
 static struct drgn_error *
 drgn_dwarf_index_read_file(struct drgn_elf_file *file,
-			   struct drgn_dwarf_index_cu_vector *cus);
+			   struct drgn_dwarf_index_cu_vector *cus,
+			   struct drgn_dwarf_index_cu_vector *partial_units);
 
 static struct drgn_error *
 drgn_dwarf_index_read_cus(struct drgn_elf_file *file,
 			  enum drgn_section_index scn,
-			  struct drgn_dwarf_index_cu_vector *cus)
+			  struct drgn_dwarf_index_cu_vector *cus,
+			  struct drgn_dwarf_index_cu_vector *partial_units)
 {
 	struct drgn_error *err;
 
@@ -448,7 +450,8 @@ drgn_dwarf_index_read_cus(struct drgn_elf_file *file,
 				if (err)
 					return err;
 				err = drgn_dwarf_index_read_file(split_file,
-								 cus);
+								 cus,
+								 partial_units);
 				if (err)
 					return err;
 			}
@@ -473,8 +476,17 @@ drgn_dwarf_index_read_cus(struct drgn_elf_file *file,
 			abbrev_offset += dwp_offset;
 		}
 #else
-		unit_type = (scn == DRGN_SCN_DEBUG_TYPES
-			     ? DW_UT_type : DW_UT_compile);
+		switch (dwarf_tag(&cudie)) {
+		case DW_TAG_type_unit:
+			unit_type = DW_UT_type;
+			break;
+		case DW_TAG_partial_unit:
+			unit_type = DW_UT_partial;
+			break;
+		default:
+			unit_type = DW_UT_compile;
+			break;
+		}
 #endif
 
 		if (!elf_data_contains_ptr(file->scn_data[scn],
@@ -558,7 +570,8 @@ drgn_dwarf_index_read_cus(struct drgn_elf_file *file,
 		}
 
 		struct drgn_dwarf_index_cu *cu =
-			drgn_dwarf_index_cu_vector_append_entry(cus);
+			drgn_dwarf_index_cu_vector_append_entry(unit_type == DW_UT_partial
+								? partial_units : cus);
 		if (!cu)
 			return &drgn_enomem;
 		*cu = (struct drgn_dwarf_index_cu){
@@ -582,7 +595,8 @@ drgn_dwarf_index_read_cus(struct drgn_elf_file *file,
 
 static struct drgn_error *
 drgn_dwarf_index_read_file(struct drgn_elf_file *file,
-			   struct drgn_dwarf_index_cu_vector *cus)
+			   struct drgn_dwarf_index_cu_vector *cus,
+			   struct drgn_dwarf_index_cu_vector *partial_units)
 {
 	struct drgn_error *err;
 
@@ -611,10 +625,11 @@ drgn_dwarf_index_read_file(struct drgn_elf_file *file,
 		}
 	}
 
-	err = drgn_dwarf_index_read_cus(file, DRGN_SCN_DEBUG_INFO, cus);
+	err = drgn_dwarf_index_read_cus(file, DRGN_SCN_DEBUG_INFO, cus,
+					partial_units);
 	if (!err && file->scns[DRGN_SCN_DEBUG_TYPES]) {
-		err = drgn_dwarf_index_read_cus(file, DRGN_SCN_DEBUG_TYPES,
-						cus);
+		err = drgn_dwarf_index_read_cus(file, DRGN_SCN_DEBUG_TYPES, cus,
+						partial_units);
 	}
 	return err;
 }
@@ -1755,6 +1770,38 @@ drgn_dwarf_index_find_cu(struct drgn_debug_info *dbinfo, uintptr_t die_addr)
 	return cu;
 }
 
+static void
+drgn_dwarf_index_cus_merge_partial(struct drgn_dwarf_index_cu_vector *dst,
+				   struct drgn_dwarf_index_cu_vector *src_partial,
+				   size_t *partial_pos)
+{
+	if (!drgn_dwarf_index_cu_vector_empty(src_partial)) {
+		memcpy(drgn_dwarf_index_cu_vector_at(dst, *partial_pos),
+		       drgn_dwarf_index_cu_vector_begin(src_partial),
+		       drgn_dwarf_index_cu_vector_size(src_partial)
+		       * sizeof(struct drgn_dwarf_index_cu));
+		*partial_pos += drgn_dwarf_index_cu_vector_size(src_partial);
+	}
+	drgn_dwarf_index_cu_vector_deinit(src_partial);
+}
+
+static void
+drgn_dwarf_index_cus_merge(struct drgn_dwarf_index_cu_vector *dst,
+			   struct drgn_dwarf_index_cu_vector *src,
+			   struct drgn_dwarf_index_cu_vector *src_partial,
+			   size_t *pos, size_t *partial_pos)
+{
+	if (!drgn_dwarf_index_cu_vector_empty(src)) {
+		memcpy(drgn_dwarf_index_cu_vector_at(dst, *pos),
+		       drgn_dwarf_index_cu_vector_begin(src),
+		       drgn_dwarf_index_cu_vector_size(src)
+		       * sizeof(struct drgn_dwarf_index_cu));
+		*pos += drgn_dwarf_index_cu_vector_size(src);
+	}
+	drgn_dwarf_index_cu_vector_deinit(src);
+	drgn_dwarf_index_cus_merge_partial(dst, src_partial, partial_pos);
+}
+
 // If there wasn't already an error, merge src into dst, and return an error if
 // that fails. If there was already an error, return the original error. Free
 // src whether or not there was an error.
@@ -1860,7 +1907,10 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 	// the dbinfo directly. These are merged into the dbinfo and freed.
 	_cleanup_free_ union {
 		// For reading modules.
-		struct drgn_dwarf_index_cu_vector cus;
+		struct {
+			struct drgn_dwarf_index_cu_vector cus;
+			struct drgn_dwarf_index_cu_vector partial_units;
+		};
 		// For first pass.
 		struct drgn_dwarf_specification_map specifications;
 		// For second pass.
@@ -1875,6 +1925,9 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 			return &drgn_enomem;
 	}
 
+	// Thread 0 needs its own temporary partial_units vector.
+	struct drgn_dwarf_index_cu_vector partial_units0;
+
 	struct drgn_error *err = NULL;
 	size_t new_cus_size;
 	#pragma omp parallel num_threads(drgn_num_threads)
@@ -1883,13 +1936,16 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 		int thread_num = omp_get_thread_num();
 
 		// Enumerate CUs in new modules.
-		struct drgn_dwarf_index_cu_vector *cus;
+		struct drgn_dwarf_index_cu_vector *cus, *partial_units;
 		if (thread_num == 0) {
 			cus = &dbinfo->dwarf.index_cus;
+			partial_units = &partial_units0;
 		} else {
 			cus = &threads[thread_num - 1].cus;
+			partial_units = &threads[thread_num - 1].partial_units;
 			drgn_dwarf_index_cu_vector_init(cus);
 		}
+		drgn_dwarf_index_cu_vector_init(partial_units);
 
 		#pragma omp for schedule(dynamic) nowait
 		for (size_t i = 0; i < drgn_module_vector_size(&modules); i++) {
@@ -1899,7 +1955,7 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 				*drgn_module_vector_at(&modules, i);
 			thread_err =
 				drgn_dwarf_index_read_file(module->debug_file,
-							   cus);
+							   cus, partial_units);
 		}
 		if (thread_err) {
 			#pragma omp critical(drgn_dwarf_info_update_index_error)
@@ -1911,22 +1967,36 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 		}
 		#pragma omp barrier
 
-		// Merge the per-thread CUs into dbinfo (and free them).
+		// Merge the per-thread CUs into dbinfo (and free them). Partial
+		// units are placed at the end and excluded from new_cus_size so
+		// that they are not indexed.
 		#pragma omp master
 		{
 			if (!err) {
-				new_cus_size =
+				size_t cus_pos = new_cus_size =
 					drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus);
-				for (int i = 0; i < drgn_num_threads - 1; i++)
+				size_t new_partial_units =
+					drgn_dwarf_index_cu_vector_size(&partial_units0);
+				for (int i = 0; i < drgn_num_threads - 1; i++) {
 					new_cus_size += drgn_dwarf_index_cu_vector_size(&threads[i].cus);
+					new_partial_units += drgn_dwarf_index_cu_vector_size(&threads[i].partial_units);
+				}
 
-				if (new_cus_size > dbinfo->dwarf.global.cus_indexed) {
-					if (drgn_dwarf_index_cu_vector_reserve(&dbinfo->dwarf.index_cus,
-									       new_cus_size)) {
+				if (new_cus_size + new_partial_units
+				    > dbinfo->dwarf.global.cus_indexed) {
+					if (drgn_dwarf_index_cu_vector_resize(&dbinfo->dwarf.index_cus,
+									      new_cus_size
+									      + new_partial_units)) {
+						size_t partial_pos = new_cus_size;
+						drgn_dwarf_index_cus_merge_partial(&dbinfo->dwarf.index_cus,
+										   &partial_units0,
+										   &partial_pos);
 						for (int i = 0; i < drgn_num_threads - 1; i++) {
-							drgn_dwarf_index_cu_vector_extend(&dbinfo->dwarf.index_cus,
-											  &threads[i].cus);
-							drgn_dwarf_index_cu_vector_deinit(&threads[i].cus);
+							drgn_dwarf_index_cus_merge(&dbinfo->dwarf.index_cus,
+										   &threads[i].cus,
+										   &threads[i].partial_units,
+										   &cus_pos,
+										   &partial_pos);
 						}
 					} else {
 						err = &drgn_enomem;
@@ -1934,8 +2004,11 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 				}
 			}
 			if (err) {
-				for (int i = 0; i < drgn_num_threads - 1; i++)
+				for (int i = 0; i < drgn_num_threads - 1; i++) {
+					drgn_dwarf_index_cu_vector_deinit(&threads[i].partial_units);
 					drgn_dwarf_index_cu_vector_deinit(&threads[i].cus);
+				}
+				drgn_dwarf_index_cu_vector_deinit(&partial_units0);
 				// If there was an error, we'd like to avoid
 				// doing any more work, but we can't break out
 				// of an OpenMP parallel region. Set the number

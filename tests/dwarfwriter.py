@@ -336,7 +336,7 @@ def _compile_debug_line(units, little_endian, bits, version):
     return buf
 
 
-_UNIT_TAGS = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit})
+_UNIT_TAGS = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit, DW_TAG.partial_unit})
 
 
 class DwarfResult(NamedTuple):

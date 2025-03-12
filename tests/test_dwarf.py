@@ -7312,3 +7312,39 @@ class TestSplitDwarf(TestCase):
                     for output in log.output
                 )
             )
+
+
+class TestImportedUnit(TestCase):
+    def test_unused_partial_unit(self):
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.compile_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.typedef,
+                                (DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST"),),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.typedef,
+                                (DwarfAttrib(DW_AT.name, DW_FORM.string, "UNUSED"),),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertIdentical(prog.type("TEST").type, prog.void_type())
+        self.assertRaises(LookupError, prog.type, "UNUSED")
