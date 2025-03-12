@@ -3,7 +3,7 @@
 
 from collections import OrderedDict
 import os.path
-from typing import Any, NamedTuple, Optional, Sequence, Union
+from typing import Any, Dict, NamedTuple, Optional, Sequence, Union
 import zlib
 
 from _drgn_util.elf import ET, SHF, SHT
@@ -199,7 +199,7 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
     for offset, size, label in references:
         buf[offset : offset + size] = labels[label].to_bytes(size, byteorder)
 
-    return debug_info, debug_types
+    return debug_info, debug_types, labels
 
 
 def _compile_debug_line(units, little_endian, bits, version):
@@ -321,7 +321,12 @@ def _compile_debug_line(units, little_endian, bits, version):
 _UNIT_TAGS = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit})
 
 
-def create_dwarf_file(
+class DwarfResult(NamedTuple):
+    data: bytes
+    labels: Dict[str, int]
+
+
+def compile_dwarf(
     units_or_dies,
     *,
     version=4,
@@ -371,7 +376,7 @@ def create_dwarf_file(
     if not split:
         debug_line = _compile_debug_line(units, little_endian, bits, version)
 
-    debug_info, debug_types = _compile_debug_info(
+    debug_info, debug_types, labels = _compile_debug_info(
         units, little_endian, bits, version, use_dw_form_indirect
     )
 
@@ -405,10 +410,17 @@ def create_dwarf_file(
     if debug_types:
         dwarf_sections.append(debug_section(".debug_types", debug_types))
 
-    return create_elf_file(
-        ET.EXEC,
-        sections=[*sections, *dwarf_sections],
-        little_endian=little_endian,
-        bits=bits,
-        **kwargs,
+    return DwarfResult(
+        data=create_elf_file(
+            ET.EXEC,
+            sections=[*sections, *dwarf_sections],
+            little_endian=little_endian,
+            bits=bits,
+            **kwargs,
+        ),
+        labels=labels,
     )
+
+
+def create_dwarf_file(*args, **kwargs):
+    return compile_dwarf(*args, **kwargs).data
