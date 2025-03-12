@@ -1934,6 +1934,37 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 		}
 		#pragma omp barrier
 
+		// Read the abbreviation tables of new CUs.
+		#pragma omp for schedule(dynamic) nowait
+		for (size_t i = dbinfo->dwarf.global.cus_indexed;
+		     i < drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus);
+		     i++) {
+			if (thread_err)
+				continue;
+			struct drgn_dwarf_index_cu *cu =
+				drgn_dwarf_index_cu_vector_at(&dbinfo->dwarf.index_cus, i);
+			thread_err = read_cu(cu);
+		}
+		if (thread_err) {
+			#pragma omp critical(drgn_dwarf_info_update_index_error)
+			{
+				if (err)
+					drgn_error_destroy(thread_err);
+				else
+					err = thread_err;
+				// Same error handling trick as above, except
+				// that we can't resize the vector anymore for a
+				// couple of reasons: the CUs now need to be
+				// properly deinitialized by
+				// drgn_dwarf_index_cu_deinit(), and we can't
+				// change the iteration count of the above loop
+				// while it is running on other threads.
+				new_cus_size = dbinfo->dwarf.global.cus_indexed;
+			}
+			thread_err = NULL;
+		}
+		#pragma omp barrier
+
 		// Do the first indexing pass.
 		struct drgn_dwarf_specification_map *specifications;
 		if (thread_num == 0) {
@@ -1950,14 +1981,11 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 				continue;
 			struct drgn_dwarf_index_cu *cu =
 				drgn_dwarf_index_cu_vector_at(&dbinfo->dwarf.index_cus, i);
-			thread_err = read_cu(cu);
-			if (!thread_err) {
-				struct drgn_dwarf_index_cu_buffer buffer;
-				drgn_dwarf_index_cu_buffer_init(&buffer, cu);
-				buffer.bb.pos += cu_header_size(cu);
-				thread_err = index_cu_first_pass(specifications,
-								 &buffer);
-			}
+			struct drgn_dwarf_index_cu_buffer buffer;
+			drgn_dwarf_index_cu_buffer_init(&buffer, cu);
+			buffer.bb.pos += cu_header_size(cu);
+			thread_err = index_cu_first_pass(specifications,
+							 &buffer);
 		}
 		if (thread_err) {
 			#pragma omp critical(drgn_dwarf_info_update_index_error)
