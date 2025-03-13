@@ -447,6 +447,7 @@ static void drgn_module_destroy(struct drgn_module *module)
 	drgn_module_orc_info_deinit(module);
 	drgn_module_dwarf_info_deinit(module);
 	drgn_module_clear_wanted_supplementary_debug_file(module);
+	drgn_elf_file_destroy(module->gnu_debugdata_file);
 	drgn_elf_file_destroy(module->supplementary_debug_file);
 	if (module->debug_file != module->loaded_file)
 		drgn_elf_file_destroy(module->debug_file);
