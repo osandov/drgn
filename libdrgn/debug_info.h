@@ -240,7 +240,7 @@ struct drgn_module {
 	/** ORC unwinder information. */
 	struct drgn_module_orc_info orc;
 	/** ELF symbol table. */
-	struct drgn_elf_symbol_table elf_symtab;
+	struct drgn_elf_symbol_table elf_symtab[2];
 
 	/** Whether .debug_frame has been parsed. */
 	bool parsed_debug_frame;
