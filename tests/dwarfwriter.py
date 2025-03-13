@@ -119,25 +119,43 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
                 buf.extend(value.encode())
                 buf.append(0)
             elif attrib.form == DW_FORM.ref1:
-                unit_references.append((len(buf), 1, value))
-                buf.append(0)
+                if isinstance(value, str):
+                    unit_references.append((len(buf), 1, value))
+                    buf.append(0)
+                else:
+                    buf.extend(value.to_bytes(1, byteorder))
             elif attrib.form == DW_FORM.ref2:
-                unit_references.append((len(buf), 2, value))
-                buf.extend(bytes(2))
+                if isinstance(value, str):
+                    unit_references.append((len(buf), 2, value))
+                    buf.extend(bytes(2))
+                else:
+                    buf.extend(value.to_bytes(2, byteorder))
             elif attrib.form == DW_FORM.ref4:
-                unit_references.append((len(buf), 4, value))
-                buf.extend(bytes(4))
+                if isinstance(value, str):
+                    unit_references.append((len(buf), 4, value))
+                    buf.extend(bytes(4))
+                else:
+                    buf.extend(value.to_bytes(4, byteorder))
             elif attrib.form == DW_FORM.ref8:
-                unit_references.append((len(buf), 8, value))
-                buf.extend(bytes(8))
+                if isinstance(value, str):
+                    unit_references.append((len(buf), 8, value))
+                    buf.extend(bytes(8))
+                else:
+                    buf.extend(value.to_bytes(8, byteorder))
             elif attrib.form == DW_FORM.ref_udata:
-                assert (
-                    value in labels
-                ), "DW_FORM_ref_udata can only be used for backreferences"
-                _append_uleb128(buf, labels[value] - unit_offset)
+                if isinstance(value, str):
+                    assert (
+                        value in labels
+                    ), "DW_FORM_ref_udata can only be used for backreferences"
+                    _append_uleb128(buf, labels[value] - unit_offset)
+                else:
+                    _append_uleb128(buf, value)
             elif attrib.form == DW_FORM.ref_addr:
-                references.append((len(buf), offset_size, value))
-                buf.extend(bytes(offset_size))
+                if isinstance(value, str):
+                    references.append((len(buf), offset_size, value))
+                    buf.extend(bytes(offset_size))
+                else:
+                    buf.extend(value.to_bytes(offset_size, byteorder))
             elif attrib.form == DW_FORM.ref_sig8:
                 buf.extend(value.to_bytes(8, byteorder))
             elif attrib.form == DW_FORM.sec_offset:

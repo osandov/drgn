@@ -252,7 +252,7 @@ def with_and_without_dw_form_indirect(f):
 class TestInvalidDwarf(TestCase):
     def test_name_out_of_bounds(self):
         with self.assertRaisesRegex(Exception, "name is out of bounds"):
-            prog = dwarf_program(
+            "foo" in dwarf_program(
                 DwarfDie(
                     DW_TAG.base_type,
                     (
@@ -261,8 +261,30 @@ class TestInvalidDwarf(TestCase):
                     ),
                 )
             )
-            # Force indexing.
-            "foo" in prog
+
+    def test_sibling_out_of_bounds(self):
+        with self.assertRaisesRegex(Exception, "DW_AT_sibling is out of bounds"):
+            "foo" in dwarf_program(
+                DwarfDie(
+                    DW_TAG.base_type,
+                    (
+                        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
+                        DwarfAttrib(DW_AT.sibling, DW_FORM.ref4, 0xDEADBEEF),
+                    ),
+                )
+            )
+
+    def test_sibling_points_backwards(self):
+        with self.assertRaisesRegex(Exception, "DW_AT_sibling points backwards"):
+            "foo" in dwarf_program(
+                DwarfDie(
+                    DW_TAG.base_type,
+                    (
+                        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
+                        DwarfAttrib(DW_AT.sibling, DW_FORM.ref1, 0),
+                    ),
+                )
+            )
 
 
 class TestTypes(TestCase):
