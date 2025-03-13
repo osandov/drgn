@@ -3,8 +3,13 @@
 
 #include <gelf.h>
 #include <libelf.h>
+#ifdef WITH_LZMA
+#include <lzma.h>
+#endif
+#include <stdio.h>
 #include <stdlib.h>
 
+#include "cleanup.h"
 #include "debug_info.h"
 #include "elf_file.h"
 #include "elf_symtab.h"
@@ -12,6 +17,7 @@
 #include "log.h"
 #include "minmax.h"
 #include "serialize.h"
+#include "string_builder.h"
 #include "util.h"
 
 static struct drgn_error *find_elf_file_symtab(struct drgn_elf_file *file,
@@ -21,13 +27,22 @@ static struct drgn_error *find_elf_file_symtab(struct drgn_elf_file *file,
 					       Elf_Scn **scn_ret,
 					       GElf_Word *strtab_idx_ret,
 					       GElf_Word *num_local_symbols_ret,
-					       bool *full_symtab_ret)
+					       bool *full_symtab_ret,
+					       Elf_Scn **gnu_debugdata_ret)
 {
 	Elf_Scn *scn = NULL;
+	size_t shstrndx;
+	if (elf_getshdrstrndx(file->elf, &shstrndx))
+		return drgn_error_libelf();
 	while ((scn = elf_nextscn(file->elf, scn))) {
 		GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
 		if (!shdr)
 			return drgn_error_libelf();
+
+		const char *scnname = elf_strptr(file->elf, shstrndx, shdr->sh_name);
+		if (scnname && gnu_debugdata_ret && shdr->sh_type == SHT_PROGBITS
+		    && strcmp(".gnu_debugdata", scnname) == 0)
+			*gnu_debugdata_ret = scn;
 
 		if (shdr->sh_type == SHT_SYMTAB
 		    || shdr->sh_type == SHT_DYNSYM) {
@@ -44,6 +59,107 @@ static struct drgn_error *find_elf_file_symtab(struct drgn_elf_file *file,
 	}
 	return NULL;
 }
+
+#ifdef WITH_LZMA
+static struct drgn_error *
+drgn_error_lzma(lzma_ret code)
+{
+	switch (code) {
+		case LZMA_MEM_ERROR:
+			return &drgn_enomem;
+		case LZMA_OPTIONS_ERROR:
+			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						 "lzma: invalid options");
+		case LZMA_FORMAT_ERROR:
+		case LZMA_DATA_ERROR:
+		case LZMA_BUF_ERROR:
+			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						 "lzma: format error (%d)", code);
+		default:
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "lzma: unknown error (%d)", code);
+	}
+}
+
+static struct drgn_error *
+load_gnu_debugdata_file(struct drgn_module *module, Elf_Scn *gnu_debugdata_scn,
+			struct drgn_elf_file **file_ret)
+{
+	Elf_Data *gnu_debugdata_data;
+	struct drgn_error *err;
+	err = read_elf_section(gnu_debugdata_scn, &gnu_debugdata_data);
+	if (err)
+		return err;
+
+	_cleanup_(lzma_end) lzma_stream stream = LZMA_STREAM_INIT;
+	lzma_ret ret = lzma_stream_decoder(&stream, UINT64_MAX, 0);
+	if (ret != LZMA_OK)
+		return drgn_error_lzma(ret);
+
+	stream.next_in = gnu_debugdata_data->d_buf;
+	stream.avail_in = gnu_debugdata_data->d_size;
+
+	// Use the input buffer size as the initial capacity. We'll expand it as
+	// needed.
+	size_t capacity = gnu_debugdata_data->d_size;
+	_cleanup_free_ void *data = malloc(capacity);
+	if (!data)
+		return &drgn_enomem;
+
+	stream.next_out = data;
+	stream.avail_out = capacity;
+
+	size_t bytes_decoded;
+	while (1) {
+		ret = lzma_code(&stream, LZMA_RUN);
+		if (ret != LZMA_OK && ret != LZMA_STREAM_END)
+			return drgn_error_lzma(ret);
+
+		bytes_decoded = (char *)stream.next_out - (char *)data;
+		if (ret == LZMA_STREAM_END) {
+			void *tmp = realloc(data, bytes_decoded);
+			if (tmp)
+				data = tmp;
+			break;
+		} else if (__builtin_mul_overflow(capacity, 2U, &capacity)) {
+			return &drgn_enomem;
+		} else {
+			void *tmp = realloc(data, capacity);
+			if (!tmp)
+				return &drgn_enomem;
+			data = tmp;
+			stream.next_out = (uint8_t *)data + bytes_decoded;
+			stream.avail_out = capacity - bytes_decoded;
+		}
+	}
+
+	STRING_BUILDER(path);
+	if (!string_builder_appendf(&path, "%s[.gnu_debugdata]", module->loaded_file->path)
+	    || !string_builder_null_terminate(&path))
+		return &drgn_enomem;
+
+	Elf *elf = elf_memory(data, bytes_decoded);
+	if (!elf)
+		return drgn_error_libelf();
+
+	err = drgn_elf_file_create(module, path.str, -1, data, elf, file_ret);
+	if (err)
+		elf_end(elf);
+	else
+		data = NULL;
+	return err;
+}
+#else
+static struct drgn_error *
+load_gnu_debugdata_file(struct drgn_module *module, Elf_Scn *gnu_debugdata_scn,
+			struct drgn_elf_file **ret)
+{
+	drgn_log_info(module->prog,
+		      "module \"%s\": .gnu_debugdata is available, but drgn was built without liblzma support",
+		      module->name);
+	return NULL;
+}
+#endif
 
 static struct drgn_error *
 set_elf_symtab(struct drgn_elf_symbol_table *symtab, struct drgn_elf_file *file,
@@ -90,6 +206,14 @@ set_elf_symtab(struct drgn_elf_symbol_table *symtab, struct drgn_elf_file *file,
 	return NULL;
 }
 
+static void
+cleanup_elf_file(struct drgn_elf_file **pfile)
+{
+	if (*pfile) {
+		drgn_elf_file_destroy(*pfile);
+	}
+}
+
 static struct drgn_error *
 find_module_elf_symtab(struct drgn_module *module)
 {
@@ -103,6 +227,16 @@ find_module_elf_symtab(struct drgn_module *module)
 		return NULL;
 	}
 
+	// The goal is to have the most complete symbol information, which we
+	// can get from the following, in order of preference:
+	// 1. A .symtab from the loaded or debug file (i.e. module->full_symtab
+	//    is true)
+	// 2. A .dynsym from the loaded file, as well as the .symtab from an
+	//    embedded .gnu_debugdata file. (The .gnu_debugdata usually only
+	//    contains complete function symbols, so we prefer #1 where
+	//    possible)
+	// 3. A .dynsym and no .gnu_debugdata
+
 	struct drgn_elf_file *file = NULL;
 	uint64_t bias;
 	Elf_Scn *symtab_scn;
@@ -113,24 +247,35 @@ find_module_elf_symtab(struct drgn_module *module)
 		err = find_elf_file_symtab(module->debug_file,
 					   module->debug_file_bias, &file,
 					   &bias, &symtab_scn, &strtab_idx,
-					   &num_local_symbols, &full_symtab);
+					   &num_local_symbols, &full_symtab,
+					   NULL);
 		if (err)
 			return err;
 	}
 
+	Elf_Scn *gnu_debugdata_scn = NULL;
 	if (!full_symtab &&
 	    (module->elf_symtab_pending_files & DRGN_MODULE_FILE_MASK_LOADED)) {
 		err = find_elf_file_symtab(module->loaded_file,
 					   module->loaded_file_bias, &file,
 					   &bias, &symtab_scn, &strtab_idx,
-					   &num_local_symbols, &full_symtab);
+					   &num_local_symbols, &full_symtab,
+					   &gnu_debugdata_scn);
 		if (err)
 			return err;
 	}
 
-	if (!file) {
+	if (!file && !gnu_debugdata_scn) {
 		drgn_log_debug(module->prog, "%s: no ELF symbol table",
 			       module->name);
+		module->elf_symtab_pending_files = 0;
+		return NULL;
+	}
+
+	// If we've found a dynamic symbol table, but we already saw a dynamic
+	// table, don't bother replacing it, unless the new file contains
+	// .gnu_debugdata (and thus the old one didn't).
+	if (module->elf_symtab.num_symbols && !full_symtab && !gnu_debugdata_scn) {
 		module->elf_symtab_pending_files = 0;
 		return NULL;
 	}
@@ -147,6 +292,55 @@ find_module_elf_symtab(struct drgn_module *module)
 			module->name, full_symtab ? "" : "dynamic ",
 			module->elf_symtab.num_symbols);
 	}
+
+	if (full_symtab && module->gnu_debugdata_symtab.num_symbols) {
+		// With a full symbol table (likely from the debug file), there
+		// is no need to keep around the gnu_debugdata symbol table.
+		// We cannot free the memory associated with it, because we may
+		// have returned symbols that refer to the strings in this file.
+		// Stop using the symbol table, but delay freeing until the
+		// program is freed.
+		memset(&module->gnu_debugdata_symtab, 0,
+		       sizeof(module->gnu_debugdata_symtab));
+	} else if (!full_symtab && gnu_debugdata_scn) {
+		// We only search for .gnu_debugdata in the loaded file, not the
+		// debug file. Once attached to a module, files can't be
+		// detached, so there should be no case where we load
+		// .gnu_debugdata twice. Let's assert that precondition here.
+		assert(module->gnu_debugdata_file == NULL);
+
+		_cleanup_(cleanup_elf_file) struct drgn_elf_file *gnu_debugdata_file = NULL;
+
+		err = load_gnu_debugdata_file(module, gnu_debugdata_scn,
+					      &gnu_debugdata_file);
+		if (err)
+			return err;
+
+		if (gnu_debugdata_file) {
+			file = NULL;
+			err = find_elf_file_symtab(gnu_debugdata_file,
+						   module->loaded_file_bias, &file,
+						   &bias, &symtab_scn, &strtab_idx,
+						   &num_local_symbols, &full_symtab,
+						   NULL);
+			if (err)
+				return err;
+
+			if (file) {
+				err = set_elf_symtab(&module->gnu_debugdata_symtab,
+						     file, bias, symtab_scn,
+						     strtab_idx, num_local_symbols);
+				if (err)
+					return err;
+
+				module->gnu_debugdata_file = no_cleanup_ptr(gnu_debugdata_file);
+				drgn_log_debug(module->prog,
+					"%s: found ELF .gnu_debugdata symbol table with %zu symbols",
+					module->name, module->gnu_debugdata_symtab.num_symbols);
+			}
+		}
+	}
+
 	module->elf_symtab_pending_files = 0;
 	return NULL;
 }
@@ -464,6 +658,13 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 	if (module->elf_symtab.num_symbols) {
 		err = drgn_elf_symbol_table_search(&module->elf_symtab, name, addr,
 						   flags, &state, builder);
+		if (err)
+			return err;
+	}
+
+	if (module->gnu_debugdata_symtab.num_symbols) {
+		err = drgn_elf_symbol_table_search(&module->gnu_debugdata_symtab, name,
+						   addr, flags, &state, builder);
 		if (err)
 			return err;
 	}

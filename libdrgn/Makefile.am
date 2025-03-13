@@ -140,7 +140,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 
 libdrgn_common_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden $(OPENMP_CFLAGS) \
 			   $(elfutils_CFLAGS)
-libdrgn_common_la_LIBADD = $(OPENMP_LIBS) $(elfutils_LIBS) -lm
+libdrgn_common_la_LIBADD = $(OPENMP_LIBS) $(elfutils_LIBS) $(lzma_LIBS) -lm
 
 if WITH_DEBUGINFOD
 if ENABLE_DLOPEN_DEBUGINFOD
