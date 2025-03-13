@@ -62,8 +62,12 @@ def _create_symtab(
     symbols: Sequence[ElfSymbol],
     little_endian: bool,
     bits: int,
+    dynsym: bool = False,
 ):
-    assert not any(section.name in (".symtab", ".strtab") for section in sections)
+    if dynsym:
+        assert not any(section.name in (".symtab", ".strtab") for section in sections)
+    else:
+        assert not any(section.name in (".dynsym", ".dynstr") for section in sections)
 
     endian = "<" if little_endian else ">"
     if bits == 64:
@@ -105,15 +109,21 @@ def _create_symtab(
 
     sections.append(
         ElfSection(
-            name=".symtab",
-            sh_type=SHT.SYMTAB,
+            name=".dynsym" if dynsym else ".symtab",
+            sh_type=SHT.DYNSYM if dynsym else SHT.SYMTAB,
             data=symtab_data,
             sh_link=sum((1 for section in sections if section.name is not None), 2),
             sh_info=sh_info,
             sh_entsize=symbol_struct.size,
         )
     )
-    sections.append(ElfSection(name=".strtab", sh_type=SHT.STRTAB, data=strtab_data))
+    sections.append(
+        ElfSection(
+            name=".dynstr" if dynsym else ".strtab",
+            sh_type=SHT.STRTAB,
+            data=strtab_data,
+        )
+    )
 
 
 def create_elf_file(
@@ -130,6 +140,7 @@ def create_elf_file(
     ] = None,
     little_endian: bool = True,
     bits: int = 64,
+    dynsym: bool = False,
 ):
     endian = "<" if little_endian else ">"
     if bits == 64:
@@ -149,7 +160,9 @@ def create_elf_file(
 
     sections = list(sections)
     if symbols:
-        _create_symtab(sections, symbols, little_endian=little_endian, bits=bits)
+        _create_symtab(
+            sections, symbols, little_endian=little_endian, bits=bits, dynsym=dynsym
+        )
     if build_id is not None:
         build_id_note = (
             nhdr_struct.pack(
