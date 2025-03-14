@@ -512,6 +512,7 @@ static void drgn_module_destroy(struct drgn_module *module)
 	drgn_elf_file_destroy(module->supplementary_debug_file);
 	if (module->debug_file != module->loaded_file)
 		drgn_elf_file_destroy(module->debug_file);
+	drgn_elf_file_destroy(module->gnu_debugdata_file);
 	drgn_elf_file_destroy(module->loaded_file);
 	free(module->build_id);
 	free(module->name);
