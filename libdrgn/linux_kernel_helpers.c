@@ -320,25 +320,40 @@ struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
 	struct drgn_error *err;
 	DRGN_OBJECT(tmp, drgn_object_program(task));
 
-	// If CONFIG_THREAD_INFO_IN_TASK=y and since Linux kernel commit
-	// bcf9033e5449 ("sched: move CPU field back into thread_info if
-	// THREAD_INFO_IN_TASK=y") (in v5.16), the CPU is task->thread_info.cpu.
+	// The CPU may be task_thread_info(task)->cpu or task->cpu depending on
+	// the kernel version. If neither exists, then the kernel must be !SMP.
 	//
-	// If CONFIG_THREAD_INFO_IN_TASK=y but before that commit, the cpu is
-	// task->cpu.
-	//
-	// If CONFIG_THREAD_INFO_IN_TASK=n or before Linux kernel commit
+	// Since Linux kernel commit bcf9033e5449 ("sched: move CPU field back
+	// into thread_info if THREAD_INFO_IN_TASK=y") (in v5.16), or if
+	// CONFIG_THREAD_INFO_IN_TASK=n, or before Linux kernel commit
 	// c65eacbe290b ("sched/core: Allow putting thread_info into
-	// task_struct") (in v4.9), the CPU is
-	// ((struct thread_info *)task->stack)->cpu.
+	// task_struct") (in v4.9), the CPU is task_thread_info(task)->cpu.
 	//
-	// If none of those exist, then the kernel must be !SMP.
-	err = linux_helper_task_thread_info(&tmp, task);
-	if (err)
-		return err;
-	err = drgn_object_member_dereference(&tmp, &tmp, "cpu");
+	// Between Linux kernel commits bcf9033e5449 ("sched: move CPU field
+	// back into thread_info if THREAD_INFO_IN_TASK=y") (in v5.16) and
+	// c65eacbe290b ("sched/core: Allow putting thread_info into
+	// task_struct") (in v4.9), if CONFIG_THREAD_INFO_IN_TASK=y, then the
+	// CPU is task->cpu.
+	//
+	// Note that between Linux kernel commit bcf9033e5449 ("sched: move CPU
+	// field back into thread_info if THREAD_INFO_IN_TASK=y") and commits
+	// 001430c1910d ("arm64: add CPU field to struct thread_info"),
+	// 5443f98fb9e0 ("x86: add CPU field to struct thread_info"),
+	// bd2e2632556a ("s390: add CPU field to struct thread_info"), and
+	// 227d735d889e ("powerpc: add CPU field to struct thread_info") (all in
+	// v5.16-rc1), if CONFIG_THREAD_INFO_IN_TASK=y, then
+	// struct thread_info::cpu may exist but task->cpu is still used.
+	// Therefore, we must check for task->cpu first. (Normally we don't care
+	// about commits in the middle of a release candidate, but CentOS Stream
+	// 9 and its derivatives apparently backported commit 5443f98fb9e0
+	// without commit bcf9033e5449:
+	// https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9/-/commit/6d09fbd042c8d99009e16ddba62af09c89358f80.)
+	err = drgn_object_member_dereference(&tmp, task, "cpu");
 	if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
-		err = drgn_object_member_dereference(&tmp, task, "cpu");
+		err = linux_helper_task_thread_info(&tmp, task);
+		if (err)
+			return err;
+		err = drgn_object_member_dereference(&tmp, &tmp, "cpu");
 	}
 	if (!err) {
 		union drgn_value value;
