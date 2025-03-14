@@ -73,12 +73,43 @@ void clear_drgn_in_python(void)
 	drgn_in_python = false;
 }
 
+static struct drgn_error *drgn_fault_error_from_python(PyObject *exc_value)
+{
+	_cleanup_pydecref_ PyObject *py_message =
+		PyObject_GetAttrString(exc_value, "message");
+	const char *message = py_message ? PyUnicode_AsUTF8(py_message) : NULL;
+	if (!message)
+		return NULL;
+
+	_cleanup_pydecref_ PyObject *py_address =
+		PyObject_GetAttrString(exc_value, "address");
+	uint64_t address = py_address ? PyLong_AsUint64(py_address) : (uint64_t)-1;
+	if (address == (uint64_t)-1 && PyErr_Occurred())
+		return NULL;
+
+	return drgn_error_create_fault(message, address);
+}
+
 struct drgn_error *drgn_error_from_python(void)
 {
 	_cleanup_pydecref_ PyObject *exc_type, *exc_value, *exc_traceback;
 	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
 	if (!exc_type)
 		return NULL;
+
+	// Python FaultErrors should be translated back to drgn errors because
+	// they are frequently handled in libdrgn. They should be translated no
+	// matter how deeply nested we are, so we do this before checking
+	// drgn_in_python.
+	if ((PyTypeObject *)exc_type == &FaultError_type && exc_value) {
+		struct drgn_error *err = drgn_fault_error_from_python(exc_value);
+		if (err)
+			return err;
+		// A NULL return means that we encountered a Python error while
+		// trying to convert it. Clear the Python error and fall back to
+		// the standard code path.
+		PyErr_Clear();
+	}
 
 	if (drgn_in_python) {
 		PyErr_Restore(exc_type, exc_value, exc_traceback);
