@@ -75,46 +75,38 @@ void clear_drgn_in_python(void)
 
 struct drgn_error *drgn_error_from_python(void)
 {
-	PyObject *exc_type, *exc_value, *exc_traceback, *exc_message;
-	const char *type, *message;
-	struct drgn_error *err;
-
+	_cleanup_pydecref_ PyObject *exc_type, *exc_value, *exc_traceback;
 	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
 	if (!exc_type)
 		return NULL;
 
 	if (drgn_in_python) {
 		PyErr_Restore(exc_type, exc_value, exc_traceback);
+		exc_type = exc_value = exc_traceback = NULL;
 		return &drgn_error_python;
 	}
 
-	type = ((PyTypeObject *)exc_type)->tp_name;
+	const char *type = ((PyTypeObject *)exc_type)->tp_name;
+	_cleanup_pydecref_ PyObject *exc_message = NULL;
+	const char *message;
 	if (exc_value) {
 		exc_message = PyObject_Str(exc_value);
 		message = exc_message ? PyUnicode_AsUTF8(exc_message) : NULL;
 		if (!message) {
-			err = drgn_error_format(DRGN_ERROR_OTHER,
-						"%s: <exception str() failed>", type);
-			goto out;
+			PyErr_Clear();
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "%s: <exception str() failed>", type);
 		}
 	} else {
-		exc_message = NULL;
 		message = "";
 	}
 
 	if (message[0]) {
-		err = drgn_error_format(DRGN_ERROR_OTHER, "%s: %s", type,
-					message);
+		return drgn_error_format(DRGN_ERROR_OTHER, "%s: %s", type,
+					 message);
 	} else {
-		err = drgn_error_create(DRGN_ERROR_OTHER, type);
+		return drgn_error_create(DRGN_ERROR_OTHER, type);
 	}
-
-out:
-	Py_XDECREF(exc_message);
-	Py_XDECREF(exc_traceback);
-	Py_XDECREF(exc_value);
-	Py_DECREF(exc_type);
-	return err;
 }
 
 void *set_drgn_error(struct drgn_error *err)
