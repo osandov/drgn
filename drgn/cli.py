@@ -21,9 +21,26 @@ from drgn.internal.repl import interact, readline
 from drgn.internal.rlcompleter import Completer
 from drgn.internal.sudohelper import open_via_sudo
 
-__all__ = ("run_interactive", "version_header")
+__all__ = ("default_globals", "run_interactive", "version_header")
 
 logger = logging.getLogger("drgn")
+
+# The list of attributes from the drgn module which are imported and inserted
+# into the global namespace for interactive debugging.
+_DRGN_GLOBALS = [
+    "FaultError",
+    "NULL",
+    "Object",
+    "alignof",
+    "cast",
+    "container_of",
+    "execscript",
+    "implicit_convert",
+    "offsetof",
+    "reinterpret",
+    "sizeof",
+    "stack_trace",
+]
 
 
 class _LogFormatter(logging.Formatter):
@@ -87,6 +104,33 @@ def version_header() -> str:
     python_version = ".".join(str(v) for v in sys.version_info[:3])
     libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
     return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {libkdumpfile})"
+
+
+def default_globals(prog: drgn.Program) -> Dict[str, Any]:
+    """
+    Return the default globals for an interactive drgn session
+
+    :param prog: the program which will be debugged
+    :return: a dict of globals
+    """
+    # Don't forget to update the default banner in run_interactive()
+    # with any new additions.
+    init_globals: Dict[str, Any] = {
+        "prog": prog,
+        "drgn": drgn,
+        "__name__": "__main__",
+        "__doc__": None,
+    }
+    for attr in _DRGN_GLOBALS:
+        init_globals[attr] = getattr(drgn, attr)
+    module = importlib.import_module("drgn.helpers.common")
+    for name in module.__dict__["__all__"]:
+        init_globals[name] = getattr(module, name)
+    if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
+        module = importlib.import_module("drgn.helpers.linux")
+        for name in module.__dict__["__all__"]:
+            init_globals[name] = getattr(module, name)
+    return init_globals
 
 
 def _identify_script(path: str) -> str:
@@ -343,6 +387,12 @@ def _main() -> None:
         help="don't print any logs or download progress",
     )
     parser.add_argument(
+        "-e",
+        dest="exec",
+        metavar="CODE",
+        help="an expression or statement to evaluate, instead of running in interactive mode",
+    )
+    parser.add_argument(
         "script",
         metavar="ARG",
         type=str,
@@ -353,7 +403,9 @@ def _main() -> None:
 
     args = parser.parse_args()
 
-    if args.script:
+    if args.script and args.exec:
+        sys.exit("error: -e cannot be specified with script ARG")
+    elif args.script:
         # A common mistake users make is running drgn $core_dump, which tries
         # to run $core_dump as a Python script. Rather than failing later with
         # some inscrutable syntax or encoding error, try to catch this early
@@ -369,7 +421,7 @@ def _main() -> None:
             )
         elif script_type == "elf":
             sys.exit(f"error: {args.script[0]} is a binary, not a drgn script")
-    else:
+    elif not args.exec:
         print(version, file=sys.stderr, flush=True)
 
     if args.log_level == "none":
@@ -459,6 +511,9 @@ def _main() -> None:
             sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
         drgn.set_default_prog(prog)
         runpy.run_path(script, init_globals={"prog": prog}, run_name="__main__")
+    elif args.exec:
+        sys.path.insert(0, "")
+        exec(args.exec, default_globals(prog))
     else:
         run_interactive(prog)
 
@@ -498,44 +553,14 @@ def run_interactive(
         function, applications should restore their history and settings before
         using ``readline``.
     """
-    init_globals: Dict[str, Any] = {
-        "prog": prog,
-        "drgn": drgn,
-        "__name__": "__main__",
-        "__doc__": None,
-    }
-    drgn_globals = [
-        "FaultError",
-        "NULL",
-        "Object",
-        "alignof",
-        "cast",
-        "container_of",
-        "execscript",
-        "implicit_convert",
-        "offsetof",
-        "reinterpret",
-        "sizeof",
-        "stack_trace",
-    ]
-    for attr in drgn_globals:
-        init_globals[attr] = getattr(drgn, attr)
-
+    init_globals = default_globals(prog)
     banner = f"""\
 For help, type help(drgn).
 >>> import drgn
->>> from drgn import {", ".join(drgn_globals)}
+>>> from drgn import {", ".join(_DRGN_GLOBALS)}
 >>> from drgn.helpers.common import *"""
-
-    module = importlib.import_module("drgn.helpers.common")
-    for name in module.__dict__["__all__"]:
-        init_globals[name] = getattr(module, name)
     if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
         banner += "\n>>> from drgn.helpers.linux import *"
-        module = importlib.import_module("drgn.helpers.linux")
-        for name in module.__dict__["__all__"]:
-            init_globals[name] = getattr(module, name)
-
     if banner_func:
         banner = banner_func(banner)
     if globals_func:
