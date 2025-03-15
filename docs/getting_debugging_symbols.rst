@@ -20,14 +20,13 @@ Fedora
 Fedora makes it very easy to install debugging symbols with the `DNF
 debuginfo-install plugin
 <https://dnf-plugins-core.readthedocs.io/en/latest/debuginfo-install.html>`_,
-which is installed by default. Simply run ``sudo dnf debuginfo-install
-$package``::
+which is installed by default. Simply run ``sudo dnf debuginfo-install $package``::
 
     $ sudo dnf debuginfo-install python3
 
 To find out what package owns a binary, use ``rpm -qf``::
 
-    $ rpm -qf $(which python3)
+    $ rpm -qf $(command -v python3)
     python3-3.9.7-1.fc34.x86_64
 
 To install symbols for the running kernel::
@@ -61,9 +60,9 @@ You can use the ``find-dbgsym-packages`` command from the ``debian-goodies``
 package to find the correct name::
 
     $ sudo apt install debian-goodies
-    $ find-dbgsym-packages $(which python3)
+    $ find-dbgsym-packages $(command -v python3)
     libc6-dbg libexpat1-dbgsym python3.9-dbg zlib1g-dbgsym
-    $ find-dbgsym-packages $(which cat)
+    $ find-dbgsym-packages $(command -v cat)
     coreutils-dbgsym libc6-dbg
 
 To install symbols for the running kernel::
@@ -98,9 +97,9 @@ You can use the ``find-dbgsym-packages`` command from the ``debian-goodies``
 package to find the correct name::
 
     $ sudo apt install debian-goodies
-    $ find-dbgsym-packages $(which python3)
+    $ find-dbgsym-packages $(command -v python3)
     libc6-dbg libexpat1-dbgsym python3.9-dbg zlib1g-dbgsym
-    $ find-dbgsym-packages $(which cat)
+    $ find-dbgsym-packages $(command -v cat)
     coreutils-dbgsym libc6-dbg
 
 To install symbols for the running kernel::
