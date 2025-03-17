@@ -153,7 +153,7 @@ struct drgn_program {
 		 */
 		struct {
 			/** Cached `pr_fname` from `NT_PRPSINFO` note. */
-			const char *core_dump_fname_cached;
+			char *core_dump_fname_cached;
 			/** Cache of important parts of auxiliary vector. */
 			struct {
 				uint64_t at_phdr;

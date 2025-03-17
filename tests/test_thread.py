@@ -3,6 +3,7 @@
 
 import os
 import os.path
+import tempfile
 
 from drgn import Program
 from tests import TestCase
@@ -95,3 +96,20 @@ class TestCoreDump(TestCase):
         for tid in self.TIDS:
             if tid != self.MAIN_TID:
                 self.assertIsNone(self.prog.thread(tid).name)
+
+
+class TestCoreDumpLongName(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.prog = Program()
+        with open(get_resource("crashme_static_pie.core"), "rb") as f:
+            data = f.read()
+        data = data.replace(b"crashme_static_\x00", b"crashme_static_p")
+        with tempfile.NamedTemporaryFile("wb") as f:
+            f.write(data)
+            f.flush()
+            cls.prog.set_core_dump(f.name)
+
+    def test_thread_name(self):
+        self.assertEqual(self.prog.main_thread().name, "crashme_static_p")
