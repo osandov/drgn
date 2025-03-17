@@ -608,28 +608,26 @@ drgn_dwarf_index_read_file(struct drgn_elf_file *file,
 				return err;
 		}
 	}
-	struct drgn_elf_file *supplementary_file =
-		file->module->supplementary_debug_file;
-	if (supplementary_file) {
-		err = drgn_elf_file_read_section(supplementary_file,
-						 DRGN_SCN_DEBUG_INFO,
-						 &file->alt_debug_info_data);
-		if (err)
-			return err;
-		if (supplementary_file->scns[DRGN_SCN_DEBUG_STR]) {
-			err = drgn_elf_file_read_section(supplementary_file,
-							 DRGN_SCN_DEBUG_STR,
-							 &file->alt_debug_str_data);
-			if (err)
-				return err;
-		}
-	}
-
 	err = drgn_dwarf_index_read_cus(file, DRGN_SCN_DEBUG_INFO, cus,
 					partial_units);
-	if (!err && file->scns[DRGN_SCN_DEBUG_TYPES]) {
-		err = drgn_dwarf_index_read_cus(file, DRGN_SCN_DEBUG_TYPES, cus,
-						partial_units);
+	if (err)
+		return err;
+	if (file->scns[DRGN_SCN_DEBUG_TYPES]) {
+		err = drgn_dwarf_index_read_cus(file, DRGN_SCN_DEBUG_TYPES,
+						cus, partial_units);
+		if (err)
+			return err;
+	}
+	if (file == file->module->debug_file
+	    && file->module->supplementary_debug_file) {
+		err = drgn_dwarf_index_read_file(file->module->supplementary_debug_file,
+						 cus, partial_units);
+		if (err)
+			return err;
+		file->alt_debug_info_data =
+			file->module->supplementary_debug_file->scn_data[DRGN_SCN_DEBUG_INFO];
+		file->alt_debug_str_data =
+			file->module->supplementary_debug_file->scn_data[DRGN_SCN_DEBUG_STR];
 	}
 	return err;
 }
