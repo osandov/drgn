@@ -137,12 +137,12 @@ void drgn_program_init(struct drgn_program *prog,
 void drgn_program_deinit(struct drgn_program *prog)
 {
 	drgn_thread_set_deinit(&prog->thread_set);
-	/*
-	 * For userspace core dumps, main_thread and crashed_thread are in
-	 * prog->thread_set and thus freed by the above call to
-	 * drgn_thread_set_deinit().
-	 */
-	if (!drgn_program_is_userspace_core(prog)) {
+	if (drgn_program_is_userspace_core(prog)) {
+		free(prog->core_dump_fname_cached);
+	} else {
+		// For userspace core dumps, main_thread and crashed_thread are
+		// in prog->thread_set and thus freed by the above call to
+		// drgn_thread_set_deinit().
 		drgn_thread_destroy(prog->crashed_thread);
 		drgn_thread_destroy(prog->main_thread);
 	}
@@ -924,7 +924,7 @@ static struct drgn_error *get_prpsinfo_pid(struct drgn_program *prog,
 
 static struct drgn_error *get_prpsinfo_fname(struct drgn_program *prog,
 					   const char *data, size_t size,
-					   const char **ret)
+					   char **ret)
 {
 	bool is_64_bit;
 	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
@@ -938,15 +938,10 @@ static struct drgn_error *get_prpsinfo_fname(struct drgn_program *prog,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "NT_PRPSINFO is truncated");
 	}
-	// No need to make a copy: the data returned by elf_getdata_rawchunk()
-	// is valid for the lifetime of the Elf handle, and prog->core is valid for
-	// the lifetime of prog.
-	const char *tmp = data + offset;
-	size_t len = strnlen(tmp, PR_FNAME_LEN);
-	if (len == PR_FNAME_LEN)
+	char *tmp = strndup(data + offset, PR_FNAME_LEN);
 #undef PR_FNAME_LEN
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "pr_fname is not null terminated");
+	if (!tmp)
+		return &drgn_enomem;
 	*ret = tmp;
 	return NULL;
 }
@@ -1030,7 +1025,7 @@ drgn_program_cache_core_dump_threads(struct drgn_program *prog)
 	uint32_t first_prstatus_tid;
 	bool found_prpsinfo = false;
 	uint32_t prpsinfo_pid;
-	const char *prpsinfo_fname = NULL;
+	_cleanup_free_ char *prpsinfo_fname = NULL;
 
 	if (prog->core_dump_threads_cached)
 		return NULL;
@@ -1130,7 +1125,7 @@ out:
 						       &prpsinfo_pid);
 			/* If the PID isn't found, then this is NULL. */
 			prog->main_thread = it.entry;
-			prog->core_dump_fname_cached = prpsinfo_fname;
+			prog->core_dump_fname_cached = no_cleanup_ptr(prpsinfo_fname);
 		}
 		if (found_prstatus) {
 			/*
