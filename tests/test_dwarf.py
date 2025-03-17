@@ -4578,7 +4578,7 @@ class TestObjects(TestCase):
 
     def test_function_concrete_out_of_line_instance(self):
         prog = dwarf_program(
-            wrap_test_type_dies(
+            (
                 *labeled_int_die,
                 DwarfLabel("abstract_instance_root"),
                 DwarfDie(
@@ -4636,6 +4636,118 @@ class TestObjects(TestCase):
                 address=0x7FC3EB9B1C30,
             ),
         )
+
+    def test_member_function_specification(self):
+        prog = dwarf_program(
+            (
+                DwarfDie(
+                    DW_TAG.class_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Foo"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                    ),
+                    (
+                        DwarfLabel("declaration"),
+                        DwarfDie(
+                            DW_TAG.subprogram,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "bar"),
+                                DwarfAttrib(
+                                    DW_AT.declaration, DW_FORM.flag_present, True
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                # This is how GCC and Clang do it: the declaration is in the
+                # correct scope, and the definition is at the top level.
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (
+                        DwarfAttrib(DW_AT.specification, DW_FORM.ref4, "declaration"),
+                        DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, 0x7FC3EB9B1C30),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                ),
+            ),
+            lang=DW_LANG.C_plus_plus,
+        )
+        self.assertIdentical(
+            prog["Foo::bar"],
+            Object(
+                prog,
+                prog.function_type(
+                    prog.void_type(),
+                    (),
+                ),
+                address=0x7FC3EB9B1C30,
+            ),
+        )
+        self.assertNotIn("bar", prog)
+
+    def test_member_function_concrete_out_of_line_instance(self):
+        prog = dwarf_program(
+            (
+                DwarfDie(
+                    DW_TAG.class_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Foo"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                    ),
+                    (
+                        DwarfLabel("declaration"),
+                        DwarfDie(
+                            DW_TAG.subprogram,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "bar"),
+                                DwarfAttrib(
+                                    DW_AT.declaration, DW_FORM.flag_present, True
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfLabel("abstract_instance_root"),
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (
+                        DwarfAttrib(DW_AT.specification, DW_FORM.ref4, "declaration"),
+                        DwarfAttrib(
+                            DW_AT.inline, DW_FORM.data1, DW_INL.declared_inlined
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (
+                        DwarfAttrib(
+                            DW_AT.specification, DW_FORM.ref4, "abstract_instance_root"
+                        ),
+                        DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, 0x7FC3EB9B1C30),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                ),
+            ),
+            lang=DW_LANG.C_plus_plus,
+        )
+        self.assertIdentical(
+            prog["Foo::bar"],
+            Object(
+                prog,
+                prog.function_type(
+                    prog.void_type(),
+                    (),
+                ),
+                address=0x7FC3EB9B1C30,
+            ),
+        )
+        self.assertNotIn("bar", prog)
 
     def test_variable(self):
         prog = dwarf_program(

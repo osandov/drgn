@@ -318,13 +318,8 @@ enum drgn_dwarf_index_abbrev_insn {
 	 * of flags combined with the drgn_dwarf_index_tag.
 	 */
 	INSN_DIE_FLAG_TAG_MASK = 0x1f,
-	/*
-	 * DIE has a DW_AT_inline attribute (which may be DW_INL_not_inlined or
-	 * DW_INL_declared_not_inlined). We use this to decide whether to look
-	 * for a concrete out-of-line instance of an abstract instance root, so
-	 * false positives are okay.
-	 */
-	INSN_DIE_FLAG_MAYBE_INLINED = 0x20,
+	/* DIE is DW_TAG_subprogram with no DW_AT_low_pc or DW_AT_ranges. */
+	INSN_DIE_FLAG_SUBPROGRAM_NO_PC = 0x20,
 	/* DIE is a declaration. */
 	INSN_DIE_FLAG_DECLARATION = 0x40,
 	/* DIE has children. */
@@ -958,6 +953,8 @@ read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 		should_index = false;
 		break;
 	}
+	if (tag == DW_TAG_subprogram)
+		die_flags |= INSN_DIE_FLAG_SUBPROGRAM_NO_PC;
 
 	uint8_t children;
 	if ((err = binary_buffer_next_u8(&buffer->bb, &children)))
@@ -989,8 +986,8 @@ read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 			err = dw_at_specification_to_insn(cu, &buffer->bb, form,
 							  &insn);
 		} else {
-			if (tag == DW_TAG_subprogram && name == DW_AT_inline)
-				die_flags |= INSN_DIE_FLAG_MAYBE_INLINED;
+			if (name == DW_AT_low_pc || name == DW_AT_ranges)
+				die_flags &= ~INSN_DIE_FLAG_SUBPROGRAM_NO_PC;
 			err = dw_form_to_insn(cu, &buffer->bb, form, &insn);
 		}
 		if (err)
@@ -1675,7 +1672,24 @@ skip:
 					goto next;
 			}
 
-			if (insn & INSN_DIE_FLAG_MAYBE_INLINED) {
+			// A subprogram DIE without an address may be the
+			// abstract instance root for an inlined function. Check
+			// for a concrete instance.
+			//
+			// Note that if the original DIE was a declaration, then
+			// this is technically checking whether the declaration
+			// itself has an address, not the definition. Since
+			// declarations don't have an address, this always does
+			// an extra lookup for definitions of declarations.
+			//
+			// The extra lookup is redundant for normal definitions,
+			// but we actually need it in the case that the
+			// definition is an abstract instance root (so we need
+			// to go from declaration -> abstract instance root ->
+			// concrete instance). Avoiding redundant lookups would
+			// require storing an extra flag in the specification
+			// map, which empirically isn't worth it.
+			if (insn & INSN_DIE_FLAG_SUBPROGRAM_NO_PC) {
 				drgn_dwarf_find_definition(dbinfo, die_addr,
 							   &die_addr);
 			}
