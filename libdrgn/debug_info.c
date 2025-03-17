@@ -5558,6 +5558,9 @@ struct drgn_elf_file *drgn_module_find_dwarf_file(struct drgn_module *module,
 		return NULL;
 	if (dwarf == module->debug_file->_dwarf)
 		return module->debug_file;
+	if (module->supplementary_debug_file
+	    && dwarf == module->supplementary_debug_file->_dwarf)
+		return module->supplementary_debug_file;
 	struct drgn_elf_file_dwarf_table_iterator it =
 		drgn_elf_file_dwarf_table_search(&module->split_dwarf_files,
 						 &dwarf);
