@@ -970,7 +970,8 @@ static void drgn_test_stack_trace_exit(void)
 
 static int drgn_test_stack_trace_init(void)
 {
-	drgn_test_kthread = kthread_create(drgn_test_kthread_fn, NULL,
+	drgn_test_kthread = kthread_create(drgn_test_kthread_fn,
+					   (void *)0xb0ba000,
 					   "drgn_test_kthread");
 	if (!drgn_test_kthread)
 		return -1;
