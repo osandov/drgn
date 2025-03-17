@@ -7609,6 +7609,11 @@ set_reg:
 				goto set_reg;
 			}
 			fallthrough;
+		case DW_CFA_GNU_args_size:
+			// We have no use for this. Skip it.
+			if ((err = binary_buffer_skip_leb128(&buffer.bb)))
+				goto out;
+			break;
 		default:
 			err = binary_buffer_error(&buffer.bb,
 						  "unknown DWARF CFI opcode %#" PRIx8,
