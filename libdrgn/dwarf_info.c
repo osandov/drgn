@@ -375,6 +375,27 @@ drgn_dwarf_index_cu_buffer_init(struct drgn_dwarf_index_cu_buffer *buffer,
 	buffer->cu = cu;
 }
 
+// Returns NULL if die_addr is not from an indexed CU.
+static struct drgn_dwarf_index_cu *
+drgn_dwarf_index_find_cu(struct drgn_debug_info *dbinfo, uintptr_t die_addr)
+{
+	struct drgn_dwarf_index_cu_lookup *lookup =
+		dbinfo->dwarf.index_cu_lookup;
+	#define less_than_cu_lookup_buf(a, b) (*(a) < (b)->buf)
+	size_t i = binary_search_gt(lookup,
+				    drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus),
+				    &die_addr, less_than_cu_lookup_buf);
+	#undef less_than_cu_buf
+	if (i == 0)
+		return NULL;
+	struct drgn_dwarf_index_cu *cu =
+		drgn_dwarf_index_cu_vector_at(&dbinfo->dwarf.index_cus,
+					      lookup[i - 1].index);
+	if (die_addr - lookup[i - 1].buf >= cu->len)
+		return NULL;
+	return cu;
+}
+
 static const char *drgn_dwarf_dwo_name(Dwarf_Die *die)
 {
 	Dwarf_Attribute attr_mem, *attr;
@@ -1800,27 +1821,6 @@ static inline int drgn_dwarf_index_cu_lookup_cmp(const void *_a, const void *_b)
 	uintptr_t a = ((struct drgn_dwarf_index_cu_lookup *)_a)->buf;
 	uintptr_t b = ((struct drgn_dwarf_index_cu_lookup *)_b)->buf;
 	return (a > b) - (a < b);
-}
-
-// Returns NULL if die_addr is not from an indexed CU.
-static struct drgn_dwarf_index_cu *
-drgn_dwarf_index_find_cu(struct drgn_debug_info *dbinfo, uintptr_t die_addr)
-{
-	struct drgn_dwarf_index_cu_lookup *lookup =
-		dbinfo->dwarf.index_cu_lookup;
-	#define less_than_cu_lookup_buf(a, b) (*(a) < (b)->buf)
-	size_t i = binary_search_gt(lookup,
-				    drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus),
-				    &die_addr, less_than_cu_lookup_buf);
-	#undef less_than_cu_buf
-	if (i == 0)
-		return NULL;
-	struct drgn_dwarf_index_cu *cu =
-		drgn_dwarf_index_cu_vector_at(&dbinfo->dwarf.index_cus,
-					      lookup[i - 1].index);
-	if (die_addr - lookup[i - 1].buf >= cu->len)
-		return NULL;
-	return cu;
 }
 
 static void
