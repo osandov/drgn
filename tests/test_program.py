@@ -407,6 +407,42 @@ class TestMemory(TestCase):
             8,
         )
 
+    def test_python_fault_error(self):
+        def fault_memory_reader(address, count, offset, physical):
+            raise FaultError("fault from Python", address)
+
+        prog = Program(MOCK_PLATFORM)
+        prog.add_memory_segment(0xFFFF0000, 8, fault_memory_reader)
+
+        with self.assertRaises(FaultError) as cm:
+            Object(prog, "int", address=0xFFFF0004).read_()
+        self.assertEqual(cm.exception.message, "fault from Python")
+        self.assertEqual(cm.exception.address, 0xFFFF0004)
+
+        # If the FaultError from Python is translated to a drgn_error
+        # correctly, then this shouldn't raise an exception.
+        str(Object(prog, "int *", 0xFFFF0004))
+
+    def test_python_fault_error_invalid_message(self):
+        def fault_memory_reader(address, count, offset, physical):
+            raise FaultError(None, address)
+
+        prog = Program(MOCK_PLATFORM)
+        prog.add_memory_segment(0xFFFF0000, 8, fault_memory_reader)
+
+        # Just test that it doesn't crash.
+        self.assertRaises(Exception, Object(prog, "int", address=0xFFFF0004).read_)
+
+    def test_python_fault_error_invalid_address(self):
+        def fault_memory_reader(address, count, offset, physical):
+            raise FaultError("fault from Python", None)
+
+        prog = Program(MOCK_PLATFORM)
+        prog.add_memory_segment(0xFFFF0000, 8, fault_memory_reader)
+
+        # Just test that it doesn't crash.
+        self.assertRaises(Exception, Object(prog, "int", address=0xFFFF0004).read_)
+
 
 class TestTypeFinder(TestCase):
     def test_register(self):
