@@ -47,6 +47,7 @@ from tests.dwarfwriter import (
     DwarfDie,
     DwarfLabel,
     DwarfUnit,
+    compile_dwarf,
     create_dwarf_file,
 )
 
@@ -202,16 +203,28 @@ labeled_unsigned_int_die = (DwarfLabel("unsigned_int_die"), unsigned_int_die)
 labeled_float_die = (DwarfLabel("float_die"), float_die)
 
 
-def add_extra_dwarf(prog, path):
-    prog.extra_module(path, create=True)[0].try_file(path, force=True)
+def add_extra_dwarf(prog, path, supplementary_path=None):
+    module = prog.extra_module(path, create=True)[0]
+    module.try_file(path, force=True)
+    if module.debug_file_status == drgn.ModuleFileStatus.WANT_SUPPLEMENTARY:
+        module.try_file(supplementary_path)
+    else:
+        assert supplementary_path is None
+    assert not module.wants_debug_file()
 
 
-def dwarf_program(*args, segments=None, **kwds):
+def dwarf_program(*args, segments=None, gnu_debugaltlink=None, **kwds):
     prog = Program()
     with tempfile.NamedTemporaryFile() as f:
-        f.write(create_dwarf_file(*args, **kwds))
+        f.write(create_dwarf_file(*args, gnu_debugaltlink=gnu_debugaltlink, **kwds))
         f.flush()
-        add_extra_dwarf(prog, f.name)
+        add_extra_dwarf(
+            prog,
+            f.name,
+            supplementary_path=(
+                None if gnu_debugaltlink is None else gnu_debugaltlink[0]
+            ),
+        )
 
     if segments is not None:
         add_mock_memory_segments(prog, segments)
@@ -7315,6 +7328,967 @@ class TestSplitDwarf(TestCase):
 
 
 class TestImportedUnit(TestCase):
+    alt_build_id = b"\xfe\xdc\xba\x98\x76\x54\x32\x10"
+
+    def test_global(self):
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.compile_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.imported_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.import_,
+                                        DW_FORM.ref_addr,
+                                        "partial_unit",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        wrap_test_type_dies(int_die),
+                    ),
+                    die_label="partial_unit",
+                ),
+            ),
+        )
+        self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
+    def test_global_alt(self):
+        with tempfile.NamedTemporaryFile() as alt_f:
+            alt_dwarf = compile_dwarf(
+                (
+                    DwarfUnit(
+                        DW_UT.partial,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (),
+                            wrap_test_type_dies(int_die),
+                        ),
+                        die_label="alt_unit",
+                    ),
+                ),
+                build_id=self.alt_build_id,
+            )
+            alt_f.write(alt_dwarf.data)
+            alt_f.flush()
+
+            prog = dwarf_program(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.compile_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.GNU_ref_alt,
+                                            alt_dwarf.labels["alt_unit"],
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                gnu_debugaltlink=(alt_f.name, self.alt_build_id),
+            )
+            self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
+    def test_global_nested(self):
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.compile_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.imported_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.import_,
+                                        DW_FORM.ref_addr,
+                                        "partial_unit",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.imported_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.import_, DW_FORM.ref_addr, "partial_unit2"
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    die_label="partial_unit",
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        wrap_test_type_dies(int_die),
+                    ),
+                    die_label="partial_unit2",
+                ),
+            ),
+        )
+        self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
+    def test_global_nested_alt(self):
+        with tempfile.NamedTemporaryFile() as alt_f:
+            alt_dwarf = compile_dwarf(
+                (
+                    DwarfUnit(
+                        DW_UT.partial,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_, DW_FORM.ref_addr, "alt_unit2"
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        die_label="alt_unit",
+                    ),
+                    DwarfUnit(
+                        DW_UT.partial,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (),
+                            wrap_test_type_dies(int_die),
+                        ),
+                        die_label="alt_unit2",
+                    ),
+                ),
+                build_id=self.alt_build_id,
+            )
+            alt_f.write(alt_dwarf.data)
+            alt_f.flush()
+
+            prog = dwarf_program(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.compile_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.ref_addr,
+                                            "partial_unit",
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    DwarfUnit(
+                        DW_UT.partial,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.GNU_ref_alt,
+                                            alt_dwarf.labels["alt_unit"],
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        die_label="partial_unit",
+                    ),
+                ),
+                gnu_debugaltlink=(alt_f.name, self.alt_build_id),
+            )
+            self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
+    def test_enumeration_type(self):
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.compile_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.imported_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.import_,
+                                        DW_FORM.ref_addr,
+                                        "partial_unit",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        wrap_test_type_dies(
+                            DwarfDie(
+                                DW_TAG.enumeration_type,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "color"),
+                                    DwarfAttrib(
+                                        DW_AT.type, DW_FORM.ref4, "unsigned_int_die"
+                                    ),
+                                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                                ),
+                                (
+                                    DwarfDie(
+                                        DW_TAG.enumerator,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "RED"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.const_value, DW_FORM.data1, 0
+                                            ),
+                                        ),
+                                    ),
+                                    DwarfDie(
+                                        DW_TAG.enumerator,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "GREEN"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.const_value, DW_FORM.data1, 1
+                                            ),
+                                        ),
+                                    ),
+                                    DwarfDie(
+                                        DW_TAG.enumerator,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "BLUE"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.const_value, DW_FORM.data1, 2
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            *labeled_unsigned_int_die,
+                        ),
+                    ),
+                    die_label="partial_unit",
+                ),
+            ),
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.enum_type(
+                "color",
+                prog.int_type("unsigned int", 4, False),
+                (
+                    TypeEnumerator("RED", 0),
+                    TypeEnumerator("GREEN", 1),
+                    TypeEnumerator("BLUE", 2),
+                ),
+            ),
+        )
+
+    def test_namespace(self):
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (
+                            # TODO: in practice, partial units don't seem to
+                            # have a language set, and it's supposed to be
+                            # inherited from the unit that imports it. We don't
+                            # handle that yet.
+                            DwarfAttrib(
+                                DW_AT.language,
+                                DW_FORM.data1,
+                                DW_LANG.C_plus_plus,
+                            ),
+                        ),
+                        (
+                            *labeled_int_die,
+                            DwarfDie(
+                                DW_TAG.namespace,
+                                (DwarfAttrib(DW_AT.name, DW_FORM.string, "foo"),),
+                                (
+                                    DwarfDie(
+                                        DW_TAG.typedef,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "TEST"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.type, DW_FORM.ref4, "int_die"
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    die_label="partial_unit",
+                ),
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.compile_unit,
+                        (
+                            DwarfAttrib(
+                                DW_AT.language,
+                                DW_FORM.data1,
+                                DW_LANG.C_plus_plus,
+                            ),
+                        ),
+                        (
+                            DwarfDie(
+                                DW_TAG.imported_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.import_,
+                                        DW_FORM.ref_addr,
+                                        "partial_unit",
+                                    ),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.subprogram,
+                                (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertIdentical(prog.type("foo::TEST").type, prog.int_type("int", 4, True))
+
+    def test_namespace_alt(self):
+        with tempfile.NamedTemporaryFile() as alt_f:
+            alt_dwarf = compile_dwarf(
+                (
+                    DwarfUnit(
+                        DW_UT.partial,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (
+                                # See above re: language in partial units.
+                                DwarfAttrib(
+                                    DW_AT.language,
+                                    DW_FORM.data1,
+                                    DW_LANG.C_plus_plus,
+                                ),
+                            ),
+                            (
+                                *labeled_int_die,
+                                DwarfDie(
+                                    DW_TAG.namespace,
+                                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "foo"),),
+                                    (
+                                        DwarfDie(
+                                            DW_TAG.typedef,
+                                            (
+                                                DwarfAttrib(
+                                                    DW_AT.name, DW_FORM.string, "TEST"
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.type, DW_FORM.ref4, "int_die"
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        die_label="alt_unit",
+                    ),
+                ),
+                build_id=self.alt_build_id,
+            )
+            alt_f.write(alt_dwarf.data)
+            alt_f.flush()
+
+            prog = dwarf_program(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.compile_unit,
+                            (
+                                DwarfAttrib(
+                                    DW_AT.language,
+                                    DW_FORM.data1,
+                                    DW_LANG.C_plus_plus,
+                                ),
+                            ),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.GNU_ref_alt,
+                                            alt_dwarf.labels["alt_unit"],
+                                        ),
+                                    ),
+                                ),
+                                DwarfDie(
+                                    DW_TAG.subprogram,
+                                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                gnu_debugaltlink=(alt_f.name, self.alt_build_id),
+            )
+            self.assertIdentical(
+                prog.type("foo::TEST").type, prog.int_type("int", 4, True)
+            )
+
+    def test_specification_imported(self):
+        # DW_AT_specification in an imported unit referring to a
+        # DW_AT_declaration DIE in a normal CU.
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.compile_unit,
+                        (),
+                        wrap_test_type_dies(
+                            DwarfDie(
+                                DW_TAG.pointer_type,
+                                (
+                                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                                    DwarfAttrib(
+                                        DW_AT.type,
+                                        DW_FORM.ref4,
+                                        "incomplete_struct_die",
+                                    ),
+                                ),
+                            ),
+                            DwarfLabel("incomplete_struct_die"),
+                            DwarfDie(
+                                DW_TAG.structure_type,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                                    DwarfAttrib(
+                                        DW_AT.declaration,
+                                        DW_FORM.flag_present,
+                                        True,
+                                    ),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.imported_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.import_,
+                                        DW_FORM.ref_addr,
+                                        "partial_unit",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.structure_type,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.specification,
+                                        DW_FORM.ref_addr,
+                                        "incomplete_struct_die",
+                                    ),
+                                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                                ),
+                                (
+                                    DwarfDie(
+                                        DW_TAG.member,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "x"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.data_member_location,
+                                                DW_FORM.data1,
+                                                0,
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.type,
+                                                DW_FORM.ref4,
+                                                "int_die",
+                                            ),
+                                        ),
+                                    ),
+                                    DwarfDie(
+                                        DW_TAG.member,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "y"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.data_member_location,
+                                                DW_FORM.data1,
+                                                4,
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.type,
+                                                DW_FORM.ref4,
+                                                "int_die",
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            *labeled_int_die,
+                        ),
+                    ),
+                    die_label="partial_unit",
+                ),
+            ),
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.pointer_type(
+                prog.struct_type(
+                    "point",
+                    8,
+                    (
+                        TypeMember(prog.int_type("int", 4, True), "x"),
+                        TypeMember(prog.int_type("int", 4, True), "y", 32),
+                    ),
+                )
+            ),
+        )
+
+    def test_declaration_and_specification_imported(self):
+        # DW_AT_specification in an imported unit referring to a
+        # DW_AT_declaration DIE in the same imported unit.
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.compile_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.imported_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.import_,
+                                        DW_FORM.ref_addr,
+                                        "partial_unit",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        wrap_test_type_dies(
+                            DwarfDie(
+                                DW_TAG.pointer_type,
+                                (
+                                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                                    DwarfAttrib(
+                                        DW_AT.type,
+                                        DW_FORM.ref4,
+                                        "incomplete_struct_die",
+                                    ),
+                                ),
+                            ),
+                            DwarfLabel("incomplete_struct_die"),
+                            DwarfDie(
+                                DW_TAG.structure_type,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                                    DwarfAttrib(
+                                        DW_AT.declaration,
+                                        DW_FORM.flag_present,
+                                        True,
+                                    ),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.structure_type,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.specification,
+                                        DW_FORM.ref4,
+                                        "incomplete_struct_die",
+                                    ),
+                                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                                ),
+                                (
+                                    DwarfDie(
+                                        DW_TAG.member,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "x"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.data_member_location,
+                                                DW_FORM.data1,
+                                                0,
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.type,
+                                                DW_FORM.ref4,
+                                                "int_die",
+                                            ),
+                                        ),
+                                    ),
+                                    DwarfDie(
+                                        DW_TAG.member,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "y"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.data_member_location,
+                                                DW_FORM.data1,
+                                                4,
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.type,
+                                                DW_FORM.ref4,
+                                                "int_die",
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            *labeled_int_die,
+                        ),
+                    ),
+                    die_label="partial_unit",
+                ),
+            ),
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.pointer_type(
+                prog.struct_type(
+                    "point",
+                    8,
+                    (
+                        TypeMember(prog.int_type("int", 4, True), "x"),
+                        TypeMember(prog.int_type("int", 4, True), "y", 32),
+                    ),
+                )
+            ),
+        )
+
+    def test_declaration_and_specification_alt(self):
+        # DW_AT_specification in an imported unit from a .gnu_debugaltlink file
+        # referring to a DW_AT_declaration DIE in the same imported unit.
+        with tempfile.NamedTemporaryFile() as alt_f:
+            alt_dwarf = compile_dwarf(
+                (
+                    DwarfUnit(
+                        DW_UT.partial,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (),
+                            wrap_test_type_dies(
+                                DwarfDie(
+                                    DW_TAG.pointer_type,
+                                    (
+                                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                                        DwarfAttrib(
+                                            DW_AT.type,
+                                            DW_FORM.ref4,
+                                            "incomplete_struct_die",
+                                        ),
+                                    ),
+                                ),
+                                DwarfLabel("incomplete_struct_die"),
+                                DwarfDie(
+                                    DW_TAG.structure_type,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.name, DW_FORM.string, "point"
+                                        ),
+                                        DwarfAttrib(
+                                            DW_AT.declaration,
+                                            DW_FORM.flag_present,
+                                            True,
+                                        ),
+                                    ),
+                                ),
+                                DwarfDie(
+                                    DW_TAG.structure_type,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.specification,
+                                            DW_FORM.ref4,
+                                            "incomplete_struct_die",
+                                        ),
+                                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                                    ),
+                                    (
+                                        DwarfDie(
+                                            DW_TAG.member,
+                                            (
+                                                DwarfAttrib(
+                                                    DW_AT.name, DW_FORM.string, "x"
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.data_member_location,
+                                                    DW_FORM.data1,
+                                                    0,
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.type, DW_FORM.ref4, "int_die"
+                                                ),
+                                            ),
+                                        ),
+                                        DwarfDie(
+                                            DW_TAG.member,
+                                            (
+                                                DwarfAttrib(
+                                                    DW_AT.name, DW_FORM.string, "y"
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.data_member_location,
+                                                    DW_FORM.data1,
+                                                    4,
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.type, DW_FORM.ref4, "int_die"
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                                *labeled_int_die,
+                            ),
+                        ),
+                        die_label="alt_unit",
+                    ),
+                ),
+                build_id=self.alt_build_id,
+            )
+            alt_f.write(alt_dwarf.data)
+            alt_f.flush()
+
+            prog = dwarf_program(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.compile_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.GNU_ref_alt,
+                                            alt_dwarf.labels["alt_unit"],
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                gnu_debugaltlink=(alt_f.name, self.alt_build_id),
+            )
+            self.assertIdentical(
+                prog.type("TEST").type,
+                prog.pointer_type(
+                    prog.struct_type(
+                        "point",
+                        8,
+                        (
+                            TypeMember(prog.int_type("int", 4, True), "x"),
+                            TypeMember(prog.int_type("int", 4, True), "y", 32),
+                        ),
+                    )
+                ),
+            )
+
+    def test_function_alt(self):
+        with tempfile.NamedTemporaryFile() as alt_f:
+            alt_dwarf = compile_dwarf(
+                (
+                    DwarfUnit(
+                        DW_UT.partial,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (),
+                            (
+                                *labeled_int_die,
+                                # DWP puts a subprogram DIE without
+                                # DW_AT_low_pc/DW_AT_ranges in the
+                                # supplementary file and another subprogram DIE
+                                # that references it with DW_AT_abstract_origin
+                                # in the main debug file.
+                                DwarfLabel("abstract_instance_root"),
+                                DwarfDie(
+                                    DW_TAG.subprogram,
+                                    (
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "abs"),
+                                        DwarfAttrib(
+                                            DW_AT.type, DW_FORM.ref4, "int_die"
+                                        ),
+                                    ),
+                                    (
+                                        DwarfLabel("abstract_instance_parameter"),
+                                        DwarfDie(
+                                            DW_TAG.formal_parameter,
+                                            (
+                                                DwarfAttrib(
+                                                    DW_AT.name, DW_FORM.string, "x"
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.type, DW_FORM.ref4, "int_die"
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        die_label="alt_unit",
+                    ),
+                ),
+                build_id=self.alt_build_id,
+            )
+            alt_f.write(alt_dwarf.data)
+            alt_f.flush()
+
+            prog = dwarf_program(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.compile_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.GNU_ref_alt,
+                                            alt_dwarf.labels["alt_unit"],
+                                        ),
+                                    ),
+                                ),
+                                DwarfDie(
+                                    DW_TAG.subprogram,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.abstract_origin,
+                                            DW_FORM.GNU_ref_alt,
+                                            alt_dwarf.labels["abstract_instance_root"],
+                                        ),
+                                        DwarfAttrib(
+                                            DW_AT.low_pc,
+                                            DW_FORM.addr,
+                                            0x7FC3EB9B1C30,
+                                        ),
+                                    ),
+                                    (
+                                        DwarfDie(
+                                            DW_TAG.formal_parameter,
+                                            (
+                                                DwarfAttrib(
+                                                    DW_AT.abstract_origin,
+                                                    DW_FORM.GNU_ref_alt,
+                                                    alt_dwarf.labels[
+                                                        "abstract_instance_parameter"
+                                                    ],
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                gnu_debugaltlink=(alt_f.name, self.alt_build_id),
+            )
+            self.assertIdentical(
+                prog["abs"],
+                Object(
+                    prog,
+                    prog.function_type(
+                        prog.int_type("int", 4, True),
+                        (TypeParameter(prog.int_type("int", 4, True), "x"),),
+                        False,
+                    ),
+                    address=0x7FC3EB9B1C30,
+                ),
+            )
+
     def test_unused_partial_unit(self):
         prog = dwarf_program(
             (
@@ -7348,3 +8322,427 @@ class TestImportedUnit(TestCase):
         )
         self.assertIdentical(prog.type("TEST").type, prog.void_type())
         self.assertRaises(LookupError, prog.type, "UNUSED")
+
+    def test_unused_partial_unit_alt(self):
+        with tempfile.NamedTemporaryFile() as alt_f:
+            alt_dwarf = compile_dwarf(
+                (
+                    DwarfUnit(
+                        DW_UT.partial,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.typedef,
+                                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST"),),
+                                ),
+                            ),
+                        ),
+                        die_label="alt_unit",
+                    ),
+                    DwarfUnit(
+                        DW_UT.partial,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.typedef,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.name, DW_FORM.string, "UNUSED"
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                build_id=self.alt_build_id,
+            )
+            alt_f.write(alt_dwarf.data)
+            alt_f.flush()
+
+            prog = dwarf_program(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.compile_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.GNU_ref_alt,
+                                            alt_dwarf.labels["alt_unit"],
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                gnu_debugaltlink=(alt_f.name, self.alt_build_id),
+            )
+            self.assertIdentical(prog.type("TEST").type, prog.void_type())
+            self.assertRaises(LookupError, prog.type, "UNUSED")
+
+    def test_imported_unit_with_children(self):
+        # DW_TAG_imported_unit shouldn't have children. Test that we ignore the
+        # children properly and continue where we left off.
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.compile_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.imported_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.import_,
+                                        DW_FORM.ref_addr,
+                                        "partial_unit",
+                                    ),
+                                ),
+                                (
+                                    DwarfDie(
+                                        DW_TAG.typedef,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "UNUSED"
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            *labeled_unsigned_int_die,
+                            DwarfDie(
+                                DW_TAG.typedef,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST2"),
+                                    DwarfAttrib(
+                                        DW_AT.type, DW_FORM.ref4, "unsigned_int_die"
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        wrap_test_type_dies(int_die),
+                    ),
+                    die_label="partial_unit",
+                ),
+            ),
+        )
+        self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+        self.assertIdentical(
+            prog.type("TEST2").type, prog.int_type("unsigned int", 4, False)
+        )
+        self.assertRaises(LookupError, prog.type, "UNUSED")
+
+    def test_imported_unit_with_sibling(self):
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.compile_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.imported_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.import_,
+                                        DW_FORM.ref_addr,
+                                        "partial_unit",
+                                    ),
+                                    DwarfAttrib(
+                                        DW_AT.sibling,
+                                        DW_FORM.ref4,
+                                        "TEST2_die",
+                                    ),
+                                ),
+                            ),
+                            DwarfLabel("TEST2_die"),
+                            DwarfDie(
+                                DW_TAG.typedef,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST2"),
+                                    DwarfAttrib(
+                                        DW_AT.type, DW_FORM.ref4, "unsigned_int_die"
+                                    ),
+                                ),
+                            ),
+                            *labeled_unsigned_int_die,
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        wrap_test_type_dies(int_die),
+                    ),
+                    die_label="partial_unit",
+                ),
+            ),
+        )
+        self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+        self.assertIdentical(
+            prog.type("TEST2").type, prog.int_type("unsigned int", 4, False)
+        )
+
+    def test_top_level_imported_unit_with_children(self):
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.imported_unit,
+                        (
+                            DwarfAttrib(
+                                DW_AT.import_,
+                                DW_FORM.ref_addr,
+                                "partial_unit",
+                            ),
+                        ),
+                        (
+                            DwarfDie(
+                                DW_TAG.typedef,
+                                (DwarfAttrib(DW_AT.name, DW_FORM.string, "foo"),),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.typedef,
+                                (DwarfAttrib(DW_AT.name, DW_FORM.string, "UNUSED"),),
+                            ),
+                        ),
+                    ),
+                    die_label="partial_unit",
+                ),
+            ),
+            allow_any_unit_die=True,
+        )
+        self.assertRaises(LookupError, prog.type, "UNUSED")
+
+    def test_top_level_imported_unit(self):
+        prog = dwarf_program(
+            (
+                DwarfUnit(
+                    DW_UT.compile,
+                    DwarfDie(
+                        DW_TAG.imported_unit,
+                        (
+                            DwarfAttrib(
+                                DW_AT.import_,
+                                DW_FORM.ref_addr,
+                                "partial_unit",
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfUnit(
+                    DW_UT.partial,
+                    DwarfDie(
+                        DW_TAG.partial_unit,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.typedef,
+                                (DwarfAttrib(DW_AT.name, DW_FORM.string, "UNUSED"),),
+                            ),
+                        ),
+                    ),
+                    die_label="partial_unit",
+                ),
+            ),
+            allow_any_unit_die=True,
+        )
+        self.assertRaises(LookupError, prog.type, "UNUSED")
+
+    def test_missing_import(self):
+        with self.assertRaisesRegex(
+            Exception, "DW_TAG_imported_unit is missing DW_AT_import"
+        ):
+            "foo" in dwarf_program(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.compile_unit,
+                            (),
+                            (DwarfDie(DW_TAG.imported_unit),),
+                        ),
+                    ),
+                ),
+            )
+
+    def test_out_of_bounds(self):
+        with self.assertRaisesRegex(Exception, "reference is out of bounds"):
+            "foo" in dwarf_program(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.compile_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.ref4,
+                                            0x100000,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+
+    def test_out_of_bounds_alt(self):
+        with tempfile.NamedTemporaryFile() as alt_f:
+            alt_dwarf = compile_dwarf(
+                (),
+                build_id=self.alt_build_id,
+            )
+            alt_f.write(alt_dwarf.data)
+            alt_f.flush()
+
+            with self.assertRaisesRegex(Exception, "reference is out of bounds"):
+                "foo" in dwarf_program(
+                    (
+                        DwarfUnit(
+                            DW_UT.compile,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (),
+                                (
+                                    DwarfDie(
+                                        DW_TAG.imported_unit,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.import_,
+                                                DW_FORM.GNU_ref_alt,
+                                                0x100000,
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    gnu_debugaltlink=(alt_f.name, self.alt_build_id),
+                )
+
+    def test_cycle(self):
+        with self.assertRaisesRegex(
+            Exception, "maximum DWARF imported unit depth exceeded"
+        ):
+            "foo" in dwarf_program(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.compile_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.ref4,
+                                            "cycle_unit",
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        die_label="cycle_unit",
+                    ),
+                ),
+            )
+
+    def test_cycle_alt(self):
+        with tempfile.NamedTemporaryFile() as alt_f:
+            alt_dwarf = compile_dwarf(
+                (
+                    DwarfUnit(
+                        DW_UT.compile,
+                        DwarfDie(
+                            DW_TAG.partial_unit,
+                            (),
+                            (
+                                DwarfDie(
+                                    DW_TAG.imported_unit,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.import_,
+                                            DW_FORM.ref4,
+                                            "cycle_unit",
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        die_label="cycle_unit",
+                    ),
+                ),
+                build_id=self.alt_build_id,
+            )
+            alt_f.write(alt_dwarf.data)
+            alt_f.flush()
+
+            with self.assertRaisesRegex(
+                Exception, "maximum DWARF imported unit depth exceeded"
+            ):
+                "foo" in dwarf_program(
+                    (
+                        DwarfUnit(
+                            DW_UT.compile,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (),
+                                (
+                                    DwarfDie(
+                                        DW_TAG.imported_unit,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.import_,
+                                                DW_FORM.GNU_ref_alt,
+                                                alt_dwarf.labels["cycle_unit"],
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    gnu_debugaltlink=(alt_f.name, self.alt_build_id),
+                )

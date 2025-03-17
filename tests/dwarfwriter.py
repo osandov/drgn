@@ -24,7 +24,7 @@ class DwarfLabel(NamedTuple):
 
 class DwarfDie(NamedTuple):
     tag: DW_TAG
-    attribs: Sequence[DwarfAttrib]
+    attribs: Sequence[DwarfAttrib] = ()
     children: Sequence[Union["DwarfDie", DwarfLabel]] = ()
 
 
@@ -99,9 +99,9 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
                 buf.append(value)
             elif attrib.form == DW_FORM.data2:
                 buf.extend(value.to_bytes(2, byteorder))
-            elif attrib.form == DW_FORM.data4:
+            elif attrib.form in (DW_FORM.data4, DW_FORM.ref_sup4):
                 buf.extend(value.to_bytes(4, byteorder))
-            elif attrib.form == DW_FORM.data8:
+            elif attrib.form in (DW_FORM.data8, DW_FORM.ref_sup8):
                 buf.extend(value.to_bytes(8, byteorder))
             elif attrib.form == DW_FORM.udata:
                 _append_uleb128(buf, value)
@@ -113,7 +113,7 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
             elif attrib.form == DW_FORM.block1:
                 buf.append(len(value))
                 buf.extend(value)
-            elif attrib.form == DW_FORM.strp:
+            elif attrib.form in (DW_FORM.strp, DW_FORM.GNU_ref_alt):
                 buf.extend(value.to_bytes(offset_size, byteorder))
             elif attrib.form == DW_FORM.string:
                 buf.extend(value.encode())
@@ -355,6 +355,7 @@ def compile_dwarf(
     sections=(),
     little_endian=True,
     bits=64,
+    allow_any_unit_die=False,
     **kwargs,
 ):
     assert compress in (None, "zlib-gnu", "zlib-gabi")
@@ -374,7 +375,7 @@ def compile_dwarf(
             DwarfUnit(DW_UT.compile, DwarfDie(DW_TAG.compile_unit, (), units_or_dies)),
         )
     assert all(isinstance(unit, DwarfUnit) for unit in units)
-    assert all(unit.die.tag in _UNIT_TAGS for unit in units)
+    assert allow_any_unit_die or all(unit.die.tag in _UNIT_TAGS for unit in units)
 
     unit_attribs = []
     if lang is not None:
