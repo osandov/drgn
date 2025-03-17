@@ -268,13 +268,11 @@ static inline struct drgn_error *drgn_check_address_size(uint8_t address_size)
  * friendly), which is important for the tight DIE parsing loop.
  */
 enum drgn_dwarf_index_abbrev_insn {
-	/*
-	 * Instructions > 0 and <= INSN_MAX_SKIP indicate a number of bytes to
-	 * be skipped over.
-	 */
+	// Instructions > 0 and <= INSN_MAX_SKIP indicate a number of bytes to
+	// be skipped over.
 	INSN_MAX_SKIP = 219,
 
-	/* These instructions indicate an attribute that can be skipped over. */
+	// These instructions indicate an attribute that can be skipped over.
 	INSN_SKIP_BLOCK,
 	INSN_SKIP_BLOCK1,
 	INSN_SKIP_BLOCK2,
@@ -282,7 +280,7 @@ enum drgn_dwarf_index_abbrev_insn {
 	INSN_SKIP_LEB128,
 	INSN_SKIP_STRING,
 
-	/* These instructions indicate an attribute that should be parsed. */
+	// These instructions indicate an attribute that should be parsed.
 	INSN_SIBLING_REF1,
 	INSN_SIBLING_REF2,
 	INSN_SIBLING_REF4,
@@ -316,22 +314,18 @@ enum drgn_dwarf_index_abbrev_insn {
 
 	NUM_INSNS,
 
-	/*
-	 * Every sequence of instructions for a DIE is terminated by a zero
-	 * byte.
-	 */
+	// Every sequence of instructions for a DIE is terminated by a zero
+	// byte.
 	INSN_END = 0,
 
-	/*
-	 * The byte after INSN_END contains the DIE flags, which are a bitmask
-	 * of flags combined with the drgn_dwarf_index_tag.
-	 */
+	// The byte after INSN_END contains the DIE flags, which are a bitmask
+	// of flags combined with the drgn_dwarf_index_tag.
 	INSN_DIE_FLAG_TAG_MASK = 0x1f,
-	/* DIE is DW_TAG_subprogram with no DW_AT_low_pc or DW_AT_ranges. */
+	// DIE is DW_TAG_subprogram with no DW_AT_low_pc or DW_AT_ranges.
 	INSN_DIE_FLAG_SUBPROGRAM_NO_PC = 0x20,
-	/* DIE is a declaration. */
+	// DIE is a declaration.
 	INSN_DIE_FLAG_DECLARATION = 0x40,
-	/* DIE has children. */
+	// DIE has children.
 	INSN_DIE_FLAG_CHILDREN = 0x80,
 };
 
@@ -340,7 +334,7 @@ enum drgn_dwarf_index_abbrev_insn {
 static_assert((int)DRGN_DWARF_INDEX_NUM_TAGS < (int)INSN_DIE_FLAG_TAG_MASK,
 	      "too many instruction DIE tags");
 
-/* Instructions are 8 bits. */
+// Instructions are 8 bits.
 static_assert(NUM_INSNS - 1 == UINT8_MAX,
 	      "maximum DWARF index instruction is invalid");
 
