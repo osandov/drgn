@@ -1690,18 +1690,25 @@ class Module:
 
     This is often non-zero due to address space layout randomization (ASLR).
 
-    It is set automatically based on the module type:
+    It is set automatically based on the module type when the loaded file is
+    added:
 
     * For :class:`MainModule`, it is set based on metadata from the process or
       core dump (the `auxiliary vector
       <https://man7.org/linux/man-pages/man3/getauxval.3.html>`_ for userspace
       programs, the ``VMCOREINFO`` note for the Linux kernel).
-    * For :class:`SharedLibraryModule` and :class:`VdsoModule`, it is set based
-      on :attr:`~SharedLibraryModule.dynamic_address`.
+    * For :class:`SharedLibraryModule` and :class:`VdsoModule`, it is set to
+      :attr:`~SharedLibraryModule.dynamic_address` minus the address of the
+      dynamic section in the file.
     * For :class:`RelocatableModule`, it is set to zero. Addresses are adjusted
       according to :attr:`~RelocatableModule.section_addresses` instead.
-    * For :class:`ExtraModule`, it is set based on
-      :attr:`~Module.address_range`.
+    * For :class:`ExtraModule`, if :attr:`~Module.address_range` is set before
+      the file is added, then the bias is set to :attr:`address_range[0]
+      <Module.address_range>` (i.e., the module's start address) minus the
+      file's start address. If :attr:`~Module.address_range` is not set when
+      the file is added or is set to ``(0, 0)``, then the bias is set to zero.
+
+    This cannot be set manually.
     """
     debug_file_status: ModuleFileStatus
     """Status of the module's :ref:`debug file <module-debug-file>`."""
