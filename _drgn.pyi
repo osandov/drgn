@@ -1899,7 +1899,8 @@ class ExtraModule(Module):
     used to add debugging information from a standalone file that is not in use
     by a particular program.
 
-    Extra modules are uniquely identified by an arbitrary name and ID number.
+    Extra modules are uniquely identified by a name and ID number. Both the
+    name and ID number are arbitrary.
     """
 
     id: Final[int]
