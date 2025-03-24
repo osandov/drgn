@@ -551,6 +551,15 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.loaded_file_bias, 0x30000000)
         self.assertEqual(module.debug_file_bias, 0x30000000)
 
+    def test_extra_module_empty_address_range(self):
+        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module.address_range = (0, 0)
+        with NamedTemporaryElfFile() as f:
+            module.try_file(f.name)
+        self.assertEqual(module.address_range, (0, 0))
+        self.assertEqual(module.loaded_file_bias, 0)
+        self.assertEqual(module.debug_file_bias, 0)
+
 
 class TestLinuxUserspaceCoreDump(TestCase):
     def setUp(self):

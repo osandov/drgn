@@ -1259,7 +1259,7 @@ static bool drgn_module_elf_file_bias(struct drgn_module *module,
 		return elf_dso_bias(prog, file->elf,
 				    module->vdso.dynamic_address, ret);
 	case DRGN_MODULE_EXTRA:
-		if (module->start != UINT64_MAX) {
+		if (module->start < module->end) {
 			uint64_t elf_start, elf_end;
 			if (!drgn_elf_file_address_range(file, &elf_start,
 							 &elf_end))
