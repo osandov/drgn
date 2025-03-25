@@ -146,8 +146,9 @@ def _displayhook(value: Any) -> None:
     setattr(builtins, "_", value)
 
 
-class _DebugInfoOptionAction(argparse.Action):
-    _choices: Dict[str, Tuple[str, Any]]
+class _TrySymbolsByBaseAction(argparse.Action):
+    _enable: bool
+    _finder = ("disable_debug_info_finders", "enable_debug_info_finders")
 
     @staticmethod
     def _bool_options(value: bool) -> Dict[str, Tuple[str, bool]]:
@@ -164,6 +165,24 @@ class _DebugInfoOptionAction(argparse.Action):
             )
         }
 
+    _options = (
+        {
+            **_bool_options(False),
+            "kmod": ("try_kmod", drgn.KmodSearchMethod.NONE),
+        },
+        {
+            **_bool_options(True),
+            "kmod=depmod": ("try_kmod", drgn.KmodSearchMethod.DEPMOD),
+            "kmod=walk": ("try_kmod", drgn.KmodSearchMethod.WALK),
+            "kmod=depmod-or-walk": ("try_kmod", drgn.KmodSearchMethod.DEPMOD_OR_WALK),
+            "kmod=depmod-and-walk": ("try_kmod", drgn.KmodSearchMethod.DEPMOD_AND_WALK),
+        },
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs["dest"] = argparse.SUPPRESS
+        super().__init__(*args, **kwargs)
+
     def __call__(
         self,
         parser: argparse.ArgumentParser,
@@ -171,37 +190,117 @@ class _DebugInfoOptionAction(argparse.Action):
         values: Any,
         option_string: Optional[str] = None,
     ) -> None:
-        dest = getattr(namespace, self.dest, None)
-        if dest is None:
-            dest = {}
-            setattr(namespace, self.dest, dest)
-
-        for option in values.split(","):
+        for value in values.split(","):
             try:
-                name, value = self._choices[option]
+                option_name, option_value = self._options[self._enable][value]
             except KeyError:
-                raise argparse.ArgumentError(
-                    self,
-                    f"invalid option: {option!r} (choose from {', '.join(self._choices)})",
+                # Raise an error if passed an option meant for the opposite
+                # argument.
+                if value in self._options[not self._enable]:
+                    raise argparse.ArgumentError(self, f"invalid option: {value!r}")
+
+                if not hasattr(namespace, self._finder[self._enable]):
+                    setattr(namespace, self._finder[self._enable], {})
+                getattr(namespace, self._finder[self._enable])[value] = None
+
+                if hasattr(namespace, self._finder[not self._enable]):
+                    getattr(namespace, self._finder[not self._enable]).pop(value, None)
+            else:
+                if not hasattr(namespace, "debug_info_options"):
+                    namespace.debug_info_options = {}
+                namespace.debug_info_options[option_name] = option_value
+
+
+class _TrySymbolsByAction(_TrySymbolsByBaseAction):
+    _enable = True
+
+
+class _NoSymbolsByAction(_TrySymbolsByBaseAction):
+    _enable = False
+
+
+def _load_debugging_symbols(
+    prog: drgn.Program, args: argparse.Namespace, color: bool
+) -> None:
+    enable_debug_info_finders = getattr(args, "enable_debug_info_finders", ())
+    disable_debug_info_finders = getattr(args, "disable_debug_info_finders", ())
+    if enable_debug_info_finders or disable_debug_info_finders:
+        debug_info_finders = prog.enabled_debug_info_finders()
+        registered_debug_info_finders = prog.registered_debug_info_finders()
+
+        unknown_finders = []
+
+        for finder in enable_debug_info_finders:
+            if finder not in debug_info_finders:
+                if finder in registered_debug_info_finders:
+                    debug_info_finders.append(finder)
+                else:
+                    unknown_finders.append(finder)
+
+        for finder in disable_debug_info_finders:
+            try:
+                debug_info_finders.remove(finder)
+            except ValueError:
+                if finder not in registered_debug_info_finders:
+                    unknown_finders.append(finder)
+
+        if unknown_finders:
+            if len(unknown_finders) == 1:
+                unknown_finders_repr = repr(unknown_finders[0])
+            elif len(unknown_finders) == 2:
+                unknown_finders_repr = (
+                    f"{unknown_finders[0]!r} or {unknown_finders[1]!r}"
                 )
-            dest[name] = value
+            elif len(unknown_finders) > 2:
+                unknown_finders = [repr(finder) for finder in unknown_finders]
+                unknown_finders[-1] = "or " + unknown_finders[-1]
+                unknown_finders_repr = ", ".join(unknown_finders)
+            logger.warning(
+                "no matching debugging information finders or options for %s",
+                unknown_finders_repr,
+            )
 
+        prog.set_enabled_debug_info_finders(debug_info_finders)
 
-class _TryDebugInfoOptionAction(_DebugInfoOptionAction):
-    _choices = {
-        **_DebugInfoOptionAction._bool_options(True),
-        "kmod=depmod": ("try_kmod", drgn.KmodSearchMethod.DEPMOD),
-        "kmod=walk": ("try_kmod", drgn.KmodSearchMethod.WALK),
-        "kmod=depmod-or-walk": ("try_kmod", drgn.KmodSearchMethod.DEPMOD_OR_WALK),
-        "kmod=depmod-and-walk": ("try_kmod", drgn.KmodSearchMethod.DEPMOD_AND_WALK),
-    }
+    debug_info_options = getattr(args, "debug_info_options", None)
+    if debug_info_options:
+        for option, value in debug_info_options.items():
+            setattr(prog.debug_info_options, option, value)
 
+    if args.debug_directories is not None:
+        if args.no_default_debug_directories:
+            prog.debug_info_options.directories = args.debug_directories
+        else:
+            prog.debug_info_options.directories = (
+                tuple(args.debug_directories) + prog.debug_info_options.directories
+            )
+    elif args.no_default_debug_directories:
+        prog.debug_info_options.directories = ()
 
-class _NoDebugInfoOptionAction(_DebugInfoOptionAction):
-    _choices = {
-        **_DebugInfoOptionAction._bool_options(False),
-        "kmod": ("try_kmod", drgn.KmodSearchMethod.NONE),
-    }
+    if args.kernel_directories is not None:
+        if args.no_default_kernel_directories:
+            prog.debug_info_options.kernel_directories = args.kernel_directories
+        else:
+            prog.debug_info_options.kernel_directories = (
+                tuple(args.kernel_directories)
+                + prog.debug_info_options.kernel_directories
+            )
+    elif args.no_default_kernel_directories:
+        prog.debug_info_options.kernel_directories = ()
+
+    if args.default_symbols is None:
+        args.default_symbols = {"default": True, "main": True}
+    try:
+        prog.load_debug_info(args.symbols, **args.default_symbols)
+    except drgn.MissingDebugInfoError as e:
+        logger.warning("\033[1m%s\033[m" if color else "%s", e)
+
+    if args.extra_symbols:
+        for extra_symbol_path in args.extra_symbols:
+            extra_symbol_path = os.path.abspath(extra_symbol_path)
+            module, new = prog.extra_module(extra_symbol_path, create=True)
+            if new:
+                module.try_file(extra_symbol_path)
 
 
 def _main() -> None:
@@ -269,20 +368,26 @@ def _main() -> None:
     )
     symbol_group.add_argument(
         "--try-symbols-by",
-        dest="symbols_by",
         metavar="METHOD[,METHOD...]",
-        action=_TryDebugInfoOptionAction,
+        action=_TrySymbolsByAction,
         help="enable loading debugging symbols using the given methods. "
-        "Choices are " + ", ".join(_TryDebugInfoOptionAction._choices) + ". "
+        "Choices are debugging information finder names "
+        "(standard, debuginfod, or any added by plugins) "
+        "or debugging information options ("
+        + ", ".join(_TrySymbolsByBaseAction._options[True])
+        + "). "
         "This option may be given more than once",
     )
     symbol_group.add_argument(
         "--no-symbols-by",
-        dest="symbols_by",
         metavar="METHOD[,METHOD...]",
-        action=_NoDebugInfoOptionAction,
+        action=_NoSymbolsByAction,
         help="disable loading debugging symbols using the given methods. "
-        "Choices are " + ", ".join(_NoDebugInfoOptionAction._choices) + ". "
+        "Choices are debugging information finder names "
+        "(standard, debuginfod, or any added by plugins) "
+        "or debugging information options ("
+        + ", ".join(_TrySymbolsByBaseAction._options[False])
+        + "). "
         "This option may be given more than once",
     )
     symbol_group.add_argument(
@@ -413,44 +518,7 @@ def _main() -> None:
         # E.g., "not an ELF core file"
         sys.exit(f"error: {e}")
 
-    if args.symbols_by:
-        for option, value in args.symbols_by.items():
-            setattr(prog.debug_info_options, option, value)
-
-    if args.debug_directories is not None:
-        if args.no_default_debug_directories:
-            prog.debug_info_options.directories = args.debug_directories
-        else:
-            prog.debug_info_options.directories = (
-                tuple(args.debug_directories) + prog.debug_info_options.directories
-            )
-    elif args.no_default_debug_directories:
-        prog.debug_info_options.directories = ()
-
-    if args.kernel_directories is not None:
-        if args.no_default_kernel_directories:
-            prog.debug_info_options.kernel_directories = args.kernel_directories
-        else:
-            prog.debug_info_options.kernel_directories = (
-                tuple(args.kernel_directories)
-                + prog.debug_info_options.kernel_directories
-            )
-    elif args.no_default_kernel_directories:
-        prog.debug_info_options.kernel_directories = ()
-
-    if args.default_symbols is None:
-        args.default_symbols = {"default": True, "main": True}
-    try:
-        prog.load_debug_info(args.symbols, **args.default_symbols)
-    except drgn.MissingDebugInfoError as e:
-        logger.warning("\033[1m%s\033[m" if color else "%s", e)
-
-    if args.extra_symbols:
-        for extra_symbol_path in args.extra_symbols:
-            extra_symbol_path = os.path.abspath(extra_symbol_path)
-            module, new = prog.extra_module(extra_symbol_path, create=True)
-            if new:
-                module.try_file(extra_symbol_path)
+    _load_debugging_symbols(prog, args, color)
 
     if args.script:
         sys.argv = args.script
