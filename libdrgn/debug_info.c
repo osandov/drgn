@@ -4832,6 +4832,24 @@ drgn_loaded_module_iterator_create(struct drgn_program *prog,
 		return null_module_iterator_create(prog, ret);
 }
 
+static inline void drgn_module_iterator_destroyp(struct drgn_module_iterator **itp)
+{
+	drgn_module_iterator_destroy(*itp);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_create_loaded_modules(struct drgn_program *prog)
+{
+	_cleanup_(drgn_module_iterator_destroyp)
+		struct drgn_module_iterator *it = NULL;
+	struct drgn_error *err = drgn_loaded_module_iterator_create(prog, &it);
+	if (err)
+		return err;
+	struct drgn_module *module;
+	while (!(err = drgn_module_iterator_next(it, &module, NULL)) && module);
+	return err;
+}
+
 struct load_debug_info_file {
 	const char *path;
 	// We only keep this to keep load_debug_info_provided::build_id alive
@@ -5183,11 +5201,6 @@ static void load_debug_info_log_missing(struct drgn_module *module,
 	drgn_log_warning(module->prog, "missing %s%s%s for %s", missing_loaded,
 			 missing_loaded[0] && missing_debug[0] ? " and ": "",
 			 missing_debug, module->name);
-}
-
-static inline void drgn_module_iterator_destroyp(struct drgn_module_iterator **itp)
-{
-	drgn_module_iterator_destroy(*itp);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

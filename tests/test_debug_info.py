@@ -636,9 +636,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
 
     def test_bias(self):
         self.prog.set_core_dump(get_resource("crashme.core"))
-
-        for _ in self.prog.loaded_modules():
-            pass
+        self.prog.create_loaded_modules()
 
         with self.subTest(module="main"):
             module = self.prog.main_module()
@@ -724,9 +722,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
 
     def test_bias_pie(self):
         self.prog.set_core_dump(get_resource("crashme_pie.core"))
-
-        for _ in self.prog.loaded_modules():
-            pass
+        self.prog.create_loaded_modules()
 
         with self.subTest(module="main"):
             module = self.prog.main_module()
@@ -784,9 +780,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
 
     def test_bias_static(self):
         self.prog.set_core_dump(get_resource("crashme_static.core"))
-
-        for _ in self.prog.loaded_modules():
-            pass
+        self.prog.create_loaded_modules()
 
         with self.subTest(module="main"):
             module = self.prog.main_module()
@@ -836,9 +830,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
 
     def test_bias_static_pie(self):
         self.prog.set_core_dump(get_resource("crashme_static_pie.core"))
-
-        for _ in self.prog.loaded_modules():
-            pass
+        self.prog.create_loaded_modules()
 
         with self.subTest(module="main"):
             module = self.prog.main_module()

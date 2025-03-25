@@ -1046,6 +1046,14 @@ static ModuleIterator *Program_loaded_modules(Program *self)
 	return it;
 }
 
+static PyObject *Program_create_loaded_modules(Program *self)
+{
+	struct drgn_error *err = drgn_create_loaded_modules(&self->prog);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_main_module(Program *self, PyObject *args,
 				     PyObject *kwds)
 {
@@ -1985,6 +1993,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_modules_DOC},
 	{"loaded_modules", (PyCFunction)Program_loaded_modules, METH_NOARGS,
 	 drgn_Program_loaded_modules_DOC},
+	{"create_loaded_modules", (PyCFunction)Program_create_loaded_modules,
+	 METH_NOARGS, drgn_Program_create_loaded_modules_DOC},
 	{"main_module", (PyCFunction)Program_main_module,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_main_module_DOC},
 	{"shared_library_module", (PyCFunction)Program_shared_library_module,

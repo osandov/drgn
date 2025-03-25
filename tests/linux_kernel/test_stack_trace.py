@@ -100,7 +100,7 @@ class TestStackTrace(LinuxKernelStackTraceTestCase):
             prog.load_debug_info(main=True)
             # Now that vmlinux is loaded, enumerate all the kernel modules so
             # that a drgn_module is created to hold the ORC data
-            list(prog.loaded_modules())
+            prog.create_loaded_modules()
             kallsyms = load_module_kallsyms(prog)
             prog.register_symbol_finder("module_kallsyms", kallsyms, enable_index=1)
             for thread in prog.threads():

@@ -1860,7 +1860,7 @@ drgn_module_iterator_program(const struct drgn_module_iterator *it);
 /**
  * Get the next module in a module iterator.
  *
- * @param[out] ret Returned module.
+ * @param[out] ret Returned module, or @c NULL if there are no more modules.
  * @param[out] new_ret Whether the module was newly created. May be @c NULL.
  */
 struct drgn_error *drgn_module_iterator_next(struct drgn_module_iterator *it,
@@ -1879,6 +1879,17 @@ drgn_created_module_iterator_create(struct drgn_program *prog,
 struct drgn_error *
 drgn_loaded_module_iterator_create(struct drgn_program *prog,
 				   struct drgn_module_iterator **ret);
+
+/**
+ * Determine what executables, libraries, etc. are loaded in the program and
+ * create modules to represent them.
+ *
+ * This is a shortcut for creating an iterator with @ref
+ * drgn_loaded_module_iterator_create() and calling @ref
+ * drgn_module_iterator_next() until it is exhausted.
+ */
+struct drgn_error *
+drgn_create_loaded_modules(struct drgn_program *prog);
 
 /**
  * Load debugging information for the given set of files and/or modules.

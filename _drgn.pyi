@@ -702,8 +702,10 @@ class Program:
 
     def loaded_modules(self) -> Iterator[Tuple[Module, bool]]:
         """
-        Determine what executables, libraries, etc. are loaded in the program
-        and create modules to represent them.
+        Get an iterator over executables, libraries, etc. that are loaded in
+        the program, creating modules to represent them.
+
+        Modules are created lazily as items are consumed.
 
         This may automatically load some debugging information necessary to
         enumerate the modules. Other than that, it does not load debugging
@@ -716,6 +718,20 @@ class Program:
             or ``False`` if it was previously found.
         """
         ...
+
+    def create_loaded_modules(self) -> None:
+        """
+        Determine what executables, libraries, etc. are loaded in the program
+        and create modules to represent them.
+
+        This is a shortcut for exhausting a :meth:`loaded_modules()` iterator.
+        It is equivalent to:
+
+        .. code-block:: python3
+
+        for _ in prog.loaded_modules():
+            pass
+        """
 
     @overload
     def main_module(
