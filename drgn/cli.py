@@ -14,7 +14,7 @@ import pkgutil
 import runpy
 import shutil
 import sys
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import IO, Any, Callable, Dict, Optional, Tuple
 
 import drgn
 from drgn.internal.repl import interact, readline
@@ -41,6 +41,13 @@ _DRGN_GLOBALS = [
     "sizeof",
     "stack_trace",
 ]
+
+
+def _is_tty(file: IO[Any]) -> bool:
+    try:
+        return os.isatty(file.fileno())
+    except (AttributeError, OSError):
+        return False
 
 
 class _LogFormatter(logging.Formatter):
@@ -349,7 +356,7 @@ def _load_debugging_symbols(
 
 def _main() -> None:
     handler = logging.StreamHandler()
-    color = hasattr(sys.stderr, "fileno") and os.isatty(sys.stderr.fileno())
+    color = _is_tty(sys.stderr)
     handler.setFormatter(_LogFormatter(color))
     logging.getLogger().addHandler(handler)
 
@@ -510,6 +517,7 @@ def _main() -> None:
     args = parser.parse_args()
 
     script = bool(not args.exec and args.args)
+    interactive = bool(not args.exec and not args.args and _is_tty(sys.stdin))
     if script:
         # A common mistake users make is running drgn $core_dump, which tries
         # to run $core_dump as a Python script. Rather than failing later with
@@ -526,7 +534,7 @@ def _main() -> None:
             )
         elif script_type == "elf":
             sys.exit(f"error: {args.args[0]} is a binary, not a drgn script")
-    elif not args.exec:
+    elif interactive:
         print(version, file=sys.stderr, flush=True)
 
     if args.log_level == "none":
@@ -572,20 +580,28 @@ def _main() -> None:
 
     _load_debugging_symbols(prog, args, color)
 
-    if args.exec:
-        sys.path.insert(0, "")
-        sys.argv = ["-e"] + args.args
-        drgn.set_default_prog(prog)
-        exec(args.exec, default_globals(prog))
-    elif script:
-        sys.argv = args.args
-        script_path = args.args[0]
-        if pkgutil.get_importer(script_path) is None:
-            sys.path.insert(0, os.path.dirname(os.path.abspath(script_path)))
-        drgn.set_default_prog(prog)
-        runpy.run_path(script_path, init_globals={"prog": prog}, run_name="__main__")
-    else:
+    if interactive:
         run_interactive(prog)
+    else:
+        drgn.set_default_prog(prog)
+        if script:
+            sys.argv = args.args
+            script_path = args.args[0]
+            if pkgutil.get_importer(script_path) is None:
+                sys.path.insert(0, os.path.dirname(os.path.abspath(script_path)))
+            runpy.run_path(
+                script_path, init_globals={"prog": prog}, run_name="__main__"
+            )
+        else:
+            sys.path.insert(0, "")
+            exec_globals = default_globals(prog)
+            if args.exec:
+                sys.argv = ["-e"] + args.args
+                exec(args.exec, exec_globals)
+            else:
+                sys.argv = [""]
+                exec_globals["__file__"] = "<stdin>"
+                exec(compile(sys.stdin.read(), "<stdin>", "exec"), exec_globals)
 
 
 def run_interactive(
