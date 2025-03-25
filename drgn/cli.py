@@ -573,6 +573,7 @@ def _main() -> None:
     if args.exec:
         sys.path.insert(0, "")
         sys.argv = ["-e"] + args.script
+        drgn.set_default_prog(prog)
         exec(args.exec, default_globals(prog))
     elif args.script:
         sys.argv = args.script
