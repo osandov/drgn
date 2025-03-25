@@ -190,24 +190,24 @@ def _displayhook(value: Any) -> None:
     setattr(builtins, "_", value)
 
 
+def _bool_options(value: bool) -> Dict[str, Tuple[str, bool]]:
+    return {
+        option: ("try_" + option.replace("-", "_"), value)
+        for option in (
+            "module-name",
+            "build-id",
+            "debug-link",
+            "procfs",
+            "embedded-vdso",
+            "reuse",
+            "supplementary",
+        )
+    }
+
+
 class _TrySymbolsByBaseAction(argparse.Action):
     _enable: bool
     _finder = ("disable_debug_info_finders", "enable_debug_info_finders")
-
-    @staticmethod
-    def _bool_options(value: bool) -> Dict[str, Tuple[str, bool]]:
-        return {
-            option: ("try_" + option.replace("-", "_"), value)
-            for option in (
-                "module-name",
-                "build-id",
-                "debug-link",
-                "procfs",
-                "embedded-vdso",
-                "reuse",
-                "supplementary",
-            )
-        }
 
     _options = (
         {
