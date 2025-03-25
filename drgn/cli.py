@@ -402,7 +402,7 @@ def _main() -> None:
     symbol_group.add_argument(
         "--no-default-debug-directories",
         action="store_true",
-        help="don't search for debugging symbols by build ID and debug link in the standard locations",
+        help="don't search for debugging symbols by build ID and debug link in the standard directories",
     )
     symbol_group.add_argument(
         "--kernel-directory",
@@ -416,7 +416,7 @@ def _main() -> None:
     symbol_group.add_argument(
         "--no-default-kernel-directories",
         action="store_true",
-        help="don't search for the kernel image and loadable kernel modules in the standard locations",
+        help="don't search for the kernel image and loadable kernel modules in the standard directories",
     )
 
     advanced_group = parser.add_argument_group("advanced")
