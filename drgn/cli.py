@@ -498,32 +498,34 @@ def _main() -> None:
         help="an expression or statement to evaluate, instead of running in interactive mode",
     )
     parser.add_argument(
-        "script",
+        "args",
         metavar="ARG",
         type=str,
         nargs=argparse.REMAINDER,
-        help="script to execute instead of running in interactive mode",
+        help="script to execute instead of running in interactive mode "
+        "(unless -e is given) and arguments to pass",
     )
     parser.add_argument("--version", action="version", version=version)
 
     args = parser.parse_args()
 
-    if args.script and not args.exec:
+    script = bool(not args.exec and args.args)
+    if script:
         # A common mistake users make is running drgn $core_dump, which tries
         # to run $core_dump as a Python script. Rather than failing later with
         # some inscrutable syntax or encoding error, try to catch this early
         # and provide a helpful message.
         try:
-            script_type = _identify_script(args.script[0])
+            script_type = _identify_script(args.args[0])
         except OSError as e:
             sys.exit(str(e))
         if script_type == "core":
             sys.exit(
-                f"error: {args.script[0]} is a core dump\n"
-                f'Did you mean "-c {args.script[0]}"?'
+                f"error: {args.args[0]} is a core dump\n"
+                f'Did you mean "-c {args.args[0]}"?'
             )
         elif script_type == "elf":
-            sys.exit(f"error: {args.script[0]} is a binary, not a drgn script")
+            sys.exit(f"error: {args.args[0]} is a binary, not a drgn script")
     elif not args.exec:
         print(version, file=sys.stderr, flush=True)
 
@@ -572,16 +574,16 @@ def _main() -> None:
 
     if args.exec:
         sys.path.insert(0, "")
-        sys.argv = ["-e"] + args.script
+        sys.argv = ["-e"] + args.args
         drgn.set_default_prog(prog)
         exec(args.exec, default_globals(prog))
-    elif args.script:
-        sys.argv = args.script
-        script = args.script[0]
-        if pkgutil.get_importer(script) is None:
-            sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
+    elif script:
+        sys.argv = args.args
+        script_path = args.args[0]
+        if pkgutil.get_importer(script_path) is None:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(script_path)))
         drgn.set_default_prog(prog)
-        runpy.run_path(script, init_globals={"prog": prog}, run_name="__main__")
+        runpy.run_path(script_path, init_globals={"prog": prog}, run_name="__main__")
     else:
         run_interactive(prog)
 
