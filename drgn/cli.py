@@ -52,36 +52,37 @@ def _is_tty(file: IO[Any]) -> bool:
 
 class _LogFormatter(logging.Formatter):
     _LEVELS = (
-        (logging.DEBUG, "debug", "36"),
-        (logging.INFO, "info", "32"),
-        (logging.WARNING, "warning", "33"),
-        (logging.ERROR, "error", "31"),
-        (logging.CRITICAL, "critical", "31;1"),
+        (logging.DEBUG, "debug", "\033[36m", "\033[m", ""),
+        (logging.INFO, "info", "\033[32m", "\033[m", ""),
+        (logging.WARNING, "warning", "\033[33m", "\033[m", ""),
+        (logging.ERROR, "error", "\033[31m", "\033[m", ""),
+        (logging.CRITICAL, "critical", "\033[31;1m", "\033[0;1m", "\033[m"),
     )
 
     def __init__(self, color: bool) -> None:
         if color:
-            level_prefixes = {
-                level: f"\033[{level_color}m{level_name}:\033[0m"
-                for level, level_name, level_color in self._LEVELS
+            levels = {
+                level: (f"{level_prefix}{level_name}:{message_prefix}", message_suffix)
+                for level, level_name, level_prefix, message_prefix, message_suffix in self._LEVELS
             }
         else:
-            level_prefixes = {
-                level: f"{level_name}:" for level, level_name, _ in self._LEVELS
+            levels = {
+                level: (f"{level_name}:", "")
+                for level, level_name, _, _, _ in self._LEVELS
             }
         default_prefix = "%(levelname)s:"
 
         self._drgn_formatters = {
-            level: logging.Formatter(f"{prefix} %(message)s")
-            for level, prefix in level_prefixes.items()
+            level: logging.Formatter(f"{prefix} %(message)s{suffix}")
+            for level, (prefix, suffix) in levels.items()
         }
         self._default_drgn_formatter = logging.Formatter(
             f"{default_prefix} %(message)s"
         )
 
         self._other_formatters = {
-            level: logging.Formatter(f"{prefix}%(name)s: %(message)s")
-            for level, prefix in level_prefixes.items()
+            level: logging.Formatter(f"{prefix}%(name)s: %(message)s{suffix}")
+            for level, (prefix, suffix) in levels.items()
         }
         self._default_other_formatter = logging.Formatter(
             f"{default_prefix}%(name)s: %(message)s"
@@ -270,9 +271,7 @@ class _NoSymbolsByAction(_TrySymbolsByBaseAction):
     _enable = False
 
 
-def _load_debugging_symbols(
-    prog: drgn.Program, args: argparse.Namespace, color: bool
-) -> None:
+def _load_debugging_symbols(prog: drgn.Program, args: argparse.Namespace) -> None:
     enable_debug_info_finders = getattr(args, "enable_debug_info_finders", ())
     disable_debug_info_finders = getattr(args, "disable_debug_info_finders", ())
     if enable_debug_info_finders or disable_debug_info_finders:
@@ -344,7 +343,17 @@ def _load_debugging_symbols(
     try:
         prog.load_debug_info(args.symbols, **args.default_symbols)
     except drgn.MissingDebugInfoError as e:
-        logger.warning("\033[1m%s\033[m" if color else "%s", e)
+        if args.default_symbols.get("main"):
+            try:
+                main_module = prog.main_module()
+                critical = (
+                    main_module.wants_debug_file() or main_module.wants_loaded_file()
+                )
+            except LookupError:
+                critical = True
+        else:
+            critical = False
+        logger.log(logging.CRITICAL if critical else logging.WARNING, "%s", e)
 
     if args.extra_symbols:
         for extra_symbol_path in args.extra_symbols:
@@ -578,7 +587,7 @@ def _main() -> None:
         # E.g., "not an ELF core file"
         sys.exit(f"error: {e}")
 
-    _load_debugging_symbols(prog, args, color)
+    _load_debugging_symbols(prog, args)
 
     if interactive:
         run_interactive(prog)
