@@ -142,6 +142,7 @@ struct drgn_module_iterator {
 	struct drgn_program *prog;
 	drgn_module_iterator_destroy_fn *destroy;
 	drgn_module_iterator_next_fn *next;
+	bool for_load_debug_info;
 };
 
 static inline void
@@ -153,6 +154,7 @@ drgn_module_iterator_init(struct drgn_module_iterator *it,
 	it->prog = prog;
 	it->destroy = destroy;
 	it->next = next;
+	it->for_load_debug_info = false;
 }
 
 /** Bitmask of files in a @ref drgn_module. */

@@ -5198,9 +5198,14 @@ static void load_debug_info_log_missing(struct drgn_module *module,
 		missing_debug = "";
 		break;
 	}
-	drgn_log_warning(module->prog, "missing %s%s%s for %s", missing_loaded,
+	const char *name_extra = "";
+	if (module->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL
+	    && drgn_module_kind(module) == DRGN_MODULE_MAIN)
+		name_extra = module->prog->vmcoreinfo.osrelease;
+	drgn_log_warning(module->prog, "missing %s%s%s for %s%s%s", missing_loaded,
 			 missing_loaded[0] && missing_debug[0] ? " and ": "",
-			 missing_debug, module->name);
+			 missing_debug, module->name, name_extra[0] ? " " : "",
+			 name_extra);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -5246,6 +5251,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	err = drgn_loaded_module_iterator_create(prog, &it);
 	if (err)
 		return err;
+	it->for_load_debug_info = true;
 	VECTOR(drgn_module_vector, modules);
 	struct drgn_module *module;
 	while (!(err = drgn_module_iterator_next(it, &module, NULL)) && module) {

@@ -2107,8 +2107,11 @@ linux_kernel_loaded_module_iterator_next(struct drgn_module_iterator *_it,
 				}
 				if (!prog->dbinfo.main_module
 				    || drgn_module_wants_debug_file(prog->dbinfo.main_module)) {
-					drgn_log_warning(prog,
-							 "can't find loaded modules without kernel debug info");
+					drgn_log(it->it.for_load_debug_info
+						 ? DRGN_LOG_DEBUG
+						 : DRGN_LOG_WARNING,
+						 prog,
+						 "can't find loaded modules without kernel debug info");
 				} else {
 					drgn_log_debug(prog,
 						       "kernel does not have loadable module support");
