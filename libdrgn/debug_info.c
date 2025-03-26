@@ -5167,9 +5167,9 @@ load_debug_info_try_provided_files(struct drgn_module *module,
 
 static void load_debug_info_log_missing(struct drgn_module *module,
 					unsigned int max_warnings,
-					unsigned int *num_warnings)
+					unsigned int *num_missing)
 {
-	if (++(*num_warnings) > max_warnings)
+	if (++(*num_missing) > max_warnings)
 		return;
 	const char *missing_loaded = "";
 	if (drgn_module_loaded_file_status(module) == DRGN_MODULE_FILE_WANT) {
@@ -5223,7 +5223,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 
 	const char *env = getenv("DRGN_MAX_DEBUG_INFO_ERRORS");
 	unsigned int max_warnings = env ? atoi(env) : 5;
-	unsigned int num_warnings = 0;
+	unsigned int num_missing = 0;
 
 	drgn_log_debug(prog, "loading %sdebugging symbols",
 		       load_default ? "default " : load_main ? "main " : "");
@@ -5289,7 +5289,6 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	struct drgn_module **wanted_modules =
 		drgn_module_vector_begin(&modules);
 	size_t num_wanted_modules = drgn_module_vector_size(&modules);
-	bool iterator_tried_missing = false;
 
 	// The module iterator may have tried to load debug info, so we need to
 	// check each module again.
@@ -5312,8 +5311,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 			} else if (drgn_module_wants_file(module)) {
 				load_debug_info_log_missing(module,
 							    max_warnings,
-							    &num_warnings);
-				iterator_tried_missing = true;
+							    &num_missing);
 			}
 		}
 		num_wanted_modules = new_num_wanted_modules;
@@ -5371,11 +5369,11 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 
 	for (size_t i = 0; i < num_wanted_modules; i++) {
 		load_debug_info_log_missing(wanted_modules[i], max_warnings,
-					    &num_warnings);
+					    &num_missing);
 	}
-	if (num_warnings > max_warnings) {
+	if (num_missing > max_warnings) {
 		drgn_log_warning(prog, "... missing %u more",
-				 num_warnings - max_warnings);
+				 num_missing - max_warnings);
 	}
 
 	// Update the DWARF index eagerly, mostly because that's what we did
@@ -5384,7 +5382,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	if (err)
 		return err;
 
-	if (num_wanted_modules > 0 || iterator_tried_missing) {
+	if (num_missing > 0) {
 		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
 					"missing some debugging symbols; see https://drgn.readthedocs.io/en/latest/getting_debugging_symbols.html");
 	}
