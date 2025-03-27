@@ -1157,6 +1157,12 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
     """
     Call a function in the kernel.
 
+    >>> task = find_task(99)
+    >>> if task:
+    ...     call_function("wake_up_process", task)
+    ...
+    (int)1
+
     Arguments can be either :class:`~drgn.Object`\\ s or Python values. The
     function return value is returned as an :class:`~drgn.Object`:
 
