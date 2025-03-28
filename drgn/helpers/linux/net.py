@@ -12,7 +12,17 @@ Linux kernel networking subsystem.
 import operator
 from typing import Iterator, Optional, Union
 
-from drgn import NULL, IntegerLike, Object, Program, Type, cast, container_of, sizeof
+from drgn import (
+    NULL,
+    FaultError,
+    IntegerLike,
+    Object,
+    Program,
+    Type,
+    cast,
+    container_of,
+    sizeof,
+)
 from drgn.helpers.common.prog import (
     takes_object_or_program_or_default,
     takes_program_or_default,
@@ -260,3 +270,20 @@ def skb_shinfo(skb: Object) -> Object:
         return cast("struct skb_shared_info *", skb.head + skb.end)
     else:
         return cast("struct skb_shared_info *", skb.end)
+
+
+def is_pp_page(page: Object) -> bool:
+    """
+    Check if given page is a page_pool page.
+
+    :param page: ``struct page *``
+    """
+    PP_SIGNATURE = 0xDEAD000000000040
+    PP_MAGIC_MASK = ~0x3
+
+    try:
+        return (page.pp_magic & PP_MAGIC_MASK) == PP_SIGNATURE
+    except FaultError:
+        return False
+    except AttributeError:
+        return False
