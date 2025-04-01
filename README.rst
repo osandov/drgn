@@ -70,13 +70,13 @@ drgn can be installed using the package manager on some Linux distributions.
     :target: https://repology.org/project/drgn/versions
     :alt: Packaging Status
 
-* Fedora >= 32
+* Fedora, RHEL/CentOS Stream >= 9
 
   .. code-block:: console
 
       $ sudo dnf install drgn
 
-* RHEL/CentOS >= 8
+* RHEL/CentOS < 9
 
   `Enable EPEL <https://docs.fedoraproject.org/en-US/epel/#_quickstart>`_. Then:
 
@@ -86,14 +86,14 @@ drgn can be installed using the package manager on some Linux distributions.
 
 * Oracle Linux >= 8
 
-  Enable the ``ol8_addons`` or ``ol9_addons`` repository and install drgn:
+  Enable the ``ol8_addons`` or ``ol9_addons`` repository. Then:
 
   .. code-block:: console
 
       $ sudo dnf config-manager --enable ol8_addons  # OR: ol9_addons
       $ sudo dnf install drgn
 
-  Drgn is also available for Python versions in application streams. For
+  drgn is also available for Python versions in application streams. For
   example, use ``dnf install python3.12-drgn`` to install drgn for Python 3.12.
   See the documentation for drgn in `Oracle Linux 9
   <https://docs.oracle.com/en/operating-systems/oracle-linux/9/drgn/how_to_install_drgn.html>`_
@@ -101,17 +101,20 @@ drgn can be installed using the package manager on some Linux distributions.
   <https://docs.oracle.com/en/operating-systems/oracle-linux/8/drgn/how_to_install_drgn.html>`_
   for more information.
 
+* Debian >= 12 (Bookworm)/Ubuntu >= 24.04 (Noble Numbat)
+
+  .. code-block:: console
+
+      $ sudo apt install python3-drgn
+
+  To get the latest version on Ubuntu, enable the `michel-slm/kernel-utils PPA
+  <https://launchpad.net/~michel-slm/+archive/ubuntu/kernel-utils>`_ first.
+
 * Arch Linux
 
   .. code-block:: console
 
       $ sudo pacman -S drgn
-
-* Debian >= 12 (Bookworm)
-
-  .. code-block:: console
-
-    $ sudo apt install python3-drgn
 
 * Gentoo
 
@@ -124,19 +127,6 @@ drgn can be installed using the package manager on some Linux distributions.
   .. code-block:: console
 
       $ sudo zypper install python3-drgn
-
-* Ubuntu
-
-  All supported Ubuntu releases except for 22.04 (jammy) ships with drgn - but generally the version that
-  was in Debian unstable at the time that Ubuntu release is branched.
-
-  To get the latest version, including on jammy, enable the `michel-slm/kernel-utils PPA <https://launchpad.net/~michel-slm/+archive/ubuntu/kernel-utils>`_.
-
-  To install drgn itself, with or without the PPA:
-
-  .. code-block:: console
-
-      $ sudo apt install python3-drgn
 
 pip
 ^^^
@@ -166,13 +156,13 @@ From Source
 To get the development version of drgn, you will need to build it from source.
 First, install dependencies:
 
-* Fedora
+* Fedora, RHEL/CentOS Stream >= 9
 
   .. code-block:: console
 
-      $ sudo dnf install autoconf automake check-devel elfutils-devel gcc git libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
+      $ sudo dnf install autoconf automake check-devel elfutils-debuginfod-client-devel elfutils-devel gcc git libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
 
-* RHEL/CentOS/Oracle Linux
+* RHEL/CentOS < 9, Oracle Linux
 
   .. code-block:: console
 
@@ -195,10 +185,11 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo apt install autoconf automake check gcc git liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
+      $ sudo apt install autoconf automake check gcc git libdebuginfod-dev libkdumpfile-dev liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
 
-  Optionally, install libkdumpfile from source if you want support for the
-  makedumpfile format.
+  On Debian <= 11 (Bullseye) and Ubuntu <= 22.04 (Jammy Jellyfish),
+  ``libkdumpfile-dev`` is not available, so you must install libkdumpfile from
+  source if you want support for the makedumpfile format.
 
 * Arch Linux
 
@@ -216,7 +207,7 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo zypper install autoconf automake check-devel gcc git libdw-devel libelf-devel libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
+      $ sudo zypper install autoconf automake check-devel gcc git libdebuginfod-devel libdw-devel libelf-devel libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
 
 Then, run:
 
