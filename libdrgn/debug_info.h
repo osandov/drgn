@@ -47,6 +47,22 @@ struct drgn_elf_file;
  * @{
  */
 
+#if WITH_DEBUGINFOD
+#if ENABLE_DLOPEN_DEBUGINFOD
+bool drgn_have_debuginfod(void);
+#else
+static inline bool drgn_have_debuginfod(void)
+{
+	return true;
+}
+#endif
+#else
+static inline bool drgn_have_debuginfod(void)
+{
+	return false;
+}
+#endif
+
 DEFINE_HASH_TABLE_TYPE(drgn_elf_file_dwarf_table, struct drgn_elf_file *);
 DEFINE_HASH_TABLE_TYPE(drgn_module_table, struct drgn_module *);
 DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_module_address_tree, struct drgn_module);

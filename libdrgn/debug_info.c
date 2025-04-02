@@ -120,7 +120,7 @@ static void drgn_dlopen_debuginfod(void)
 	}
 }
 
-static inline bool drgn_have_debuginfod(void)
+bool drgn_have_debuginfod(void)
 {
 	return drgn_debuginfod_begin != NULL;
 }
@@ -129,11 +129,6 @@ static inline bool drgn_have_debuginfod(void)
 #define X(name) static const typeof(&name) drgn_##name = name;
 DRGN_DEBUGINFOD_FUNCTIONS
 #undef X
-
-static inline bool drgn_have_debuginfod(void)
-{
-	return true;
-}
 #endif
 
 #undef DRGN_DEBUGINFOD_FUNCTIONS

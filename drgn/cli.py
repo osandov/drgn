@@ -110,8 +110,11 @@ def version_header() -> str:
     calling :func:`run_interactive()`.
     """
     python_version = ".".join(str(v) for v in sys.version_info[:3])
+    debuginfod = f'with{"" if drgn._have_debuginfod else "out"} debuginfod'
+    if drgn._enable_dlopen_debuginfod:
+        debuginfod += " (dlopen)"
     libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
-    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {libkdumpfile})"
+    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {debuginfod}, {libkdumpfile})"
 
 
 def default_globals(prog: drgn.Program) -> Dict[str, Any]:

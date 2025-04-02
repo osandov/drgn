@@ -344,6 +344,25 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 				       dwfl_version(NULL)))
 		goto err;
 
+	PyObject *have_debuginfod = PyBool_FromLong(drgn_have_debuginfod());
+	if (PyModule_AddObject(m, "_have_debuginfod", have_debuginfod)) {
+		Py_XDECREF(have_debuginfod);
+		goto err;
+	}
+
+	PyObject *enable_dlopen_debuginfod;
+#if ENABLE_DLOPEN_DEBUGINFOD
+	enable_dlopen_debuginfod = Py_True;
+#else
+	enable_dlopen_debuginfod = Py_False;
+#endif
+	Py_INCREF(enable_dlopen_debuginfod);
+	if (PyModule_AddObject(m, "_enable_dlopen_debuginfod",
+			       enable_dlopen_debuginfod)) {
+		Py_DECREF(enable_dlopen_debuginfod);
+		goto err;
+	}
+
 	PyObject *with_libkdumpfile;
 #ifdef WITH_LIBKDUMPFILE
 	with_libkdumpfile = Py_True;
