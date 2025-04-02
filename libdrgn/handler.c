@@ -133,3 +133,31 @@ struct drgn_error *drgn_handler_list_enabled(struct drgn_handler_list *list,
 	*count_ret = n;
 	return NULL;
 }
+
+bool drgn_handler_list_disable(struct drgn_handler_list *list,
+			       const char *name)
+{
+	// Find an enabled handler with the given name.
+	struct drgn_handler **handlerp = &list->head;
+	struct drgn_handler *handler = list->head;
+	for (;;) {
+		if (!handler || !handler->enabled)
+			return false;
+		if (strcmp(handler->name, name) == 0)
+			break;
+		handlerp = &handler->next;
+		handler = handler->next;
+	}
+
+	// Disable the handler.
+	handler->enabled = false;
+
+	// Move it to the appropriate part of the list (after all enabled
+	// handlers).
+	*handlerp = handler->next;
+	while (*handlerp && (*handlerp)->enabled)
+		handlerp = &(*handlerp)->next;
+	handler->next = *handlerp;
+	*handlerp = handler;
+	return true;
+}

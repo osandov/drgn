@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <ctype.h>
 #include <dirent.h>
 #include <elf.h>
 #include <elfutils/libdwelf.h>
@@ -386,6 +387,24 @@ static struct drgn_error *linux_kernel_get_vmemmap(struct drgn_program *prog,
 
 #include "linux_kernel_object_find.inc" // IWYU pragma: keep
 
+// Return whether the given kernel is from Fedora. We check whether the release
+// matches the regular expression /.fc[0-9]+(.|$)/
+static bool is_fedora_kernel(const char *osrelease)
+{
+	const char *p = osrelease;
+	while ((p = strstr(p, ".fc"))) {
+		p += sizeof(".fc") - 1;
+		if (isdigit(*p)) {
+			do {
+				p++;
+			} while (isdigit(*p));
+			if (*p == '.' || *p == '\0')
+				return true;
+		}
+	}
+	return false;
+}
+
 struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog)
 {
 	struct drgn_error *err;
@@ -397,6 +416,15 @@ struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog)
 		return err;
 	if (!prog->lang)
 		prog->lang = &drgn_language_c;
+
+	// At the time of writing, only Fedora's debuginfod server provides fast
+	// Linux kernel downloads. It's painfully slow everywhere else, so
+	// disable it.
+	if (!is_fedora_kernel(prog->vmcoreinfo.osrelease)
+	    && drgn_handler_list_disable(&prog->dbinfo.debug_info_finders,
+					 "debuginfod"))
+		drgn_log_debug(prog, "disabled debuginfod for Linux kernel");
+
 	return NULL;
 }
 
