@@ -276,11 +276,10 @@ struct drgn_module *drgn_module_find_by_address(struct drgn_program *prog,
 	return it.entry;
 }
 
-struct drgn_error *drgn_module_find_or_create(struct drgn_program *prog,
-					      const struct drgn_module_key *key,
-					      const char *name,
-					      struct drgn_module **ret,
-					      bool *new_ret)
+static struct drgn_error *
+drgn_module_find_or_create(struct drgn_program *prog,
+			   const struct drgn_module_key *key, const char *name,
+			   struct drgn_module **ret, bool *new_ret)
 {
 	struct drgn_error *err;
 

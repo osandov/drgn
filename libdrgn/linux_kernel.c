@@ -1833,8 +1833,6 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_object_program(module_obj);
 
-	struct drgn_module_key key;
-	key.kind = DRGN_MODULE_RELOCATABLE;
 	uint64_t name_offset;
 	err = drgn_type_offsetof(module_obj->type, "name", &name_offset);
 	if (err)
@@ -1845,7 +1843,7 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "couldn't read module name");
 	}
-	key.relocatable.name = drgn_object_buffer(module_obj) + name_offset;
+	const char *name = drgn_object_buffer(module_obj) + name_offset;
 
 	DRGN_OBJECT(mem, prog);
 	DRGN_OBJECT(val, prog);
@@ -1896,16 +1894,22 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 		err = drgn_object_member(&val, &mem, "base");
 	if (err)
 		return err;
-	err = drgn_object_read_unsigned(&val, &key.relocatable.address);
+	uint64_t address;
+	err = drgn_object_read_unsigned(&val, &address);
 	if (err)
 		return err;
 
 	if (log) {
 		drgn_log_debug(prog, "found loaded kernel module %s@0x%" PRIx64,
-			       key.relocatable.name, key.relocatable.address);
+			       name, address);
 	}
 
 	if (!create) {
+		const struct drgn_module_key key = {
+			.kind = DRGN_MODULE_RELOCATABLE,
+			.relocatable.name = name,
+			.relocatable.address = address,
+		};
 		*ret = drgn_module_find(prog, &key);
 		if (new_ret)
 			*new_ret = false;
@@ -1914,8 +1918,8 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 
 	_cleanup_(drgn_module_deletep) struct drgn_module *module = NULL;
 	bool new;
-	err = drgn_module_find_or_create(prog, &key, key.relocatable.name,
-					 &module, &new);
+	err = drgn_module_find_or_create_relocatable(prog, name, address,
+						     &module, &new);
 	if (err)
 		return err;
 	if (!new) {
@@ -1941,8 +1945,7 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 		return err;
 
 	drgn_log_debug(prog, "module size is %" PRIu64, size);
-	err = drgn_module_set_address_range(module, key.relocatable.address,
-					    key.relocatable.address + size);
+	err = drgn_module_set_address_range(module, address, address + size);
 	if (err)
 		return err;
 

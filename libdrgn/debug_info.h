@@ -282,12 +282,6 @@ struct drgn_module {
 	struct drgn_object object;
 };
 
-struct drgn_error *drgn_module_find_or_create(struct drgn_program *prog,
-					      const struct drgn_module_key *key,
-					      const char *name,
-					      struct drgn_module **ret,
-					      bool *new_ret);
-
 /**
  * Delete a partially-initialized module. This can only be called before the
  * module is returned from public API.
