@@ -1054,6 +1054,14 @@ static PyObject *Program_create_loaded_modules(Program *self)
 	Py_RETURN_NONE;
 }
 
+static inline PyObject *Module_wrap_find(struct drgn_module *module)
+{
+	if (module)
+		return Module_wrap(module);
+	PyErr_SetString(PyExc_LookupError, "module not found");
+	return NULL;
+}
+
 static PyObject *Program_main_module(Program *self, PyObject *args,
 				     PyObject *kwds)
 {
@@ -1082,26 +1090,9 @@ static PyObject *Program_main_module(Program *self, PyObject *args,
 		}
 		return Module_and_bool_wrap(module, new);
 	} else {
-		struct drgn_module_key key = { .kind = DRGN_MODULE_MAIN };
-		struct drgn_module *module = drgn_module_find(&self->prog, &key);
-		if (!module
-		    || (name.path
-			&& strcmp(drgn_module_name(module), name.path) != 0)) {
-			PyErr_SetString(PyExc_LookupError, "module not found");
-			return NULL;
-		}
-		return Module_wrap(module);
+		return Module_wrap_find(drgn_module_find_main(&self->prog,
+							      name.path));
 	}
-}
-
-static PyObject *Program_find_module(Program *self, const struct drgn_module_key *key)
-{
-	struct drgn_module *module = drgn_module_find(&self->prog, key);
-	if (!module) {
-		PyErr_SetString(PyExc_LookupError, "module not found");
-		return NULL;
-	}
-	return Module_wrap(module);
 }
 
 static PyObject *Program_shared_library_module(Program *self, PyObject *args,
@@ -1132,13 +1123,9 @@ static PyObject *Program_shared_library_module(Program *self, PyObject *args,
 		}
 		return Module_and_bool_wrap(module, new);
 	} else {
-		struct drgn_module_key key = {
-			.kind = DRGN_MODULE_SHARED_LIBRARY,
-			.shared_library.name = name.path,
-			.shared_library.dynamic_address =
-				dynamic_address.uvalue,
-		};
-		return Program_find_module(self, &key);
+		return Module_wrap_find(drgn_module_find_shared_library(&self->prog,
+									name.path,
+									dynamic_address.uvalue));
 	}
 }
 
@@ -1168,12 +1155,9 @@ static PyObject *Program_vdso_module(Program *self, PyObject *args,
 		}
 		return Module_and_bool_wrap(module, new);
 	} else {
-		struct drgn_module_key key = {
-			.kind = DRGN_MODULE_VDSO,
-			.vdso.name = name.path,
-			.vdso.dynamic_address = dynamic_address.uvalue,
-		};
-		return Program_find_module(self, &key);
+		return Module_wrap_find(drgn_module_find_vdso(&self->prog,
+							      name.path,
+							      dynamic_address.uvalue));
 	}
 }
 
@@ -1204,12 +1188,9 @@ static PyObject *Program_relocatable_module(Program *self, PyObject *args,
 		}
 		return Module_and_bool_wrap(module, new);
 	} else {
-		struct drgn_module_key key = {
-			.kind = DRGN_MODULE_RELOCATABLE,
-			.relocatable.name = name.path,
-			.relocatable.address = address.uvalue,
-		};
-		return Program_find_module(self, &key);
+		return Module_wrap_find(drgn_module_find_relocatable(&self->prog,
+								     name.path,
+								     address.uvalue));
 	}
 }
 
@@ -1251,11 +1232,7 @@ static PyObject *Program_linux_kernel_loadable_module(Program *self,
 			set_drgn_error(err);
 			return NULL;
 		}
-		if (!module) {
-			PyErr_SetString(PyExc_LookupError, "module not found");
-			return NULL;
-		}
-		return Module_wrap(module);
+		return Module_wrap_find(module);
 	}
 }
 
@@ -1284,12 +1261,9 @@ static PyObject *Program_extra_module(Program *self, PyObject *args,
 		}
 		return Module_and_bool_wrap(module, new);
 	} else {
-		struct drgn_module_key key = {
-			.kind = DRGN_MODULE_EXTRA,
-			.extra.name = name.path,
-			.extra.id = id.uvalue,
-		};
-		return Program_find_module(self, &key);
+		return Module_wrap_find(drgn_module_find_extra(&self->prog,
+							       name.path,
+							       id.uvalue));
 	}
 }
 

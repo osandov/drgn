@@ -1905,12 +1905,7 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 	}
 
 	if (!create) {
-		const struct drgn_module_key key = {
-			.kind = DRGN_MODULE_RELOCATABLE,
-			.relocatable.name = name,
-			.relocatable.address = address,
-		};
-		*ret = drgn_module_find(prog, &key);
+		*ret = drgn_module_find_relocatable(prog, name, address);
 		if (new_ret)
 			*new_ret = false;
 		return NULL;

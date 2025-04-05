@@ -1251,20 +1251,20 @@ struct drgn_module_key {
 };
 
 /**
- * Find the created @ref drgn_module matching the given @p key.
- *
- * @return Module, or @c NULL if not found.
- */
-struct drgn_module *drgn_module_find(struct drgn_program *prog,
-				     const struct drgn_module_key *key);
-
-/**
  * Find the created @ref drgn_module containing the given @p address.
  *
  * @return Module, or @c NULL if not found.
  */
 struct drgn_module *drgn_module_find_by_address(struct drgn_program *prog,
 						uint64_t address);
+
+/**
+ * Find the main module.
+ *
+ * @param[in] name Module name, or @c NULL to match any name.
+ */
+struct drgn_module *drgn_module_find_main(struct drgn_program *prog,
+					  const char *name);
 
 /**
  * Find the main module, creating it if it doesn't already exist.
@@ -1276,6 +1276,11 @@ struct drgn_error *drgn_module_find_or_create_main(struct drgn_program *prog,
 						   const char *name,
 						   struct drgn_module **ret,
 						   bool *new_ret);
+
+/** Find a shared library module. */
+struct drgn_module *drgn_module_find_shared_library(struct drgn_program *prog,
+						    const char *name,
+						    uint64_t dynamic_address);
 
 /**
  * Find a shared library module, creating it if it doesn't already exist.
@@ -1290,6 +1295,11 @@ drgn_module_find_or_create_shared_library(struct drgn_program *prog,
 					  struct drgn_module **ret,
 					  bool *new_ret);
 
+/** Find a vDSO module. */
+struct drgn_module *drgn_module_find_vdso(struct drgn_program *prog,
+					  const char *name,
+					  uint64_t dynamic_address);
+
 /**
  * Find a vDSO module, creating it if it doesn't already exist.
  *
@@ -1301,6 +1311,11 @@ struct drgn_error *drgn_module_find_or_create_vdso(struct drgn_program *prog,
 						   uint64_t dynamic_address,
 						   struct drgn_module **ret,
 						   bool *new_ret);
+
+/** Find a relocatable module. */
+struct drgn_module *drgn_module_find_relocatable(struct drgn_program *prog,
+						 const char *name,
+						 uint64_t address);
 
 /**
  * Find a relocatable module, creating it if it doesn't already exist.
@@ -1315,9 +1330,6 @@ drgn_module_find_or_create_relocatable(struct drgn_program *prog,
 
 /**
  * Find a created Linux kernel loadable module from a ``struct module *`` object.
- *
- * @param[out] new_ret @c true if the module was newly created, @c false if it
- * was found.
  */
 struct drgn_error *
 drgn_module_find_linux_kernel_loadable(const struct drgn_object *module_obj,
@@ -1334,6 +1346,10 @@ struct drgn_error *
 drgn_module_find_or_create_linux_kernel_loadable(const struct drgn_object *module_obj,
 						 struct drgn_module **ret,
 						 bool *new_ret);
+
+/** Find an extra module. */
+struct drgn_module *drgn_module_find_extra(struct drgn_program *prog,
+					   const char *name, uint64_t id);
 
 /**
  * Find an extra module, creating it if it doesn't already exist.

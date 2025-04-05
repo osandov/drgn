@@ -251,9 +251,8 @@ static void drgn_module_free_section_addresses(struct drgn_module *module)
 		free(it.entry->key);
 }
 
-LIBDRGN_PUBLIC
-struct drgn_module *drgn_module_find(struct drgn_program *prog,
-				     const struct drgn_module_key *key)
+static struct drgn_module *drgn_module_find(struct drgn_program *prog,
+					    const struct drgn_module_key *key)
 {
 	if (key->kind == DRGN_MODULE_MAIN) {
 		return prog->dbinfo.main_module;
@@ -413,6 +412,16 @@ err_module:
 }
 
 LIBDRGN_PUBLIC
+struct drgn_module *drgn_module_find_main(struct drgn_program *prog,
+					  const char *name)
+{
+	if (name && prog->dbinfo.main_module
+	    && strcmp(prog->dbinfo.main_module->name, name) != 0)
+		return NULL;
+	return prog->dbinfo.main_module;
+}
+
+LIBDRGN_PUBLIC
 struct drgn_error *drgn_module_find_or_create_main(struct drgn_program *prog,
 						   const char *name,
 						   struct drgn_module **ret,
@@ -420,6 +429,19 @@ struct drgn_error *drgn_module_find_or_create_main(struct drgn_program *prog,
 {
 	struct drgn_module_key key = { .kind = DRGN_MODULE_MAIN };
 	return drgn_module_find_or_create(prog, &key, name, ret, new_ret);
+}
+
+LIBDRGN_PUBLIC
+struct drgn_module *drgn_module_find_shared_library(struct drgn_program *prog,
+						    const char *name,
+						    uint64_t dynamic_address)
+{
+	const struct drgn_module_key key = {
+		.kind = DRGN_MODULE_SHARED_LIBRARY,
+		.shared_library.name = name,
+		.shared_library.dynamic_address = dynamic_address,
+	};
+	return drgn_module_find(prog, &key);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -438,6 +460,19 @@ drgn_module_find_or_create_shared_library(struct drgn_program *prog,
 }
 
 LIBDRGN_PUBLIC
+struct drgn_module *drgn_module_find_vdso(struct drgn_program *prog,
+					  const char *name,
+					  uint64_t dynamic_address)
+{
+	const struct drgn_module_key key = {
+		.kind = DRGN_MODULE_VDSO,
+		.vdso.name = name,
+		.vdso.dynamic_address = dynamic_address,
+	};
+	return drgn_module_find(prog, &key);
+}
+
+LIBDRGN_PUBLIC
 struct drgn_error *drgn_module_find_or_create_vdso(struct drgn_program *prog,
 						   const char *name,
 						   uint64_t dynamic_address,
@@ -452,6 +487,19 @@ struct drgn_error *drgn_module_find_or_create_vdso(struct drgn_program *prog,
 	return drgn_module_find_or_create(prog, &key, name, ret, new_ret);
 }
 
+LIBDRGN_PUBLIC
+struct drgn_module *drgn_module_find_relocatable(struct drgn_program *prog,
+						 const char *name,
+						 uint64_t address)
+{
+	const struct drgn_module_key key = {
+		.kind = DRGN_MODULE_RELOCATABLE,
+		.relocatable.name = name,
+		.relocatable.address = address,
+	};
+	return drgn_module_find(prog, &key);
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_module_find_or_create_relocatable(struct drgn_program *prog,
 				       const char *name, uint64_t address,
@@ -463,6 +511,18 @@ drgn_module_find_or_create_relocatable(struct drgn_program *prog,
 		.relocatable.address = address,
 	};
 	return drgn_module_find_or_create(prog, &key, name, ret, new_ret);
+}
+
+LIBDRGN_PUBLIC
+struct drgn_module *drgn_module_find_extra(struct drgn_program *prog,
+					   const char *name, uint64_t id)
+{
+	const struct drgn_module_key key = {
+		.kind = DRGN_MODULE_EXTRA,
+		.extra.name = name,
+		.extra.id = id,
+	};
+	return drgn_module_find(prog, &key);
 }
 
 LIBDRGN_PUBLIC
