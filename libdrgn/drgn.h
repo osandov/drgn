@@ -2195,6 +2195,8 @@ enum drgn_absence_reason {
 	DRGN_ABSENCE_REASON_OTHER,
 	/** Object was optimized out by the compiler. */
 	DRGN_ABSENCE_REASON_OPTIMIZED_OUT,
+	/** Encountered unknown debugging information. */
+	DRGN_ABSENCE_REASON_NOT_IMPLEMENTED,
 };
 
 /**

@@ -2681,6 +2681,8 @@ class AbsenceReason(enum.Enum):
     """Another reason not listed below."""
     OPTIMIZED_OUT = ...
     """Object was optimized out by the compiler."""
+    NOT_IMPLEMENTED = ...
+    """Encountered unknown debugging information."""
 
 def NULL(prog: Program, type: Union[str, Type]) -> Object:
     """

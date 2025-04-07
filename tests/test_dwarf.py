@@ -5570,8 +5570,9 @@ class TestObjects(TestCase):
                 ),
             )
         )
-        self.assertRaisesRegex(
-            Exception, "unknown DWARF expression opcode", prog.object, "x"
+        self.assertIdentical(
+            prog.object("x"),
+            Object(prog, "int", absence_reason=AbsenceReason.NOT_IMPLEMENTED),
         )
 
     def test_variable_expr_unknown_after_location(self):
@@ -5597,8 +5598,9 @@ class TestObjects(TestCase):
                 ),
             )
         )
-        self.assertRaisesRegex(
-            Exception, "unknown DWARF expression opcode", prog.object, "x"
+        self.assertIdentical(
+            prog.object("x"),
+            Object(prog, "int", absence_reason=AbsenceReason.NOT_IMPLEMENTED),
         )
 
     def _eval_dwarf_expr(self, ops, **kwds):

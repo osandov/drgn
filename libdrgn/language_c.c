@@ -1541,6 +1541,8 @@ static const char *drgn_absence_reason_str(enum drgn_absence_reason reason)
 	SWITCH_ENUM (reason) {
 	case DRGN_ABSENCE_REASON_OPTIMIZED_OUT:
 		return "<optimized out>";
+	case DRGN_ABSENCE_REASON_NOT_IMPLEMENTED:
+		return "<not implemented>";
 	case DRGN_ABSENCE_REASON_OTHER:
 	default:
 		return "<absent>";

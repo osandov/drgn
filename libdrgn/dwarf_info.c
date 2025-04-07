@@ -3798,6 +3798,48 @@ drgn_dwarf_frame_base(struct drgn_program *prog, struct drgn_elf_file *file,
 		      Dwarf_Die *die, const struct drgn_register_state *regs,
 		      int *remaining_ops, uint64_t *ret);
 
+static struct drgn_error drgn_unknown_dwarf_opcode = {
+	.code = DRGN_ERROR_NOT_IMPLEMENTED,
+	.message = "unknown DWARF expression opcode",
+};
+
+static bool drgn_dwarf_opcode_is_known(uint8_t opcode)
+{
+#define X(name, _) if (opcode == name) return true;
+	DW_OP_DEFINITIONS
+#undef X
+	return false;
+}
+
+static struct drgn_error *
+drgn_handle_unknown_dwarf_opcode(struct drgn_dwarf_expression_context *ctx,
+				 uint8_t opcode,
+				 bool after_simple_location_description)
+{
+	// We warn the first time that we see an opcode that appears to be
+	// valid.
+	static bool warned;
+	enum drgn_log_level log_level = DRGN_LOG_DEBUG;
+	if (drgn_dwarf_opcode_is_known(opcode)
+	    && !__atomic_test_and_set(&warned, __ATOMIC_SEQ_CST))
+		log_level = DRGN_LOG_WARNING;
+	if (drgn_log_is_enabled(ctx->prog, log_level)) {
+		struct drgn_error *err;
+		char op_buf[DW_OP_STR_BUF_LEN];
+		err = binary_buffer_error(&ctx->bb,
+					  "unknown DWARF expression opcode %s%s; "
+					  "please report this to %s",
+					  dw_op_str(opcode, op_buf),
+					  after_simple_location_description
+					  ? " after simple location description"
+					  : "",
+					  PACKAGE_BUGREPORT);
+		drgn_error_log(log_level, ctx->prog, err, "");
+		drgn_error_destroy(err);
+	}
+	return &drgn_unknown_dwarf_opcode;
+}
+
 /*
  * Evaluate a DWARF expression up to the next location description operation or
  * operation that can't be evaluated in the given context.
@@ -4248,6 +4290,15 @@ branch:
 			// address and using the DW_AT_(GNU_)call_value of a
 			// DW_TAG_(GNU_)call_parameter with a DW_AT_location
 			// matching that register.
+			if (drgn_log_is_enabled(ctx->prog, DRGN_LOG_DEBUG)) {
+				char op_buf[DW_OP_STR_BUF_LEN];
+				err = binary_buffer_error(&ctx->bb,
+							  "unimplemented DWARF expression opcode %s; "
+							  "please upvote https://github.com/osandov/drgn/issues/337",
+							  dw_op_str(opcode, op_buf));
+				drgn_error_log_debug(ctx->prog, err, "");
+				drgn_error_destroy(err);
+			}
 			return &drgn_not_found;
 		/* Location description operations. */
 		case DW_OP_reg0 ... DW_OP_reg31:
@@ -4272,14 +4323,8 @@ branch:
 		 *   DW_OP_xderef_size, DW_OP_xderef_type.
 		 */
 		default:
-		{
-			char op_buf[DW_OP_STR_BUF_LEN];
-			return binary_buffer_error(&ctx->bb,
-						   "unknown DWARF expression opcode %s; "
-						   "please report this to %s",
-						   dw_op_str(opcode, op_buf),
-						   PACKAGE_BUGREPORT);
-		}
+			return drgn_handle_unknown_dwarf_opcode(ctx, opcode,
+								false);
 		}
 	}
 
@@ -4760,6 +4805,9 @@ drgn_object_from_dwarf_location(struct drgn_program *prog,
 	uint64_t address = 0; /* GCC thinks this may be used uninitialized. */
 	int bit_offset = -1; /* -1 means that we don't have an address. */
 
+	enum drgn_absence_reason absence_reason =
+		DRGN_ABSENCE_REASON_OPTIMIZED_OUT;
+
 	uint64_t bit_pos = 0;
 
 	int remaining_ops = MAX_DWARF_EXPR_OPS;
@@ -4772,6 +4820,13 @@ drgn_object_from_dwarf_location(struct drgn_program *prog,
 	do {
 		uint64_vector_clear(&stack);
 		err = drgn_eval_dwarf_expression(&ctx, &stack, &remaining_ops);
+		if (err) {
+			if (err == &drgn_unknown_dwarf_opcode)
+				absence_reason = DRGN_ABSENCE_REASON_NOT_IMPLEMENTED;
+			else if (err != &drgn_not_found)
+				goto out;
+			goto absent;
+		}
 		if (err == &drgn_not_found)
 			goto absent;
 		else if (err)
@@ -4873,10 +4928,10 @@ reg:
 					piece_bit_size = type.bit_size - bit_pos;
 				break;
 			default:
-				err = binary_buffer_error(&ctx.bb,
-							  "unknown DWARF expression opcode %#" PRIx8 " after simple location description",
-							  opcode);
-				goto out;
+				drgn_handle_unknown_dwarf_opcode(&ctx, opcode,
+								 true);
+				absence_reason = DRGN_ABSENCE_REASON_NOT_IMPLEMENTED;
+				goto absent;
 			}
 		} else {
 			piece_bit_size = type.bit_size - bit_pos;
@@ -5011,8 +5066,7 @@ absent:
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_AT_template_value_parameter is missing value");
 		}
-		drgn_object_set_absent_internal(ret, &type,
-						DRGN_ABSENCE_REASON_OPTIMIZED_OUT);
+		drgn_object_set_absent_internal(ret, &type, absence_reason);
 		err = NULL;
 	} else if (bit_offset >= 0) {
 		err = drgn_object_set_reference_internal(ret, &type, address,
@@ -7742,8 +7796,11 @@ drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
 	drgn_dwarf_expression_context_init(&ctx, prog, file, NULL, NULL, regs,
 					   rule->expr, rule->expr_size);
 	err = drgn_eval_dwarf_expression(&ctx, &stack, &remaining_ops);
-	if (err)
+	if (err) {
+		if (err == &drgn_unknown_dwarf_opcode)
+			err = &drgn_not_found;
 		return err;
+	}
 	if (binary_buffer_has_next(&ctx.bb)) {
 		uint8_t opcode;
 		err = binary_buffer_next_u8(&ctx.bb, &opcode);
