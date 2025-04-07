@@ -4657,7 +4657,8 @@ drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
 	Dwarf_Addr low_pc;
 	if (dwarf_lowpc(die, &low_pc) == -1) {
 		return drgn_object_set_absent(ret, qualified_type,
-					      DRGN_ABSENCE_REASON_OTHER, 0);
+					      DRGN_ABSENCE_REASON_OPTIMIZED_OUT,
+					      0);
 	}
 	return drgn_object_set_reference(ret, qualified_type,
 					 low_pc + file->module->debug_file_bias,
@@ -5011,7 +5012,7 @@ absent:
 						 "DW_AT_template_value_parameter is missing value");
 		}
 		drgn_object_set_absent_internal(ret, &type,
-						DRGN_ABSENCE_REASON_OTHER);
+						DRGN_ABSENCE_REASON_OPTIMIZED_OUT);
 		err = NULL;
 	} else if (bit_offset >= 0) {
 		err = drgn_object_set_reference_internal(ret, &type, address,

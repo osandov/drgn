@@ -10,6 +10,7 @@ import tempfile
 
 import drgn
 from drgn import (
+    AbsenceReason,
     FaultError,
     FindObjectFlags,
     Language,
@@ -4586,7 +4587,12 @@ class TestObjects(TestCase):
             )
         )
         self.assertIdentical(
-            prog.object("abort"), Object(prog, prog.function_type(prog.void_type(), ()))
+            prog.object("abort"),
+            Object(
+                prog,
+                prog.function_type(prog.void_type(), ()),
+                absence_reason=AbsenceReason.OPTIMIZED_OUT,
+            ),
         )
 
     def test_function_concrete_out_of_line_instance(self):
@@ -4838,7 +4844,10 @@ class TestObjects(TestCase):
                 ),
             )
         )
-        self.assertIdentical(prog.object("x"), Object(prog, "int"))
+        self.assertIdentical(
+            prog.object("x"),
+            Object(prog, "int", absence_reason=AbsenceReason.OPTIMIZED_OUT),
+        )
 
     def test_variable_expr_empty(self):
         prog = dwarf_program(
@@ -4854,7 +4863,10 @@ class TestObjects(TestCase):
                 ),
             )
         )
-        self.assertIdentical(prog.object("x"), Object(prog, "int"))
+        self.assertIdentical(
+            prog.object("x"),
+            Object(prog, "int", absence_reason=AbsenceReason.OPTIMIZED_OUT),
+        )
 
     def test_variable_expr_bit_piece(self):
         prog = dwarf_program(
@@ -5091,7 +5103,10 @@ class TestObjects(TestCase):
                 ),
             ),
         )
-        self.assertIdentical(prog.object("x"), Object(prog, "int"))
+        self.assertIdentical(
+            prog.object("x"),
+            Object(prog, "int", absence_reason=AbsenceReason.OPTIMIZED_OUT),
+        )
 
     def test_variable_expr_stack_value(self):
         for little_endian in (True, False):
@@ -5221,7 +5236,10 @@ class TestObjects(TestCase):
                 ),
             ),
         )
-        self.assertIdentical(prog.object("x"), Object(prog, "int"))
+        self.assertIdentical(
+            prog.object("x"),
+            Object(prog, "int", absence_reason=AbsenceReason.OPTIMIZED_OUT),
+        )
 
     def test_variable_expr_contiguous_piece_addresses(self):
         prog = dwarf_program(
@@ -5507,7 +5525,10 @@ class TestObjects(TestCase):
                 ),
             ),
         )
-        self.assertIdentical(prog.object("x"), Object(prog, "int"))
+        self.assertIdentical(
+            prog.object("x"),
+            Object(prog, "int", absence_reason=AbsenceReason.OPTIMIZED_OUT),
+        )
 
     def test_variable_expr_absent_empty_piece(self):
         prog = dwarf_program(
@@ -5530,7 +5551,10 @@ class TestObjects(TestCase):
                 ),
             ),
         )
-        self.assertIdentical(prog.object("x"), Object(prog, "int"))
+        self.assertIdentical(
+            prog.object("x"),
+            Object(prog, "int", absence_reason=AbsenceReason.OPTIMIZED_OUT),
+        )
 
     def test_variable_expr_unknown(self):
         prog = dwarf_program(

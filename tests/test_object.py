@@ -1263,6 +1263,13 @@ class TestAbsent(MockProgramTestCase):
 
             self.assertRaises(ObjectAbsentError, obj.read_)
 
+    def test_reason(self):
+        obj = Object(self.prog, "int", absence_reason=AbsenceReason.OPTIMIZED_OUT)
+        self.assertEqual(obj.absence_reason_, AbsenceReason.OPTIMIZED_OUT)
+        self.assertEqual(
+            repr(obj), "Object(prog, 'int', absence_reason=AbsenceReason.OPTIMIZED_OUT)"
+        )
+
     def test_bit_field(self):
         obj = Object(self.prog, "int", bit_field_size=1)
         self.assertIs(obj.prog_, self.prog)

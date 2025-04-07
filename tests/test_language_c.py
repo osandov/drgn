@@ -4,6 +4,7 @@ from functools import reduce
 import operator
 
 from drgn import (
+    AbsenceReason,
     Object,
     Qualifiers,
     Type,
@@ -3058,6 +3059,12 @@ class TestPrettyPrintObject(MockProgramTestCase):
             else:
                 type_name = type_
             self.assertEqual(str(Object(self.prog, type_)), f"({type_name})<absent>")
+
+    def test_optimized_out(self):
+        self.assertEqual(
+            str(Object(self.prog, "int", absence_reason=AbsenceReason.OPTIMIZED_OUT)),
+            "(int)<optimized out>",
+        )
 
     def test_bigint(self):
         segment = bytearray(16)

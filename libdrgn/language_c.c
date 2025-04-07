@@ -1536,6 +1536,17 @@ c_format_function_object(const struct drgn_object *obj,
 	return NULL;
 }
 
+static const char *drgn_absence_reason_str(enum drgn_absence_reason reason)
+{
+	SWITCH_ENUM (reason) {
+	case DRGN_ABSENCE_REASON_OPTIMIZED_OUT:
+		return "<optimized out>";
+	case DRGN_ABSENCE_REASON_OTHER:
+	default:
+		return "<absent>";
+	}
+}
+
 static struct drgn_error *
 c_format_object_impl(const struct drgn_object *obj, size_t indent,
 		     size_t one_line_columns, size_t multi_line_columns,
@@ -1574,7 +1585,8 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 	}
 
 	if (obj->kind == DRGN_OBJECT_ABSENT) {
-		if (!string_builder_append(sb, "<absent>"))
+		if (!string_builder_append(sb,
+					   drgn_absence_reason_str(obj->absence_reason)))
 			return &drgn_enomem;
 		return NULL;
 	}

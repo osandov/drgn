@@ -2193,6 +2193,8 @@ static inline bool drgn_value_is_inline(uint64_t bits)
 enum drgn_absence_reason {
 	/** Another reason not listed below. */
 	DRGN_ABSENCE_REASON_OTHER,
+	/** Object was optimized out by the compiler. */
+	DRGN_ABSENCE_REASON_OPTIMIZED_OUT,
 };
 
 /**
