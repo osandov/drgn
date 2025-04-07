@@ -284,6 +284,7 @@ typedef struct {
 	PyObject *is_default;
 } TypeTemplateParameter;
 
+extern PyObject *AbsenceReason_class;
 extern PyObject *Architecture_class;
 extern PyObject *FindObjectFlags_class;
 extern PyObject *KmodSearchMethod_class;
@@ -427,6 +428,7 @@ int append_string(PyObject *parts, const char *s);
 int append_u64_hex(PyObject *parts, uint64_t value);
 int append_format(PyObject *parts, const char *format, ...);
 int append_attr_repr(PyObject *parts, PyObject *obj, const char *attr_name);
+int append_attr_str(PyObject *parts, PyObject *obj, const char *attr_name);
 PyObject *join_strings(PyObject *parts);
 // Implementation of _repr_pretty_() for IPython/Jupyter that just calls str().
 PyObject *repr_pretty_from_str(PyObject *self, PyObject *args, PyObject *kwds);

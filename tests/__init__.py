@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import Mock
 
 from drgn import (
+    AbsenceReason,
     Architecture,
     FindObjectFlags,
     Language,
@@ -126,6 +127,7 @@ def assertReprPrettyEqualsStr(obj):
 
 _IDENTICAL_EQ_TYPES = (
     type(None),
+    AbsenceReason,
     Language,
     PrimitiveType,
     Program,
@@ -199,6 +201,7 @@ def identical(a, b):
                     "prog_",
                     "type_",
                     "address_",
+                    "absence_reason_",
                     "bit_offset_",
                     "bit_field_size_",
                 ),

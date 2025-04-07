@@ -2189,6 +2189,12 @@ static inline bool drgn_value_is_inline(uint64_t bits)
 	return bits <= CHAR_BIT * sizeof(((union drgn_value *)0)->ibuf);
 }
 
+/** Reason object is absent. */
+enum drgn_absence_reason {
+	/** Another reason not listed below. */
+	DRGN_ABSENCE_REASON_OTHER,
+};
+
 /**
  * Object in a program.
  *
@@ -2245,6 +2251,8 @@ struct drgn_object {
 		union drgn_value value;
 		/** Address of reference object. */
 		uint64_t address;
+		/** Reason object is absent. */
+		enum drgn_absence_reason absence_reason;
 	};
 };
 
@@ -2435,6 +2443,7 @@ drgn_object_set_reference(struct drgn_object *res,
  *
  * @param[out] res Object to set.
  * @param[in] qualified_type Type to set to.
+ * @param[in] reason Reason object is absent.
  * @param[in] bit_field_size If the object should be a bit field, its size in
  * bits. Otherwise, 0.
  * @return @c NULL on success, non-@c NULL on error.
@@ -2442,6 +2451,7 @@ drgn_object_set_reference(struct drgn_object *res,
 struct drgn_error *
 drgn_object_set_absent(struct drgn_object *res,
 		       struct drgn_qualified_type qualified_type,
+		       enum drgn_absence_reason reason,
 		       uint64_t bit_field_size);
 
 /**

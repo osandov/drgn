@@ -100,6 +100,7 @@ Objects
 -------
 
 .. drgndoc:: Object
+.. drgndoc:: AbsenceReason
 .. drgndoc:: NULL
 .. drgndoc:: cast
 .. drgndoc:: implicit_convert

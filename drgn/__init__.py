@@ -48,6 +48,7 @@ from typing import Union
 
 from _drgn import (
     NULL,
+    AbsenceReason,
     Architecture,
     DebugInfoOptions,
     ExtraModule,
@@ -118,6 +119,7 @@ from _drgn import (  # noqa: F401
 from drgn.internal.version import __version__ as __version__  # noqa: F401
 
 __all__ = (
+    "AbsenceReason",
     "Architecture",
     "DebugInfoOptions",
     "ExtraModule",

@@ -23,6 +23,7 @@
 		.type = &(prog)->void_types[DRGN_LANGUAGE_C],	\
 		.encoding = DRGN_OBJECT_ENCODING_NONE,		\
 		.kind = DRGN_OBJECT_ABSENT,			\
+		.absence_reason = DRGN_ABSENCE_REASON_OTHER,	\
 	}
 
 LIBDRGN_PUBLIC
@@ -498,6 +499,7 @@ drgn_object_set_reference(struct drgn_object *res,
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_set_absent(struct drgn_object *res,
 		       struct drgn_qualified_type qualified_type,
+		       enum drgn_absence_reason reason,
 		       uint64_t bit_field_size)
 {
 	struct drgn_error *err;
@@ -505,7 +507,7 @@ drgn_object_set_absent(struct drgn_object *res,
 	err = drgn_object_type(qualified_type, bit_field_size, &type);
 	if (err)
 		return err;
-	drgn_object_set_absent_internal(res, &type);
+	drgn_object_set_absent_internal(res, &type, reason);
 	return NULL;
 }
 

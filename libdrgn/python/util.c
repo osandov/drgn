@@ -53,6 +53,18 @@ int append_attr_repr(PyObject *parts, PyObject *obj, const char *attr_name)
 	return PyList_Append(parts, str);
 }
 
+int append_attr_str(PyObject *parts, PyObject *obj, const char *attr_name)
+{
+	_cleanup_pydecref_ PyObject *attr =
+		PyObject_GetAttrString(obj, attr_name);
+	if (!attr)
+		return -1;
+	_cleanup_pydecref_ PyObject *str = PyObject_Str(attr);
+	if (!str)
+		return -1;
+	return PyList_Append(parts, str);
+}
+
 PyObject *join_strings(PyObject *parts)
 {
 	_cleanup_pydecref_ PyObject *sep = PyUnicode_New(0, 0);

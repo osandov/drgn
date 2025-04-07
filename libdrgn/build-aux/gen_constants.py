@@ -14,6 +14,7 @@ class ConstantClass(NamedTuple):
 
 
 CONSTANTS = (
+    ConstantClass("AbsenceReason", "Enum", r"DRGN_ABSENCE_REASON_([a-zA-Z0-9_]+)"),
     ConstantClass("Architecture", "Enum", r"DRGN_ARCH_([a-zA-Z0-9_]+)"),
     ConstantClass("FindObjectFlags", "Flag", r"DRGN_FIND_OBJECT_([a-zA-Z0-9_]+)"),
     ConstantClass("KmodSearchMethod", "Enum", r"DRGN_KMOD_SEARCH_([a-zA-Z0-9_]+)"),

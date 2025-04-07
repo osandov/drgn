@@ -6,6 +6,7 @@ import operator
 import struct
 
 from drgn import (
+    AbsenceReason,
     FaultError,
     Object,
     ObjectAbsentError,
@@ -43,7 +44,7 @@ class TestInit(MockProgramTestCase):
             ValueError, "absent object must have type", Object, self.prog
         )
 
-    def test_address_nand_value(self):
+    def test_address_value_absence_reason_nand(self):
         self.assertRaisesRegex(
             ValueError,
             "object cannot have address and value",
@@ -61,6 +62,34 @@ class TestInit(MockProgramTestCase):
             "int",
             value=0,
             address=0,
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "object cannot have address and absence reason",
+            Object,
+            self.prog,
+            "int",
+            address=0,
+            absence_reason=AbsenceReason.OTHER,
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "object cannot have value and absence reason",
+            Object,
+            self.prog,
+            "int",
+            value=0,
+            absence_reason=AbsenceReason.OTHER,
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "object cannot have address, value, and absence reason",
+            Object,
+            self.prog,
+            "int",
+            value=0,
+            address=0,
+            absence_reason=AbsenceReason.OTHER,
         )
 
     def test_integer_address(self):
@@ -644,6 +673,7 @@ class TestValue(MockProgramTestCase):
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.type("int"))
         self.assertFalse(obj.absent_)
+        self.assertIsNone(obj.absence_reason_)
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.bit_offset_)
         self.assertIsNone(obj.bit_field_size_)
@@ -677,6 +707,7 @@ class TestValue(MockProgramTestCase):
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.type("unsigned int"))
         self.assertFalse(obj.absent_)
+        self.assertIsNone(obj.absence_reason_)
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.bit_offset_)
         self.assertIsNone(obj.bit_field_size_)
@@ -766,6 +797,7 @@ class TestValue(MockProgramTestCase):
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.int_type("__int128", 16, True))
         self.assertFalse(obj.absent_)
+        self.assertIsNone(obj.absence_reason_)
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.bit_offset_)
         self.assertIsNone(obj.bit_field_size_)
@@ -799,6 +831,7 @@ class TestValue(MockProgramTestCase):
             obj.type_, self.prog.int_type("unsigned __int128", 16, False)
         )
         self.assertFalse(obj.absent_)
+        self.assertIsNone(obj.absence_reason_)
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.bit_offset_)
         self.assertIsNone(obj.bit_field_size_)
@@ -863,6 +896,7 @@ class TestValue(MockProgramTestCase):
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.type("double"))
         self.assertFalse(obj.absent_)
+        self.assertIsNone(obj.absence_reason_)
         self.assertIsNone(obj.address_)
         self.assertEqual(obj.value_(), 3.14)
         self.assertEqual(repr(obj), "Object(prog, 'double', value=3.14)")
@@ -1118,6 +1152,7 @@ class TestValue(MockProgramTestCase):
     def test_pointer(self):
         obj = Object(self.prog, "int *", value=0xFFFF0000)
         self.assertFalse(obj.absent_)
+        self.assertIsNone(obj.absence_reason_)
         self.assertIsNone(obj.address_)
         self.assertEqual(obj.value_(), 0xFFFF0000)
         self.assertEqual(repr(obj), "Object(prog, 'int *', value=0xffff0000)")
@@ -1129,6 +1164,7 @@ class TestValue(MockProgramTestCase):
             value=0xFFFF0000,
         )
         self.assertFalse(obj.absent_)
+        self.assertIsNone(obj.absence_reason_)
         self.assertIsNone(obj.address_)
         self.assertEqual(obj.value_(), 0xFFFF0000)
         self.assertEqual(repr(obj), "Object(prog, 'INTP', value=0xffff0000)")
@@ -1136,6 +1172,7 @@ class TestValue(MockProgramTestCase):
     def test_array(self):
         obj = Object(self.prog, "int [2]", value=[1, 2])
         self.assertFalse(obj.absent_)
+        self.assertIsNone(obj.absence_reason_)
         self.assertIsNone(obj.address_)
 
         self.assertIdentical(obj[0], Object(self.prog, "int", value=1))
@@ -1215,6 +1252,9 @@ class TestAbsent(MockProgramTestCase):
             self.assertIs(obj.prog_, self.prog)
             self.assertIdentical(obj.type_, self.prog.type("int"))
             self.assertTrue(obj.absent_)
+            self.assertEqual(
+                Object(self.prog, "int").absence_reason_, AbsenceReason.OTHER
+            )
             self.assertIsNone(obj.address_)
             self.assertIsNone(obj.bit_offset_)
             self.assertIsNone(obj.bit_field_size_)

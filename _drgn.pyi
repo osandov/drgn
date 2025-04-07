@@ -2322,6 +2322,7 @@ class Object:
         prog: Program,
         type: Union[str, Type],
         *,
+        absence_reason: AbsenceReason = AbsenceReason.OTHER,
         bit_field_size: Optional[IntegerLike] = None,
     ) -> None:
         """Create an absent object."""
@@ -2332,6 +2333,12 @@ class Object:
     type_: Final[Type]
     """Type of this object."""
 
+    address_: Final[Optional[int]]
+    """
+    Address of this object if it is a reference, ``None`` if it is a value or
+    absent.
+    """
+
     absent_: Final[bool]
     """
     Whether this object is absent.
@@ -2340,10 +2347,11 @@ class Object:
     an invalid address).
     """
 
-    address_: Final[Optional[int]]
+    absence_reason_: Final[Optional[AbsenceReason]]
     """
-    Address of this object if it is a reference, ``None`` if it is a value or
-    absent.
+    Reason that this object is absent.
+
+    This is ``None`` for all values and references.
     """
 
     bit_offset_: Final[Optional[int]]
@@ -2665,6 +2673,12 @@ class Object:
     def __floor__(self) -> int: ...
     def __ceil__(self) -> int: ...
     def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
+
+class AbsenceReason(enum.Enum):
+    """Reason an object is :ref:absent <absent-objects>`."""
+
+    OTHER = ...
+    """Another reason not listed below."""
 
 def NULL(prog: Program, type: Union[str, Type]) -> Object:
     """

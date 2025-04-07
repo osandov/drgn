@@ -3398,7 +3398,8 @@ static struct drgn_error *c_op_cast(struct drgn_object *res,
 
 	switch (drgn_type_kind(type.underlying_type)) {
 	case DRGN_TYPE_VOID:
-		drgn_object_set_absent_internal(res, &type);
+		drgn_object_set_absent_internal(res, &type,
+						DRGN_ABSENCE_REASON_OTHER);
 		return NULL;
 	case DRGN_TYPE_BOOL: {
 		bool truthy;

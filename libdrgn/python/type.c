@@ -829,7 +829,8 @@ static DrgnObject *DrgnType_to_absent_DrgnObject(DrgnType *type)
 	if (!obj)
 		return NULL;
 	struct drgn_error *err =
-		drgn_object_set_absent(&obj->obj, DrgnType_unwrap(type), 0);
+		drgn_object_set_absent(&obj->obj, DrgnType_unwrap(type),
+				       DRGN_ABSENCE_REASON_OTHER, 0);
 	if (err)
 		return set_drgn_error(err);
 	return_ptr(obj);
