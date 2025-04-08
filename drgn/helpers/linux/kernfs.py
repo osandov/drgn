@@ -16,9 +16,25 @@ from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 __all__ = (
     "kernfs_name",
+    "kernfs_parent",
     "kernfs_path",
     "kernfs_walk",
 )
+
+
+def kernfs_parent(kn: Object) -> Object:
+    """
+    Get the parent of the given kernfs node.
+
+    :param kn: ``struct kernfs_node *``
+    :return: ``struct kernfs_node *``
+    """
+    # Linux kernel commit 633488947ef6 ("kernfs: Use RCU to access
+    # kernfs_node::parent.") (in v6.15) renamed the parent member.
+    try:
+        return kn.__parent.read_()
+    except AttributeError:
+        return kn.parent.read_()
 
 
 def kernfs_name(kn: Object) -> bytes:
@@ -29,12 +45,13 @@ def kernfs_name(kn: Object) -> bytes:
     """
     if not kn:
         return b"(null)"
-    return kn.name.string_() if kn.parent else b"/"
+    return kn.name.string_() if kernfs_parent(kn) else b"/"
 
 
 def _kernfs_root(kn: Object) -> Object:
-    if kn.parent:
-        kn = kn.parent
+    knp = kernfs_parent(kn)
+    if knp:
+        kn = knp
     return kn.dir.root
 
 
@@ -54,7 +71,7 @@ def kernfs_path(kn: Object) -> bytes:
     names = []
     while kn != root_kn:
         names.append(kn.name.string_())
-        kn = kn.parent
+        kn = kernfs_parent(kn)
     names.append(root_kn.name.string_())
     names.reverse()
 
