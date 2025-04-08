@@ -360,8 +360,9 @@ def run_in_vm(
 
                 qemu_exe, *kvm_args,
 
-                # Limit the number of cores to 8, otherwise we can reach an OOM troubles.
-                "-smp", str(min(nproc(), 8)), "-m", "2G",
+                # Limit the number of cores to 2. We want to test SMP, but each additional
+                # virtualized CPU costs memory and CPU time, so 2 is enaugh.
+                "-smp", str(min(nproc(), 2)), "-m", "2G",
 
                 "-display", "none", *serial_args,
 
