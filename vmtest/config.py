@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Dict, Mapping, NamedTuple, Sequence
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-from util import KernelVersion
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
@@ -109,6 +108,9 @@ CONFIG_MAGIC_SYSRQ=y
 
 # For testing kernel core dumps from QEMU's dump-guest-memory command.
 CONFIG_FW_CFG_SYSFS=y
+
+# kmodify breakpoints need kprobes.
+CONFIG_KPROBES=y
 
 # For BPF tests.
 CONFIG_BPF_SYSCALL=y
@@ -429,17 +431,11 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     vmtest_kernel_version = [
         # Increment the major version to rebuild every
         # architecture/flavor/version combination.
-        34,
+        35,
         # The minor version makes the default flavor the "latest" version.
         1 if flavor.name == "default" else 0,
     ]
     patch_level = 0
-    if (
-        arch.name == "aarch64"
-        and flavor.name == "alternative"
-        and KernelVersion("5.18.18") <= KernelVersion(version) < KernelVersion("5.19")
-    ):
-        patch_level += 1
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
     if patch_level:
