@@ -12,7 +12,7 @@ import socket
 import subprocess
 import sys
 import tempfile
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, TextIO
 
 from util import nproc, out_of_date
 from vmtest.config import HOST_ARCHITECTURE, Kernel, local_kernel
@@ -213,6 +213,8 @@ def run_in_vm(
     *,
     extra_qemu_options: Sequence[str] = (),
     test_kmod: TestKmodMode = TestKmodMode.NONE,
+    outfile: Optional[TextIO] = None,
+    main_thread: bool = True,
 ) -> int:
     if root_dir is None:
         if kernel.arch is HOST_ARCHITECTURE:
@@ -221,7 +223,11 @@ def run_in_vm(
             root_dir = build_dir / kernel.arch.name / "rootfs"
 
     if test_kmod != TestKmodMode.NONE:
-        kmod = build_kmod(build_dir, kernel)
+        kmod = build_kmod(build_dir, kernel, outfile=outfile)
+
+    infile = None
+    if outfile:
+        infile = subprocess.DEVNULL
 
     qemu_exe = "qemu-system-" + kernel.arch.name
     match = re.search(
@@ -321,7 +327,8 @@ def run_in_vm(
         with disk_path.open("wb") as f:
             os.ftruncate(f.fileno(), 1024 * 1024 * 1024)
 
-        signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+        if main_thread:
+            signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
 
         proc = subprocess.Popen(
             [
@@ -363,6 +370,9 @@ def run_in_vm(
                 # fmt: on
             ],
             env=env,
+            stdout=outfile,
+            stderr=outfile,
+            stdin=infile,
         )
         try:
             server_sock.settimeout(5)
