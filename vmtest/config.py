@@ -14,6 +14,7 @@ from util import KernelVersion
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
 SUPPORTED_KERNEL_VERSIONS = (
+    "6.15",
     "6.14",
     "6.13",
     "6.12",

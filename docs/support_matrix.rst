@@ -72,7 +72,7 @@ currently fully supported are:
 
 .. Keep this in sync with vmtest/config.py.
 
-- 6.0-6.14
+- 6.0-6.15
 - 5.10-5.19
 - 5.4
 - 4.19
