@@ -18,8 +18,22 @@ __all__ = (
     "kernfs_name",
     "kernfs_parent",
     "kernfs_path",
+    "kernfs_root",
     "kernfs_walk",
 )
+
+
+def kernfs_root(kn: Object) -> Object:
+    """
+    Get the kernfs root that the given kernfs node belongs to.
+
+    :param kn: ``struct kernfs_node *``
+    :return: ``struct kernfs_root *``
+    """
+    knp = kernfs_parent(kn)
+    if knp:
+        kn = knp
+    return kn.dir.root.read_()
 
 
 def kernfs_parent(kn: Object) -> Object:
@@ -48,13 +62,6 @@ def kernfs_name(kn: Object) -> bytes:
     return kn.name.string_() if kernfs_parent(kn) else b"/"
 
 
-def _kernfs_root(kn: Object) -> Object:
-    knp = kernfs_parent(kn)
-    if knp:
-        kn = knp
-    return kn.dir.root
-
-
 def kernfs_path(kn: Object) -> bytes:
     """
     Get full path of the given kernfs node.
@@ -64,7 +71,7 @@ def kernfs_path(kn: Object) -> bytes:
     if not kn:
         return b"(null)"
 
-    root_kn = _kernfs_root(kn).kn
+    root_kn = kernfs_root(kn).kn
     if kn == root_kn:
         return b"/"
 

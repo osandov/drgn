@@ -10,6 +10,7 @@ from drgn.helpers.linux.kernfs import (
     kernfs_name,
     kernfs_parent,
     kernfs_path,
+    kernfs_root,
     kernfs_walk,
 )
 from drgn.helpers.linux.pid import find_task
@@ -32,6 +33,18 @@ class TestKernfs(LinuxKernelTestCase):
                 kernfs_parent(self.kernfs_node_from_fd(fd)),
                 self.kernfs_node_from_fd(dfd),
             )
+
+    def test_kernfs_root(self):
+        for path in ("/sys", "/sys/kernel", "/sys/kernel/vmcoreinfo"):
+            with self.subTest(path=path):
+                fd = os.open(path, os.O_RDONLY)
+                try:
+                    self.assertEqual(
+                        kernfs_root(self.kernfs_node_from_fd(fd)),
+                        self.prog["sysfs_root"],
+                    )
+                finally:
+                    os.close(fd)
 
     def test_kernfs_name(self):
         with open("/sys/kernel/vmcoreinfo", "r") as f:
