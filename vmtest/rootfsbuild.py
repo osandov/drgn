@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 import subprocess
 import tempfile
-from typing import Literal
+from typing import Literal, Optional, TextIO
 
 from vmtest.config import ARCHITECTURES, HOST_ARCHITECTURE, Architecture
 
@@ -104,7 +104,7 @@ chroot "$target" apt clean
         logger.info("created snapshot %s", snapshot_dir)
 
 
-def build_drgn_in_rootfs(rootfs: Path) -> None:
+def build_drgn_in_rootfs(rootfs: Path, outfile: Optional[TextIO] = None) -> None:
     logger.info("building drgn using %s", rootfs)
     subprocess.check_call(
         [
@@ -123,7 +123,9 @@ chroot "$1" sh -c 'cd /mnt && CONFIGURE_FLAGS=--enable-compiler-warnings=error p
 """,
             "sh",
             rootfs,
-        ]
+        ],
+        stdout=outfile,
+        stderr=outfile,
     )
 
 
