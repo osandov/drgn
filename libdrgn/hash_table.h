@@ -292,6 +292,14 @@ hash_table_delete_iterator_hashed(struct hash_table *table,
 				  struct hash_pair hp);
 
 /**
+ * Delete an entry in a @ref hash_table.
+ *
+ * @return An iterator pointing to the next entry in the table. See @ref
+ * hash_table_next().
+ */
+bool hash_table_delete_entry(struct hash_table *table, const entry_type *entry);
+
+/**
  * Get an iterator pointing to the first entry in a @ref hash_table.
  *
  * The first entry is arbitrary.
@@ -1515,10 +1523,17 @@ static bool table##_delete_hashed(struct table *table,				\
 	return true;								\
 }										\
 										\
-__attribute__((__unused__))							\
 static bool table##_delete(struct table *table, const table##_key_type *key)	\
 {										\
 	return table##_delete_hashed(table, key, table##_hash(key));		\
+}										\
+										\
+__attribute__((__unused__))							\
+static inline bool table##_delete_entry(struct table *table,			\
+					const table##_entry_type *entry)	\
+{										\
+	const table##_key_type key = table##_entry_to_key(entry);		\
+	return table##_delete(table, &key);					\
 }										\
 										\
 __attribute__((__unused__))							\
