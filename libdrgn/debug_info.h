@@ -84,7 +84,7 @@ struct drgn_debug_info {
 
 	/** Main module. @c NULL if not created yet. */
 	struct drgn_module *main_module;
-	/** Table of non-main modules indexed on @ref drgn_module_key. */
+	/** Table of non-main modules indexed on (kind, name, info). */
 	struct drgn_module_table modules;
 	/**
 	 * Counter used to detect when @ref modules is modified during iteration
@@ -187,21 +187,8 @@ struct drgn_module {
 
 	/** Module name. */
 	char *name;
-	/** Kind-specific information. */
-	union {
-		struct {
-			uint64_t dynamic_address;
-		} shared_library;
-		struct {
-			uint64_t dynamic_address;
-		} vdso;
-		struct {
-			uint64_t address;
-		} relocatable;
-		struct {
-			uint64_t id;
-		} extra;
-	};
+	/** Kind-specific info. */
+	uint64_t info;
 	/**
 	 * Raw binary build ID. @c NULL if the module does not have a build ID.
 	 */

@@ -84,13 +84,11 @@ static int append_module_repr_common(PyObject *parts, Module *self,
 
 static PyObject *Module_repr(Module *self)
 {
-	struct drgn_module_key key = drgn_module_key(self->module);
-
 	_cleanup_pydecref_ PyObject *parts = PyList_New(0);
 	if (!parts)
 		return NULL;
 
-	SWITCH_ENUM(key.kind) {
+	SWITCH_ENUM(drgn_module_kind(self->module)) {
 	case DRGN_MODULE_MAIN:
 		if (append_module_repr_common(parts, self, "main") < 0)
 			return NULL;
@@ -99,26 +97,25 @@ static PyObject *Module_repr(Module *self)
 		if (append_module_repr_common(parts, self,
 					      "shared_library")
 		    || append_string(parts, ", dynamic_address=")
-		    || append_u64_hex(parts,
-				      key.shared_library.dynamic_address))
+		    || append_u64_hex(parts, drgn_module_info(self->module)))
 			return NULL;
 		break;
 	case DRGN_MODULE_VDSO:
 		if (append_module_repr_common(parts, self, "vdso")
 		    || append_string(parts, ", dynamic_address=")
-		    || append_u64_hex(parts, key.vdso.dynamic_address))
+		    || append_u64_hex(parts, drgn_module_info(self->module)))
 			return NULL;
 		break;
 	case DRGN_MODULE_RELOCATABLE:
 		if (append_module_repr_common(parts, self, "relocatable")
 		    || append_string(parts, ", address=")
-		    || append_u64_hex(parts, key.relocatable.address))
+		    || append_u64_hex(parts, drgn_module_info(self->module)))
 			return NULL;
 		break;
 	case DRGN_MODULE_EXTRA:
 		if (append_module_repr_common(parts, self, "extra")
 		    || append_string(parts, ", id=")
-		    || append_u64_hex(parts, key.extra.id))
+		    || append_u64_hex(parts, drgn_module_info(self->module)))
 			return NULL;
 		break;
 	default:
@@ -476,15 +473,14 @@ PyTypeObject MainModule_type = {
 	.tp_base = &Module_type,
 };
 
-static PyObject *SharedLibraryModule_get_dynamic_address(Module *self, void *arg)
+static PyObject *Module_get_info(Module *self, void *arg)
 {
-	struct drgn_module_key key = drgn_module_key(self->module);
-	return PyLong_FromUint64(key.shared_library.dynamic_address);
+	return PyLong_FromUint64(drgn_module_info(self->module));
 }
 
 static PyGetSetDef SharedLibraryModule_getset[] = {
-	{"dynamic_address", (getter)SharedLibraryModule_get_dynamic_address,
-	 NULL, drgn_SharedLibraryModule_dynamic_address_DOC},
+	{"dynamic_address", (getter)Module_get_info, NULL,
+	 drgn_SharedLibraryModule_dynamic_address_DOC},
 	{},
 };
 
@@ -497,14 +493,8 @@ PyTypeObject SharedLibraryModule_type = {
 	.tp_base = &Module_type,
 };
 
-static PyObject *VdsoModule_get_dynamic_address(Module *self, void *arg)
-{
-	struct drgn_module_key key = drgn_module_key(self->module);
-	return PyLong_FromUint64(key.vdso.dynamic_address);
-}
-
 static PyGetSetDef VdsoModule_getset[] = {
-	{"dynamic_address", (getter)VdsoModule_get_dynamic_address, NULL,
+	{"dynamic_address", (getter)Module_get_info, NULL,
 	 drgn_VdsoModule_dynamic_address_DOC},
 	{},
 };
@@ -518,12 +508,6 @@ PyTypeObject VdsoModule_type = {
 	.tp_base = &Module_type,
 };
 
-static PyObject *RelocatableModule_get_address(Module *self, void *arg)
-{
-	struct drgn_module_key key = drgn_module_key(self->module);
-	return PyLong_FromUint64(key.relocatable.address);
-}
-
 static PyObject *RelocatableModule_get_section_addresses(PyObject *self,
 							 void *arg)
 {
@@ -531,7 +515,7 @@ static PyObject *RelocatableModule_get_section_addresses(PyObject *self,
 }
 
 static PyGetSetDef RelocatableModule_getset[] = {
-	{"address", (getter)RelocatableModule_get_address, NULL,
+	{"address", (getter)Module_get_info, NULL,
 	 drgn_RelocatableModule_address_DOC},
 	{"section_addresses", RelocatableModule_get_section_addresses,
 	 NULL, drgn_RelocatableModule_section_addresses_DOC},
@@ -547,14 +531,8 @@ PyTypeObject RelocatableModule_type = {
 	.tp_base = &Module_type,
 };
 
-static PyObject *ExtraModule_get_id(Module *self, void *arg)
-{
-	struct drgn_module_key key = drgn_module_key(self->module);
-	return PyLong_FromUint64(key.extra.id);
-}
-
 static PyGetSetDef ExtraModule_getset[] = {
-	{"id", (getter)ExtraModule_get_id, NULL, drgn_ExtraModule_id_DOC},
+	{"id", (getter)Module_get_info, NULL, drgn_ExtraModule_id_DOC},
 	{},
 };
 

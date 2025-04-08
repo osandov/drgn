@@ -143,93 +143,36 @@ DEFINE_HASH_TABLE_FUNCTIONS(drgn_elf_file_dwarf_table, drgn_elf_file_dwarf_key,
 			    ptr_key_hash_pair, scalar_key_eq);
 DEFINE_VECTOR(drgn_module_vector, struct drgn_module *);
 
+struct drgn_module_key {
+	enum drgn_module_kind kind;
+	const char *name;
+	uint64_t info;
+};
+
 static inline
 struct drgn_module_key drgn_module_entry_key(struct drgn_module * const *entry)
 {
-	struct drgn_module_key key;
-	key.kind = (*entry)->kind;
-	SWITCH_ENUM(key.kind) {
-	case DRGN_MODULE_SHARED_LIBRARY:
-		key.shared_library.name = (*entry)->name;
-		key.shared_library.dynamic_address =
-			(*entry)->shared_library.dynamic_address;
-		break;
-	case DRGN_MODULE_VDSO:
-		key.vdso.name = (*entry)->name;
-		key.vdso.dynamic_address = (*entry)->vdso.dynamic_address;
-		break;
-	case DRGN_MODULE_RELOCATABLE:
-		key.relocatable.name = (*entry)->name;
-		key.relocatable.address = (*entry)->relocatable.address;
-		break;
-	case DRGN_MODULE_EXTRA:
-		key.extra.name = (*entry)->name;
-		key.extra.id = (*entry)->extra.id;
-		break;
-	case DRGN_MODULE_MAIN:
-	default:
-		UNREACHABLE();
-	}
-	return key;
+	return (struct drgn_module_key){
+		.kind = (*entry)->kind,
+		.name = (*entry)->name,
+		.info = (*entry)->info,
+	};
 }
 
 static inline struct hash_pair
 drgn_module_key_hash_pair(const struct drgn_module_key *key)
 {
-	size_t hash = key->kind;
-	SWITCH_ENUM(key->kind) {
-	case DRGN_MODULE_SHARED_LIBRARY:
-		hash = hash_combine(hash,
-				    hash_c_string(key->shared_library.name));
-		hash = hash_combine(hash, key->shared_library.dynamic_address);
-		break;
-	case DRGN_MODULE_VDSO:
-		hash = hash_combine(hash, hash_c_string(key->vdso.name));
-		hash = hash_combine(hash, key->vdso.dynamic_address);
-		break;
-	case DRGN_MODULE_RELOCATABLE:
-		hash = hash_combine(hash, hash_c_string(key->relocatable.name));
-		hash = hash_combine(hash, key->relocatable.address);
-		break;
-	case DRGN_MODULE_EXTRA:
-		hash = hash_combine(hash, hash_c_string(key->extra.name));
-		hash = hash_combine(hash, key->extra.id);
-		break;
-	case DRGN_MODULE_MAIN:
-	default:
-		UNREACHABLE();
-	}
+	size_t hash = hash_combine(key->kind, hash_c_string(key->name));
+	hash = hash_combine(hash, key->info);
 	return hash_pair_from_avalanching_hash(hash);
 }
 
 static inline bool drgn_module_key_eq(const struct drgn_module_key *a,
 				      const struct drgn_module_key *b)
 {
-	if (a->kind != b->kind)
-		return false;
-	SWITCH_ENUM(a->kind) {
-	case DRGN_MODULE_SHARED_LIBRARY:
-		return (strcmp(a->shared_library.name,
-			       b->shared_library.name) == 0
-			&& a->shared_library.dynamic_address
-			== b->shared_library.dynamic_address);
-		break;
-	case DRGN_MODULE_VDSO:
-		return (strcmp(a->vdso.name, b->vdso.name) == 0
-			&& a->vdso.dynamic_address == b->vdso.dynamic_address);
-		break;
-	case DRGN_MODULE_RELOCATABLE:
-		return (strcmp(a->relocatable.name, b->relocatable.name) == 0
-			&& a->relocatable.address == b->relocatable.address);
-		break;
-	case DRGN_MODULE_EXTRA:
-		return (strcmp(a->extra.name, b->extra.name) == 0
-			&& a->extra.id == b->extra.id);
-		break;
-	case DRGN_MODULE_MAIN:
-	default:
-		UNREACHABLE();
-	}
+	return a->kind == b->kind
+	       && strcmp(a->name, b->name) == 0
+	       && a->info == b->info;
 }
 
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_module_table, drgn_module_entry_key,
@@ -252,15 +195,17 @@ static void drgn_module_free_section_addresses(struct drgn_module *module)
 }
 
 static struct drgn_module *drgn_module_find(struct drgn_program *prog,
-					    const struct drgn_module_key *key)
+					    enum drgn_module_kind kind,
+					    const char *name, uint64_t info)
 {
-	if (key->kind == DRGN_MODULE_MAIN) {
-		return prog->dbinfo.main_module;
-	} else {
-		struct drgn_module_table_iterator it =
-			drgn_module_table_search(&prog->dbinfo.modules, key);
-		return it.entry ? *it.entry : NULL;
-	}
+	const struct drgn_module_key key = {
+		.kind = kind,
+		.name = name,
+		.info = info,
+	};
+	struct drgn_module_table_iterator it =
+		drgn_module_table_search(&prog->dbinfo.modules, &key);
+	return it.entry ? *it.entry : NULL;
 }
 
 LIBDRGN_PUBLIC
@@ -277,13 +222,14 @@ struct drgn_module *drgn_module_find_by_address(struct drgn_program *prog,
 
 static struct drgn_error *
 drgn_module_find_or_create(struct drgn_program *prog,
-			   const struct drgn_module_key *key, const char *name,
-			   struct drgn_module **ret, bool *new_ret)
+			   enum drgn_module_kind kind, const char *name,
+			   uint64_t info, struct drgn_module **ret,
+			   bool *new_ret)
 {
 	struct drgn_error *err;
 
 	struct hash_pair hp;
-	if (key->kind == DRGN_MODULE_MAIN) {
+	if (kind == DRGN_MODULE_MAIN) {
 		if (prog->dbinfo.main_module) {
 			if (strcmp(prog->dbinfo.main_module->name, name) != 0) {
 				return drgn_error_create(DRGN_ERROR_LOOKUP,
@@ -295,10 +241,15 @@ drgn_module_find_or_create(struct drgn_program *prog,
 			return NULL;
 		}
 	} else {
-		hp = drgn_module_table_hash(key);
+		const struct drgn_module_key key = {
+			.kind = kind,
+			.name = name,
+			.info = info,
+		};
+		hp = drgn_module_table_hash(&key);
 		struct drgn_module_table_iterator it =
 			drgn_module_table_search_hashed(&prog->dbinfo.modules,
-							key, hp);
+							&key, hp);
 		if (it.entry) {
 			*ret = *it.entry;
 			if (new_ret)
@@ -313,7 +264,8 @@ drgn_module_find_or_create(struct drgn_program *prog,
 	module->start = module->end = UINT64_MAX;
 
 	module->prog = prog;
-	module->kind = key->kind;
+	module->kind = kind;
+	module->info = info;
 	drgn_object_init(&module->object, prog);
 	// Linux userspace core dumps usually filter out file-backed mappings
 	// (see coredump_filter in core(5)), so we need the loaded file to read
@@ -323,31 +275,12 @@ drgn_module_find_or_create(struct drgn_program *prog,
 	// Linux kernel core dumps preserve the main kernel and kernel module
 	// text, and the kernel doesn't use .eh_frame, so we don't need the
 	// loaded file for the kernel.
-	module->loaded_file_status = DRGN_MODULE_FILE_WANT;
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL
+	    && (kind == DRGN_MODULE_MAIN || kind == DRGN_MODULE_RELOCATABLE))
+		module->loaded_file_status = DRGN_MODULE_FILE_DONT_NEED;
+	else
+		module->loaded_file_status = DRGN_MODULE_FILE_WANT;
 	module->debug_file_status = DRGN_MODULE_FILE_WANT;
-	SWITCH_ENUM(key->kind) {
-	case DRGN_MODULE_MAIN:
-		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-			module->loaded_file_status = DRGN_MODULE_FILE_DONT_NEED;
-		break;
-	case DRGN_MODULE_SHARED_LIBRARY:
-		module->shared_library.dynamic_address =
-			key->shared_library.dynamic_address;
-		break;
-	case DRGN_MODULE_VDSO:
-		module->vdso.dynamic_address = key->vdso.dynamic_address;
-		break;
-	case DRGN_MODULE_RELOCATABLE:
-		module->relocatable.address = key->relocatable.address;
-		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-			module->loaded_file_status = DRGN_MODULE_FILE_DONT_NEED;
-		break;
-	case DRGN_MODULE_EXTRA:
-		module->extra.id = key->extra.id;
-		break;
-	default:
-		UNREACHABLE();
-	}
 
 	module->name = strdup(name);
 	if (!module->name) {
@@ -355,7 +288,7 @@ drgn_module_find_or_create(struct drgn_program *prog,
 		goto err_module;
 	}
 
-	if (key->kind == DRGN_MODULE_MAIN) {
+	if (kind == DRGN_MODULE_MAIN) {
 		prog->dbinfo.main_module = module;
 	} else {
 		if (drgn_module_table_insert_searched(&prog->dbinfo.modules,
@@ -376,23 +309,19 @@ drgn_module_find_or_create(struct drgn_program *prog,
 	case DRGN_MODULE_SHARED_LIBRARY:
 		drgn_log_debug(prog,
 			       "created shared library module %s@0x%" PRIx64,
-			       module->name,
-			       module->shared_library.dynamic_address);
+			       module->name, module->info);
 		break;
 	case DRGN_MODULE_VDSO:
-		drgn_log_debug(prog,
-			       "created vDSO module %s@0x%" PRIx64,
-			       module->name, module->vdso.dynamic_address);
+		drgn_log_debug(prog, "created vDSO module %s@0x%" PRIx64,
+			       module->name, module->info);
 		break;
 	case DRGN_MODULE_RELOCATABLE:
-		drgn_log_debug(prog,
-			       "created relocatable module %s@0x%" PRIx64,
-			       module->name, module->relocatable.address);
+		drgn_log_debug(prog, "created relocatable module %s@0x%" PRIx64,
+			       module->name, module->info);
 		break;
 	case DRGN_MODULE_EXTRA:
-		drgn_log_debug(prog,
-			       "created extra module %s 0x%" PRIx64,
-			       module->name, module->extra.id);
+		drgn_log_debug(prog, "created extra module %s 0x%" PRIx64,
+			       module->name, module->info);
 		break;
 	default:
 		UNREACHABLE();
@@ -427,8 +356,8 @@ struct drgn_error *drgn_module_find_or_create_main(struct drgn_program *prog,
 						   struct drgn_module **ret,
 						   bool *new_ret)
 {
-	struct drgn_module_key key = { .kind = DRGN_MODULE_MAIN };
-	return drgn_module_find_or_create(prog, &key, name, ret, new_ret);
+	return drgn_module_find_or_create(prog, DRGN_MODULE_MAIN, name, 0, ret,
+					  new_ret);
 }
 
 LIBDRGN_PUBLIC
@@ -436,12 +365,8 @@ struct drgn_module *drgn_module_find_shared_library(struct drgn_program *prog,
 						    const char *name,
 						    uint64_t dynamic_address)
 {
-	const struct drgn_module_key key = {
-		.kind = DRGN_MODULE_SHARED_LIBRARY,
-		.shared_library.name = name,
-		.shared_library.dynamic_address = dynamic_address,
-	};
-	return drgn_module_find(prog, &key);
+	return drgn_module_find(prog, DRGN_MODULE_SHARED_LIBRARY, name,
+				dynamic_address);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -451,12 +376,8 @@ drgn_module_find_or_create_shared_library(struct drgn_program *prog,
 					  struct drgn_module **ret,
 					  bool *new_ret)
 {
-	const struct drgn_module_key key = {
-		.kind = DRGN_MODULE_SHARED_LIBRARY,
-		.shared_library.name = name,
-		.shared_library.dynamic_address = dynamic_address,
-	};
-	return drgn_module_find_or_create(prog, &key, name, ret, new_ret);
+	return drgn_module_find_or_create(prog, DRGN_MODULE_SHARED_LIBRARY,
+					  name, dynamic_address, ret, new_ret);
 }
 
 LIBDRGN_PUBLIC
@@ -464,12 +385,7 @@ struct drgn_module *drgn_module_find_vdso(struct drgn_program *prog,
 					  const char *name,
 					  uint64_t dynamic_address)
 {
-	const struct drgn_module_key key = {
-		.kind = DRGN_MODULE_VDSO,
-		.vdso.name = name,
-		.vdso.dynamic_address = dynamic_address,
-	};
-	return drgn_module_find(prog, &key);
+	return drgn_module_find(prog, DRGN_MODULE_VDSO, name, dynamic_address);
 }
 
 LIBDRGN_PUBLIC
@@ -479,12 +395,8 @@ struct drgn_error *drgn_module_find_or_create_vdso(struct drgn_program *prog,
 						   struct drgn_module **ret,
 						   bool *new_ret)
 {
-	const struct drgn_module_key key = {
-		.kind = DRGN_MODULE_VDSO,
-		.vdso.name = name,
-		.vdso.dynamic_address = dynamic_address,
-	};
-	return drgn_module_find_or_create(prog, &key, name, ret, new_ret);
+	return drgn_module_find_or_create(prog, DRGN_MODULE_VDSO, name,
+					  dynamic_address, ret, new_ret);
 }
 
 LIBDRGN_PUBLIC
@@ -492,12 +404,7 @@ struct drgn_module *drgn_module_find_relocatable(struct drgn_program *prog,
 						 const char *name,
 						 uint64_t address)
 {
-	const struct drgn_module_key key = {
-		.kind = DRGN_MODULE_RELOCATABLE,
-		.relocatable.name = name,
-		.relocatable.address = address,
-	};
-	return drgn_module_find(prog, &key);
+	return drgn_module_find(prog, DRGN_MODULE_RELOCATABLE, name, address);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -505,24 +412,15 @@ drgn_module_find_or_create_relocatable(struct drgn_program *prog,
 				       const char *name, uint64_t address,
 				       struct drgn_module **ret, bool *new_ret)
 {
-	const struct drgn_module_key key = {
-		.kind = DRGN_MODULE_RELOCATABLE,
-		.relocatable.name = name,
-		.relocatable.address = address,
-	};
-	return drgn_module_find_or_create(prog, &key, name, ret, new_ret);
+	return drgn_module_find_or_create(prog, DRGN_MODULE_RELOCATABLE, name,
+					  address, ret, new_ret);
 }
 
 LIBDRGN_PUBLIC
 struct drgn_module *drgn_module_find_extra(struct drgn_program *prog,
 					   const char *name, uint64_t id)
 {
-	const struct drgn_module_key key = {
-		.kind = DRGN_MODULE_EXTRA,
-		.extra.name = name,
-		.extra.id = id,
-	};
-	return drgn_module_find(prog, &key);
+	return drgn_module_find(prog, DRGN_MODULE_EXTRA, name, id);
 }
 
 LIBDRGN_PUBLIC
@@ -532,12 +430,8 @@ struct drgn_error *drgn_module_find_or_create_extra(struct drgn_program *prog,
 						    struct drgn_module **ret,
 						    bool *new_ret)
 {
-	const struct drgn_module_key key = {
-		.kind = DRGN_MODULE_EXTRA,
-		.extra.name = name,
-		.extra.id = id,
-	};
-	return drgn_module_find_or_create(prog, &key, name, ret, new_ret);
+	return drgn_module_find_or_create(prog, DRGN_MODULE_EXTRA, name, id,
+					  ret, new_ret);
 }
 
 static void
@@ -584,9 +478,8 @@ void drgn_module_delete(struct drgn_module *module)
 	if (module->kind == DRGN_MODULE_MAIN) {
 		module->prog->dbinfo.main_module = NULL;
 	} else {
-		struct drgn_module_key key =
-			drgn_module_entry_key((struct drgn_module * const *)&module);
-		drgn_module_table_delete(&module->prog->dbinfo.modules, &key);
+		drgn_module_table_delete_entry(&module->prog->dbinfo.modules,
+					       &module);
 		module->prog->dbinfo.modules_generation++;
 	}
 	drgn_module_destroy(module);
@@ -599,17 +492,6 @@ struct drgn_program *drgn_module_program(const struct drgn_module *module)
 }
 
 LIBDRGN_PUBLIC
-struct drgn_module_key drgn_module_key(const struct drgn_module *module)
-{
-	if (module->kind == DRGN_MODULE_MAIN) {
-		struct drgn_module_key key;
-		key.kind = DRGN_MODULE_MAIN;
-		return key;
-	}
-	return drgn_module_entry_key((struct drgn_module * const *)&module);
-}
-
-LIBDRGN_PUBLIC
 enum drgn_module_kind drgn_module_kind(const struct drgn_module *module)
 {
 	return module->kind;
@@ -618,6 +500,11 @@ enum drgn_module_kind drgn_module_kind(const struct drgn_module *module)
 LIBDRGN_PUBLIC const char *drgn_module_name(const struct drgn_module *module)
 {
 	return module->name;
+}
+
+LIBDRGN_PUBLIC uint64_t drgn_module_info(const struct drgn_module *module)
+{
+	return module->info;
 }
 
 LIBDRGN_PUBLIC bool drgn_module_address_range(const struct drgn_module *module,
@@ -1306,12 +1193,8 @@ static bool drgn_module_elf_file_bias(struct drgn_module *module,
 			return elf_main_bias(prog, file->elf, ret);
 		}
 	case DRGN_MODULE_SHARED_LIBRARY:
-		return elf_dso_bias(prog, file->elf,
-				    module->shared_library.dynamic_address,
-				    ret);
 	case DRGN_MODULE_VDSO:
-		return elf_dso_bias(prog, file->elf,
-				    module->vdso.dynamic_address, ret);
+		return elf_dso_bias(prog, file->elf, module->info, ret);
 	case DRGN_MODULE_EXTRA:
 		if (module->start < module->end) {
 			uint64_t elf_start, elf_end;
@@ -2005,7 +1888,7 @@ drgn_module_try_proc_files_for_shared_library(struct drgn_module *module,
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
-	const uint64_t address = module->shared_library.dynamic_address;
+	const uint64_t address = module->info;
 
 #define DIR_FORMAT "/proc/%ld/map_files"
 #define ENTRY_FORMAT "/%" PRIx64 "-%" PRIx64

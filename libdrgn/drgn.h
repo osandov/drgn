@@ -1194,7 +1194,13 @@ struct drgn_error *drgn_program_element_info(struct drgn_program *prog,
  * @{
  */
 
-/** An executable, library, or other binary file used by a program. */
+/**
+ * An executable, library, or other binary file used by a program.
+ *
+ * Modules are uniquely identified by the combination of their kind (@ref
+ * drgn_module_kind()), name (@ref drgn_module_name()), and info (@ref
+ * drgn_module_info()).
+ */
 struct drgn_module;
 
 /** Kinds of modules. */
@@ -1213,42 +1219,6 @@ enum drgn_module_kind {
 	/** Extra debugging information. */
 	DRGN_MODULE_EXTRA,
 } __attribute__((__packed__));
-
-/** Unique key for a @ref drgn_module. */
-struct drgn_module_key {
-	/** Kind of module. */
-	enum drgn_module_kind kind;
-	/** Kind-specific key. */
-	union {
-		struct {
-			/** Name of module. */
-			const char *name;
-			/** Address of dynamic section. */
-			uint64_t dynamic_address;
-		} shared_library;
-		struct {
-			/** Name of module. */
-			const char *name;
-			/** Address of dynamic section. */
-			uint64_t dynamic_address;
-		} vdso;
-		struct {
-			/** Name of module. */
-			const char *name;
-			/**
-			 * Address identifying the module (e.g., for Linux
-			 * kernel loadable modules, the base address).
-			 */
-			uint64_t address;
-		} relocatable;
-		struct {
-			/** Name of module. */
-			const char *name;
-			/** Arbitrary identification number. */
-			uint64_t id;
-		} extra;
-	};
-};
 
 /**
  * Find the created @ref drgn_module containing the given @p address.
@@ -1366,14 +1336,23 @@ struct drgn_error *drgn_module_find_or_create_extra(struct drgn_program *prog,
 /** Get the program that a module is from. */
 struct drgn_program *drgn_module_program(const struct drgn_module *module);
 
-/** Get the unique key for a module. */
-struct drgn_module_key drgn_module_key(const struct drgn_module *module);
-
 /** Get the kind of a module. */
 enum drgn_module_kind drgn_module_kind(const struct drgn_module *module);
 
 /** Get the name of a module. */
 const char *drgn_module_name(const struct drgn_module *module);
+
+/**
+ * Get the kind-specific info of a module.
+ *
+ * - For the main module, it is always 0.
+ * - For shared library and vDSO modules, it is the address of the dynamic
+ *   section.
+ * - For relocatable modules, it is an address identifying the module (e.g., for
+ *   Linux kernel loadable modules, it is the base address).
+ * - For extra modules, it is an arbitrary identification number.
+ */
+uint64_t drgn_module_info(const struct drgn_module *module);
 
 /**
  * Get the address range where a module is loaded.
