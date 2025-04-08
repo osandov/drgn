@@ -40,9 +40,22 @@ __all__ = (
 
 
 def _follow_mount(mnt: Object, dentry: Object) -> Tuple[Object, Object]:
-    # DCACHE_MOUNTED is a macro, so we can't easily get the value. But, it
-    # hasn't changed since v2.6.38, so let's hardcode it for now.
-    DCACHE_MOUNTED = 0x10000
+    prog = dentry.prog_
+    try:
+        DCACHE_MOUNTED = prog.cache["DCACHE_MOUNTED"]
+    except KeyError:
+        tokens = prog["UTS_RELEASE"].string_().split(b".", 2)
+        major, minor = int(tokens[0]), int(tokens[1])
+        # Linux kernel commit 9748cb2dc393 ("VFS: repack DENTRY_ flags.") (in
+        # v6.15) changed the value of DCACHE_MOUNTED. Unfortunately, it's a
+        # macro, so we have to hardcode it based on a version check until it's
+        # converted to an enum.
+        if (major, minor) >= (6, 15):
+            DCACHE_MOUNTED = 1 << 15
+        else:
+            DCACHE_MOUNTED = 1 << 16
+        prog.cache["DCACHE_MOUNTED"] = DCACHE_MOUNTED
+
     while dentry.d_flags & DCACHE_MOUNTED:
         for mounted in list_for_each_entry(
             "struct mount", mnt.mnt_mounts.address_of_(), "mnt_child"
