@@ -189,10 +189,9 @@ that type or find one that was previously created::
       ...
     LookupError: module not found
     >>> prog.extra_module("foo", 1234, create=True)
-    (prog.extra_module(name='foo', id=0x4d2), True)
+    prog.extra_module(name='foo', id=0x4d2)
     >>> prog.extra_module("foo", 1234)
-    >>> prog.extra_module("foo", 1234, create=True)
-    (prog.extra_module(name='foo', id=0x4d2), False)
+    prog.extra_module(name='foo', id=0x4d2)
 
 .. drgndoc:: Program.main_module
 .. drgndoc:: Program.shared_library_module

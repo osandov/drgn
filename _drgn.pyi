@@ -31,9 +31,9 @@ from typing import (
 )
 
 if sys.version_info < (3, 8):
-    from typing_extensions import Final, Literal, Protocol
+    from typing_extensions import Final, Protocol
 else:
-    from typing import Final, Literal, Protocol
+    from typing import Final, Protocol
 
 if sys.version_info < (3, 10):
     from typing_extensions import TypeAlias
@@ -734,128 +734,82 @@ class Program:
         """
 
     @overload
-    def main_module(
-        self, name: Optional[Path] = None, *, create: Literal[False] = False
-    ) -> MainModule:
+    def main_module(self) -> MainModule:
         """
         Find the main module.
 
-        :param name: :attr:`Module.name`, or ``None`` to match any name
-        :raises LookupError: if main module has not been created or its name
-            doesn't match
+        :raises LookupError: if the main module has not been created
         """
         ...
 
     @overload
-    def main_module(
-        self, name: Path, *, create: Literal[True]
-    ) -> Tuple[MainModule, bool]:
+    def main_module(self, name: Path, *, create: bool = False) -> MainModule:
         """
-        Find or create the main module.
+        Find the main module.
 
         :param name: :attr:`Module.name`
-        :return: Module and ``True`` if it was newly created or ``False`` if it
-            was found.
-        :raises LookupError: if main module was already created with a
-            different name
+        :param create: Create the module if it doesn't exist.
+        :raises LookupError: if the main module has not been created and
+            *create* is ``False``, or if the main module has already been
+            created with a different name
         """
         ...
 
-    @overload
     def shared_library_module(
         self,
         name: Path,
         dynamic_address: IntegerLike,
         *,
-        create: Literal[False] = False,
+        create: bool = False,
     ) -> SharedLibraryModule:
         """
         Find a shared library module.
 
         :param name: :attr:`Module.name`
         :param dynamic_address: :attr:`SharedLibraryModule.dynamic_address`
+        :param create: Create the module if it doesn't exist.
         :return: Shared library module with the given name and dynamic address.
-        :raises LookupError: if no matching module has been created
+        :raises LookupError: if no matching module has been created and
+            *create* is ``False``
         """
         ...
 
-    @overload
-    def shared_library_module(
-        self, name: Path, dynamic_address: IntegerLike, *, create: Literal[True]
-    ) -> Tuple[SharedLibraryModule, bool]:
-        """
-        Find or create a shared library module.
-
-        :param name: :attr:`Module.name`
-        :param dynamic_address: :attr:`SharedLibraryModule.dynamic_address`
-        :return: Module and ``True`` if it was newly created or ``False`` if it
-            was found.
-        """
-        ...
-
-    @overload
     def vdso_module(
         self,
         name: Path,
         dynamic_address: IntegerLike,
         *,
-        create: Literal[False] = False,
+        create: bool = False,
     ) -> VdsoModule:
         """
         Find a vDSO module.
 
         :param name: :attr:`Module.name`
         :param dynamic_address: :attr:`VdsoModule.dynamic_address`
+        :param create: Create the module if it doesn't exist.
         :return: vDSO module with the given name and dynamic address.
-        :raises LookupError: if no matching module has been created
+        :raises LookupError: if no matching module has been created and
+            *create* is ``False``
         """
         ...
 
-    @overload
-    def vdso_module(
-        self, name: Path, dynamic_address: IntegerLike, *, create: Literal[True]
-    ) -> Tuple[VdsoModule, bool]:
-        """
-        Find or create a vDSO module.
-
-        :param name: :attr:`Module.name`
-        :param dynamic_address: :attr:`VdsoModule.dynamic_address`
-        :return: Module and ``True`` if it was newly created or ``False`` if it
-            was found.
-        """
-        ...
-
-    @overload
     def relocatable_module(
-        self, name: Path, address: IntegerLike, *, create: Literal[False] = False
+        self, name: Path, address: IntegerLike, *, create: bool = False
     ) -> RelocatableModule:
         """
         Find a relocatable module.
 
         :param name: :attr:`Module.name`
         :param address: :attr:`RelocatableModule.address`
+        :param create: Create the module if it doesn't exist.
         :return: Relocatable module with the given name and address.
-        :raises LookupError: if no matching module has been created
+        :raises LookupError: if no matching module has been created and
+            *create* is ``False``
         """
         ...
 
-    @overload
-    def relocatable_module(
-        self, name: Path, address: IntegerLike, *, create: Literal[True]
-    ) -> Tuple[RelocatableModule, bool]:
-        """
-        Find or create a relocatable module.
-
-        :param name: :attr:`Module.name`
-        :param address: :attr:`RelocatableModule.address`
-        :return: Module and ``True`` if it was newly created or ``False`` if it
-            was found.
-        """
-        ...
-
-    @overload
     def linux_kernel_loadable_module(
-        self, module_obj: Object, *, create: Literal[False] = False
+        self, module_obj: Object, *, create: bool = False
     ) -> RelocatableModule:
         """
         Find a Linux kernel loadable module from a ``struct module *`` object.
@@ -863,54 +817,26 @@ class Program:
         Note that kernel modules are represented as relocatable modules.
 
         :param module_obj: ``struct module *`` object for the kernel module.
+        :param create: Create the module if it doesn't exist.
         :return: Relocatable module with a name and address matching
             *module_obj*.
-        :raises LookupError: if no matching module has been created
+        :raises LookupError: if no matching module has been created and
+            *create* is ``False``
         """
         ...
 
-    @overload
-    def linux_kernel_loadable_module(
-        self, module_obj: Object, *, create: Literal[True]
-    ) -> Tuple[RelocatableModule, bool]:
-        """
-        Find or create a Linux kernel loadable module from a ``struct module *``
-        object.
-
-        If a new module is created, its :attr:`~Module.address_range` and
-        :attr:`~RelocatableModule.section_addresses` are set from *module_obj*.
-
-        :param module_obj: `struct module *`` object for the kernel module.
-        :return: Module and ``True`` if it was newly created or ``False`` if it
-            was found.
-        """
-        ...
-
-    @overload
     def extra_module(
-        self, name: Path, id: IntegerLike = 0, *, create: Literal[False] = False
+        self, name: Path, id: IntegerLike = 0, *, create: bool = False
     ) -> ExtraModule:
         """
         Find an extra module.
 
         :param name: :attr:`Module.name`
         :param id: :attr:`ExtraModule.id`
+        :param create: Create the module if it doesn't exist.
         :return: Extra module with the given name and ID number.
-        :raises LookupError: if no matching module has been created
-        """
-        ...
-
-    @overload
-    def extra_module(
-        self, name: Path, id: IntegerLike = 0, *, create: Literal[True]
-    ) -> Tuple[ExtraModule, bool]:
-        """
-        Find or create an extra module.
-
-        :param name: :attr:`Module.name`
-        :param id: :attr:`ExtraModule.id`
-        :return: Module and ``True`` if it was newly created or ``False`` if it
-            was found.
+        :raises LookupError: if no matching module has been created and
+            *create* is ``False``
         """
         ...
 

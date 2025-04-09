@@ -361,9 +361,9 @@ def _load_debugging_symbols(prog: drgn.Program, args: argparse.Namespace) -> Non
     if args.extra_symbols:
         for extra_symbol_path in args.extra_symbols:
             extra_symbol_path = os.path.abspath(extra_symbol_path)
-            module, new = prog.extra_module(extra_symbol_path, create=True)
-            if new:
-                module.try_file(extra_symbol_path)
+            prog.extra_module(extra_symbol_path, create=True).try_file(
+                extra_symbol_path
+            )
 
 
 def _main() -> None:

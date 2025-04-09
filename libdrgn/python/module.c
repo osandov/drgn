@@ -61,11 +61,6 @@ PyObject *Module_wrap(struct drgn_module *module)
 	return (PyObject *)ret;
 }
 
-PyObject *Module_and_bool_wrap(struct drgn_module *module, bool b)
-{
-	return Py_BuildValue("NO", Module_wrap(module), b ? Py_True : Py_False);
-}
-
 static void Module_dealloc(Module *self)
 {
 	if (self->module)
@@ -578,7 +573,8 @@ static PyObject *ModuleIteratorWithNew_next(ModuleIterator *self)
 		return set_drgn_error(err);
 	if (!module)
 		return NULL;
-	return Module_and_bool_wrap(module, new);
+	return Py_BuildValue("NO", Module_wrap(module),
+			     new ? Py_True : Py_False);
 }
 
 PyTypeObject ModuleIterator_type = {

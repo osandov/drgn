@@ -187,7 +187,7 @@ class TestStackTrace(LinuxKernelStackTraceTestCase):
             prog.register_symbol_finder(
                 "vmlinux_kallsyms", load_vmlinux_kallsyms(prog), enable_index=0
             )
-            main, _ = prog.main_module(name="kernel", create=True)
+            main = prog.main_module(name="kernel", create=True)
             main.address_range = self.prog.main_module().address_range
 
             # Luckily, all drgn cares about for x86_64 pt_regs is that it is a

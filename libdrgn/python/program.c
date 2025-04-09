@@ -1081,14 +1081,13 @@ static PyObject *Program_main_module(Program *self, PyObject *args,
 			return NULL;
 		}
 		struct drgn_module *module;
-		bool new;
 		err = drgn_module_find_or_create_main(&self->prog, name.path,
-						      &module, &new);
+						      &module, NULL);
 		if (err) {
 			set_drgn_error(err);
 			return NULL;
 		}
-		return Module_and_bool_wrap(module, new);
+		return Module_wrap(module);
 	} else {
 		return Module_wrap_find(drgn_module_find_main(&self->prog,
 							      name.path));
@@ -1112,16 +1111,15 @@ static PyObject *Program_shared_library_module(Program *self, PyObject *args,
 
 	if (create) {
 		struct drgn_module *module;
-		bool new;
 		err = drgn_module_find_or_create_shared_library(&self->prog,
 								name.path,
 								dynamic_address.uvalue,
-								&module, &new);
+								&module, NULL);
 		if (err) {
 			set_drgn_error(err);
 			return NULL;
 		}
-		return Module_and_bool_wrap(module, new);
+		return Module_wrap(module);
 	} else {
 		return Module_wrap_find(drgn_module_find_shared_library(&self->prog,
 									name.path,
@@ -1145,15 +1143,14 @@ static PyObject *Program_vdso_module(Program *self, PyObject *args,
 
 	if (create) {
 		struct drgn_module *module;
-		bool new;
 		err = drgn_module_find_or_create_vdso(&self->prog, name.path,
 						      dynamic_address.uvalue,
-						      &module, &new);
+						      &module, NULL);
 		if (err) {
 			set_drgn_error(err);
 			return NULL;
 		}
-		return Module_and_bool_wrap(module, new);
+		return Module_wrap(module);
 	} else {
 		return Module_wrap_find(drgn_module_find_vdso(&self->prog,
 							      name.path,
@@ -1177,16 +1174,15 @@ static PyObject *Program_relocatable_module(Program *self, PyObject *args,
 
 	if (create) {
 		struct drgn_module *module;
-		bool new;
 		err = drgn_module_find_or_create_relocatable(&self->prog,
 							     name.path,
 							     address.uvalue,
-							     &module, &new);
+							     &module, NULL);
 		if (err) {
 			set_drgn_error(err);
 			return NULL;
 		}
-		return Module_and_bool_wrap(module, new);
+		return Module_wrap(module);
 	} else {
 		return Module_wrap_find(drgn_module_find_relocatable(&self->prog,
 								     name.path,
@@ -1216,15 +1212,14 @@ static PyObject *Program_linux_kernel_loadable_module(Program *self,
 
 	struct drgn_module *module;
 	if (create) {
-		bool new;
 		err = drgn_module_find_or_create_linux_kernel_loadable(&module_obj->obj,
 								       &module,
-								       &new);
+								       NULL);
 		if (err) {
 			set_drgn_error(err);
 			return NULL;
 		}
-		return Module_and_bool_wrap(module, new);
+		return Module_wrap(module);
 	} else {
 		err = drgn_module_find_linux_kernel_loadable(&module_obj->obj,
 							     &module);
@@ -1251,15 +1246,14 @@ static PyObject *Program_extra_module(Program *self, PyObject *args,
 
 	if (create) {
 		struct drgn_module *module;
-		bool new;
 		err = drgn_module_find_or_create_extra(&self->prog, name.path,
 						       id.uvalue, &module,
-						       &new);
+						       NULL);
 		if (err) {
 			set_drgn_error(err);
 			return NULL;
 		}
-		return Module_and_bool_wrap(module, new);
+		return Module_wrap(module);
 	} else {
 		return Module_wrap_find(drgn_module_find_extra(&self->prog,
 							       name.path,

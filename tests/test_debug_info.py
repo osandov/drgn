@@ -62,7 +62,7 @@ class TestModuleTryFile(TestCase):
         self.prog.set_enabled_debug_info_finders([])
 
     def test_want_both(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile() as f:
             module.try_file(f.name)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -85,7 +85,7 @@ class TestModuleTryFile(TestCase):
                         )
 
     def test_want_both_not_loadable(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile(loadable=False) as f:
             module.try_file(f.name)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.WANT)
@@ -94,7 +94,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.debug_file_path, f.name)
 
     def test_want_both_no_debug(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile(debug=False) as f:
             module.try_file(f.name)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -103,7 +103,7 @@ class TestModuleTryFile(TestCase):
         self.assertIsNone(module.debug_file_path)
 
     def test_want_both_is_neither(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile(loadable=False, debug=False) as f:
             module.try_file(f.name)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.WANT)
@@ -112,7 +112,7 @@ class TestModuleTryFile(TestCase):
         self.assertIsNone(module.debug_file_path)
 
     def test_only_want_loaded(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.debug_file_status = ModuleFileStatus.DONT_WANT
         with NamedTemporaryElfFile() as f:
             module.try_file(f.name)
@@ -122,7 +122,7 @@ class TestModuleTryFile(TestCase):
         self.assertIsNone(module.debug_file_path)
 
     def test_only_want_loaded_not_loadable(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.debug_file_status = ModuleFileStatus.DONT_WANT
         with NamedTemporaryElfFile(loadable=False) as f:
             module.try_file(f.name)
@@ -132,7 +132,7 @@ class TestModuleTryFile(TestCase):
         self.assertIsNone(module.debug_file_path)
 
     def test_only_want_loaded_no_debug(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.debug_file_status = ModuleFileStatus.DONT_WANT
         with NamedTemporaryElfFile(debug=False) as f:
             module.try_file(f.name)
@@ -142,7 +142,7 @@ class TestModuleTryFile(TestCase):
         self.assertIsNone(module.debug_file_path)
 
     def test_only_want_loaded_is_neither(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.debug_file_status = ModuleFileStatus.DONT_WANT
         with NamedTemporaryElfFile(loadable=False, debug=False) as f:
             module.try_file(f.name)
@@ -152,7 +152,7 @@ class TestModuleTryFile(TestCase):
         self.assertIsNone(module.debug_file_path)
 
     def test_only_want_debug(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.loaded_file_status = ModuleFileStatus.DONT_WANT
         with NamedTemporaryElfFile() as f:
             module.try_file(f.name)
@@ -162,7 +162,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.debug_file_path, f.name)
 
     def test_only_want_debug_not_loadable(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.loaded_file_status = ModuleFileStatus.DONT_WANT
         with NamedTemporaryElfFile(loadable=False) as f:
             module.try_file(f.name)
@@ -172,7 +172,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.debug_file_path, f.name)
 
     def test_only_want_debug_no_debug(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.loaded_file_status = ModuleFileStatus.DONT_WANT
         with NamedTemporaryElfFile(debug=False) as f:
             module.try_file(f.name)
@@ -182,7 +182,7 @@ class TestModuleTryFile(TestCase):
         self.assertIsNone(module.debug_file_path)
 
     def test_only_want_debug_is_neither(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.loaded_file_status = ModuleFileStatus.DONT_WANT
         with NamedTemporaryElfFile(loadable=False, debug=False) as f:
             module.try_file(f.name)
@@ -192,7 +192,7 @@ class TestModuleTryFile(TestCase):
         self.assertIsNone(module.debug_file_path)
 
     def test_want_neither(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.loaded_file_status = ModuleFileStatus.DONT_WANT
         module.debug_file_status = ModuleFileStatus.DONT_WANT
         with NamedTemporaryElfFile() as f:
@@ -203,7 +203,7 @@ class TestModuleTryFile(TestCase):
         self.assertIsNone(module.debug_file_path)
 
     def test_separate_files_loaded_first(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile(debug=False) as f1:
             module.try_file(f1.name)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -219,7 +219,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.debug_file_path, f2.name)
 
     def test_separate_files_debug_first(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile(loadable=False) as f1:
             module.try_file(f1.name)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.WANT)
@@ -235,7 +235,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.debug_file_path, f1.name)
 
     def test_loadable_then_both(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile(debug=False) as f1:
             module.try_file(f1.name)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -251,7 +251,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.debug_file_path, f2.name)
 
     def test_debug_then_both(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile(loadable=False) as f1:
             module.try_file(f1.name)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.WANT)
@@ -267,14 +267,14 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.debug_file_path, f1.name)
 
     def test_no_build_id_force(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile() as f:
             module.try_file(f.name, force=True)
         self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
         self.assertEqual(module.debug_file_path, f.name)
 
     def test_no_build_id_file_has_build_id(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile(build_id=b"\x01\x23\x45\x67\x89\xab\xcd\xef") as f:
             module.try_file(f.name)
         self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -282,7 +282,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.build_id, b"\x01\x23\x45\x67\x89\xab\xcd\xef")
 
     def test_no_build_id_file_has_build_id_force(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile(build_id=b"\x01\x23\x45\x67\x89\xab\xcd\xef") as f:
             module.try_file(f.name, force=True)
         self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -290,7 +290,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.build_id, b"\x01\x23\x45\x67\x89\xab\xcd\xef")
 
     def test_build_id_match(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         with NamedTemporaryElfFile(build_id=b"\x01\x23\x45\x67\x89\xab\xcd\xef") as f:
             module.try_file(f.name)
@@ -299,7 +299,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.build_id, b"\x01\x23\x45\x67\x89\xab\xcd\xef")
 
     def test_build_id_match_force(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         with NamedTemporaryElfFile(build_id=b"\x01\x23\x45\x67\x89\xab\xcd\xef") as f:
             module.try_file(f.name, force=True)
@@ -308,7 +308,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.build_id, b"\x01\x23\x45\x67\x89\xab\xcd\xef")
 
     def test_build_id_mismatch(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         with NamedTemporaryElfFile(build_id=b"\xff\xff\xff\xff") as f:
             module.try_file(f.name)
@@ -317,7 +317,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.build_id, b"\x01\x23\x45\x67\x89\xab\xcd\xef")
 
     def test_build_id_mismatch_force(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         with NamedTemporaryElfFile(build_id=b"\xff\xff\xff\xff") as f:
             module.try_file(f.name, force=True)
@@ -326,7 +326,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.build_id, b"\x01\x23\x45\x67\x89\xab\xcd\xef")
 
     def test_build_id_missing(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         with NamedTemporaryElfFile() as f:
             module.try_file(f.name)
@@ -335,7 +335,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.build_id, b"\x01\x23\x45\x67\x89\xab\xcd\xef")
 
     def test_build_id_missing_force(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         with NamedTemporaryElfFile() as f:
             module.try_file(f.name, force=True)
@@ -366,7 +366,7 @@ class TestModuleTryFile(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.build_id = build_id
 
             self.assertEqual(module.debug_file_status, ModuleFileStatus.WANT)
@@ -433,7 +433,7 @@ class TestModuleTryFile(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.build_id = build_id
 
             self.assertEqual(module.debug_file_status, ModuleFileStatus.WANT)
@@ -486,7 +486,7 @@ class TestModuleTryFile(TestCase):
             alt_path = debug_dir / "alt.debug"
             alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.build_id = build_id
             with NamedTemporaryElfFile(
                 build_id=build_id,
@@ -518,7 +518,7 @@ class TestModuleTryFile(TestCase):
             alt_path = debug_dir / "alt.debug"
             alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.build_id = build_id
             with NamedTemporaryElfFile(
                 build_id=build_id,
@@ -535,7 +535,7 @@ class TestModuleTryFile(TestCase):
             self.assertRaises(ValueError, module.wanted_supplementary_debug_file)
 
     def test_extra_module_no_address_range(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile() as f:
             module.try_file(f.name)
         self.assertIsNone(module.address_range)
@@ -543,7 +543,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.debug_file_bias, 0)
 
     def test_extra_module_address_range(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.address_range = (0x40000000, 0x40001000)
         with NamedTemporaryElfFile() as f:
             module.try_file(f.name)
@@ -552,7 +552,7 @@ class TestModuleTryFile(TestCase):
         self.assertEqual(module.debug_file_bias, 0x30000000)
 
     def test_extra_module_empty_address_range(self):
-        module = self.prog.extra_module("/foo/bar", create=True)[0]
+        module = self.prog.extra_module("/foo/bar", create=True)
         module.address_range = (0, 0)
         with NamedTemporaryElfFile() as f:
             module.try_file(f.name)
@@ -1682,8 +1682,8 @@ class TestLoadModuleDebugInfo(TestCase):
 
     def test_multiple(self):
         self.prog.load_module_debug_info(
-            self.prog.extra_module("/foo/bar", create=True)[0],
-            self.prog.extra_module("/foo/baz", create=True)[0],
+            self.prog.extra_module("/foo/bar", create=True),
+            self.prog.extra_module("/foo/baz", create=True),
         )
         self.finder.assert_called_once()
         self.assertCountEqual(
@@ -1699,15 +1699,15 @@ class TestLoadModuleDebugInfo(TestCase):
             ValueError,
             "module from wrong program",
             self.prog.load_module_debug_info,
-            self.prog.extra_module("/foo/bar", create=True)[0],
-            Program().extra_module("/foo/baz", create=True)[0],
+            self.prog.extra_module("/foo/bar", create=True),
+            Program().extra_module("/foo/baz", create=True),
         )
 
     def test_type_error(self):
         self.assertRaises(
             TypeError,
             self.prog.load_module_debug_info,
-            self.prog.extra_module("/foo/bar", create=True)[0],
+            self.prog.extra_module("/foo/bar", create=True),
             None,
         )
 
@@ -1720,7 +1720,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
     def test_by_module_name(self):
         with NamedTemporaryElfFile() as f:
-            module = self.prog.extra_module(f.name, create=True)[0]
+            module = self.prog.extra_module(f.name, create=True)
             self.prog.load_module_debug_info(module)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
         self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -1731,7 +1731,7 @@ class TestStandardDebugInfoFinder(TestCase):
         build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
 
         with NamedTemporaryElfFile(build_id=build_id) as f:
-            module = self.prog.extra_module(f.name, create=True)[0]
+            module = self.prog.extra_module(f.name, create=True)
             module.build_id = build_id
             self.prog.load_module_debug_info(module)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -1743,7 +1743,7 @@ class TestStandardDebugInfoFinder(TestCase):
         build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
 
         with NamedTemporaryElfFile() as f:
-            module = self.prog.extra_module(f.name, create=True)[0]
+            module = self.prog.extra_module(f.name, create=True)
             module.build_id = build_id
             self.prog.load_module_debug_info(module)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.WANT)
@@ -1753,7 +1753,7 @@ class TestStandardDebugInfoFinder(TestCase):
         build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
 
         with NamedTemporaryElfFile(build_id=build_id[::-1]) as f:
-            module = self.prog.extra_module(f.name, create=True)[0]
+            module = self.prog.extra_module(f.name, create=True)
             module.build_id = build_id
             self.prog.load_module_debug_info(module)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.WANT)
@@ -1761,7 +1761,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
     def test_reuse_loaded_file(self):
         with NamedTemporaryElfFile() as f:
-            module = self.prog.extra_module(f.name, create=True)[0]
+            module = self.prog.extra_module(f.name, create=True)
             module.debug_file_status = ModuleFileStatus.DONT_WANT
             self.prog.load_module_debug_info(module)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -1777,7 +1777,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
     def test_reuse_debug_file(self):
         with NamedTemporaryElfFile() as f:
-            module = self.prog.extra_module(f.name, create=True)[0]
+            module = self.prog.extra_module(f.name, create=True)
             module.loaded_file_status = ModuleFileStatus.DONT_WANT
             self.prog.load_module_debug_info(module)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.DONT_WANT)
@@ -1797,7 +1797,7 @@ class TestStandardDebugInfoFinder(TestCase):
         with NamedTemporaryElfFile(
             gnu_debugaltlink=("alt.debug", alt_build_id),
         ) as f:
-            module = self.prog.extra_module(f.name, create=True)[0]
+            module = self.prog.extra_module(f.name, create=True)
             module.loaded_file_status = ModuleFileStatus.DONT_WANT
             self.prog.load_module_debug_info(module)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.DONT_WANT)
@@ -1869,7 +1869,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 create_dwarf_file((), sections=(ALLOCATED_SECTION,))
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.build_id = build_id
 
             self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
@@ -1897,7 +1897,7 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_path = build_id_dir / (build_id.hex()[2:] + ".debug")
             debug_path.write_bytes(create_dwarf_file(()))
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.build_id = build_id
 
             self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
@@ -1927,7 +1927,7 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_path = build_id_dir / (build_id.hex()[2:] + ".debug")
             debug_path.write_bytes(create_dwarf_file(()))
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
 
             self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
             self.prog.load_module_debug_info(module)
@@ -1952,7 +1952,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 create_dwarf_file((), sections=(ALLOCATED_SECTION,))
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.build_id = build_id
 
             self.prog.find_standard_debug_info(
@@ -1998,7 +1998,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
                         module = self.prog.extra_module(
                             bin_dir / "binary", i, create=True
-                        )[0]
+                        )
 
                         self.prog.load_module_debug_info(module)
                         self.assertEqual(
@@ -2038,7 +2038,7 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_path.parent.mkdir(parents=True, exist_ok=True)
             debug_path.write_bytes(debug_file_contents)
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
 
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -2065,7 +2065,7 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_path = bin_dir / "binary.debug"
             debug_path.write_bytes(debug_file_contents)
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             self.prog.debug_info_options.directories = ("",)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.WANT)
@@ -2087,7 +2087,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.WANT)
@@ -2114,7 +2114,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -2140,7 +2140,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(
@@ -2178,7 +2178,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.try_file(binary_path)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(
@@ -2210,7 +2210,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.try_file(binary_path)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(
@@ -2257,7 +2257,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -2295,7 +2295,7 @@ class TestStandardDebugInfoFinder(TestCase):
                         )
                     )
 
-                    module = self.prog.extra_module(binary_path, create=True)[0]
+                    module = self.prog.extra_module(binary_path, create=True)
                     self.prog.load_module_debug_info(module)
                     self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
                     self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -2328,7 +2328,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(
@@ -2367,7 +2367,7 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)[0]
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.WANT)
@@ -2451,7 +2451,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
         )
 
     def test_no_build_id(self):
-        module = self.prog.extra_module("foo", create=True)[0]
+        module = self.prog.extra_module("foo", create=True)
         self.prog.load_module_debug_info(module)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.WANT)
         self.assertEqual(module.debug_file_status, ModuleFileStatus.WANT)
@@ -2469,7 +2469,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
                 "debuginfo": debug_file.name,
             }
 
-            module = self.prog.extra_module("foo", create=True)[0]
+            module = self.prog.extra_module("foo", create=True)
             module.build_id = build_id
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -2498,7 +2498,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
                 "debuginfo": debug_file.name,
             }
 
-            module = self.prog.extra_module("foo", create=True)[0]
+            module = self.prog.extra_module("foo", create=True)
             module.build_id = build_id
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.WANT)
@@ -2513,7 +2513,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
             self.server.build_ids[build_id] = {"debuginfo": debug_file.name}
 
             for i in range(2):
-                module = self.prog.extra_module("foo", i, create=True)[0]
+                module = self.prog.extra_module("foo", i, create=True)
                 module.build_id = build_id
                 self.prog.load_module_debug_info(module)
                 self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -2542,7 +2542,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
             }
             self.server.build_ids[alt_build_id] = {"debuginfo": alt_f.name}
 
-            module = self.prog.extra_module("foo", create=True)[0]
+            module = self.prog.extra_module("foo", create=True)
             module.build_id = build_id
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -2577,7 +2577,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
                 "debuginfo": debug_file.name,
             }
 
-            module = self.prog.extra_module("foo", create=True)[0]
+            module = self.prog.extra_module("foo", create=True)
             module.build_id = build_id
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
@@ -2610,7 +2610,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
         ) as alt_f:
             self.server.build_ids[alt_build_id] = {"debuginfo": alt_f.name}
 
-            module = self.prog.extra_module("foo", create=True)[0]
+            module = self.prog.extra_module("foo", create=True)
             module.try_file(f.name)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(
@@ -2635,7 +2635,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
             build_id=build_id,
             gnu_debugaltlink=("alt.debug", alt_build_id),
         ) as f:
-            module = self.prog.extra_module("foo", create=True)[0]
+            module = self.prog.extra_module("foo", create=True)
             module.try_file(f.name)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(

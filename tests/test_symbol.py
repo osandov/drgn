@@ -51,7 +51,7 @@ def elf_symbol_program(*modules):
                     end <= other_start or start >= other_end
                 ), f"module {len(address_ranges)} overlaps module {i}"
             address_ranges.append((start, end))
-            module = prog.extra_module(f.name, create=True)[0]
+            module = prog.extra_module(f.name, create=True)
             module.address_range = (start, end)
             module.try_file(f.name, force=True)
     return prog

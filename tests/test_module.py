@@ -42,16 +42,15 @@ class TestModule(TestCase):
         self.assertRaises(LookupError, prog.main_module)
         self.assertRaises(LookupError, prog.main_module, "/foo/bar")
 
-        module, new = prog.main_module("/foo/bar", create=True)
+        module = prog.main_module("/foo/bar", create=True)
         self.assertIsInstance(module, MainModule)
-        self.assertEqual(new, True)
 
         self.assertEqual(prog.main_module(), module)
         self.assertEqual(prog.main_module(create=False), module)
         self.assertEqual(prog.main_module("/foo/bar"), module)
         self.assertEqual(prog.main_module(b"/foo/bar"), module)
         self.assertEqual(prog.main_module(Path("/foo/bar")), module)
-        self.assertEqual(prog.main_module("/foo/bar", create=True), (module, False))
+        self.assertEqual(prog.main_module("/foo/bar", create=True), module)
 
         self.assertRaises(LookupError, prog.main_module, "/foo/baz")
         self.assertRaises(LookupError, prog.main_module, "/foo/baz", create=True)
@@ -73,9 +72,8 @@ class TestModule(TestCase):
             LookupError, prog.shared_library_module, "/foo/bar", 0x10000000
         )
 
-        module, new = prog.shared_library_module("/foo/bar", 0x10000000, create=True)
+        module = prog.shared_library_module("/foo/bar", 0x10000000, create=True)
         self.assertIsInstance(module, SharedLibraryModule)
-        self.assertEqual(new, True)
 
         self.assertEqual(prog.shared_library_module("/foo/bar", 0x10000000), module)
         self.assertEqual(prog.shared_library_module(b"/foo/bar", 0x10000000), module)
@@ -83,8 +81,7 @@ class TestModule(TestCase):
             prog.shared_library_module(Path("/foo/bar"), IntWrapper(0x10000000)), module
         )
         self.assertEqual(
-            prog.shared_library_module("/foo/bar", 0x10000000, create=True),
-            (module, False),
+            prog.shared_library_module("/foo/bar", 0x10000000, create=True), module
         )
 
         self.assertRaises(
@@ -95,13 +92,13 @@ class TestModule(TestCase):
         )
 
         self.assertNotEqual(
-            prog.shared_library_module("/foo/bar", 0x20000000, create=True)[0], module
+            prog.shared_library_module("/foo/bar", 0x20000000, create=True), module
         )
         self.assertNotEqual(
-            prog.shared_library_module("/foo/baz", 0x10000000, create=True)[0], module
+            prog.shared_library_module("/foo/baz", 0x10000000, create=True), module
         )
         self.assertNotEqual(
-            prog.vdso_module("/foo/bar", 0x10000000, create=True)[0], module
+            prog.vdso_module("/foo/bar", 0x10000000, create=True), module
         )
 
         self.assertIs(module.prog, prog)
@@ -124,30 +121,27 @@ class TestModule(TestCase):
 
         self.assertRaises(LookupError, prog.vdso_module, "/foo/bar", 0x10000000)
 
-        module, new = prog.vdso_module("/foo/bar", 0x10000000, create=True)
+        module = prog.vdso_module("/foo/bar", 0x10000000, create=True)
         self.assertIsInstance(module, VdsoModule)
-        self.assertEqual(new, True)
 
         self.assertEqual(prog.vdso_module("/foo/bar", 0x10000000), module)
         self.assertEqual(prog.vdso_module(b"/foo/bar", 0x10000000), module)
         self.assertEqual(
             prog.vdso_module(Path("/foo/bar"), IntWrapper(0x10000000)), module
         )
-        self.assertEqual(
-            prog.vdso_module("/foo/bar", 0x10000000, create=True), (module, False)
-        )
+        self.assertEqual(prog.vdso_module("/foo/bar", 0x10000000, create=True), module)
 
         self.assertRaises(LookupError, prog.vdso_module, "/foo/bar", 0x20000000)
         self.assertRaises(LookupError, prog.vdso_module, "/foo/baz", 0x10000000)
 
         self.assertNotEqual(
-            prog.vdso_module("/foo/bar", 0x20000000, create=True)[0], module
+            prog.vdso_module("/foo/bar", 0x20000000, create=True), module
         )
         self.assertNotEqual(
-            prog.vdso_module("/foo/baz", 0x10000000, create=True)[0], module
+            prog.vdso_module("/foo/baz", 0x10000000, create=True), module
         )
         self.assertNotEqual(
-            prog.shared_library_module("/foo/bar", 0x10000000, create=True)[0], module
+            prog.shared_library_module("/foo/bar", 0x10000000, create=True), module
         )
 
         self.assertIs(module.prog, prog)
@@ -168,9 +162,8 @@ class TestModule(TestCase):
 
         self.assertRaises(LookupError, prog.relocatable_module, "/foo/bar", 0x10000000)
 
-        module, new = prog.relocatable_module("/foo/bar", 0x10000000, create=True)
+        module = prog.relocatable_module("/foo/bar", 0x10000000, create=True)
         self.assertIsInstance(module, RelocatableModule)
-        self.assertEqual(new, True)
 
         self.assertEqual(prog.relocatable_module("/foo/bar", 0x10000000), module)
         self.assertEqual(prog.relocatable_module(b"/foo/bar", 0x10000000), module)
@@ -178,21 +171,20 @@ class TestModule(TestCase):
             prog.relocatable_module(Path("/foo/bar"), IntWrapper(0x10000000)), module
         )
         self.assertEqual(
-            prog.relocatable_module("/foo/bar", 0x10000000, create=True),
-            (module, False),
+            prog.relocatable_module("/foo/bar", 0x10000000, create=True), module
         )
 
         self.assertRaises(LookupError, prog.relocatable_module, "/foo/bar", 0x20000000)
         self.assertRaises(LookupError, prog.relocatable_module, "/foo/baz", 0x10000000)
 
         self.assertNotEqual(
-            prog.relocatable_module("/foo/bar", 0x20000000, create=True)[0], module
+            prog.relocatable_module("/foo/bar", 0x20000000, create=True), module
         )
         self.assertNotEqual(
-            prog.relocatable_module("/foo/baz", 0x10000000, create=True)[0], module
+            prog.relocatable_module("/foo/baz", 0x10000000, create=True), module
         )
         self.assertNotEqual(
-            prog.shared_library_module("/foo/bar", 0x10000000, create=True)[0], module
+            prog.shared_library_module("/foo/bar", 0x10000000, create=True), module
         )
 
         self.assertIs(module.prog, prog)
@@ -202,7 +194,7 @@ class TestModule(TestCase):
 
     def test_section_addresses(self):
         prog = Program()
-        module = prog.relocatable_module("/foo/bar", 0x10000000, create=True)[0]
+        module = prog.relocatable_module("/foo/bar", 0x10000000, create=True)
 
         self.assertNotIn(".text", module.section_addresses)
         self.assertNotIn(1, module.section_addresses)
@@ -267,26 +259,23 @@ class TestModule(TestCase):
 
         self.assertRaises(LookupError, prog.extra_module, "/foo/bar", 1234)
 
-        module, new = prog.extra_module("/foo/bar", 1234, create=True)
+        module = prog.extra_module("/foo/bar", 1234, create=True)
         self.assertIsInstance(module, ExtraModule)
-        self.assertEqual(new, True)
 
         self.assertEqual(prog.extra_module("/foo/bar", 1234), module)
         self.assertEqual(prog.extra_module(b"/foo/bar", 1234), module)
         self.assertEqual(prog.extra_module(Path("/foo/bar"), IntWrapper(1234)), module)
-        self.assertEqual(
-            prog.extra_module("/foo/bar", 1234, create=True), (module, False)
-        )
+        self.assertEqual(prog.extra_module("/foo/bar", 1234, create=True), module)
 
         self.assertRaises(LookupError, prog.extra_module, "/foo/bar", 5678)
         self.assertRaises(LookupError, prog.extra_module, "/foo/baz", 1234)
 
-        self.assertNotEqual(prog.extra_module("/foo/bar", 5678, create=True)[0], module)
-        self.assertNotEqual(prog.extra_module("/foo/baz", 1234, create=True)[0], module)
+        self.assertNotEqual(prog.extra_module("/foo/bar", 5678, create=True), module)
+        self.assertNotEqual(prog.extra_module("/foo/baz", 1234, create=True), module)
         self.assertNotEqual(
-            prog.shared_library_module("/foo/bar", 1234, create=True)[0], module
+            prog.shared_library_module("/foo/bar", 1234, create=True), module
         )
-        self.assertEqual(prog.extra_module("/foo/bar", create=True)[0].id, 0)
+        self.assertEqual(prog.extra_module("/foo/bar", create=True).id, 0)
 
         self.assertIs(module.prog, prog)
         self.assertEqual(module.name, "/foo/bar")
@@ -301,7 +290,7 @@ class TestModule(TestCase):
         self.assertRaises(TypeError, prog.extra_module, "/foo/bar", 1234, True)
 
     def test_address_range(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
 
         module.address_range = (0x10000000, 0x10010000)
         self.assertEqual(module.address_range, (0x10000000, 0x10010000))
@@ -316,13 +305,13 @@ class TestModule(TestCase):
         self.assertIsNone(module.address_range)
 
     def test_address_range_empty(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
 
         module.address_range = (0, 0)
         self.assertEqual(module.address_range, (0, 0))
 
     def test_address_range_type_error(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
 
         with self.assertRaises(TypeError):
             module.address_range = 1
@@ -337,7 +326,7 @@ class TestModule(TestCase):
             module.address_range = (1, "bar")
 
     def test_address_range_invalid(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
 
         with self.assertRaisesRegex(ValueError, "invalid module address range"):
             module.address_range = (0x10010000, 0x10000000)
@@ -352,12 +341,12 @@ class TestModule(TestCase):
             module.address_range = (2**64 - 1, 2**64 - 1)
 
     def test_address_range_del(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
         with self.assertRaises(AttributeError):
             del module.address_range
 
     def test_build_id(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
 
         module.build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         self.assertEqual(module.build_id, b"\x01\x23\x45\x67\x89\xab\xcd\xef")
@@ -372,17 +361,17 @@ class TestModule(TestCase):
         self.assertIsNone(module.build_id)
 
     def test_build_id_type_error(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
         with self.assertRaises(TypeError):
             module.build_id = "abcd"
 
     def test_build_id_invalid_empty(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
         with self.assertRaisesRegex(ValueError, "build ID cannot be empty"):
             module.build_id = b""
 
     def test_build_id_del(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
         with self.assertRaises(AttributeError):
             del module.build_id
 
@@ -390,19 +379,19 @@ class TestModule(TestCase):
         prog = Program()
         self.assertRaises(LookupError, prog.module, "foo")
 
-        module1 = prog.extra_module("foo", create=True)[0]
+        module1 = prog.extra_module("foo", create=True)
         self.assertEqual(prog.module("foo"), module1)
 
-        module2 = prog.main_module("foo", create=True)[0]
+        module2 = prog.main_module("foo", create=True)
         self.assertIn(prog.module("foo"), (module1, module2))
 
         self.assertRaises(LookupError, prog.module, "bar")
 
     def test_find_by_address(self):
         prog = Program()
-        module1 = prog.extra_module("/foo/bar", create=True)[0]
+        module1 = prog.extra_module("/foo/bar", create=True)
         module1.address_range = (0x10000000, 0x10010000)
-        module2 = prog.extra_module("/asdf/jkl", create=True)[0]
+        module2 = prog.extra_module("/asdf/jkl", create=True)
         module2.address_range = (0x20000000, 0x20020000)
 
         self.assertRaises(LookupError, prog.module, 0x0FFFFFFF)
@@ -419,7 +408,7 @@ class TestModule(TestCase):
 
     # Test all of the state transitions that we can without setting a file.
     def _test_file_status(self, which):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
 
         status_attr = which + "_file_status"
         wants_file = getattr(module, f"wants_{which}_file")
@@ -492,29 +481,29 @@ class TestCreatedModules(TestCase):
         self.assertEqual(list(Program().modules()), [])
 
     def test_one(self):
-        module = Program().extra_module("/foo/bar", create=True)[0]
+        module = Program().extra_module("/foo/bar", create=True)
         self.assertEqual(list(module.prog.modules()), [module])
 
     def test_multiple(self):
         prog = Program()
         modules = [
-            prog.extra_module("/foo/bar", create=True)[0],
-            prog.extra_module("/asdf/jkl", create=True)[0],
-            prog.extra_module("/123/456", create=True)[0],
+            prog.extra_module("/foo/bar", create=True),
+            prog.extra_module("/asdf/jkl", create=True),
+            prog.extra_module("/123/456", create=True),
         ]
         self.assertCountEqual(list(prog.modules()), modules)
 
     def test_same_name(self):
         prog = Program()
         modules = [
-            prog.extra_module("foo", id=0, create=True)[0],
-            prog.main_module("foo", create=True)[0],
+            prog.extra_module("foo", id=0, create=True),
+            prog.main_module("foo", create=True),
         ]
         actual = list(prog.modules())
         self.assertCountEqual(actual, modules)
         self.assertEqual(actual[0], prog.main_module())
 
-        modules.append(prog.extra_module("foo", id=1, create=True)[0])
+        modules.append(prog.extra_module("foo", id=1, create=True))
         actual = list(prog.modules())
         self.assertCountEqual(actual, modules)
         self.assertEqual(actual[0], prog.main_module())

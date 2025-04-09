@@ -351,7 +351,6 @@ void *set_error_type_name(const char *format,
 #define call_tp_alloc(type) ((type *)type##_type.tp_alloc(&type##_type, 0))
 
 PyObject *Module_wrap(struct drgn_module *module);
-PyObject *Module_and_bool_wrap(struct drgn_module *module, bool b);
 static inline Program *Module_prog(Module *module)
 {
 	struct drgn_program *prog = drgn_module_program(module->module);

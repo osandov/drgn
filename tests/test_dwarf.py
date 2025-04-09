@@ -205,7 +205,7 @@ labeled_float_die = (DwarfLabel("float_die"), float_die)
 
 
 def add_extra_dwarf(prog, path, supplementary_path=None):
-    module = prog.extra_module(path, create=True)[0]
+    module = prog.extra_module(path, create=True)
     module.try_file(path, force=True)
     if module.debug_file_status == drgn.ModuleFileStatus.WANT_SUPPLEMENTARY:
         module.try_file(supplementary_path)

@@ -111,8 +111,7 @@ class TestModule(LinuxKernelTestCase):
         module_obj = find_module(self.prog, "drgn_test")
         self.assertEqual(self.prog.linux_kernel_loadable_module(module_obj), module)
         self.assertEqual(
-            self.prog.linux_kernel_loadable_module(module_obj, create=True),
-            (module, False),
+            self.prog.linux_kernel_loadable_module(module_obj, create=True), module
         )
 
     def test_no_sys_module(self):
