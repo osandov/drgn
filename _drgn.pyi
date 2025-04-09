@@ -729,8 +729,8 @@ class Program:
 
         .. code-block:: python3
 
-        for _ in prog.loaded_modules():
-            pass
+            for _ in prog.loaded_modules():
+                pass
         """
 
     @overload
