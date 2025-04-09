@@ -914,14 +914,19 @@ class Program:
         """
         ...
 
-    def module(self, __address: IntegerLike) -> Module:
+    def module(self, __address_or_name: Union[IntegerLike, str]) -> Module:
         """
-        Find the module containing the given address.
+        Find the module containing the given address, or the module with the
+        given name.
 
         Addresses are matched based on :attr:`Module.address_range`.
 
-        :param address: Address to search for.
-        :raises LookupError: if no module contains the given address
+        If there are multiple modules with the given name, one is returned
+        arbitrarily.
+
+        :param address_or_name: Address or name to search for.
+        :raises LookupError: if no module contains the given address or has the
+            given name
         """
         ...
 

@@ -1269,16 +1269,20 @@ static PyObject *Program_extra_module(Program *self, PyObject *args,
 
 static PyObject *Program_module(Program *self, PyObject *arg)
 {
-	struct index_arg address = {};
-	if (!index_converter(arg, &address))
-		return NULL;
-	struct drgn_module *module =
-		drgn_module_find_by_address(&self->prog, address.uvalue);
-	if (!module) {
-		PyErr_SetString(PyExc_LookupError, "module not found");
-		return NULL;
+	struct drgn_module *module;
+	if (PyUnicode_Check(arg)) {
+		const char *name = PyUnicode_AsUTF8(arg);
+		if (!name)
+			return NULL;
+		module = drgn_module_find_by_name(&self->prog, name);
+	} else {
+		struct index_arg address = {};
+		if (!index_converter(arg, &address))
+			return NULL;
+		module = drgn_module_find_by_address(&self->prog,
+						     address.uvalue);
 	}
-	return Module_wrap(module);
+	return Module_wrap_find(module);
 }
 
 static DebugInfoOptions *Program_get_debug_info_options(Program *self, void *arg)

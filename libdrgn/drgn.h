@@ -1221,6 +1221,17 @@ enum drgn_module_kind {
 } __attribute__((__packed__));
 
 /**
+ * Find the created @ref drgn_module with the given @p name.
+ *
+ * If there are multiple modules with the given name, one is returned
+ * arbitrarily.
+ *
+ * @return Module, or @c NULL if not found.
+ */
+struct drgn_module *drgn_module_find_by_name(struct drgn_program *prog,
+					     const char *name);
+
+/**
  * Find the created @ref drgn_module containing the given @p address.
  *
  * @return Module, or @c NULL if not found.

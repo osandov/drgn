@@ -168,6 +168,15 @@ static void drgn_module_free_section_addresses(struct drgn_module *module)
 }
 
 LIBDRGN_PUBLIC
+struct drgn_module *drgn_module_find_by_name(struct drgn_program *prog,
+					     const char *name)
+{
+	struct drgn_module_table_iterator it =
+		drgn_module_table_search(&prog->dbinfo.modules, &name);
+	return it.entry ? *it.entry : NULL;
+}
+
+LIBDRGN_PUBLIC
 struct drgn_module *drgn_module_find_by_address(struct drgn_program *prog,
 						uint64_t address)
 {

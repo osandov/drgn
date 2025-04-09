@@ -386,6 +386,18 @@ class TestModule(TestCase):
         with self.assertRaises(AttributeError):
             del module.build_id
 
+    def test_find_by_name(self):
+        prog = Program()
+        self.assertRaises(LookupError, prog.module, "foo")
+
+        module1 = prog.extra_module("foo", create=True)[0]
+        self.assertEqual(prog.module("foo"), module1)
+
+        module2 = prog.main_module("foo", create=True)[0]
+        self.assertIn(prog.module("foo"), (module1, module2))
+
+        self.assertRaises(LookupError, prog.module, "bar")
+
     def test_find_by_address(self):
         prog = Program()
         module1 = prog.extra_module("/foo/bar", create=True)[0]
