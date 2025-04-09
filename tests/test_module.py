@@ -492,6 +492,21 @@ class TestCreatedModules(TestCase):
         ]
         self.assertCountEqual(list(prog.modules()), modules)
 
+    def test_same_name(self):
+        prog = Program()
+        modules = [
+            prog.extra_module("foo", id=0, create=True)[0],
+            prog.main_module("foo", create=True)[0],
+        ]
+        actual = list(prog.modules())
+        self.assertCountEqual(actual, modules)
+        self.assertEqual(actual[0], prog.main_module())
+
+        modules.append(prog.extra_module("foo", id=1, create=True)[0])
+        actual = list(prog.modules())
+        self.assertCountEqual(actual, modules)
+        self.assertEqual(actual[0], prog.main_module())
+
     def test_change_during_iteration(self):
         prog = Program()
         prog.extra_module("/foo/bar", create=True)

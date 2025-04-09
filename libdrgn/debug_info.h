@@ -84,7 +84,12 @@ struct drgn_debug_info {
 
 	/** Main module. @c NULL if not created yet. */
 	struct drgn_module *main_module;
-	/** Table of non-main modules indexed on (kind, name, info). */
+	/**
+	 * Table of all modules indexed by name.
+	 *
+	 * Modules with the same name (which should be rare) are on a
+	 * singly-linked list (@ref drgn_module::next_same_name).
+	 */
 	struct drgn_module_table modules;
 	/**
 	 * Counter used to detect when @ref modules is modified during iteration
@@ -189,6 +194,10 @@ struct drgn_module {
 	char *name;
 	/** Kind-specific info. */
 	uint64_t info;
+
+	/** Next module with the same name in @ref drgn_debug_info::modules. */
+	struct drgn_module *next_same_name;
+
 	/**
 	 * Raw binary build ID. @c NULL if the module does not have a build ID.
 	 */

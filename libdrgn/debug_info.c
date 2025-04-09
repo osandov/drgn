@@ -143,40 +143,13 @@ DEFINE_HASH_TABLE_FUNCTIONS(drgn_elf_file_dwarf_table, drgn_elf_file_dwarf_key,
 			    ptr_key_hash_pair, scalar_key_eq);
 DEFINE_VECTOR(drgn_module_vector, struct drgn_module *);
 
-struct drgn_module_key {
-	enum drgn_module_kind kind;
-	const char *name;
-	uint64_t info;
-};
-
-static inline
-struct drgn_module_key drgn_module_entry_key(struct drgn_module * const *entry)
+static inline const char *drgn_module_entry_name(struct drgn_module * const *entry)
 {
-	return (struct drgn_module_key){
-		.kind = (*entry)->kind,
-		.name = (*entry)->name,
-		.info = (*entry)->info,
-	};
+	return (*entry)->name;
 }
 
-static inline struct hash_pair
-drgn_module_key_hash_pair(const struct drgn_module_key *key)
-{
-	size_t hash = hash_combine(key->kind, hash_c_string(key->name));
-	hash = hash_combine(hash, key->info);
-	return hash_pair_from_avalanching_hash(hash);
-}
-
-static inline bool drgn_module_key_eq(const struct drgn_module_key *a,
-				      const struct drgn_module_key *b)
-{
-	return a->kind == b->kind
-	       && strcmp(a->name, b->name) == 0
-	       && a->info == b->info;
-}
-
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_module_table, drgn_module_entry_key,
-			    drgn_module_key_hash_pair, drgn_module_key_eq);
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_module_table, drgn_module_entry_name,
+			    c_string_key_hash_pair, c_string_key_eq);
 
 static inline uint64_t drgn_module_address_key(const struct drgn_module *entry)
 {
@@ -194,20 +167,6 @@ static void drgn_module_free_section_addresses(struct drgn_module *module)
 		free(it.entry->key);
 }
 
-static struct drgn_module *drgn_module_find(struct drgn_program *prog,
-					    enum drgn_module_kind kind,
-					    const char *name, uint64_t info)
-{
-	const struct drgn_module_key key = {
-		.kind = kind,
-		.name = name,
-		.info = info,
-	};
-	struct drgn_module_table_iterator it =
-		drgn_module_table_search(&prog->dbinfo.modules, &key);
-	return it.entry ? *it.entry : NULL;
-}
-
 LIBDRGN_PUBLIC
 struct drgn_module *drgn_module_find_by_address(struct drgn_program *prog,
 						uint64_t address)
@@ -220,6 +179,23 @@ struct drgn_module *drgn_module_find_by_address(struct drgn_program *prog,
 	return it.entry;
 }
 
+static struct drgn_module *drgn_module_find(struct drgn_program *prog,
+					    enum drgn_module_kind kind,
+					    const char *name, uint64_t info)
+{
+	struct drgn_module_table_iterator it =
+		drgn_module_table_search(&prog->dbinfo.modules, &name);
+	if (!it.entry)
+		return NULL;
+	struct drgn_module *module = *it.entry;
+	while (module->kind != kind || module->info != info) {
+		module = module->next_same_name;
+		if (!module)
+			break;
+	}
+	return module;
+}
+
 static struct drgn_error *
 drgn_module_find_or_create(struct drgn_program *prog,
 			   enum drgn_module_kind kind, const char *name,
@@ -229,6 +205,7 @@ drgn_module_find_or_create(struct drgn_program *prog,
 	struct drgn_error *err;
 
 	struct hash_pair hp;
+	struct drgn_module_table_iterator it;
 	if (kind == DRGN_MODULE_MAIN) {
 		if (prog->dbinfo.main_module) {
 			if (strcmp(prog->dbinfo.main_module->name, name) != 0) {
@@ -240,21 +217,23 @@ drgn_module_find_or_create(struct drgn_program *prog,
 				*new_ret = false;
 			return NULL;
 		}
+		hp = drgn_module_table_hash(&name);
+		it.entry = NULL;
 	} else {
-		const struct drgn_module_key key = {
-			.kind = kind,
-			.name = name,
-			.info = info,
-		};
-		hp = drgn_module_table_hash(&key);
-		struct drgn_module_table_iterator it =
-			drgn_module_table_search_hashed(&prog->dbinfo.modules,
-							&key, hp);
+		hp = drgn_module_table_hash(&name);
+		it = drgn_module_table_search_hashed(&prog->dbinfo.modules,
+						     &name, hp);
 		if (it.entry) {
-			*ret = *it.entry;
-			if (new_ret)
-				*new_ret = false;
-			return NULL;
+			struct drgn_module *module = *it.entry;
+			do {
+				if (module->kind == kind && module->info == info) {
+					*ret = module;
+					if (new_ret)
+						*new_ret = false;
+					return NULL;
+				}
+				module = module->next_same_name;
+			} while (module);
 		}
 	}
 
@@ -288,16 +267,17 @@ drgn_module_find_or_create(struct drgn_program *prog,
 		goto err_module;
 	}
 
-	if (kind == DRGN_MODULE_MAIN) {
-		prog->dbinfo.main_module = module;
-	} else {
-		if (drgn_module_table_insert_searched(&prog->dbinfo.modules,
-						      &module, hp, NULL) < 0) {
-			err = &drgn_enomem;
-			goto err_name;
-		}
-		prog->dbinfo.modules_generation++;
+	if (it.entry) {
+		module->next_same_name = *it.entry;
+		*it.entry = module;
+	} else if (drgn_module_table_insert_searched(&prog->dbinfo.modules,
+						     &module, hp, NULL) < 0) {
+		err = &drgn_enomem;
+		goto err_name;
 	}
+	if (kind == DRGN_MODULE_MAIN)
+		prog->dbinfo.main_module = module;
+	prog->dbinfo.modules_generation++;
 
 	drgn_elf_file_dwarf_table_init(&module->split_dwarf_files);
 	drgn_module_section_address_map_init(&module->section_addresses);
@@ -475,13 +455,23 @@ void drgn_module_delete(struct drgn_module *module)
 		drgn_module_address_tree_delete_entry(&module->prog->dbinfo.modules_by_address,
 						      module);
 	}
-	if (module->kind == DRGN_MODULE_MAIN) {
-		module->prog->dbinfo.main_module = NULL;
+
+	const char *name = module->name;
+	struct drgn_module_table_iterator it =
+		drgn_module_table_search(&module->prog->dbinfo.modules, &name);
+	if (*it.entry == module && !module->next_same_name) {
+		drgn_module_table_delete_iterator(&module->prog->dbinfo.modules,
+						  it);
 	} else {
-		drgn_module_table_delete_entry(&module->prog->dbinfo.modules,
-					       &module);
-		module->prog->dbinfo.modules_generation++;
+		struct drgn_module **modulep = it.entry;
+		while (*modulep != module)
+			modulep = &(*modulep)->next_same_name;
+		*modulep = module->next_same_name;
 	}
+	if (module->kind == DRGN_MODULE_MAIN)
+		module->prog->dbinfo.main_module = NULL;
+	module->prog->dbinfo.modules_generation++;
+
 	drgn_module_destroy(module);
 }
 
@@ -3094,6 +3084,7 @@ struct drgn_error *drgn_module_iterator_next(struct drgn_module_iterator *it,
 struct drgn_created_module_iterator {
 	struct drgn_module_iterator it;
 	struct drgn_module_table_iterator table_it;
+	struct drgn_module *next_module;
 	uint64_t generation;
 	bool yielded_main;
 };
@@ -3106,6 +3097,7 @@ drgn_created_module_iterator_next(struct drgn_module_iterator *_it,
 	struct drgn_created_module_iterator *it =
 		container_of(_it, struct drgn_created_module_iterator, it);
 	struct drgn_debug_info *dbinfo = &it->it.prog->dbinfo;
+
 	if (!it->yielded_main) {
 		it->yielded_main = true;
 		it->table_it = drgn_module_table_first(&dbinfo->modules);
@@ -3117,19 +3109,32 @@ drgn_created_module_iterator_next(struct drgn_module_iterator *_it,
 			return NULL;
 		}
 	}
+
 	if (it->generation != dbinfo->modules_generation) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "modules changed during iteration");
 	}
-	if (it->table_it.entry) {
-		*ret = *it->table_it.entry;
-		if (new_ret)
-			*new_ret = false;
-		it->table_it = drgn_module_table_next(it->table_it);
-	} else {
-		*ret = NULL;
+
+	for (;;) {
+		if (!it->next_module) {
+			if (it->table_it.entry) {
+				it->next_module = *it->table_it.entry;
+				it->table_it = drgn_module_table_next(it->table_it);
+			} else {
+				*ret = NULL;
+				return NULL;
+			}
+		}
+		if (it->next_module == dbinfo->main_module) {
+			it->next_module = it->next_module->next_same_name;
+		} else {
+			*ret = it->next_module;
+			if (new_ret)
+				*new_ret = false;
+			it->next_module = it->next_module->next_same_name;
+			return NULL;
+		}
 	}
-	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -5410,24 +5415,19 @@ elf_symbols_search(const char *name, uint64_t addr,
 		return drgn_module_elf_symbols_search(module, name, addr, flags,
 						      builder);
 	} else {
-		if (prog->dbinfo.main_module) {
-			err = drgn_module_elf_symbols_search(prog->dbinfo.main_module,
-							     name, addr, flags,
-							     builder);
-			if (err == &drgn_stop)
-				return NULL;
-			if (err)
-				return err;
-		}
 		hash_table_for_each(drgn_module_table, it,
 				    &prog->dbinfo.modules) {
-			err = drgn_module_elf_symbols_search(*it.entry, name,
-							     addr, flags,
-							     builder);
-			if (err == &drgn_stop)
-				break;
-			if (err)
-				return err;
+			for (struct drgn_module *module = *it.entry; module;
+			     module = module->next_same_name) {
+				err = drgn_module_elf_symbols_search(module,
+								     name, addr,
+								     flags,
+								     builder);
+				if (err == &drgn_stop)
+					break;
+				if (err)
+					return err;
+			}
 		}
 		return NULL;
 	}
@@ -5500,8 +5500,14 @@ void drgn_debug_info_deinit(struct drgn_debug_info *dbinfo)
 			finder->ops.destroy(finder->arg);
 	);
 	drgn_dwarf_info_deinit(dbinfo);
-	hash_table_for_each(drgn_module_table, it, &dbinfo->modules)
-		drgn_module_destroy(*it.entry);
+	hash_table_for_each(drgn_module_table, it, &dbinfo->modules) {
+		struct drgn_module *module = *it.entry;
+		do {
+			struct drgn_module *next = module->next_same_name;
+			drgn_module_destroy(module);
+			module = next;
+		} while (module);
+	}
 	drgn_module_table_deinit(&dbinfo->modules);
 }
 
