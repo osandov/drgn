@@ -113,6 +113,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 path.h \
 			 platform.c \
 			 platform.h \
+			 plugins.h \
 			 pp.h \
 			 program.c \
 			 program.h \
