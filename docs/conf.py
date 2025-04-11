@@ -6,6 +6,12 @@ sys.path.append(os.path.abspath("exts"))
 
 master_doc = "index"
 
+man_pages = [
+    ("man/drgn", "drgn", "programmable debugger", "", "1"),
+]
+
+option_emphasise_placeholders = True
+
 extensions = [
     "details",
     "drgndoc.ext",
