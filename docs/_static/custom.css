@@ -1,3 +1,8 @@
+div.sphinxsidebar p.caption {
+    font-weight: 300;
+    font-size: 1.4rem;
+}
+
 details {
     margin-block-start: 1em;
     margin-block-end: 1em;
