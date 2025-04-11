@@ -175,29 +175,33 @@ drgn_orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 					 drgn_orc_type(orc));
 	}
 
-	switch (drgn_orc_bp_reg(orc)) {
-	case DRGN_ORC_REG_UNDEFINED:
-		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
-		rule.regno = DRGN_REGISTER_NUMBER(rbp);
-		rule.offset = 0;
-		break;
-	case DRGN_ORC_REG_PREV_SP:
-		rule.kind = DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET;
-		rule.offset = orc->bp_offset;
-		break;
-	case DRGN_ORC_REG_BP:
-		rule.kind = DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET;
-		rule.regno = DRGN_REGISTER_NUMBER(rbp);
-		rule.offset = orc->bp_offset;
-		break;
-	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "unknown ORC BP base register %d",
-					 drgn_orc_bp_reg(orc));
+	// For ORC_TYPE_REGS, rbp is already set.
+	if (drgn_orc_type(orc) != DRGN_ORC_TYPE_REGS) {
+		switch (drgn_orc_bp_reg(orc)) {
+		case DRGN_ORC_REG_UNDEFINED:
+			rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
+			rule.regno = DRGN_REGISTER_NUMBER(rbp);
+			rule.offset = 0;
+			break;
+		case DRGN_ORC_REG_PREV_SP:
+			rule.kind = DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET;
+			rule.offset = orc->bp_offset;
+			break;
+		case DRGN_ORC_REG_BP:
+			rule.kind = DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET;
+			rule.regno = DRGN_REGISTER_NUMBER(rbp);
+			rule.offset = orc->bp_offset;
+			break;
+		default:
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "unknown ORC BP base register %d",
+						 drgn_orc_bp_reg(orc));
+		}
+		if (!drgn_cfi_row_set_register(row_ret, DRGN_REGISTER_NUMBER(rbp),
+					       &rule))
+			return &drgn_enomem;
 	}
-	if (!drgn_cfi_row_set_register(row_ret, DRGN_REGISTER_NUMBER(rbp),
-				       &rule))
-		return &drgn_enomem;
+
 	*interrupted_ret = drgn_orc_signal(orc);
 	*ret_addr_regno_ret = DRGN_REGISTER_NUMBER(rip);
 	return NULL;
