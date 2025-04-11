@@ -2427,6 +2427,7 @@ class TestDebuginfodDebugInfoFinder(TestCase):
         cls.server.socket.shutdown(socket.SHUT_RD)
         cls.server.shutdown()
         cls.server_thread.join()
+        cls.server.server_close()
 
     def setUp(self):
         self.prog = Program()
