@@ -2,30 +2,73 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 
-import subprocess
+import os
 import sys
 import tempfile
+import types
 
+import drgn.cli
 from tests import TestCase
 
 
 class TestCli(TestCase):
+    def run_cli(self, args, *, input=None):
+        stdout_r, stdout_w = os.pipe()
+        stderr_r, stderr_w = os.pipe()
+        if input is not None:
+            stdin_r, stdin_w = os.pipe()
 
-    def run_cli(self, *args: str, **kwargs):
-        try:
-            return subprocess.run(
-                [sys.executable, "-m", "drgn"] + list(args),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=True,
-                **kwargs,
+        pid = os.fork()
+        if pid == 0:
+            os.close(stdout_r)
+            sys.stdout = open(stdout_w, "w")
+            os.close(stderr_r)
+            sys.stderr = open(stderr_w, "w")
+
+            if input is not None:
+                os.close(stdin_w)
+                sys.stdin = open(stdin_r, "r")
+
+            sys.argv = ["drgn"] + args
+
+            drgn.cli._main()
+
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(0)
+
+        os.close(stdout_w)
+        os.close(stderr_w)
+
+        if input is not None:
+            os.close(stdin_r)
+            with open(stdin_w, "w") as f:
+                f.write(input)
+
+        with open(stdout_r, "r") as f:
+            stdout = f.read()
+        with open(stderr_r, "r") as f:
+            stderr = f.read()
+
+        _, wstatus = os.waitpid(pid, 0)
+        if not os.WIFEXITED(wstatus) or os.WEXITSTATUS(wstatus) != 0:
+            if os.WIFEXITED(wstatus):
+                msg = f"Exited with status {os.WEXITSTATUS(wstatus)}"
+            elif os.WIFSIGNALED(wstatus):
+                msg = f"Terminated by signal {os.WTERMSIG(wstatus)}"
+            else:
+                msg = "Exited abnormally"
+            self.fail(
+                f"""\
+{msg}
+STDOUT:
+{stdout.decode()}
+STDERR:
+{stderr.decode()}
+"""
             )
-        except subprocess.CalledProcessError as e:
-            # With captured output, there's nothing left to debug in CI logs.
-            # Print output on a failure so we can debug.
-            print(f"STDOUT:\n{e.stdout.decode()}")
-            print(f"STDERR:\n{e.stderr.decode()}")
-            raise
+
+        return types.SimpleNamespace(stdout=stdout, stderr=stderr)
 
     def test_e(self):
         script = r"""
@@ -38,9 +81,9 @@ assert sys.path[0] == ""
 print(sys.argv)
 """
         proc = self.run_cli(
-            "--quiet", "--pid", "0", "--no-default-symbols", "-e", script, "pass"
+            ["--quiet", "--pid", "0", "--no-default-symbols", "-e", script, "pass"]
         )
-        self.assertEqual(proc.stdout, b"['-e', 'pass']\n")
+        self.assertEqual(proc.stdout, "['-e', 'pass']\n")
 
     def test_script(self):
         with tempfile.NamedTemporaryFile() as f:
@@ -61,12 +104,12 @@ print(sys.argv)
             )
             f.flush()
             proc = self.run_cli(
-                "--quiet", "--pid", "0", "--no-default-symbols", f.name, "pass"
+                ["--quiet", "--pid", "0", "--no-default-symbols", f.name, "pass"]
             )
-            self.assertEqual(proc.stdout, f"[{f.name!r}, 'pass']\n".encode())
+            self.assertEqual(proc.stdout, f"[{f.name!r}, 'pass']\n")
 
     def test_pipe(self):
-        script = rb"""
+        script = r"""
 import sys
 
 assert drgn.get_default_prog() is prog
@@ -78,6 +121,6 @@ if True:
     print(sys.argv)
 """
         proc = self.run_cli(
-            "--quiet", "--pid", "0", "--no-default-symbols", input=script
+            ["--quiet", "--pid", "0", "--no-default-symbols"], input=script
         )
-        self.assertEqual(proc.stdout, b"['']\n")
+        self.assertEqual(proc.stdout, "['']\n")
