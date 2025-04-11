@@ -120,8 +120,8 @@ request <https://bugs.archlinux.org/task/38755?project=1>`_.
 Oracle Linux
 ------------
 
-Oracle Linux provides documentation on using installing the necessary debugging
+Oracle Linux provides documentation on installing the necessary debugging
 symbols. See the documentation for `Oracle Linux 9
-<https://docs.oracle.com/en/operating-systems/oracle-linux/9/drgn/how_to_install_debuginfo_packages.html>`_
+<https://docs.oracle.com/en/operating-systems/oracle-linux/9/drgn/installing_debuginfo_packages.html>`_
 and `Oracle Linux 8
-<https://docs.oracle.com/en/operating-systems/oracle-linux/8/drgn/how_to_install_debuginfo_packages.html>`_.
+<https://docs.oracle.com/en/operating-systems/oracle-linux/8/drgn/installing_debuginfo_packages.html>`_.
