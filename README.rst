@@ -228,20 +228,20 @@ Quick Start
 
 .. start-quick-start
 
-drgn debugs the running kernel by default; run ``sudo drgn``. To debug a
-running program, run ``sudo drgn -p $PID``. To debug a core dump (either a
-kernel vmcore or a userspace core dump), run ``drgn -c $PATH``. Make sure to
-`install debugging symbols
+drgn debugs the running kernel by default; simply run ``drgn``. To debug a
+running program, run ``drgn -p $PID``. To debug a core dump (either a kernel
+vmcore or a userspace core dump), run ``drgn -c $PATH``. Make sure to `install
+debugging symbols
 <https://drgn.readthedocs.io/en/latest/getting_debugging_symbols.html>`_ for
 whatever you are debugging.
 
-Then, you can access variables in the program with ``prog['name']`` and access
+Then, you can access variables in the program with ``prog["name"]`` and access
 structure members with ``.``:
 
 .. code-block:: pycon
 
-    $ sudo drgn
-    >>> prog['init_task'].comm
+    $ drgn
+    >>> prog["init_task"].comm
     (char [16])"swapper/0"
 
 You can use various predefined helpers:
@@ -255,14 +255,14 @@ You can use various predefined helpers:
     [b'findmnt', b'-p']
 
 You can get stack traces with ``stack_trace()`` and access parameters or local
-variables with ``trace['name']``:
+variables with ``trace["name"]``:
 
 .. code-block:: pycon
 
     >>> trace = stack_trace(task)
     >>> trace[5]
     #5 at 0xffffffff8a5a32d0 (do_sys_poll+0x400/0x578) in do_poll at ./fs/select.c:961:8 (inlined)
-    >>> poll_list = trace[5]['list']
+    >>> poll_list = trace[5]["list"]
     >>> file = fget(task, poll_list.entries[0].fd)
     >>> d_path(file.f_path.address_of_())
     b'/proc/115/mountinfo'

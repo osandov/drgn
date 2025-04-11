@@ -26,10 +26,14 @@ the only ``Program`` you will need.
 A ``Program`` is used to look up type definitions, access variables, and read
 arbitrary memory::
 
-    >>> prog.type('unsigned long')
-    prog.int_type(name='unsigned long', size=8, is_signed=False)
-    >>> prog['jiffies']
-    Object(prog, 'volatile unsigned long', address=0xffffffffbe405000)
+
+    >>> prog.type("struct list_head")
+    struct list_head {
+            struct list_head *next;
+            struct list_head *prev;
+    }
+    >>> prog["jiffies"]
+    (volatile unsigned long)4416739513
     >>> prog.read(0xffffffffbe411e10, 16)
     b'swapper/0\x00\x00\x00\x00\x00\x00\x00'
 
@@ -40,7 +44,7 @@ memory from the program's address space. The :meth:`[]
 <drgn.Program.__getitem__>` operator looks up a variable, constant, or
 function::
 
-    >>> prog['jiffies'] == prog.variable('jiffies')
+    >>> prog["jiffies"] == prog.variable("jiffies")
     True
 
 It is usually more convenient to use the ``[]`` operator rather than the
@@ -67,11 +71,11 @@ members can be accessed with the dot (``.``) operator, arrays can be
 subscripted with ``[]``, arithmetic can be performed, and objects can be
 compared::
 
-    >>> print(prog['init_task'].comm[0])
+    >>> print(prog["init_task"].comm[0])
     (char)115
-    >>> print(repr(prog['init_task'].nsproxy.mnt_ns.mounts + 1))
+    >>> print(repr(prog["init_task"].nsproxy.mnt_ns.mounts + 1))
     Object(prog, 'unsigned int', value=34)
-    >>> prog['init_task'].nsproxy.mnt_ns.pending_mounts > 0
+    >>> prog["init_task"].nsproxy.mnt_ns.pending_mounts > 0
     False
 
 Python doesn't have all of the operators that C or C++ do, so some
@@ -111,16 +115,19 @@ References vs. Values
 
 The main difference between reference objects and value objects is how they are
 evaluated. References are read from the program's memory every time they are
-evaluated; values simply return the stored value (:meth:`drgn.Object.read_()`
-reads a reference object and returns it as a value object)::
+evaluated::
 
     >>> import time
-    >>> jiffies = prog['jiffies']
+    >>> jiffies = prog["jiffies"]
     >>> jiffies.value_()
     4391639989
     >>> time.sleep(1)
     >>> jiffies.value_()
     4391640290
+
+Values simply return the stored value (:meth:`drgn.Object.read_()` reads a
+reference object and returns it as a value object)::
+
     >>> jiffies2 = jiffies.read_()
     >>> jiffies2.value_()
     4391640291
@@ -131,23 +138,27 @@ reads a reference object and returns it as a value object)::
     4391640593
 
 References have a :attr:`drgn.Object.address_` attribute, which is the object's
-address as a Python ``int``. This is slightly different from the
-:meth:`drgn.Object.address_of_()` method, which returns the address as a
-``drgn.Object``. Of course, both references and values can have a pointer type;
-``address_`` refers to the address of the pointer object itself, and
-:meth:`drgn.Object.value_()` refers to the value of the pointer (i.e., the
-address it points to)::
+address as a Python ``int``::
 
-    >>> address = prog['jiffies'].address_
+    >>> address = prog["jiffies"].address_
     >>> type(address)
     <class 'int'>
     >>> print(hex(address))
     0xffffffffbe405000
-    >>> jiffiesp = prog['jiffies'].address_of_()
-    >>> jiffiesp
+
+This is slightly different from the :meth:`drgn.Object.address_of_()` method,
+which returns the address as a ``drgn.Object``::
+
+    >>> jiffiesp = prog["jiffies"].address_of_()
+    >>> print(repr(jiffiesp))
     Object(prog, 'volatile unsigned long *', value=0xffffffffbe405000)
     >>> print(hex(jiffiesp.value_()))
     0xffffffffbe405000
+
+Of course, both references and values can have a pointer type;
+``address_`` refers to the address of the pointer object itself, and
+:meth:`drgn.Object.value_()` refers to the value of the pointer (i.e., the
+address it points to).
 
 .. _absent-objects:
 
@@ -268,9 +279,7 @@ Stack Traces
 drgn represents stack traces with the :class:`drgn.StackTrace` and
 :class:`drgn.StackFrame` classes. :func:`drgn.stack_trace()`,
 :meth:`drgn.Program.stack_trace()`, and :meth:`drgn.Thread.stack_trace()`
-return the call stack for a thread. The :meth:`[]
-<drgn.StackFrame.__getitem__>` operator looks up an object in the scope of a
-``StackFrame``::
+return the call stack for a thread::
 
     >>> trace = stack_trace(115)
     >>> trace
@@ -288,11 +297,22 @@ return the call stack for a thread. The :meth:`[]
     #11 do_syscall_64 (./arch/x86/entry/common.c:80:7)
     #12 entry_SYSCALL_64+0x7c/0x15b (./arch/x86/entry/entry_64.S:113)
     #13 0x7f3344072af7
+
+The :meth:`[] <drgn.StackTrace.__getitem__>` operator on a ``StackTrace`` gets
+the ``StackFrame`` at the given index::
+
     >>> trace[5]
     #5 at 0xffffffff8a5a32d0 (do_sys_poll+0x400/0x578) in do_poll at ./fs/select.c:961:8 (inlined)
-    >>> prog['do_poll']
-    (int (struct poll_list *list, struct poll_wqueues *wait, struct timespec64 *end_time))<absent>
-    >>> trace[5]['list']
+
+The :meth:`[] <drgn.StackFrame.__getitem__>` operator on a ``StackFrame`` looks
+up an object in the scope of that frame. :meth:`drgn.StackFrame.locals()`
+returns a list of the available names::
+
+    >>> prog["do_poll"]
+    (int (struct poll_list *list, struct poll_wqueues *wait, struct timespec64 *end_time))0xffffffff905c6e10
+    >>> trace[5].locals()
+    ['list', 'wait', 'end_time', 'pt', 'expire', 'to', 'timed_out', 'count', 'slack', 'busy_flag', 'busy_start', 'walk', 'can_busy_loop']
+    >>> trace[5]["list"]
     *(struct poll_list *)0xffffacca402e3b50 = {
             .next = (struct poll_list *)0x0,
             .len = (int)1,
@@ -313,7 +333,7 @@ drgn automatically obtains type definitions from the program. Types are
 represented by the :class:`drgn.Type` class and created by various factory
 functions like :meth:`drgn.Program.int_type()`::
 
-    >>> prog.type('int')
+    >>> prog.type("int")
     prog.int_type(name='int', size=4, is_signed=True)
 
 You won't usually need to work with types directly, but see
@@ -388,7 +408,7 @@ along with any arguments:
 
     pid = int(sys.argv[1])
     uid = find_task(pid).cred.uid.val.value_()
-    print(f'PID {pid} is being run by UID {uid}')
+    print(f"PID {pid} is being run by UID {uid}")
     $ sudo drgn script.py 601
     PID 601 is being run by UID 1000
 
@@ -398,8 +418,8 @@ It's even possible to run drgn scripts directly with the proper `shebang
     $ cat script2.py
     #!/usr/bin/env drgn
 
-    mounts = prog['init_task'].nsproxy.mnt_ns.mounts.value_()
-    print(f'You have {mounts} filesystems mounted')
+    mounts = prog["init_task"].nsproxy.mnt_ns.mounts.value_()
+    print(f"You have {mounts} filesystems mounted")
     $ sudo ./script2.py
     You have 36 filesystems mounted
 
@@ -422,18 +442,18 @@ The default behavior of the Python `REPL
 print the output of :func:`repr()`. For :class:`drgn.Object` and
 :class:`drgn.Type`, this is a raw representation::
 
-    >>> print(repr(prog['jiffies']))
+    >>> print(repr(prog["jiffies"]))
     Object(prog, 'volatile unsigned long', address=0xffffffffbe405000)
-    >>> print(repr(prog.type('atomic_t')))
+    >>> print(repr(prog.type("atomic_t")))
     prog.typedef_type(name='atomic_t', type=prog.struct_type(tag=None, size=4, members=(TypeMember(prog.type('int'), name='counter', bit_offset=0),)))
 
 The standard :func:`print()` function uses the output of :func:`str()`. For
 drgn objects and types, this is a representation in programming language
 syntax::
 
-    >>> print(prog['jiffies'])
+    >>> print(prog["jiffies"])
     (volatile unsigned long)4395387628
-    >>> print(prog.type('atomic_t'))
+    >>> print(prog.type("atomic_t"))
     typedef struct {
             int counter;
     } atomic_t
@@ -442,10 +462,10 @@ In interactive mode, the drgn CLI automatically uses ``str()`` instead of
 ``repr()`` for objects and types, so you don't need to call ``print()``
 explicitly::
 
-    $ sudo drgn
-    >>> prog['jiffies']
+    $ drgn
+    >>> prog["jiffies"]
     (volatile unsigned long)4395387628
-    >>> prog.type('atomic_t')
+    >>> prog.type("atomic_t")
     typedef struct {
             int counter;
     } atomic_t
@@ -453,7 +473,8 @@ explicitly::
 Next Steps
 ----------
 
-Refer to the :doc:`api_reference`. Look through the :doc:`helpers`. Read some
-:doc:`case_studies`. Browse through the `tools
+Follow along with a :doc:`tutorial <tutorials>` or :doc:`case study
+<case_studies>`. Refer to the :doc:`api_reference` and look through the
+:doc:`helpers`. Browse through the `tools
 <https://github.com/osandov/drgn/tree/main/tools>`_. Check out the `community
 contributions <https://github.com/osandov/drgn/tree/main/contrib>`_.
