@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import itertools
+import lzma
 import tempfile
 
 from _drgn_util.elf import ET, PT, SHF, SHT, STB, STT
@@ -10,14 +11,24 @@ from tests import TestCase
 from tests.elfwriter import ElfSection, ElfSymbol, create_elf_file
 
 
-def create_elf_symbol_file(symbols):
+def create_elf_symbol_file(symbols, gnu_debugdata_symbols=()):
     # Create a section for the symbols to reference and the corresponding
     # segment for address lookups. It must be SHF_ALLOC and must not be
     # SHT_NOBITS or SHT_NOTE for the file to be loadable.
-    start = min(symbol.value for symbol in symbols) & ~7
-    end = (max(symbol.value + max(symbol.size, 1) for symbol in symbols) + 7) & ~7
+    all_symbols = list(symbols) + list(gnu_debugdata_symbols)
+    start = min(symbol.value for symbol in all_symbols) & ~7
+    end = (max(symbol.value + max(symbol.size, 1) for symbol in all_symbols) + 7) & ~7
     size = end - start
     assert size <= 4096, "symbols are too far apart; file would be too large"
+
+    def resolve_shindex(symbols, default):
+        return [
+            symbol._replace(
+                shindex=default if symbol.shindex is None else symbol.shindex
+            )
+            for symbol in symbols
+        ]
+
     sections = [
         ElfSection(
             name=".data",
@@ -29,13 +40,41 @@ def create_elf_symbol_file(symbols):
             data=bytes(size),
         ),
     ]
-    symbols = [
-        symbol._replace(
-            shindex=len(sections) if symbol.shindex is None else symbol.shindex
+    symbols = resolve_shindex(symbols, len(sections))
+
+    dynsym = False
+    if gnu_debugdata_symbols:
+        gds_sections = [
+            ElfSection(
+                name=".foo",
+                sh_type=SHT.NOBITS,
+                sh_flags=SHF.ALLOC,
+                p_type=PT.LOAD,
+                vaddr=start,
+                memsz=size,
+            ),
+        ]
+        gnu_debugdata_symbols = resolve_shindex(
+            gnu_debugdata_symbols, len(gds_sections)
         )
-        for symbol in symbols
-    ]
-    return create_elf_file(ET.EXEC, sections, symbols), start, end
+        gds_contents = create_elf_file(ET.EXEC, gds_sections, gnu_debugdata_symbols)
+        compressor = lzma.LZMACompressor()
+        gds_compressed = compressor.compress(gds_contents) + compressor.flush()
+        sections.append(
+            ElfSection(
+                name=".gnu_debugdata",
+                sh_type=SHT.PROGBITS,
+                memsz=len(gds_compressed),
+                data=gds_compressed,
+            )
+        )
+        dynsym = True
+
+    return (
+        create_elf_file(ET.EXEC, sections, symbols, dynsym=dynsym),
+        start,
+        end,
+    )
 
 
 def elf_symbol_program(*modules):
@@ -57,6 +96,22 @@ def elf_symbol_program(*modules):
     return prog
 
 
+def gnu_debugdata_program(*modules):
+    prog = Program()
+    for symbols in modules:
+        split = len(symbols) // 2
+        with tempfile.NamedTemporaryFile() as f:
+            contents, start, end = create_elf_symbol_file(
+                symbols[:split], symbols[split:]
+            )
+            f.write(contents)
+            f.flush()
+            module = prog.extra_module(f.name, create=True)[0]
+            module.address_range = (start, end)
+            module.try_file(f.name, force=True)
+    return prog
+
+
 class TestElfSymbol(TestCase):
     def assert_symbols_equal_unordered(self, drgn_symbols, symbols):
         self.assertEqual(len(drgn_symbols), len(symbols))
@@ -64,6 +119,9 @@ class TestElfSymbol(TestCase):
         symbols = sorted(symbols, key=lambda x: (x.address, x.name))
         for drgn_symbol, symbol in zip(drgn_symbols, symbols):
             self.assertEqual(drgn_symbol, symbol)
+
+    def elf_symbol_program(self, *modules):
+        return elf_symbol_program(*modules)
 
     def test_by_address(self):
         elf_first = ElfSymbol("first", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL)
@@ -78,7 +136,7 @@ class TestElfSymbol(TestCase):
 
         for modules in same_module, different_modules:
             with self.subTest(modules=len(modules)):
-                prog = elf_symbol_program(*modules)
+                prog = self.elf_symbol_program(*modules)
                 self.assertRaises(LookupError, prog.symbol, 0xFFFEFFFF)
                 self.assertEqual(prog.symbols(0xFFFEFFFF), [])
                 self.assertEqual(prog.symbol(0xFFFF0000), first)
@@ -105,7 +163,7 @@ class TestElfSymbol(TestCase):
         )
 
         def test(elf_symbols):
-            prog = elf_symbol_program(elf_symbols)
+            prog = self.elf_symbol_program(elf_symbols)
             self.assertEqual(prog.symbol(0xFFFF000B), closest)
             self.assert_symbols_equal_unordered(
                 prog.symbols(0xFFFF000B), [closest, furthest]
@@ -132,7 +190,7 @@ class TestElfSymbol(TestCase):
         )
 
         def test(elf_symbols):
-            prog = elf_symbol_program(elf_symbols)
+            prog = self.elf_symbol_program(elf_symbols)
             self.assertEqual(prog.symbol(0xFFFF000B), closest)
             self.assert_symbols_equal_unordered(
                 prog.symbols(0xFFFF000B), [closest, furthest]
@@ -161,7 +219,7 @@ class TestElfSymbol(TestCase):
             for extra_elf_symbols in itertools.combinations((less, greater), r)
         ):
             with self.subTest(elf_symbols=[sym.name for sym in elf_symbols]):
-                prog = elf_symbol_program(elf_symbols)
+                prog = self.elf_symbol_program(elf_symbols)
                 self.assertEqual(prog.symbol(0xFFFF0009), expected)
                 self.assertEqual(prog.symbols(0xFFFF0009), [expected])
 
@@ -183,12 +241,12 @@ class TestElfSymbol(TestCase):
             for extra_elf_symbols in itertools.combinations((less, greater), r)
         ):
             with self.subTest(elf_symbols=[sym.name for sym in elf_symbols]):
-                prog = elf_symbol_program(elf_symbols)
+                prog = self.elf_symbol_program(elf_symbols)
                 self.assertEqual(prog.symbol(0xFFFF0009), expected)
                 self.assertEqual(prog.symbols(0xFFFF0009), [expected])
 
     def test_by_address_sizeless_wrong_section(self):
-        prog = elf_symbol_program(
+        prog = self.elf_symbol_program(
             (ElfSymbol("label", 0xFFFF0008, 0x0, STT.FUNC, STB.LOCAL),)
         )
         for module in prog.modules():
@@ -204,7 +262,7 @@ class TestElfSymbol(TestCase):
         )
 
         def assert_find_higher(*modules, both):
-            prog = elf_symbol_program(*modules)
+            prog = self.elf_symbol_program(*modules)
             self.assertEqual(prog.symbol(0xFFFF0000).name, "foo")
             # Test that symbols() finds both if expected or either one if not.
             if both:
@@ -265,7 +323,7 @@ class TestElfSymbol(TestCase):
 
         for modules in same_module, different_modules:
             with self.subTest(modules=len(modules)):
-                prog = elf_symbol_program(*modules)
+                prog = self.elf_symbol_program(*modules)
                 self.assertEqual(prog.symbol("first"), first)
                 self.assertEqual(prog.symbol("second"), second)
                 self.assertRaises(LookupError, prog.symbol, "third")
@@ -285,7 +343,7 @@ class TestElfSymbol(TestCase):
         other = expected - 0x8
 
         def assert_find_higher(*modules):
-            prog = elf_symbol_program(*modules)
+            prog = self.elf_symbol_program(*modules)
             self.assertEqual(prog.symbol("foo").address, expected)
             # assert symbols() always finds both
             self.assertCountEqual(
@@ -324,7 +382,7 @@ class TestElfSymbol(TestCase):
                 (STB.HIPROC, SymbolBinding.UNKNOWN),
             ):
                 with self.subTest(by=by, binding=elf_binding):
-                    prog = elf_symbol_program(
+                    prog = self.elf_symbol_program(
                         (ElfSymbol("foo", 0xFFFF0000, 1, STT.OBJECT, elf_binding),)
                     )
                     self.assertEqual(
@@ -348,7 +406,7 @@ class TestElfSymbol(TestCase):
             (STT.GNU_IFUNC, SymbolKind.IFUNC),
         ):
             with self.subTest(type=elf_type):
-                prog = elf_symbol_program(
+                prog = self.elf_symbol_program(
                     (ElfSymbol("foo", 0xFFFF0000, 1, elf_type, STB.GLOBAL),)
                 )
                 symbol = Symbol("foo", 0xFFFF0000, 1, SymbolBinding.GLOBAL, drgn_kind)
@@ -378,8 +436,18 @@ class TestElfSymbol(TestCase):
             Symbol("two", 0xFFFF0022, 1, SymbolBinding.GLOBAL, kind),
             Symbol("three", 0xFFFF0033, 1, SymbolBinding.GLOBAL, kind),
         ]
-        prog = elf_symbol_program(*elf_syms)
+        prog = self.elf_symbol_program(*elf_syms)
         self.assert_symbols_equal_unordered(prog.symbols(), syms)
+
+
+class TestGnuDebugdata(TestElfSymbol):
+    """
+    Redo all the ELF symbol tests, but split the symbols for the test across a
+    .dynsym symbol table, and a .symtab inside a .gnu_debugdata.
+    """
+
+    def elf_symbol_program(self, *modules):
+        return gnu_debugdata_program(*modules)
 
 
 class TestSymbolFinder(TestCase):
