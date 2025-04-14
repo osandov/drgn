@@ -46,15 +46,35 @@ AC_SUBST(OPENMP_LIBS)
 dnl We need Python for code generation even if we're not building the bindings.
 AM_PATH_PYTHON([3.6])
 
+AC_ARG_ENABLE([libdrgn],
+	      [AS_HELP_STRING([--disable-libdrgn],
+			      [don't build the libdrgn C library. Note that
+			       libdrgn's API and ABI are unstable])],
+	      [], [enable_libdrgn=yes])
+
 AC_ARG_ENABLE([python],
 	      [AS_HELP_STRING([--enable-python],
-			      [build Python bindings @<:@default=no@:>@])],
+			      [enable Python support in libdrgn, which allows
+			       it to use Python plugins and double as the
+			       Python extension module])],
 	      [], [enable_python=no])
 
-AM_CONDITIONAL([ENABLE_PYTHON], [test "x$enable_python" != xno])
+AC_ARG_ENABLE([python-extension],
+	      [AS_HELP_STRING([--enable-python-extension],
+			      [build the drgn Python extension module separate
+			       from libdrgn])],
+	      [], [enable_python_extension=no])
+
+AM_CONDITIONAL([ENABLE_LIBDRGN], [test "x$enable_libdrgn" != xno])
+AM_CONDITIONAL([ENABLE_PYTHON],
+	       [test "x$enable_python" != xno || test "x$enable_python_extension" != xno])
+AM_CONDITIONAL([ENABLE_PYTHON_EXTENSION],
+	       [test "x$enable_python_extension" != xno])
+
 AM_COND_IF([ENABLE_PYTHON],
-	   [MY_PYTHON_DEVEL
-	    AC_DEFINE(ENABLE_PYTHON)])
+	   [AS_IF([test "x$enable_libdrgn" != xno],
+		  [find_libpython=yes], [find_libpython=no])
+	    MY_PYTHON_DEVEL([$find_libpython])])
 
 PKG_PROG_PKG_CONFIG
 

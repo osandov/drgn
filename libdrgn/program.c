@@ -178,30 +178,6 @@ void drgn_program_deinit(struct drgn_program *prog)
 	drgn_debug_info_deinit(&prog->dbinfo);
 }
 
-#if !ENABLE_PYTHON
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_create(const struct drgn_platform *platform,
-		    struct drgn_program **ret)
-{
-	struct drgn_program *prog;
-
-	prog = malloc(sizeof(*prog));
-	if (!prog)
-		return &drgn_enomem;
-	drgn_program_init(prog, platform);
-	*ret = prog;
-	return NULL;
-}
-
-LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
-{
-	if (prog) {
-		drgn_program_deinit(prog);
-		free(prog);
-	}
-}
-#endif
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 				uint64_t size, drgn_memory_read_fn read_fn,

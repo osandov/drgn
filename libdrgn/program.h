@@ -462,7 +462,6 @@ drgn_program_register_symbol_finder_impl(struct drgn_program *prog,
 					 const struct drgn_symbol_finder_ops *ops,
 					 void *arg, size_t enable_index);
 
-#if ENABLE_PYTHON
 /**
  * Call before a blocking (I/O or long-running) operation.
  *
@@ -478,16 +477,6 @@ void *drgn_begin_blocking(void);
  * @param[in] state Return value of @ref drgn_begin_blocking().
  */
 void drgn_end_blocking(void *state);
-#else
-static inline void *drgn_begin_blocking(void)
-{
-	return NULL;
-}
-
-static inline void drgn_end_blocking(void *state)
-{
-}
-#endif
 
 static inline void drgn_blocking_guard_cleanup(void **statep)
 {

@@ -92,7 +92,8 @@ class build_ext(_build_ext):
             args = [
                 os.path.relpath("libdrgn/configure", self.build_temp),
                 "--disable-static",
-                "--enable-python",
+                "--disable-libdrgn",
+                "--enable-python-extension",
             ]
             try:
                 args.extend(shlex.split(os.environ["CONFIGURE_FLAGS"]))
@@ -123,7 +124,7 @@ class build_ext(_build_ext):
 
     def run(self):
         self.make()
-        so = os.path.join(self.build_temp, ".libs/libdrgn.so")
+        so = os.path.join(self.build_temp, ".libs/_drgn.so")
         if self.inplace:
             self.copy_file(so, self.get_ext_fullpath("_drgn"))
         old_inplace, self.inplace = self.inplace, 0
