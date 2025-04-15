@@ -1601,6 +1601,7 @@ kernel_module_set_section_addresses_live(struct drgn_module *module)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = module->prog;
+	bool logged = false;
 
 	_cleanup_free_ char *path;
 	if (asprintf(&path, "/sys/module/%s/sections", module->name) < 0) {
@@ -1633,8 +1634,12 @@ kernel_module_set_section_addresses_live(struct drgn_module *module)
 						 path, ent->d_name);
 		}
 
-		drgn_log_debug(prog, "found section %s@0x%" PRIx64 " in %s",
-			       ent->d_name, address, path);
+		if (!logged) {
+			drgn_log_debug(prog,
+				       "getting section addresses from %s",
+				       path);
+			logged = true;
+		}
 		err = drgn_module_set_section_address(module, ent->d_name,
 						      address);
 		if (err)
@@ -1693,8 +1698,12 @@ kernel_module_set_section_addresses(struct drgn_module *module,
 		// to the non-live path.
 		if (!err || err->code != DRGN_ERROR_OS || err->errnum != EACCES)
 			return err;
-		drgn_error_log_debug(prog, err, "falling back to sect_attrs: ");
+		drgn_error_log_debug(prog, err,
+				     "falling back to section addresses from sect_attrs: ");
 		drgn_error_destroy(err);
+	} else {
+		drgn_log_debug(prog,
+			       "getting section addresses from sect_attrs");
 	}
 
 	DRGN_OBJECT(attrs, prog);
@@ -1814,9 +1823,6 @@ kernel_module_set_section_addresses(struct drgn_module *module,
 		if (err)
 			return err;
 
-		drgn_log_debug(prog,
-			       "found section %s@0x%" PRIx64 " in sect_attrs",
-			       name, address);
 		err = drgn_module_set_section_address(module, name, address);
 		if (err)
 			return err;
