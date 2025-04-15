@@ -1,0 +1,72 @@
+From 1d8693376aaa10f12bbd67cfecb72a26a83058c5 Mon Sep 17 00:00:00 2001
+Message-ID: <1d8693376aaa10f12bbd67cfecb72a26a83058c5.1744698211.git.osandov@fb.com>
+From: Linus Torvalds <torvalds@linux-foundation.org>
+Date: Thu, 9 Jun 2022 09:41:42 -0700
+Subject: [PATCH] gcc-12: disable '-Wdangling-pointer' warning for now
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+commit f7d63b50898172b9eb061b9e2daad61b428792d0 upstream.
+
+[ Upstream commit 49beadbd47c270a00754c107a837b4f29df4c822 ]
+
+While the concept of checking for dangling pointers to local variables
+at function exit is really interesting, the gcc-12 implementation is not
+compatible with reality, and results in false positives.
+
+For example, gcc sees us putting things on a local list head allocated
+on the stack, which involves exactly those kinds of pointers to the
+local stack entry:
+
+  In function ‘__list_add’,
+      inlined from ‘list_add_tail’ at include/linux/list.h:102:2,
+      inlined from ‘rebuild_snap_realms’ at fs/ceph/snap.c:434:2:
+  include/linux/list.h:74:19: warning: storing the address of local variable ‘realm_queue’ in ‘*&realm_27(D)->rebuild_item.prev’ [-Wdangling-pointer=]
+     74 |         new->prev = prev;
+        |         ~~~~~~~~~~^~~~~~
+
+But then gcc - understandably - doesn't really understand the big
+picture how the doubly linked list works, so doesn't see how we then end
+up emptying said list head in a loop and the pointer we added has been
+removed.
+
+Gcc also complains about us (intentionally) using this as a way to store
+a kind of fake stack trace, eg
+
+  drivers/acpi/acpica/utdebug.c:40:38: warning: storing the address of local variable ‘current_sp’ in ‘acpi_gbl_entry_stack_pointer’ [-Wdangling-pointer=]
+     40 |         acpi_gbl_entry_stack_pointer = &current_sp;
+        |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+
+which is entirely reasonable from a compiler standpoint, and we may want
+to change those kinds of patterns, but not not.
+
+So this is one of those "it would be lovely if the compiler were to
+complain about us leaving dangling pointers to the stack", but not this
+way.
+
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ Makefile | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Makefile b/Makefile
+index 2f0efde21902..209d5ae9ddb5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -808,6 +808,10 @@ endif
+ KBUILD_CFLAGS += $(call cc-disable-warning, unused-but-set-variable)
+ 
+ KBUILD_CFLAGS += $(call cc-disable-warning, unused-const-variable)
++
++# These result in bogus false positives
++KBUILD_CFLAGS += $(call cc-disable-warning, dangling-pointer)
++
+ ifdef CONFIG_FRAME_POINTER
+ KBUILD_CFLAGS	+= -fno-omit-frame-pointer -fno-optimize-sibling-calls
+ else
+-- 
+2.49.0
+
