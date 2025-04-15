@@ -140,7 +140,7 @@ in the Python API.
 .. option:: --no-default-debug-directories
 
     Don't search for debugging symbols by build ID and debug link in the
-    standard directories.
+    standard directories or those added by plugins.
 
 .. option:: --kernel-directory {PATH}
 
@@ -152,7 +152,7 @@ in the Python API.
 .. option:: --no-default-kernel-directories
 
     Don't search for the kernel image and loadable kernel modules in the
-    standard directories.
+    standard directories or those added by plugins.
 
 Logging
 ^^^^^^^
