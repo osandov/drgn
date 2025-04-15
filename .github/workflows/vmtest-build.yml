@@ -13,9 +13,7 @@ jobs:
         arch: [x86_64, aarch64, ppc64, s390x, arm]
       fail-fast: false
       max-parallel: 5
-    # Build on 20.04 so that we don't get host binaries (e.g., objtool) that
-    # depend on libraries too new for other distros.
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     env:
