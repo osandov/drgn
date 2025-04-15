@@ -100,6 +100,7 @@ an example for getting debugging symbols on Fedora Linux using DNF:
     # this is mainly for demonstration purposes; debuginfod, which drgn supports
     # out of the box, is more reliable.
     def dnf_debug_info_finder(modules: list[drgn.Module]) -> None:
+        # Determine all of the packages for the given modules.
         packages = set()
         for module in modules:
             if not module.wants_debug_file():
@@ -123,7 +124,9 @@ an example for getting debugging symbols on Fedora Linux using DNF:
             + sorted(packages)
         )
 
-        # Now that it's installed, try the standard locations.
+        # Now that it's installed, try the standard locations. Other finders may
+        # need to try specific files for specific modules with module.try_file()
+        # instead.
         modules[0].prog.find_standard_debug_info(modules)
 
 
@@ -174,8 +177,9 @@ Create ``drgn_plugin_example.py`` with the following contents:
     import drgn
 
     def example_debug_info_finder(modules: list[drgn.Module]) -> None:
-        if isinstance(module, drgn.MainModule):
-            module.try_file("/my/vmlinux")
+        for module in modules:
+            if isinstance(module, drgn.MainModule):
+                module.try_file("/my/vmlinux")
 
     def drgn_prog_set(prog: drgn.Program) -> None:
         if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
