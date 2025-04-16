@@ -1424,7 +1424,8 @@ def totalram_pages(prog: Program) -> int:
 @takes_program_or_default
 def in_direct_map(prog: Program, addr: IntegerLike) -> bool:
     """
-    Return True if an address is within the kernel's direct memory mapping
+    Return whether an address is within the kernel's direct memory mapping.
+
     :param addr: address to check
     """
     addr = operator.index(addr)
