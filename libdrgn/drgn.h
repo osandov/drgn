@@ -44,7 +44,7 @@
 /** Minor version of drgn. */
 #define DRGN_VERSION_MINOR 0
 /** Patch level of drgn. */
-#define DRGN_VERSION_PATCH 30
+#define DRGN_VERSION_PATCH 31
 
 /**
  * @defgroup ErrorHandling Error handling
