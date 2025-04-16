@@ -83,6 +83,8 @@ You can create modules with the :ref:`module factory functions
 <api-module-constructors>`. You can also modify various attributes of the
 :class:`drgn.Module` class.
 
+.. _debugging-information-finders-example:
+
 Debugging Information Finders
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

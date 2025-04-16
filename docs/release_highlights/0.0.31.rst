@@ -1,0 +1,192 @@
+0.0.31 (Released April 16th, 2025)
+==================================
+
+These are some of the highlights of drgn 0.0.31. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.0.31>`_ for the full release
+notes, including more improvements and bug fixes.
+
+Fun fact: this is the largest release of drgn since the first ever release,
+both in terms of number of commits and changed lines of code.
+
+.. highlight:: pycon
+.. program:: drgn
+
+Module API
+----------
+
+One of the first things drgn does when it starts up is figure out what binaries
+are loaded in your program: executables, shared libraries, Linux kernel image,
+Linux kernel modules, etc. Until this release, this all happened internally to
+drgn with no way to inspect or override it. This release adds new APIs to
+address this.
+
+First, the :class:`drgn.Module` class and its subclasses were added to
+represent binaries used by a program.
+
+:class:`drgn.Program` gained a couple of methods for querying what modules were
+created for a program, :meth:`drgn.Program.modules()` and
+:meth:`drgn.Program.module()`::
+
+    >>> for module in prog.modules():
+    ...     print(module)
+    ...
+    prog.main_module(name='kernel')
+    prog.relocatable_module(name='scsi_dh_rdac', address=0xffffffffc02fb000)
+    prog.relocatable_module(name='nvme', address=0xffffffffc051f000)
+    prog.relocatable_module(name='spi_intel', address=0xffffffffc0fa3000)
+    ...
+    >>> prog.module("kernel")
+    prog.main_module(name='kernel')
+    >>> prog.module(0xffffffff92811100)
+    prog.main_module(name='kernel')
+
+Modules are normally created automatically for all loaded binaries when
+debugging symbols are loaded. This can also be done manually with
+:meth:`drgn.Program.loaded_modules()` or
+:meth:`drgn.Program.create_loaded_modules()`. Arbitrary modules can also be
+:ref:`created manually <api-module-constructors>`. This enables more
+:ref:`advanced use cases <advanced-modules>`.
+
+Options for Finding Debugging Symbols
+-------------------------------------
+
+drgn now provides much more control over how debugging symbols are found.
+
+The :option:`--try-symbols-by` and :option:`--no-symbols-by` command line
+options allow enabling or disabling methods of searching for debugging symbols.
+The :option:`--debug-directory` and :option:`--no-default-debug-directories`
+options allow controlling the directories that are searched for debugging
+symbols. The :option:`--kernel-directory` and
+:option:`--no-default-kernel-directories` options allow controlling the
+directories that are searched for Linux kernel files.
+
+For example, if you have a kernel core dump and a directory containing kernel
+debugging symbols:
+
+.. code-block:: console
+
+    $ ls
+    kernel-6.15.0-rc1-debuginfo  vmcore
+    $ drgn -c vmcore --kernel-directory kernel-6.15.0-rc1-debuginfo
+
+These options are also available programmatically as
+:attr:`drgn.Program.debug_info_options`.
+
+Stricter Debugging Symbol File Matching
+---------------------------------------
+
+A common pitfall for users is passing the wrong debugging symbol file to
+:option:`-s` (for example, the vmlinux from a different kernel build, or a
+kernel module or library that wasn't loaded at the time). Before this release,
+drgn was quite permissive and would use the file anyways, usually with
+confusing results.
+
+Starting in this release, drgn now always checks that files passed to
+:option:`-s` or :meth:`drgn.Program.load_debug_info()` correspond to a loaded
+module (based on build IDs). If not, it logs a warning and ignores them.
+
+However, there are valid use cases for adding unloaded files, like corrupted
+core dumps or reading debugging symbols from arbitrary files. If you really
+want to use a file for a specific module, then you can find the module with
+:meth:`drgn.Program.modules()` or :meth:`drgn.Program.module()` and add the
+file with :meth:`drgn.Module.try_file(path, force=True)
+<drgn.Module.try_file>`. If you really want to load debugging symbols from a
+file without associating it with a loaded module, you can use
+:option:`--extra-symbols` or
+:meth:`drgn.Program.extra_module(...).try_file(path)
+<drgn.Program.extra_module>`.
+
+Debuginfod Integration
+----------------------
+
+`debuginfod <https://sourceware.org/elfutils/Debuginfod.html>`_ is a service
+for automatically downloading debugging symbols. drgn has had partial
+debuginfod support for a long time (via the libdwfl library), with a few
+important limitations:
+
+1. It couldn't use debuginfod for the Linux kernel.
+2. Downloads couldn't be interrupted with Ctrl-C.
+3. The download progress bar wasn't very pretty.
+
+This release improves drgn's integration with debuginfod and fixes these
+issues.
+
+There's still one caveat for the Linux kernel: drgn only enables debuginfod for
+the Linux kernel on Fedora, because other distributions haven't yet deployed
+the `fix for extremely slow downloads of kernel debugging symbols
+<https://blog.osandov.com/2024/07/25/making-debuginfod-viable-for-the-linux-kernel.html>`_
+on their debuginfod servers. Contact your distribution to request that they
+update their debuginfod server to at least elfutils 0.192 and compress their
+kernel debug info packages with parallel xz.
+
+Custom Debugging Information Finders
+------------------------------------
+
+If the above options for finding debugging symbols don't provide enough
+flexibility, you can define totally custom ways of finding debugging symbols by
+registering a debugging information finder. See :ref:`here
+<debugging-information-finders-example>` for an example.
+
+Plugins
+-------
+
+drgn now has a basic plugin system. Currently, the main use case is
+automatically setting system- or user-specific configuration when drgn starts
+up. For example, system administrators may install a plugin that registers a
+debugging information finder for their specific system. See :ref:`here
+<plugins>` for an overview and :ref:`here <writing-plugins>` for an example.
+
+Running Code Snippets on the Command Line
+-----------------------------------------
+
+Sometimes, you don't want an interactive drgn session or a full drgn script;
+you just want to run a short snippet of code. In this release, Stephen Brennan
+added the :option:`-e` option, which takes a string of code to evaluate:
+
+.. code-block:: console
+
+    $ python3 -m drgn -e 'print(kaslr_offset())'
+    251658240
+
+(We would have used ``-c`` like the Python CLI, but that is already used to
+specify a core dump.)
+
+Kernel Stack Unwinding Without Debugging Symbols
+------------------------------------------------
+
+drgn has had support for the Linux kernel's `ORC unwinder
+<https://docs.kernel.org/arch/x86/orc-unwinder.html>`_ for a long time.
+However, although ORC data is typically saved in kernel core dumps, drgn
+previously only supported reading ORC data from the kernel debugging symbol
+files.
+
+In this release, Stephen Brennan expanded drgn's ORC support to be able to read
+ORC data directly from the core dump. This enables reliable stack unwinding
+even through unknown or out-of-tree kernel modules. This is the latest step
+towards support for `debugging the Linux kernel without full DWARF debugging
+information <https://github.com/osandov/drgn/issues/176>`_.
+
+Linux 6.14 and 6.15 Support
+---------------------------
+
+A change in Linux 6.14 broke how drgn determines module section addresses. This
+error on startup is fixed in this release::
+
+    /lib/modules/6.14.2/kernel/fs/binfmt_misc.ko (could not get section addresses: 'struct module_sect_attrs' has no member 'nsections')
+
+A change in Linux 6.15 broke the :mod:`~drgn.helpers.linux.kernfs` helpers.
+This error is fixed in this release::
+
+    AttributeError: 'struct kernfs_node' has no member 'parent'
+
+Another change in Linux 6.15 broke the
+:func:`~drgn.helpers.linux.fs.path_lookup()` helper's handling of mount points.
+This is fixed in this release.
+
+Last Release With Python 3.6 & 3.7 Support
+------------------------------------------
+
+This will be the last release of drgn with support for Python 3.6 and 3.7. Both
+versions have been EOL for awhile, and the maintenance burden has become
+unsustainable. See `here <https://github.com/osandov/drgn/issues/467>`_ for the
+announcement. Python 3.8 support will probably follow suit soon.
