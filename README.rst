@@ -150,6 +150,8 @@ Note that RHEL/CentOS 6, Debian Stretch, Ubuntu Trusty, and Ubuntu Xenial (and
 older) ship Python versions which are too old. Python 3.6 or newer must be
 installed.
 
+.. _installation-from-source:
+
 From Source
 ^^^^^^^^^^^
 

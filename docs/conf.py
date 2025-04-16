@@ -18,6 +18,7 @@ extensions = [
     "linuxsrc",
     "setuptools_config",
     "sphinx.ext.extlinks",
+    "sphinx.ext.graphviz",
     "sphinx.ext.intersphinx",
 ]
 
