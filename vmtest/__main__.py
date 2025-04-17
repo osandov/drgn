@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from collections import OrderedDict
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import logging
 import os
 from pathlib import Path
@@ -60,7 +61,15 @@ class _ProgressPrinter:
         else:
             return s
 
-    def update(self, category: str, name: str, passed: bool) -> None:
+    def _yellow(self, s: str) -> str:
+        if self._color:
+            return "\033[33m" + s + "\033[0m"
+        else:
+            return s
+
+    def update(
+        self, category: str, name: str, passed: bool, in_progress: List[str] = ()
+    ) -> None:
         d = self._passed if passed else self._failed
         d.setdefault(category, []).append(name)
 
@@ -90,6 +99,11 @@ class _ProgressPrinter:
                 else:
                     print("       ", end=" ", file=self._file)
                 print(f"{category}: {', '.join(names)}", file=self._file)
+        if in_progress:
+            print(
+                f"{self._yellow('In Progress')}: {', '.join(in_progress)}",
+                file=self._file,
+            )
 
         print(file=self._file)
         print(header, file=self._file, flush=True)
@@ -129,6 +143,90 @@ def _kdump_works(kernel: Kernel) -> bool:
         return True
     else:
         assert False, kernel.arch.name
+
+
+def _default_parallelism(mem_gb: float = 2, cpu: float = 1.75) -> int:
+    for line in open("/proc/meminfo"):
+        fields = line.split()
+        if fields[0] == "MemAvailable:":
+            mem_available_gb = int(fields[1]) / (1024 * 1024)
+            break
+    else:
+        return 1
+
+    limit_mem = mem_available_gb // mem_gb
+    limit_cpu = os.cpu_count() // cpu
+    parallel = int(max(1, min(limit_mem, limit_cpu)))
+    logger.info("Using parallelism: %d", parallel)
+    return parallel
+
+
+class _TestExecutor:
+    # This is somewhat similar to the thread pool executor, but when max_workers
+    # == 1, it just runs tasks synchronously. The other difference is once we
+    # hit the maximum inflight tests, submit() will block until there is room to
+    # launch another. This ensures that we don't immediately exhaust the
+    # download generator as we enqueue each task.
+
+    def __init__(
+        self, max_workers: int, progress: _ProgressPrinter, in_github_actions: bool
+    ):
+        if max_workers == 0:
+            max_workers = _default_parallelism()
+        self.max_workers = max_workers
+        self.progress = progress
+        self.future_to_kernel = {}
+        self.in_github_actions = in_github_actions
+        if max_workers > 1:
+            self.pool = ThreadPoolExecutor(max_workers=max_workers)
+        else:
+            self.pool = None
+
+    def __enter__(self):
+        if self.pool:
+            self.pool.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.pool:
+            if exc_val:
+                print(
+                    f"error: {exc_type} {exc_val}\nshutting down tests...",
+                    file=sys.stderr,
+                )
+            self.pool.shutdown(wait=True, cancel_futures=True)
+            self.pool.__exit__(exc_type, exc_val, exc_tb)
+
+    def _report_result(self, kernel: Kernel, fn, *args, **kwargs):
+        try:
+            status = fn(*args, **kwargs)
+        except LostVMError as e:
+            print("error:", e, file=sys.stderr)
+            status = -1
+
+        if self.in_github_actions:
+            shutil.rmtree(kernel.path)
+        in_progress = [
+            f"{k.release} ({k.arch.name})" for k in self.future_to_kernel.values()
+        ]
+        self.progress.update(kernel.arch.name, kernel.release, status == 0, in_progress)
+
+    def submit(self, kernel, fn, *args, **kwargs):
+        if self.pool:
+            future = self.pool.submit(fn, *args, **kwargs, main_thread=False)
+            self.future_to_kernel[future] = kernel
+            # Only allow max_workers tasks to remain in flight
+            self.wait(self.max_workers)
+        else:
+            self._report_result(kernel, fn, *args, **kwargs, main_thread=True)
+
+    def wait(self, inflight: int = 0):
+        while self.future_to_kernel and len(self.future_to_kernel) >= inflight:
+            done, _ = wait(self.future_to_kernel, return_when=FIRST_COMPLETED)
+            for fut in done:
+                kernel = self.future_to_kernel[fut]
+                del self.future_to_kernel[fut]
+                self._report_result(kernel, fut.result)
 
 
 if __name__ == "__main__":
@@ -182,6 +280,14 @@ if __name__ == "__main__":
         "--local",
         action="store_true",
         help="run local tests",
+    )
+    parser.add_argument(
+        "-j",
+        "--parallel",
+        type=int,
+        default=1,
+        help="run tests in parallel with the given number of threads; "
+        "if 0, automatically select an appropriate parallelism",
     )
     parser.add_argument(
         "--use-host-rootfs",
@@ -275,7 +381,9 @@ if __name__ == "__main__":
 
     with download_in_thread(
         args.directory, to_download, max_pending_kernels
-    ) as downloads:
+    ) as downloads, _TestExecutor(
+        args.parallel, progress, in_github_actions
+    ) as executor:
         for arch in architectures:
             if use_host_rootfs(arch):
                 subprocess.check_call(
@@ -358,23 +466,24 @@ else
 {kdump_command}
 fi
 """
-            try:
-                status = run_in_vm(
-                    test_command,
-                    kernel,
-                    (
-                        Path("/")
-                        if use_host_rootfs(kernel.arch)
-                        else args.directory / kernel.arch.name / "rootfs"
-                    ),
-                    args.directory,
-                    test_kmod=TestKmodMode.BUILD,
-                )
-            except LostVMError as e:
-                print("error:", e, file=sys.stderr)
-                status = -1
+            outfile = sys.stdout
+            if executor.max_workers > 1:
+                outpath = args.directory / kernel.arch.name / f"log-{kernel.release}"
+                outfile = outpath.open("w")
+            future = executor.submit(
+                kernel,
+                run_in_vm,
+                test_command,
+                kernel,
+                (
+                    Path("/")
+                    if use_host_rootfs(kernel.arch)
+                    else args.directory / kernel.arch.name / "rootfs"
+                ),
+                args.directory,
+                test_kmod=TestKmodMode.BUILD,
+                outfile=outfile,
+            )
+        executor.wait()
 
-            if in_github_actions:
-                shutil.rmtree(kernel.path)
-            progress.update(kernel.arch.name, kernel.release, status == 0)
     sys.exit(0 if progress.succeeded() else 1)
