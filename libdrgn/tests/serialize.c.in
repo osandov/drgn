@@ -11,6 +11,8 @@ struct foo64 {
 	uint16_t small;
 	uint8_t tiny;
 	uint8_t array[3];
+	// Add padding so size is consistent on all architectures.
+	uint8_t pad[6];
 };
 
 struct foo32 {
@@ -19,6 +21,8 @@ struct foo32 {
 	uint8_t small;
 	uint8_t tiny;
 	uint8_t array[3];
+	// Add padding so size is consistent on all architectures.
+	uint8_t pad;
 };
 
 #define visit_foo_members(visit_scalar_member, visit_raw_member) do {	\
