@@ -530,8 +530,8 @@ def _main() -> None:
 
     args = parser.parse_args()
 
-    script = bool(not args.exec and args.args)
-    interactive = bool(not args.exec and not args.args and _is_tty(sys.stdin))
+    script = bool(args.exec is None and args.args)
+    interactive = bool(args.exec is None and not args.args and _is_tty(sys.stdin))
     if script:
         # A common mistake users make is running drgn $core_dump, which tries
         # to run $core_dump as a Python script. Rather than failing later with
@@ -609,13 +609,13 @@ def _main() -> None:
         else:
             sys.path.insert(0, "")
             exec_globals = default_globals(prog)
-            if args.exec:
-                sys.argv = ["-e"] + args.args
-                exec(args.exec, exec_globals)
-            else:
+            if args.exec is None:
                 sys.argv = [""]
                 exec_globals["__file__"] = "<stdin>"
                 exec(compile(sys.stdin.read(), "<stdin>", "exec"), exec_globals)
+            else:
+                sys.argv = ["-e"] + args.args
+                exec(args.exec, exec_globals)
 
 
 def run_interactive(

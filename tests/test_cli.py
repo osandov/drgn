@@ -90,6 +90,13 @@ print(sys.argv)
         )
         self.assertEqual(proc.stdout, "['-e', 'pass']\n")
 
+    def test_e_empty(self):
+        self.run_cli(
+            ["--quiet", "--pid", "0", "--no-default-symbols", "-e", ""],
+            # This shouldn't be executed.
+            input="raise Exception('-e was ignored')",
+        )
+
     def test_script(self):
         with tempfile.NamedTemporaryFile() as f:
             f.write(
