@@ -5,6 +5,7 @@
 import os
 import sys
 import tempfile
+import traceback
 import types
 
 import drgn.cli
@@ -20,22 +21,26 @@ class TestCli(TestCase):
 
         pid = os.fork()
         if pid == 0:
-            os.close(stdout_r)
-            sys.stdout = open(stdout_w, "w")
-            os.close(stderr_r)
-            sys.stderr = open(stderr_w, "w")
+            try:
+                os.close(stdout_r)
+                sys.stdout = open(stdout_w, "w")
+                os.close(stderr_r)
+                sys.stderr = open(stderr_w, "w")
 
-            if input is not None:
-                os.close(stdin_w)
-                sys.stdin = open(stdin_r, "r")
+                if input is not None:
+                    os.close(stdin_w)
+                    sys.stdin = open(stdin_r, "r")
 
-            sys.argv = ["drgn"] + args
+                sys.argv = ["drgn"] + args
 
-            drgn.cli._main()
-
-            sys.stdout.flush()
-            sys.stderr.flush()
-            os._exit(0)
+                drgn.cli._main()
+            finally:
+                exception = sys.exc_info()[1] is not None
+                if exception:
+                    traceback.print_exc()
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os._exit(1 if exception else 0)
 
         os.close(stdout_w)
         os.close(stderr_w)
@@ -62,9 +67,9 @@ class TestCli(TestCase):
                 f"""\
 {msg}
 STDOUT:
-{stdout.decode()}
+{stdout}
 STDERR:
-{stderr.decode()}
+{stderr}
 """
             )
 
