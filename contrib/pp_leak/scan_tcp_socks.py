@@ -27,6 +27,7 @@ from drgn.helpers.linux.mm import virt_to_page
 from drgn.helpers.linux.net import (
     netdev_get_by_name,
     skb_shinfo,
+    is_pp_page
 )
 
 
@@ -49,8 +50,6 @@ if opts.interface:
 
     ifindex = netdev.ifindex
 
-PP_SIGNATURE = 0xdead000000000040
-
 tcp_hashinfo = prog.object("tcp_hashinfo")
 
 for i in range(tcp_hashinfo.ehash_mask + 1):
@@ -71,7 +70,7 @@ for i in range(tcp_hashinfo.ehash_mask + 1):
             try:
                 # Check linear part of skb:
                 page = virt_to_page(skb.data)
-                if page.pp_magic == PP_SIGNATURE and page.pp.user.detach_time:
+                if is_pp_page(page) and page.pp.user.detach_time:
                     print(f"Found leaked page {hex(page)} in linear part of  skb: {hex(skb.address_of_())}. sk: {hex(sk)}")
 
                 # Check fragments:
@@ -79,7 +78,7 @@ for i in range(tcp_hashinfo.ehash_mask + 1):
                 for i in range(0, shinfo.nr_frags):
                     frag = shinfo.frags[i]
                     page = Object(prog, "struct page", address=frag.netmem)
-                    if page.pp_magic == PP_SIGNATURE and page.pp.user.detach_time:
+                    if is_pp_page(page) and page.pp.user.detach_time:
                         print(f"Found leaked page {hex(page.address_of_())} in skb frag {i} of skb: {hex(skb.address_of_())}")
 
             except FaultError:
