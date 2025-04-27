@@ -34,6 +34,7 @@ __all__ = (
     "sk_fullsock",
     "sk_nulls_for_each",
     "skb_shinfo",
+    "is_pp_page",
 )
 
 
