@@ -374,7 +374,8 @@ def for_each_mount(
         )
     for mnt in mounts:
         if (
-            (src is None or mount_src(mnt) == src)
+            mnt.mnt.mnt_sb  # skip cursors (v5.8 - v6.8)
+            and (src is None or mount_src(mnt) == src)
             and (dst is None or mount_dst(mnt) == dst)
             and (fstype is None or mount_fstype(mnt) == fstype)
         ):
