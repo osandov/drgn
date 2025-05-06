@@ -84,6 +84,23 @@ class TestFs(LinuxKernelTestCase):
                 {os.fsdecode(mount_dst(mount)) for mount in for_each_mount(self.prog)},
             )
 
+    def test_for_each_mount_cursor(self):
+        fd = os.open("/proc/self/mounts", os.O_RDONLY)
+        try:
+            # Read a small amount of data so that we leave a cursor in the
+            # middle of the mount list, on kernel versions where this happens.
+            # Cursors were introduced in v5.8 with 9f6c61f96f2d9 ("proc/mounts:
+            # add cursor"), and were eliminated in v6.8 with 2eea9ce4310d8
+            # ("mounts: keep list of mounts in an rbtree"). They were marked
+            # with the flag MNT_CURSOR, but that was only defined as a
+            # preprocessor constant. It's easiest to detect cursors via their
+            # NULL superblock, which should never be present.
+            os.read(fd, 64)
+            for mnt in for_each_mount(self.prog):
+                self.assertNotEqual(mnt.mnt.mnt_sb.value_(), 0)
+        finally:
+            os.close(fd)
+
     def test_fget(self):
         with tempfile.NamedTemporaryFile(prefix="drgn-tests-") as f:
             file = fget(find_task(self.prog, os.getpid()), f.fileno())
