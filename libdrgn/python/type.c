@@ -809,6 +809,12 @@ static PyMemberDef TypeEnumerator_members[] = {
 	{},
 };
 
+static int LazyObject_traverse(LazyObject *self, visitproc visit, void *arg)
+{
+	Py_VISIT(self->obj);
+	return 0;
+}
+
 PyTypeObject TypeEnumerator_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "_drgn.TypeEnumerator",
@@ -816,7 +822,8 @@ PyTypeObject TypeEnumerator_type = {
 	.tp_dealloc = (destructor)TypeEnumerator_dealloc,
 	.tp_repr = (reprfunc)TypeEnumerator_repr,
 	.tp_as_sequence = &TypeEnumerator_as_sequence,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)LazyObject_traverse,
 	.tp_doc = drgn_TypeEnumerator_DOC,
 	.tp_richcompare = (richcmpfunc)TypeEnumerator_richcompare,
 	.tp_members = TypeEnumerator_members,
@@ -1099,7 +1106,8 @@ PyTypeObject TypeMember_type = {
 	.tp_basicsize = sizeof(TypeMember),
 	.tp_dealloc = (destructor)TypeMember_dealloc,
 	.tp_repr = (reprfunc)TypeMember_repr,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)LazyObject_traverse,
 	.tp_doc = drgn_TypeMember_DOC,
 	.tp_members = TypeMember_members,
 	.tp_getset = TypeMember_getset,
@@ -1182,7 +1190,8 @@ PyTypeObject TypeParameter_type = {
 	.tp_basicsize = sizeof(TypeParameter),
 	.tp_dealloc = (destructor)TypeParameter_dealloc,
 	.tp_repr = (reprfunc)TypeParameter_repr,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)LazyObject_traverse,
 	.tp_doc = drgn_TypeParameter_DOC,
 	.tp_members = TypeParameter_members,
 	.tp_getset = TypeParameter_getset,
@@ -1288,7 +1297,8 @@ PyTypeObject TypeTemplateParameter_type = {
 	.tp_basicsize = sizeof(TypeTemplateParameter),
 	.tp_dealloc = (destructor)TypeTemplateParameter_dealloc,
 	.tp_repr = (reprfunc)TypeTemplateParameter_repr,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)LazyObject_traverse,
 	.tp_doc = drgn_TypeTemplateParameter_DOC,
 	.tp_members = TypeTemplateParameter_members,
 	.tp_getset = TypeTemplateParameter_getset,

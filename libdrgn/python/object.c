@@ -1635,6 +1635,12 @@ static PyMappingMethods DrgnObject_as_mapping = {
 	.mp_subscript = (binaryfunc)DrgnObject_subscript,
 };
 
+static int DrgnObject_traverse(DrgnObject *self, visitproc visit, void *arg)
+{
+	Py_VISIT(DrgnObject_prog(self));
+	return 0;
+}
+
 PyTypeObject DrgnObject_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "_drgn.Object",
@@ -1645,7 +1651,8 @@ PyTypeObject DrgnObject_type = {
 	.tp_as_mapping = &DrgnObject_as_mapping,
 	.tp_str = (reprfunc)DrgnObject_str,
 	.tp_getattro = (getattrofunc)DrgnObject_getattro,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)DrgnObject_traverse,
 	.tp_doc = drgn_Object_DOC,
 	.tp_richcompare = DrgnObject_richcompare,
 	.tp_iter = (getiterfunc)DrgnObject_iter,
