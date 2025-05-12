@@ -16,12 +16,20 @@ PyObject *StackTrace_wrap(struct drgn_stack_trace *trace) {
 
 static void StackTrace_dealloc(StackTrace *self)
 {
+	PyObject_GC_UnTrack(self);
 	if (self->trace) {
 		struct drgn_program *prog = self->trace->prog;
 		drgn_stack_trace_destroy(self->trace);
 		Py_DECREF(container_of(prog, Program, prog));
 	}
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int StackTrace_traverse(StackTrace *self, visitproc visit, void *arg)
+{
+	if (self->trace)
+		Py_VISIT(container_of(self->trace->prog, Program, prog));
+	return 0;
 }
 
 static Program *StackTrace_get_prog(StackTrace *self, void *arg)
@@ -86,16 +94,24 @@ PyTypeObject StackTrace_type = {
 	.tp_dealloc = (destructor)StackTrace_dealloc,
 	.tp_as_sequence = &StackTrace_as_sequence,
 	.tp_str = (reprfunc)StackTrace_str,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
 	.tp_doc = drgn_StackTrace_DOC,
+	.tp_traverse = (traverseproc)StackTrace_traverse,
 	.tp_methods = StackTrace_methods,
 	.tp_getset = StackTrace_getset,
 };
 
 static void StackFrame_dealloc(StackFrame *self)
 {
+	PyObject_GC_UnTrack(self);
 	Py_XDECREF(self->trace);
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int StackFrame_traverse(StackFrame *self, visitproc visit, void *arg)
+{
+	Py_VISIT(self->trace);
+	return 0;
 }
 
 static PyObject *StackFrame_str(StackFrame *self)
@@ -376,8 +392,9 @@ PyTypeObject StackFrame_type = {
 	.tp_as_sequence = &StackFrame_as_sequence,
 	.tp_as_mapping = &StackFrame_as_mapping,
 	.tp_str = (reprfunc)StackFrame_str,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
 	.tp_doc = drgn_StackFrame_DOC,
+	.tp_traverse = (traverseproc)StackFrame_traverse,
 	.tp_methods = StackFrame_methods,
 	.tp_getset = StackFrame_getset,
 };

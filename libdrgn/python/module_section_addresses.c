@@ -28,11 +28,22 @@ static ModuleSectionAddresses *ModuleSectionAddresses_new(PyTypeObject *subtype,
 
 static void ModuleSectionAddresses_dealloc(ModuleSectionAddresses *self)
 {
+	PyObject_GC_UnTrack(self);
 	if (self->module) {
 		struct drgn_program *prog = drgn_module_program(self->module);
 		Py_DECREF(container_of(prog, Program, prog));
 	}
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int ModuleSectionAddresses_traverse(ModuleSectionAddresses *self,
+					   visitproc visit, void *arg)
+{
+	if (self->module) {
+		struct drgn_program *prog = drgn_module_program(self->module);
+		Py_VISIT(container_of(prog, Program, prog));
+	}
+	return 0;
 }
 
 static inline void
@@ -191,7 +202,8 @@ static PyTypeObject ModuleSectionAddressesMixin_type = {
 	.tp_basicsize = sizeof(ModuleSectionAddresses),
 	.tp_repr = (reprfunc)ModuleSectionAddresses_repr,
 	.tp_as_mapping = &ModuleSectionAddressesMixin_as_mapping,
-	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_BASETYPE,
+	.tp_traverse = (traverseproc)ModuleSectionAddresses_traverse,
 	.tp_iter = (getiterfunc)ModuleSectionAddresses_iter,
 	.tp_new = (newfunc)ModuleSectionAddresses_new,
 };
@@ -199,6 +211,7 @@ static PyTypeObject ModuleSectionAddressesMixin_type = {
 static void
 ModuleSectionAddressesIterator_dealloc(ModuleSectionAddressesIterator *self)
 {
+	PyObject_GC_UnTrack(self);
 	if (self->it) {
 		struct drgn_module *module =
 			drgn_module_section_address_iterator_module(self->it);
@@ -207,6 +220,19 @@ ModuleSectionAddressesIterator_dealloc(ModuleSectionAddressesIterator *self)
 		drgn_module_section_address_iterator_destroy(self->it);
 	}
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int
+ModuleSectionAddressesIterator_traverse(ModuleSectionAddressesIterator *self,
+					visitproc visit, void *arg)
+{
+	if (self->it) {
+		struct drgn_module *module =
+			drgn_module_section_address_iterator_module(self->it);
+		struct drgn_program *prog = drgn_module_program(module);
+		Py_VISIT(container_of(prog, Program, prog));
+	}
+	return 0;
 }
 
 static PyObject *
@@ -227,7 +253,8 @@ PyTypeObject ModuleSectionAddressesIterator_type = {
 	.tp_name = "_drgn._ModuleSectionAddressesIterator",
 	.tp_basicsize = sizeof(ModuleSectionAddressesIterator),
 	.tp_dealloc = (destructor)ModuleSectionAddressesIterator_dealloc,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)ModuleSectionAddressesIterator_traverse,
 	.tp_iter = PyObject_SelfIter,
 	.tp_iternext = (iternextfunc)ModuleSectionAddressesIterator_next,
 };

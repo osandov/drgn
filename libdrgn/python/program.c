@@ -419,6 +419,7 @@ LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
 
 static void Program_dealloc(Program *self)
 {
+	PyObject_GC_UnTrack(self);
 	Program_deinit_logging(self);
 	drgn_program_deinit(&self->prog);
 	hash_table_for_each(pyobjectp_set, it, &self->objects)

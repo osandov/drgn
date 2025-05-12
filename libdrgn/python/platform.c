@@ -123,6 +123,7 @@ PyTypeObject Platform_type = {
 	.tp_basicsize = sizeof(Platform),
 	.tp_dealloc = (destructor)Platform_dealloc,
 	.tp_repr = (reprfunc)Platform_repr,
+	// Doesn't reference any objects, no GC needed.
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_Platform_DOC,
 	.tp_richcompare = (richcmpfunc)Platform_richcompare,
@@ -173,6 +174,7 @@ PyTypeObject Register_type = {
 	.tp_name = "_drgn.Register",
 	.tp_basicsize = sizeof(Register),
 	.tp_repr = (reprfunc)Register_repr,
+	// Doesn't reference any objects, no GC needed.
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_Register_DOC,
 	.tp_richcompare = (richcmpfunc)Register_richcompare,

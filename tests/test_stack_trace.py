@@ -15,6 +15,11 @@ class TestLinuxUserspaceCoreDump(TestCase):
         cls.prog.load_debug_info([get_resource("crashme"), get_resource("crashme.so")])
         cls.trace = cls.prog.crashed_thread().stack_trace()
 
+    @classmethod
+    def tearDownClass(cls):
+        del cls.trace
+        del cls.prog
+
     def test_stack_frame_name(self):
         self.assertEqual(self.trace[0].name, "c")
         self.assertEqual(self.trace[5].name, "0x7f6112ad8088")

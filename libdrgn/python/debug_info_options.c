@@ -176,11 +176,19 @@ static DebugInfoOptions *DebugInfoOptions_new(PyTypeObject *subtype,
 
 static void DebugInfoOptions_dealloc(DebugInfoOptions *self)
 {
+	PyObject_GC_UnTrack(self);
 	if (self->prog)
 		Py_DECREF(self->prog);
 	else
 		drgn_debug_info_options_destroy(self->options);
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int DebugInfoOptions_traverse(DebugInfoOptions *self, visitproc visit,
+				     void *arg)
+{
+	Py_VISIT(self->prog);
+	return 0;
 }
 
 static PyGetSetDef DebugInfoOptions_getset[] = {
@@ -224,8 +232,9 @@ PyTypeObject DebugInfoOptions_type = {
 	.tp_dealloc = (destructor)DebugInfoOptions_dealloc,
 	.tp_basicsize = sizeof(DebugInfoOptions),
 	.tp_repr = DebugInfoOptions_repr,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
 	.tp_doc = drgn_DebugInfoOptions_DOC,
+	.tp_traverse = (traverseproc)DebugInfoOptions_traverse,
 	.tp_getset = DebugInfoOptions_getset,
 	.tp_new = (newfunc)DebugInfoOptions_new,
 };

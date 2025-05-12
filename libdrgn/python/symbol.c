@@ -156,6 +156,7 @@ PyTypeObject Symbol_type = {
 	.tp_basicsize = sizeof(Symbol),
 	.tp_dealloc = (destructor)Symbol_dealloc,
 	.tp_repr = (reprfunc)Symbol_repr,
+	// Only references str objects, no GC needed.
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_Symbol_DOC,
 	.tp_richcompare = (richcmpfunc)Symbol_richcompare,

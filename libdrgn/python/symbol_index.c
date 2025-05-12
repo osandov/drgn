@@ -115,6 +115,7 @@ PyTypeObject SymbolIndex_type = {
 	.tp_name = "_drgn.SymbolIndex",
 	.tp_basicsize = sizeof(SymbolIndex),
 	.tp_dealloc = (destructor)SymbolIndex_dealloc,
+	// Doesn't reference any objects, no GC needed.
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_SymbolIndex_DOC,
 	.tp_call = (ternaryfunc)SymbolIndex_call,

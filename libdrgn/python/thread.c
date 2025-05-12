@@ -27,12 +27,20 @@ PyObject *Thread_wrap(struct drgn_thread *thread)
 
 static void Thread_dealloc(Thread *self)
 {
+	PyObject_GC_UnTrack(self);
 	if (self->thread.prog) {
 		Program *prog = Thread_prog(self);
 		drgn_thread_deinit(&self->thread);
 		Py_DECREF(prog);
 	}
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int Thread_traverse(Thread *self, visitproc visit, void *arg)
+{
+	if (self->thread.prog)
+		Py_VISIT(Thread_prog(self));
+	return 0;
 }
 
 static PyObject *Thread_get_tid(Thread *self)
@@ -99,17 +107,26 @@ PyTypeObject Thread_type = {
 	.tp_name = "_drgn.Thread",
 	.tp_basicsize = sizeof(Thread),
 	.tp_dealloc = (destructor)Thread_dealloc,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
 	.tp_doc = drgn_Thread_DOC,
+	.tp_traverse = (traverseproc)Thread_traverse,
 	.tp_getset = Thread_getset,
 	.tp_methods = Thread_methods,
 };
 
 static void ThreadIterator_dealloc(ThreadIterator *self)
 {
+	PyObject_GC_UnTrack(self);
 	drgn_thread_iterator_destroy(self->iterator);
 	Py_XDECREF(self->prog);
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int ThreadIterator_traverse(ThreadIterator *self, visitproc visit,
+				   void *arg)
+{
+	Py_VISIT(self->prog);
+	return 0;
 }
 
 static PyObject *ThreadIterator_next(ThreadIterator *self)
@@ -127,7 +144,8 @@ PyTypeObject ThreadIterator_type = {
 	.tp_name = "_drgn._ThreadIterator",
 	.tp_basicsize = sizeof(ThreadIterator),
 	.tp_dealloc = (destructor)ThreadIterator_dealloc,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)ThreadIterator_traverse,
 	.tp_iter = PyObject_SelfIter,
 	.tp_iternext = (iternextfunc)ThreadIterator_next,
 };

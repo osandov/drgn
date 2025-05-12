@@ -25,6 +25,7 @@ PyTypeObject Language_type = {
 	.tp_name = "_drgn.Language",
 	.tp_basicsize = sizeof(Language),
 	.tp_repr = (reprfunc)Language_repr,
+	// Doesn't reference any objects, no GC needed.
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_Language_DOC,
 	.tp_getset = Language_getset,

@@ -309,6 +309,7 @@ PyTypeObject TypeKindSet_type = {
 	.tp_as_number = &TypeKindSet_as_number,
 	.tp_as_sequence = &TypeKindSet_as_sequence,
 	.tp_hash = (hashfunc)TypeKindSet_hash,
+	// Doesn't reference any objects, no GC needed.
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_TypeKindSet_DOC,
 	.tp_richcompare = (richcmpfunc)TypeKindSet_richcompare,
@@ -341,6 +342,7 @@ PyTypeObject TypeKindSetIterator_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "_drgn._TypeKindSetIterator",
 	.tp_basicsize = sizeof(TypeKindSetIterator),
+	// Doesn't reference any objects, no GC needed.
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_iter = PyObject_SelfIter,
 	.tp_iternext = (iternextfunc)TypeKindSetIterator_next,

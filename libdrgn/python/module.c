@@ -63,9 +63,17 @@ PyObject *Module_wrap(struct drgn_module *module)
 
 static void Module_dealloc(Module *self)
 {
+	PyObject_GC_UnTrack(self);
 	if (self->module)
 		Py_DECREF(Module_prog(self));
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int Module_traverse(Module *self, visitproc visit, void *arg)
+{
+	if (self->module)
+		Py_VISIT(Module_prog(self));
+	return 0;
 }
 
 static int append_module_repr_common(PyObject *parts, Module *self,
@@ -452,8 +460,9 @@ PyTypeObject Module_type = {
 	.tp_basicsize = sizeof(Module),
 	.tp_dealloc = (destructor)Module_dealloc,
 	.tp_repr = (reprfunc)Module_repr,
-	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_BASETYPE,
 	.tp_doc = drgn_Module_DOC,
+	.tp_traverse = (traverseproc)Module_traverse,
 	.tp_richcompare = (richcmpfunc)Module_richcompare,
 	.tp_hash = (hashfunc)Module_hash,
 	.tp_methods = Module_methods,
@@ -542,6 +551,7 @@ PyTypeObject ExtraModule_type = {
 
 static void ModuleIterator_dealloc(ModuleIterator *self)
 {
+	PyObject_GC_UnTrack(self);
 	if (self->it) {
 		struct drgn_program *prog =
 			drgn_module_iterator_program(self->it);
@@ -549,6 +559,17 @@ static void ModuleIterator_dealloc(ModuleIterator *self)
 		drgn_module_iterator_destroy(self->it);
 	}
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int ModuleIterator_traverse(ModuleIterator *self, visitproc visit,
+				   void *arg)
+{
+	if (self->it) {
+		struct drgn_program *prog =
+			drgn_module_iterator_program(self->it);
+		Py_VISIT(container_of(prog, Program, prog));
+	}
+	return 0;
 }
 
 static PyObject *ModuleIterator_next(ModuleIterator *self)
@@ -582,7 +603,8 @@ PyTypeObject ModuleIterator_type = {
 	.tp_name = "_drgn._ModuleIterator",
 	.tp_basicsize = sizeof(ModuleIterator),
 	.tp_dealloc = (destructor)ModuleIterator_dealloc,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)ModuleIterator_traverse,
 	.tp_iter = PyObject_SelfIter,
 	.tp_iternext = (iternextfunc)ModuleIterator_next,
 };
@@ -592,7 +614,8 @@ PyTypeObject ModuleIteratorWithNew_type = {
 	.tp_name = "_drgn._ModuleIteratorWithNew",
 	.tp_basicsize = sizeof(ModuleIterator),
 	.tp_dealloc = (destructor)ModuleIterator_dealloc,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)ModuleIterator_traverse,
 	.tp_iter = PyObject_SelfIter,
 	.tp_iternext = (iternextfunc)ModuleIteratorWithNew_next,
 };

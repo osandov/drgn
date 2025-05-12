@@ -559,6 +559,7 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 
 static void DrgnObject_dealloc(DrgnObject *self)
 {
+	PyObject_GC_UnTrack(self);
 	Py_DECREF(DrgnObject_prog(self));
 	drgn_object_deinit(&self->obj);
 	Py_TYPE(self)->tp_free((PyObject *)self);
@@ -1736,8 +1737,16 @@ DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
 
 static void ObjectIterator_dealloc(ObjectIterator *self)
 {
+	PyObject_GC_UnTrack(self);
 	Py_DECREF(self->obj);
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int ObjectIterator_traverse(ObjectIterator *self, visitproc visit,
+				   void *arg)
+{
+	Py_VISIT(self->obj);
+	return 0;
 }
 
 static DrgnObject *ObjectIterator_next(ObjectIterator *self)
@@ -1763,7 +1772,8 @@ PyTypeObject ObjectIterator_type = {
 	.tp_name = "_drgn._ObjectIterator",
 	.tp_basicsize = sizeof(ObjectIterator),
 	.tp_dealloc = (destructor)ObjectIterator_dealloc,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)ObjectIterator_traverse,
 	.tp_iter = PyObject_SelfIter,
 	.tp_iternext = (iternextfunc)ObjectIterator_next,
 	.tp_methods = ObjectIterator_methods,

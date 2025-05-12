@@ -17,6 +17,10 @@ class TestLive(TestCase):
         cls.prog = Program()
         cls.prog.set_pid(os.getpid())
 
+    @classmethod
+    def tearDownClass(cls):
+        del cls.prog
+
     def test_threads(self):
         tids = [thread.tid for thread in self.prog.threads()]
         self.assertIn(os.getpid(), tids)
@@ -72,6 +76,10 @@ class TestCoreDump(TestCase):
         cls.prog = Program()
         cls.prog.set_core_dump(get_resource("multithreaded.core"))
 
+    @classmethod
+    def tearDownClass(cls):
+        del cls.prog
+
     def test_threads(self):
         self.assertSequenceEqual(
             sorted(thread.tid for thread in self.prog.threads()),
@@ -110,6 +118,10 @@ class TestCoreDumpLongName(TestCase):
             f.write(data)
             f.flush()
             cls.prog.set_core_dump(f.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.prog
 
     def test_thread_name(self):
         self.assertEqual(self.prog.main_thread().name, "crashme_static_p")

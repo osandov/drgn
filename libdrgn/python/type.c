@@ -465,6 +465,7 @@ static PyGetSetDef DrgnType_getset[] = {
 
 static void DrgnType_dealloc(DrgnType *self)
 {
+	PyObject_GC_UnTrack(self);
 	Py_XDECREF(self->attr_cache);
 	if (self->type)
 		Py_DECREF(DrgnType_prog(self));
@@ -746,6 +747,7 @@ static TypeEnumerator *TypeEnumerator_new(PyTypeObject *subtype, PyObject *args,
 
 static void TypeEnumerator_dealloc(TypeEnumerator *self)
 {
+	PyObject_GC_UnTrack(self);
 	Py_XDECREF(self->value);
 	Py_XDECREF(self->name);
 	Py_TYPE(self)->tp_free((PyObject *)self);
@@ -1034,6 +1036,7 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 
 static void TypeMember_dealloc(TypeMember *self)
 {
+	PyObject_GC_UnTrack(self);
 	Py_XDECREF(self->bit_offset);
 	Py_XDECREF(self->name);
 	LazyObject_dealloc((LazyObject *)self);
@@ -1150,6 +1153,7 @@ static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 
 static void TypeParameter_dealloc(TypeParameter *self)
 {
+	PyObject_GC_UnTrack(self);
 	Py_XDECREF(self->name);
 	LazyObject_dealloc((LazyObject *)self);
 }
@@ -1239,6 +1243,7 @@ static TypeTemplateParameter *TypeTemplateParameter_new(PyTypeObject *subtype,
 
 static void TypeTemplateParameter_dealloc(TypeTemplateParameter *self)
 {
+	PyObject_GC_UnTrack(self);
 	Py_XDECREF(self->is_default);
 	Py_XDECREF(self->name);
 	LazyObject_dealloc((LazyObject *)self);
