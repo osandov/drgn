@@ -16,9 +16,11 @@ PyObject *StackTrace_wrap(struct drgn_stack_trace *trace) {
 
 static void StackTrace_dealloc(StackTrace *self)
 {
-	struct drgn_program *prog = self->trace->prog;
-	drgn_stack_trace_destroy(self->trace);
-	Py_XDECREF(container_of(prog, Program, prog));
+	if (self->trace) {
+		struct drgn_program *prog = self->trace->prog;
+		drgn_stack_trace_destroy(self->trace);
+		Py_DECREF(container_of(prog, Program, prog));
+	}
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
