@@ -19,13 +19,14 @@ from _drgn import (
 from drgn import IntegerLike, Object, Program, cast, container_of
 from drgn.helpers.common.prog import takes_object_or_program_or_default
 from drgn.helpers.linux.idr import idr_for_each
-from drgn.helpers.linux.list import hlist_for_each_entry
+from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
 __all__ = (
     "find_pid",
     "find_task",
     "for_each_pid",
     "for_each_task",
+    "for_each_task_in_group",
     "pid_task",
 )
 
@@ -100,3 +101,25 @@ def for_each_task(prog: Program, ns: Optional[Object]) -> Iterator[Object]:
         task = pid_task(pid, PIDTYPE_PID)
         if task:
             yield task
+
+
+def for_each_task_in_group(
+    task: Object, include_self: bool = False
+) -> Iterator[Object]:
+    """
+    Iterate over all tasks in the thread group
+
+    Or, in the more common userspace terms, iterate over all threads of a
+    process.
+
+    :param task: a task whose group to iterate over
+    :param include_self: should ``task`` itself be returned?
+    :returns: an iterable of every thread in the thread group
+    """
+    for other in list_for_each_entry(
+        "struct task_struct",
+        task.signal.thread_head.address_of_(),
+        "thread_node",
+    ):
+        if other != task or include_self:
+            yield other

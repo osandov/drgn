@@ -3,8 +3,15 @@
 
 from multiprocessing import Barrier, Process
 import os
+from threading import Condition, Thread
 
-from drgn.helpers.linux.pid import find_pid, find_task, for_each_pid, for_each_task
+from drgn.helpers.linux.pid import (
+    find_pid,
+    find_task,
+    for_each_pid,
+    for_each_task,
+    for_each_task_in_group,
+)
 from tests.linux_kernel import LinuxKernelTestCase
 
 
@@ -48,3 +55,30 @@ class TestPid(LinuxKernelTestCase):
             for proc in procs:
                 proc.terminate()
             raise
+
+    def test_for_each_task_in_group(self):
+        NUM_THREADS = 12
+        condition = Condition()
+        this_task = find_task(self.prog, os.getpid())
+
+        def thread_func():
+            with condition:
+                condition.wait()
+
+        try:
+            threads = [Thread(target=thread_func) for _ in range(NUM_THREADS)]
+            for thread in threads:
+                thread.start()
+
+            actual = {
+                t.pid.value_()
+                for t in for_each_task_in_group(this_task, include_self=False)
+            }
+            for thread in threads:
+                self.assertIn(thread.native_id, actual)
+            self.assertNotIn(os.getpid(), actual)
+        finally:
+            with condition:
+                condition.notify_all()
+            for thread in threads:
+                thread.join()
