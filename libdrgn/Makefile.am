@@ -63,6 +63,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    debug_info.h \
 			    debug_info_options.c \
 			    debug_info_options.h \
+			    drgn_ctf.h \
 			    drgn_internal.h \
 			    drgn_section_name_to_index.inc \
 			    dwarf_constants.c \
@@ -155,6 +156,11 @@ if WITH_LIBKDUMPFILE
 libdrgn_common_la_SOURCES += kdump.c
 libdrgn_common_la_CFLAGS += $(libkdumpfile_CFLAGS)
 libdrgn_common_la_LIBADD += $(libkdumpfile_LIBS)
+endif
+
+if WITH_LIBCTF
+libdrgn_common_la_SOURCES += ctf.c
+libdrgn_common_la_LIBADD += $(CTF_LIBS)
 endif
 
 if ENABLE_PYTHON
