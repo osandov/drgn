@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from typing import Optional, TextIO
 
 from util import nproc, out_of_date
 from vmtest.config import Kernel, local_kernel
@@ -15,7 +16,9 @@ from vmtest.download import downloaded_compiler
 logger = logging.getLogger(__name__)
 
 
-def build_kmod(download_dir: Path, kernel: Kernel) -> Path:
+def build_kmod(
+    download_dir: Path, kernel: Kernel, outfile: Optional[TextIO] = None
+) -> Path:
     kmod = kernel.path.parent / f"drgn_test-{kernel.release}.ko"
     # External modules can't do out-of-tree builds for some reason, so copy the
     # source files to a temporary directory and build the module there, then
@@ -52,6 +55,8 @@ def build_kmod(download_dir: Path, kernel: Kernel) -> Path:
                     str(nproc()),
                 ],
                 env={**os.environ, **compiler.env()},
+                stdout=outfile,
+                stderr=outfile,
             )
             (tmp_dir / "drgn_test.ko").rename(kmod)
     else:
