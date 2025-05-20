@@ -235,14 +235,17 @@ class Program:
         Get a symbol containing the given address, or a symbol with the given
         name.
 
-        Global symbols are preferred over weak symbols, and weak symbols are
-        preferred over other symbols. In other words: if a matching
-        :attr:`SymbolBinding.GLOBAL` or :attr:`SymbolBinding.UNIQUE` symbol is
-        found, it is returned. Otherwise, if a matching
-        :attr:`SymbolBinding.WEAK` symbol is found, it is returned. Otherwise,
-        any matching symbol (e.g., :attr:`SymbolBinding.LOCAL`) is returned. If
-        there are multiple matching symbols with the same binding, one is
-        returned arbitrarily. To retrieve all matching symbols, use
+        If there are multiple symbols containing a given address, then this
+        will attempt to find the closest match.
+
+        If searching by name or if there is a tie, global symbols are preferred
+        over weak symbols, and weak symbols are preferred over other symbols.
+        In other words: if a matching :attr:`SymbolBinding.GLOBAL` or
+        :attr:`SymbolBinding.UNIQUE` symbol is found, it is returned.
+        Otherwise, if a matching :attr:`SymbolBinding.WEAK` symbol is found, it
+        is returned. Otherwise, any matching symbol (e.g.,
+        :attr:`SymbolBinding.LOCAL`) is returned. If there is still a tie, one
+        is returned arbitrarily. To retrieve all matching symbols, use
         :meth:`symbols()`.
 
         :param address_or_name: Address or name to search for.
