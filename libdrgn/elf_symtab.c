@@ -427,9 +427,9 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 				if (best_sym->binding == DRGN_SYMBOL_BINDING_GLOBAL
 				    || best_sym->binding == DRGN_SYMBOL_BINDING_UNIQUE)
 					return &drgn_stop;
-				// Otherwise, if we're searching by address and
-				// we find a matching local symbol, then we can
-				// skip past the remaining local symbols.
+				// Otherwise, if we're not searching by address
+				// and we find a matching local symbol, then we
+				// can skip past the remaining local symbols.
 				if (i < module->elf_symtab.num_local_symbols)
 					i = module->elf_symtab.num_local_symbols - 1;
 			}
