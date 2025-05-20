@@ -60,10 +60,14 @@ class ElfSymbol(NamedTuple):
 def _create_symtab(
     sections: List[ElfSection],
     symbols: Sequence[ElfSymbol],
+    *,
+    dynamic: bool = False,
     little_endian: bool,
     bits: int,
 ):
-    assert not any(section.name in (".symtab", ".strtab") for section in sections)
+    symtab_name = ".dynsym" if dynamic else ".symtab"
+    strtab_name = ".dynstr" if dynamic else ".strtab"
+    assert not any(section.name in (symtab_name, strtab_name) for section in sections)
 
     endian = "<" if little_endian else ">"
     if bits == 64:
@@ -105,15 +109,15 @@ def _create_symtab(
 
     sections.append(
         ElfSection(
-            name=".symtab",
-            sh_type=SHT.SYMTAB,
+            name=symtab_name,
+            sh_type=SHT.DYNSYM if dynamic else SHT.SYMTAB,
             data=symtab_data,
             sh_link=sum((1 for section in sections if section.name is not None), 2),
             sh_info=sh_info,
             sh_entsize=symbol_struct.size,
         )
     )
-    sections.append(ElfSection(name=".strtab", sh_type=SHT.STRTAB, data=strtab_data))
+    sections.append(ElfSection(name=strtab_name, sh_type=SHT.STRTAB, data=strtab_data))
 
 
 def create_elf_file(
@@ -121,6 +125,7 @@ def create_elf_file(
     sections: Sequence[ElfSection] = (),
     symbols: Sequence[ElfSymbol] = (),
     *,
+    dynamic_symbols: Sequence[ElfSymbol] = (),
     build_id: Optional[bytes] = None,
     gnu_debuglink: Optional[
         Tuple[Union[str, bytes, "os.PathLike[str]", "os.PathLike[bytes]"], int]
@@ -148,6 +153,14 @@ def create_elf_file(
     nhdr_struct = struct.Struct(endian + "3I")
 
     sections = list(sections)
+    if dynamic_symbols:
+        _create_symtab(
+            sections,
+            dynamic_symbols,
+            dynamic=True,
+            little_endian=little_endian,
+            bits=bits,
+        )
     if symbols:
         _create_symtab(sections, symbols, little_endian=little_endian, bits=bits)
     if build_id is not None:

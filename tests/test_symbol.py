@@ -7,15 +7,40 @@ import tempfile
 from _drgn_util.elf import ET, PT, SHF, SHT, STB, STT
 from drgn import Program, Symbol, SymbolBinding, SymbolIndex, SymbolKind
 from tests import TestCase
+from tests.dwarfwriter import create_dwarf_file
 from tests.elfwriter import ElfSection, ElfSymbol, create_elf_file
 
 
-def create_elf_symbol_file(symbols):
+def add_shndx(symbols, shndx):
+    return [
+        symbol._replace(shindex=shndx if symbol.shindex is None else symbol.shindex)
+        for symbol in symbols
+    ]
+
+
+def create_elf_symbol_file(symbols=(), dynamic_symbols=(), dwarf=False):
+    def symbols_start(symbols):
+        return min(symbol.value for symbol in symbols)
+
+    def symbols_end(symbols):
+        return max(symbol.value + max(symbol.size, 1) for symbol in symbols)
+
+    if symbols and dynamic_symbols:
+        start = min(symbols_start(symbols), symbols_start(dynamic_symbols))
+        end = max(symbols_end(symbols), symbols_end(dynamic_symbols))
+    elif symbols:
+        start = symbols_start(symbols)
+        end = symbols_end(symbols)
+    else:
+        start = symbols_start(dynamic_symbols)
+        end = symbols_end(dynamic_symbols)
+
+    start &= ~7
+    end = (end + 7) & ~7
+
     # Create a section for the symbols to reference and the corresponding
     # segment for address lookups. It must be SHF_ALLOC and must not be
     # SHT_NOBITS or SHT_NOTE for the file to be loadable.
-    start = min(symbol.value for symbol in symbols) & ~7
-    end = (max(symbol.value + max(symbol.size, 1) for symbol in symbols) + 7) & ~7
     size = end - start
     assert size <= 4096, "symbols are too far apart; file would be too large"
     sections = [
@@ -29,31 +54,53 @@ def create_elf_symbol_file(symbols):
             data=bytes(size),
         ),
     ]
-    symbols = [
-        symbol._replace(
-            shindex=len(sections) if symbol.shindex is None else symbol.shindex
+
+    if dwarf:
+        contents = create_dwarf_file(
+            (),
+            sections=sections,
+            symbols=add_shndx(symbols, len(sections)),
+            dynamic_symbols=add_shndx(dynamic_symbols, len(sections)),
         )
-        for symbol in symbols
-    ]
-    return create_elf_file(ET.EXEC, sections, symbols), start, end
+    else:
+        contents = create_elf_file(
+            ET.EXEC,
+            sections=sections,
+            symbols=add_shndx(symbols, len(sections)),
+            dynamic_symbols=add_shndx(dynamic_symbols, len(sections)),
+        )
+
+    return contents, start, end
+
+
+def program_add_elf_symbol_file(prog, name, **kwargs):
+    contents, start, end = create_elf_symbol_file(**kwargs)
+
+    with tempfile.NamedTemporaryFile() as f:
+        f.write(contents)
+        f.flush()
+
+        module = prog.extra_module(name, create=True)
+
+        if module.address_range is None:
+            for other_module in prog.modules():
+                other_address_range = other_module.address_range
+                if other_address_range is not None:
+                    other_start, other_end = other_address_range
+                    assert (
+                        end <= other_start or start >= other_end
+                    ), f"{name} overlaps {other_module.name}"
+            module.address_range = (start, end)
+        else:
+            assert (start, end) == module.address_range
+
+        module.try_file(f.name, force=True)
 
 
 def elf_symbol_program(*modules):
     prog = Program()
-    address_ranges = []
-    for symbols in modules:
-        with tempfile.NamedTemporaryFile() as f:
-            contents, start, end = create_elf_symbol_file(symbols)
-            f.write(contents)
-            f.flush()
-            for i, (other_start, other_end) in enumerate(address_ranges):
-                assert (
-                    end <= other_start or start >= other_end
-                ), f"module {len(address_ranges)} overlaps module {i}"
-            address_ranges.append((start, end))
-            module = prog.extra_module(f.name, create=True)
-            module.address_range = (start, end)
-            module.try_file(f.name, force=True)
+    for i, symbols in enumerate(modules):
+        program_add_elf_symbol_file(prog, f"module{i}", symbols=symbols)
     return prog
 
 
@@ -380,6 +427,101 @@ class TestElfSymbol(TestCase):
         ]
         prog = elf_symbol_program(*elf_syms)
         self.assert_symbols_equal_unordered(prog.symbols(), syms)
+
+    def test_dynsym(self):
+        prog = Program()
+        program_add_elf_symbol_file(
+            prog,
+            "module0",
+            dynamic_symbols=[
+                ElfSymbol("sym", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL),
+            ],
+        )
+
+        sym = Symbol("sym", 0xFFFF0000, 0x8, SymbolBinding.LOCAL, SymbolKind.OBJECT)
+        self.assertEqual(prog.symbol("sym"), sym)
+        self.assertEqual(prog.symbol(0xFFFF0004), sym)
+
+    def test_ignore_dynsym_same_file(self):
+        # Test that .dynsym is ignored in a file with both .symtab and .dynsym.
+        prog = Program()
+        program_add_elf_symbol_file(
+            prog,
+            "module0",
+            # Normally .symtab is a superset of .dynsym, but to test that we
+            # ignore .dynsym, make them distinct.
+            symbols=[
+                ElfSymbol("full", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL),
+            ],
+            dynamic_symbols=[
+                ElfSymbol("partial", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL),
+            ],
+        )
+
+        self.assertRaises(LookupError, prog.symbol, "partial")
+
+        full = Symbol("full", 0xFFFF0000, 0x8, SymbolBinding.LOCAL, SymbolKind.OBJECT)
+        self.assertEqual(prog.symbol("full"), full)
+        self.assertEqual(prog.symbol(0xFFFF0004), full)
+
+    def test_ignore_dynsym_separate_files(self):
+        # Same as test_ignore_dynsym_same_file(), except .symtab and .dynsym
+        # are in different files.
+        prog = Program()
+        program_add_elf_symbol_file(
+            prog,
+            "module0",
+            dynamic_symbols=[
+                ElfSymbol("partial", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL),
+            ],
+        )
+        program_add_elf_symbol_file(
+            prog,
+            "module0",
+            symbols=[
+                ElfSymbol("full", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL),
+            ],
+            dwarf=True,
+        )
+
+        self.assertRaises(LookupError, prog.symbol, "partial")
+
+        full = Symbol("full", 0xFFFF0000, 0x8, SymbolBinding.LOCAL, SymbolKind.OBJECT)
+        self.assertEqual(prog.symbol("full"), full)
+        self.assertEqual(prog.symbol(0xFFFF0004), full)
+
+    def test_override_dynsym(self):
+        # Same as test_ignore_dynsym_separate_files(), except we do a lookup in
+        # .dynsym before we have .symtab.
+        prog = Program()
+        program_add_elf_symbol_file(
+            prog,
+            "module0",
+            dynamic_symbols=[
+                ElfSymbol("partial", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL),
+            ],
+        )
+
+        partial = Symbol(
+            "partial", 0xFFFF0000, 0x8, SymbolBinding.LOCAL, SymbolKind.OBJECT
+        )
+        self.assertEqual(prog.symbol("partial"), partial)
+        self.assertEqual(prog.symbol(0xFFFF0004), partial)
+
+        program_add_elf_symbol_file(
+            prog,
+            "module0",
+            symbols=[
+                ElfSymbol("full", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL),
+            ],
+            dwarf=True,
+        )
+
+        self.assertRaises(LookupError, prog.symbol, "partial")
+
+        full = Symbol("full", 0xFFFF0000, 0x8, SymbolBinding.LOCAL, SymbolKind.OBJECT)
+        self.assertEqual(prog.symbol("full"), full)
+        self.assertEqual(prog.symbol(0xFFFF0004), full)
 
 
 class TestSymbolFinder(TestCase):

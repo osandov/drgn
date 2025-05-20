@@ -53,7 +53,7 @@ find_module_elf_symtab(struct drgn_module *module)
 	if (!module->elf_symtab_pending_files)
 		return NULL;
 
-	if (module->elf_symtab.num_symbols > 0 && !module->have_full_symtab) {
+	if (module->have_full_symtab) {
 		module->elf_symtab_pending_files = 0;
 		return NULL;
 	}
