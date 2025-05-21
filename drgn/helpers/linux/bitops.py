@@ -9,6 +9,7 @@ The ``drgn.helpers.linux.bitops`` module provides helpers for common bit
 operations in the Linux kernel.
 """
 
+import operator
 from typing import Iterator
 
 from drgn import IntegerLike, Object, sizeof
@@ -27,7 +28,7 @@ def for_each_set_bit(bitmap: Object, size: IntegerLike) -> Iterator[int]:
     :param bitmap: ``unsigned long *``
     :param size: Size of *bitmap* in bits.
     """
-    size = int(size)
+    size = operator.index(size)
     word_bits = 8 * sizeof(bitmap.type_.type)
     for i in range((size + word_bits - 1) // word_bits):
         word = bitmap[i].value_()
@@ -43,7 +44,7 @@ def for_each_clear_bit(bitmap: Object, size: IntegerLike) -> Iterator[int]:
     :param bitmap: ``unsigned long *``
     :param size: Size of *bitmap* in bits.
     """
-    size = int(size)
+    size = operator.index(size)
     word_bits = 8 * sizeof(bitmap.type_.type)
     for i in range((size + word_bits - 1) // word_bits):
         word = bitmap[i].value_()
@@ -59,6 +60,6 @@ def test_bit(nr: IntegerLike, bitmap: Object) -> bool:
     :param nr: Bit number.
     :param bitmap: ``unsigned long *``
     """
-    nr = int(nr)
+    nr = operator.index(nr)
     word_bits = 8 * sizeof(bitmap.type_.type)
     return ((bitmap[nr // word_bits].value_() >> (nr & (word_bits - 1))) & 1) != 0
