@@ -1218,8 +1218,11 @@ def for_each_vmap_area(prog: Program) -> Iterator[Object]:
     >>> for va in for_each_vmap_area():
     ...     caller = ""
     ...     if va.vm:
-    ...         sym = prog.symbol(va.vm.caller)
-    ...         if sym:
+    ...         try:
+    ...             sym = prog.symbol(va.vm.caller)
+    ...         except LookupError:
+    ...             pass
+    ...         else:
     ...             caller = f" {sym.name}"
     ...     print(f"{hex(va.va_start)}-{hex(va.va_end)}{caller}")
     ...
