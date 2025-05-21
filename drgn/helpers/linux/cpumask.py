@@ -13,6 +13,7 @@ from typing import Iterator
 
 from drgn import Object, Program
 from drgn.helpers.common.prog import takes_program_or_default
+from drgn.helpers.linux.bitmap import bitmap_weight
 from drgn.helpers.linux.bitops import for_each_set_bit
 
 __all__ = (
@@ -20,10 +21,14 @@ __all__ = (
     "cpu_possible_mask",
     "cpu_present_mask",
     "cpumask_to_cpulist",
+    "cpumask_weight",
     "for_each_cpu",
     "for_each_online_cpu",
     "for_each_possible_cpu",
     "for_each_present_cpu",
+    "num_online_cpus",
+    "num_possible_cpus",
+    "num_present_cpus",
 )
 
 
@@ -98,6 +103,40 @@ def for_each_possible_cpu(prog: Program) -> Iterator[int]:
 def for_each_present_cpu(prog: Program) -> Iterator[int]:
     """Iterate over all present CPUs."""
     return for_each_cpu(cpu_present_mask(prog))
+
+
+def cpumask_weight(mask: Object) -> int:
+    """
+    Return the number of CPUs in the given mask
+
+    :param mask: ``struct cpumask *``
+    """
+    try:
+        nr_cpu_ids = mask.prog_["nr_cpu_ids"].value_()
+    except KeyError:
+        nr_cpu_ids = 1
+    return bitmap_weight(mask.bits, nr_cpu_ids)
+
+
+@takes_program_or_default
+def num_online_cpus(prog: Program) -> int:
+    """Return the number of online CPUs."""
+    # Since Linux kernel commit 0c09ab96fc82 ("cpu/hotplug: Cache number of
+    # online CPUs") (in v5.4), there's a cached atomic_t __num_online_cpus, but
+    # it's not worth it to do the version detection.
+    return cpumask_weight(cpu_online_mask(prog))
+
+
+@takes_program_or_default
+def num_possible_cpus(prog: Program) -> int:
+    """Return the number of possible CPUs."""
+    return cpumask_weight(cpu_possible_mask(prog))
+
+
+@takes_program_or_default
+def num_present_cpus(prog: Program) -> int:
+    """Return the number of present CPUs."""
+    return cpumask_weight(cpu_present_mask(prog))
 
 
 def cpumask_to_cpulist(mask: Object) -> str:

@@ -48,3 +48,11 @@ class TestCpuMask(LinuxKernelTestCase):
                     ),
                     (CPU_PATH / name).read_text().strip(),
                 )
+
+    def test_cpumask_weight(self):
+        for name in self._MASKS:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    getattr(drgn.helpers.linux.cpumask, f"num_{name}_cpus")(self.prog),
+                    len(parse_range_list((CPU_PATH / name).read_text())),
+                )
