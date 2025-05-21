@@ -26,6 +26,10 @@ drgndoc_paths = ["../drgn", "../_drgn.pyi"]
 drgndoc_substitutions = [
     (r"^_drgn\b", "drgn"),
 ]
+drgndoc_submodule_sort = [
+    # Sort experimental helpers after everything else.
+    (r"drgn\.helpers", [(r"experimental", 1)]),
+]
 
 extlinks = {
     "contrib": (

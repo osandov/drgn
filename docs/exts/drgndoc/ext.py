@@ -255,12 +255,14 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         except KeyError:
             have_old_py_module = False
 
+        module_name = dot_join(top_name, attr_name)
+
         sourcename = node.path or ""
         if sourcename:
             self.env.note_dependency(sourcename)
         contents = docutils.statemachine.StringList(
             [
-                ".. py:module:: " + dot_join(top_name, attr_name),
+                ".. py:module:: " + module_name,
                 "",
                 *node.docstring.splitlines(),
             ],
@@ -277,7 +279,32 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
                 section = child
                 break
 
+        attrs = []
+        submodules = []
         for attr in resolved.attrs():
+            if isinstance(attr.node, Module):
+                submodules.append(attr)
+            else:
+                attrs.append(attr)
+
+        # Submodules are initially sorted by name (guaranteed by
+        # parse_package()). Apply any sorting configuration.
+        for module_pattern, sort_key_patterns in self.config.drgndoc_submodule_sort:
+            if re.fullmatch(module_pattern, module_name):
+                # list.sort() is stable, so this preserves the previous order
+                # for submodules with the same key.
+                def sort_key(attr: ResolvedNode[Node]) -> Any:
+                    for pattern, key in sort_key_patterns:
+                        if re.fullmatch(pattern, attr.name):
+                            return key
+                    return 0
+
+                submodules.sort(key=sort_key)
+
+        # Normal attributes go before submodules.
+        attrs.extend(submodules)
+
+        for attr in attrs:
             self._run(
                 top_name, dot_join(attr_name, attr.name), attr.name, attr, section
             )
@@ -294,5 +321,14 @@ def setup(app: sphinx.application.Sphinx) -> Dict[str, Any]:
     app.add_config_value("drgndoc_paths", [], "env")
     # List of (regex pattern, substitution) to apply to resolved names.
     app.add_config_value("drgndoc_substitutions", [], "env")
+    # List of (parent regex pattern, list of (submodule regex pattern, key))
+    # controlling sort order of submodules.
+    #
+    # Submodules are initially sorted by name. For each parent regex pattern
+    # matching the fully qualified name of the parent module, the list of
+    # submodules is sorted. The sort key is given by the first submodule regex
+    # pattern matching the relative name of the subvolume, or 0 if no patterns
+    # match.
+    app.add_config_value("drgndoc_submodule_sort", [], "env")
     app.add_directive("drgndoc", DrgnDocDirective)
     return {"env_version": 1, "parallel_read_safe": True, "parallel_write_safe": True}
