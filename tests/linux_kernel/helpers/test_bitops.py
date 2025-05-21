@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from drgn import Object
+from drgn.helpers.linux.bitmap import bitmap_weight
 from drgn.helpers.linux.bitops import for_each_clear_bit, for_each_set_bit, test_bit
 from tests import MockProgramTestCase
 
@@ -46,3 +47,10 @@ class TestBitOps(MockProgramTestCase):
             self.assertTrue(test_bit(bit, bitmap))
         for bit in self.CLEAR_BITS:
             self.assertFalse(test_bit(bit, bitmap))
+
+    def test_bitmap_weight(self):
+        bitmap = Object(self.prog, "unsigned long [2]", self.BITMAP)
+        self.assertEqual(bitmap_weight(bitmap, 128), len(self.SET_BITS))
+        self.assertEqual(
+            bitmap_weight(bitmap, 101), sum(1 for bit in self.SET_BITS if bit < 101)
+        )
