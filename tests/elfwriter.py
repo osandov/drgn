@@ -69,6 +69,11 @@ def _create_symtab(
     strtab_name = ".dynstr" if dynamic else ".strtab"
     assert not any(section.name in (symtab_name, strtab_name) for section in sections)
 
+    # An empty symbol name is a placeholder for the implicit 0-index entry in
+    # the symbol table. It's used to create a valid, but empty symbol table.
+    if symbols and symbols[0].name == "":
+        symbols = symbols[1:]
+
     endian = "<" if little_endian else ">"
     if bits == 64:
         symbol_struct = struct.Struct(endian + "IBBHQQ")

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import itertools
+import lzma
 import tempfile
 
 from _drgn_util.elf import ET, PT, SHF, SHT, STB, STT
@@ -18,22 +19,31 @@ def add_shndx(symbols, shndx):
     ]
 
 
-def create_elf_symbol_file(symbols=(), dynamic_symbols=(), dwarf=False):
+def create_elf_symbol_file(
+    symbols=(),
+    dynamic_symbols=(),
+    gnu_debugdata_symbols=(),
+    dwarf=False,
+    loadable=True,
+):
     def symbols_start(symbols):
         return min(symbol.value for symbol in symbols)
 
     def symbols_end(symbols):
         return max(symbol.value + max(symbol.size, 1) for symbol in symbols)
 
-    if symbols and dynamic_symbols:
-        start = min(symbols_start(symbols), symbols_start(dynamic_symbols))
-        end = max(symbols_end(symbols), symbols_end(dynamic_symbols))
-    elif symbols:
-        start = symbols_start(symbols)
-        end = symbols_end(symbols)
-    else:
-        start = symbols_start(dynamic_symbols)
-        end = symbols_end(dynamic_symbols)
+    assert symbols or dynamic_symbols or gnu_debugdata_symbols
+    start = float("inf")
+    end = float("-inf")
+    if symbols:
+        start = min(start, symbols_start(symbols))
+        end = max(end, symbols_end(symbols))
+    if dynamic_symbols:
+        start = min(start, symbols_start(dynamic_symbols))
+        end = max(end, symbols_end(dynamic_symbols))
+    if gnu_debugdata_symbols:
+        start = min(start, symbols_start(gnu_debugdata_symbols))
+        end = max(end, symbols_end(gnu_debugdata_symbols))
 
     start &= ~7
     end = (end + 7) & ~7
@@ -47,54 +57,86 @@ def create_elf_symbol_file(symbols=(), dynamic_symbols=(), dwarf=False):
         ElfSection(
             name=".data",
             sh_type=SHT.PROGBITS,
-            sh_flags=SHF.ALLOC,
+            sh_flags=SHF.ALLOC if loadable else 0,
             p_type=PT.LOAD,
             vaddr=start,
             memsz=size,
             data=bytes(size),
         ),
     ]
+    symbols = add_shndx(symbols, len(sections))
+    dynamic_symbols = add_shndx(dynamic_symbols, len(sections))
+
+    if gnu_debugdata_symbols:
+        gds_sections = [
+            ElfSection(
+                name=".data",
+                sh_type=SHT.NOBITS,
+                sh_flags=SHF.ALLOC,
+                p_type=PT.LOAD,
+                vaddr=start,
+                memsz=size,
+            ),
+        ]
+        gds_contents = create_elf_file(
+            ET.EXEC,
+            sections=gds_sections,
+            symbols=add_shndx(gnu_debugdata_symbols, len(gds_sections)),
+        )
+        compressor = lzma.LZMACompressor()
+        gds_compressed = compressor.compress(gds_contents) + compressor.flush()
+        sections.append(
+            ElfSection(
+                name=".gnu_debugdata",
+                sh_type=SHT.PROGBITS,
+                memsz=len(gds_compressed),
+                data=gds_compressed,
+            )
+        )
 
     if dwarf:
         contents = create_dwarf_file(
             (),
             sections=sections,
-            symbols=add_shndx(symbols, len(sections)),
-            dynamic_symbols=add_shndx(dynamic_symbols, len(sections)),
+            symbols=symbols,
+            dynamic_symbols=dynamic_symbols,
         )
     else:
         contents = create_elf_file(
             ET.EXEC,
             sections=sections,
-            symbols=add_shndx(symbols, len(sections)),
-            dynamic_symbols=add_shndx(dynamic_symbols, len(sections)),
+            symbols=symbols,
+            dynamic_symbols=dynamic_symbols,
         )
 
     return contents, start, end
 
 
-def program_add_elf_symbol_file(prog, name, **kwargs):
+def module_set_elf_symbol_file(module, **kwargs):
     contents, start, end = create_elf_symbol_file(**kwargs)
 
     with tempfile.NamedTemporaryFile() as f:
         f.write(contents)
         f.flush()
 
-        module = prog.extra_module(name, create=True)
-
         if module.address_range is None:
-            for other_module in prog.modules():
+            for other_module in module.prog.modules():
                 other_address_range = other_module.address_range
                 if other_address_range is not None:
                     other_start, other_end = other_address_range
                     assert (
                         end <= other_start or start >= other_end
-                    ), f"{name} overlaps {other_module.name}"
+                    ), f"{module.name} overlaps {other_module.name}"
             module.address_range = (start, end)
         else:
             assert (start, end) == module.address_range
 
         module.try_file(f.name, force=True)
+
+
+def program_add_elf_symbol_file(prog, name, **kwargs):
+    module = prog.extra_module(name, create=True)
+    module_set_elf_symbol_file(module, **kwargs)
 
 
 def elf_symbol_program(*modules):
@@ -522,6 +564,201 @@ class TestElfSymbol(TestCase):
         full = Symbol("full", 0xFFFF0000, 0x8, SymbolBinding.LOCAL, SymbolKind.OBJECT)
         self.assertEqual(prog.symbol("full"), full)
         self.assertEqual(prog.symbol(0xFFFF0004), full)
+
+
+class TestGnuDebugdata(TestCase):
+
+    def assert_all_symbols_found_by_name(self, prog, symbols):
+        for symbol in symbols:
+            self.assertEqual(prog.symbol(symbol.name), symbol)
+
+    def assert_all_symbols_found_by_address(self, prog, symbols):
+        for symbol in symbols:
+            self.assertEqual(prog.symbol(symbol.address), symbol)
+            self.assertEqual(prog.symbol(symbol.address + symbol.size - 1), symbol)
+
+    def assert_all_symbols_returned_by_lookup(self, prog, symbols):
+        def sort_key(sym):
+            return (sym.address, sym.name)
+
+        expected = sorted(symbols, key=sort_key)
+        actual = prog.symbols()
+        actual.sort(key=sort_key)
+        self.assertEqual(expected, actual)
+
+    def test_gnu_debugdata_and_dynamic_lookup(self):
+        gnu_symbols = [
+            ElfSymbol("first", 0xFFFF0000, 0x8, STT.FUNC, STB.LOCAL),
+            ElfSymbol("second", 0xFFFF0018, 0x8, STT.FUNC, STB.LOCAL),
+        ]
+        dynamic_symbols = [
+            ElfSymbol("third", 0xFFFF0010, 0x8, STT.FUNC, STB.LOCAL),
+            ElfSymbol("fourth", 0xFFFF0008, 0x8, STT.FUNC, STB.LOCAL),
+        ]
+        prog = Program()
+        program_add_elf_symbol_file(
+            prog,
+            "module0",
+            dynamic_symbols=dynamic_symbols,
+            gnu_debugdata_symbols=gnu_symbols,
+        )
+        drgn_symbols = [
+            Symbol("first", 0xFFFF0000, 0x8, SymbolBinding.LOCAL, SymbolKind.FUNC),
+            Symbol("second", 0xFFFF0018, 0x8, SymbolBinding.LOCAL, SymbolKind.FUNC),
+            Symbol("third", 0xFFFF0010, 0x8, SymbolBinding.LOCAL, SymbolKind.FUNC),
+            Symbol("fourth", 0xFFFF0008, 0x8, SymbolBinding.LOCAL, SymbolKind.FUNC),
+        ]
+        self.assert_all_symbols_found_by_name(prog, drgn_symbols)
+        self.assert_all_symbols_found_by_address(prog, drgn_symbols)
+        self.assert_all_symbols_returned_by_lookup(prog, drgn_symbols)
+
+    def test_sizeless_symbols_gnu_debugdata(self):
+        gnu_symbols = [
+            ElfSymbol("zero", 0xFFFF0000, 0x0, STT.FUNC, STB.LOCAL),
+            ElfSymbol("two", 0xFFFF0002, 0x4, STT.FUNC, STB.LOCAL),
+            ElfSymbol("ten", 0xFFFF000A, 0x0, STT.FUNC, STB.LOCAL),
+        ]
+        dynamic_symbols = [
+            ElfSymbol("four", 0xFFFF0004, 0x0, STT.FUNC, STB.LOCAL),
+            ElfSymbol("eight", 0xFFFF0008, 0x0, STT.FUNC, STB.LOCAL),
+        ]
+        drgn_symbols = {
+            s.name: s
+            for s in (
+                Symbol("zero", 0xFFFF0000, 0x0, SymbolBinding.LOCAL, SymbolKind.FUNC),
+                Symbol("two", 0xFFFF0002, 0x4, SymbolBinding.LOCAL, SymbolKind.FUNC),
+                Symbol("four", 0xFFFF0004, 0x0, SymbolBinding.LOCAL, SymbolKind.FUNC),
+                Symbol("eight", 0xFFFF0008, 0x0, SymbolBinding.LOCAL, SymbolKind.FUNC),
+                Symbol("ten", 0xFFFF000A, 0x0, SymbolBinding.LOCAL, SymbolKind.FUNC),
+            )
+        }
+
+        for swap in (False, True):
+            prog = Program()
+            program_add_elf_symbol_file(
+                prog,
+                "module0",
+                dynamic_symbols=gnu_symbols if swap else dynamic_symbols,
+                gnu_debugdata_symbols=dynamic_symbols if swap else gnu_symbols,
+            )
+
+            self.assert_all_symbols_found_by_name(prog, drgn_symbols.values())
+            self.assert_all_symbols_returned_by_lookup(prog, drgn_symbols.values())
+
+            # Address 9 has a best match in .dynsym, despite other sizeless matches
+            # in .gnu_debugdata.
+            self.assertEqual(drgn_symbols["eight"], prog.symbol(0xFFFF0009))
+
+            # Address 5 is conained by symbol "two" in .gnu_debugdata, despite
+            # "four" being a sizeless match in .dynsym.
+            self.assertEqual(drgn_symbols["two"], prog.symbol(0xFFFF0005))
+
+            # Address 11 has a best sizeless match of "ten" in .gnu_debugdata,
+            # despite having a sizeless match of "eight" in .dynsym.
+            self.assertEqual(drgn_symbols["ten"], prog.symbol(0xFFFF000B))
+
+    def test_file_preferences(self):
+        # We need to be careful to make the address range the same for both
+        # files: so the minimum and maximum address for gnu + dynamic must be
+        # the same as for symtab.
+        # Normally a debug file would contain the same symbols as the loaded
+        # file, plus more. For testing, give them different names to
+        # distinguish.
+        loaded = [
+            ElfSymbol("loaded_lo", 0xFFFF0000, 0x4, STT.FUNC, STB.LOCAL),
+            ElfSymbol("loaded_hi", 0xFFFF0004, 0x4, STT.FUNC, STB.LOCAL),
+        ]
+        debug = [
+            ElfSymbol("symtab_lo", 0xFFFF0000, 0x4, STT.OBJECT, STB.LOCAL),
+            ElfSymbol("symtab_hi", 0xFFFF0004, 0x4, STT.OBJECT, STB.LOCAL),
+        ]
+        empty = [ElfSymbol("", 0xFFFF0000, 0, 0, 0, 0, 0)]
+        loaded_file_symbols = [
+            Symbol("loaded_lo", 0xFFFF0000, 0x4, SymbolBinding.LOCAL, SymbolKind.FUNC),
+            Symbol("loaded_hi", 0xFFFF0004, 0x4, SymbolBinding.LOCAL, SymbolKind.FUNC),
+        ]
+        debug_file_symbols = [
+            Symbol(
+                "symtab_lo", 0xFFFF0000, 0x4, SymbolBinding.LOCAL, SymbolKind.OBJECT
+            ),
+            Symbol(
+                "symtab_hi", 0xFFFF0004, 0x4, SymbolBinding.LOCAL, SymbolKind.OBJECT
+            ),
+        ]
+        file_choices = {
+            "loaded": (
+                {"gnu_debugdata_symbols": loaded[:1], "dynamic_symbols": loaded[1:]},
+                loaded_file_symbols,
+            ),
+            "loaded_dyn": (
+                {"dynamic_symbols": loaded},
+                loaded_file_symbols,
+            ),
+            "loaded_gnu": (
+                {"gnu_debugdata_symbols": loaded},
+                loaded_file_symbols,
+            ),
+            "loaded_gnu_dynempty": (
+                {"gnu_debugdata_symbols": loaded, "dynamic_symbols": empty},
+                loaded_file_symbols,
+            ),
+            "debug": (
+                {"symbols": debug, "dwarf": True, "loadable": False},
+                debug_file_symbols,
+            ),
+            "debug_dyn": (
+                {"dynamic_symbols": debug, "dwarf": True, "loadable": False},
+                debug_file_symbols,
+            ),
+        }
+
+        # First file, second file, whether or not the symtab should be replaced.
+        # Combining the symbol table is possible in a corner case (.dynsym from
+        # the debug file, plus .gnu_debugdata from the loaded, if the loaded
+        # file has no .dynsym of its own). This really ought not to happen in
+        # practice, but it's worth ensuring that it's handled safely.
+        cases = [
+            ("loaded", "debug", "replace"),
+            ("loaded_dyn", "debug", "replace"),
+            ("loaded_gnu", "debug", "replace"),
+            ("loaded_gnu_dynempty", "debug", "replace"),
+            ("debug", "loaded", None),
+            ("debug", "loaded_dyn", None),
+            ("debug", "loaded_gnu", None),
+            ("debug", "loaded_gnu_dynempty", None),
+            ("loaded", "debug_dyn", None),
+            ("loaded_dyn", "debug_dyn", None),
+            ("loaded_gnu", "debug_dyn", "combine"),
+            ("loaded_gnu_dynempty", "debug_dyn", None),
+            # We will replace a .dynsym with another .dynsym only if the file
+            # also has a .gnu_debugdata
+            ("debug_dyn", "loaded", "replace"),
+            ("debug_dyn", "loaded_dyn", None),
+            ("debug_dyn", "loaded_gnu", "combine"),
+            ("debug_dyn", "loaded_gnu_dynempty", "replace"),
+        ]
+
+        for first, second, action in cases:
+            with self.subTest(f"{first}, {second}"):
+                prog = Program()
+                module = prog.extra_module("module0", create=True)
+                module_set_elf_symbol_file(module, **file_choices[first][0])
+                expected = file_choices[first][1]
+                self.assert_all_symbols_found_by_name(prog, expected)
+                self.assert_all_symbols_found_by_address(prog, expected)
+                self.assert_all_symbols_returned_by_lookup(prog, expected)
+
+                module_set_elf_symbol_file(module, **file_choices[second][0])
+                if action == "replace":
+                    expected = file_choices[second][1]
+                elif action == "combine":
+                    expected = expected + file_choices[second][1]
+                self.assert_all_symbols_found_by_name(prog, expected)
+                # We end up with overlapping symbols when tables get combined.
+                # Don't bother checking address lookup there.
+                if action != "combine":
+                    self.assert_all_symbols_found_by_address(prog, expected)
+                self.assert_all_symbols_returned_by_lookup(prog, expected)
 
 
 class TestSymbolFinder(TestCase):
