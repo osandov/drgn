@@ -227,6 +227,7 @@ struct drgn_module {
 	struct drgn_elf_file *loaded_file;
 	struct drgn_elf_file *debug_file;
 	struct drgn_elf_file *supplementary_debug_file;
+	struct drgn_elf_file *gnu_debugdata_file;
 	/** Table mapping libdw handle to corresponding @ref drgn_elf_file. */
 	struct drgn_elf_file_dwarf_table split_dwarf_files;
 	uint64_t loaded_file_bias;
@@ -241,6 +242,8 @@ struct drgn_module {
 	struct drgn_module_orc_info orc;
 	/** ELF symbol table. */
 	struct drgn_elf_symbol_table elf_symtab;
+	/** Symbol table from the gnu_debugdata_file */
+	struct drgn_elf_symbol_table gnu_debugdata_symtab;
 
 	/** Whether .debug_frame has been parsed. */
 	bool parsed_debug_frame;
