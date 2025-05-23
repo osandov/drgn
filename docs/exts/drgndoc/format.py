@@ -277,12 +277,11 @@ class Formatter:
 
         signature = ["("]
         need_comma = False
-        need_blank_line = bool(lines)
 
         def visit_arg(
             arg: ast.arg, default: Optional[ast.expr] = None, name: Optional[str] = None
         ) -> None:
-            nonlocal need_comma, need_blank_line
+            nonlocal need_comma
             if need_comma:
                 signature.append(", ")
             signature.append(arg.arg if name is None else name)
