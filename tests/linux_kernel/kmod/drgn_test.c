@@ -38,6 +38,7 @@
 #include <linux/stackdepot.h>
 #endif
 #include <linux/sysfs.h>
+#include <linux/timekeeping.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
@@ -46,6 +47,51 @@
 #else
 #define HAVE_XARRAY 0
 #endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 18, 0)
+// These were added in b9ff604cff11 ("timekeeping: Add
+// ktime_get_coarse_with_offset") (in v4.18-rc1).
+static inline ktime_t ktime_get_coarse_boottime(void)
+{
+	struct timespec64 ts = get_monotonic_coarse64();
+
+	return ktime_mono_to_any(timespec64_to_ktime(ts), TK_OFFS_BOOT);
+}
+
+static inline ktime_t ktime_get_coarse_clocktai(void)
+{
+	struct timespec64 ts = get_monotonic_coarse64();
+
+	return ktime_mono_to_any(timespec64_to_ktime(ts), TK_OFFS_TAI);
+}
+
+// These were added in Linux kernel commit 06aa376903b6 ("timekeeping: Add more
+// coarse clocktai/boottime interfaces") (in v4.18).
+static inline time64_t ktime_get_boottime_seconds(void)
+{
+	return ktime_divns(ktime_get_coarse_boottime(), NSEC_PER_SEC);
+}
+
+static inline time64_t ktime_get_clocktai_seconds(void)
+{
+	return ktime_divns(ktime_get_coarse_clocktai(), NSEC_PER_SEC);
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0)
+// These were added in 4c54294d01e6 ("timekeeping: Add missing _ns functions for
+// coarse accessors") (in v5.3).
+static inline u64 ktime_get_coarse_boottime_ns(void)
+{
+	return ktime_to_ns(ktime_get_coarse_boottime());
+}
+
+static inline u64 ktime_get_coarse_clocktai_ns(void)
+{
+	return ktime_to_ns(ktime_get_coarse_clocktai());
+}
+#endif
+
 
 // Convert a 4-character string to a seed for drgn_test_prng32().
 static inline u32 drgn_test_prng32_seed(const char *s)
@@ -1430,9 +1476,55 @@ static ssize_t drgn_test_crash_store(struct kobject *kobj,
 static struct kobj_attribute drgn_test_crash_attr =
 	__ATTR(crash, 0200, NULL, drgn_test_crash_store);
 
+static ssize_t drgn_test_boottime_seconds_show(struct kobject *kobj,
+					       struct kobj_attribute *attr,
+					       char *buf)
+{
+	return sprintf(buf, "%lld\n", ktime_get_boottime_seconds());
+}
+
+static struct kobj_attribute drgn_test_boottime_seconds_attr =
+	__ATTR(boottime_seconds, 0444, drgn_test_boottime_seconds_show, NULL);
+
+static ssize_t drgn_test_coarse_boottime_ns_show(struct kobject *kobj,
+						 struct kobj_attribute *attr,
+						 char *buf)
+{
+	return sprintf(buf, "%llu\n", ktime_get_coarse_boottime_ns());
+}
+
+static struct kobj_attribute drgn_test_coarse_boottime_ns_attr =
+	__ATTR(coarse_boottime_ns, 0444, drgn_test_coarse_boottime_ns_show,
+	       NULL);
+
+static ssize_t drgn_test_clocktai_seconds_show(struct kobject *kobj,
+					       struct kobj_attribute *attr,
+					       char *buf)
+{
+	return sprintf(buf, "%lld\n", ktime_get_clocktai_seconds());
+}
+
+static struct kobj_attribute drgn_test_clocktai_seconds_attr =
+	__ATTR(clocktai_seconds, 0444, drgn_test_clocktai_seconds_show, NULL);
+
+static ssize_t drgn_test_coarse_clocktai_ns_show(struct kobject *kobj,
+						 struct kobj_attribute *attr,
+						 char *buf)
+{
+	return sprintf(buf, "%llu\n", ktime_get_coarse_clocktai_ns());
+}
+
+static struct kobj_attribute drgn_test_coarse_clocktai_ns_attr =
+	__ATTR(coarse_clocktai_ns, 0444, drgn_test_coarse_clocktai_ns_show,
+	       NULL);
+
 static struct attribute_group drgn_test_attr_group = {
 	.attrs = (struct attribute *[]){
 		&drgn_test_crash_attr.attr,
+		&drgn_test_boottime_seconds_attr.attr,
+		&drgn_test_coarse_boottime_ns_attr.attr,
+		&drgn_test_clocktai_seconds_attr.attr,
+		&drgn_test_coarse_clocktai_ns_attr.attr,
 		NULL,
 	},
 };
