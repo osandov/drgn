@@ -35,9 +35,4 @@ repos:
     rev: v1.6.0
     hooks:
     -   id: vermin
-        # The vmtest package in general should adhere to the same version
-        # requirements as drgn, with the following exceptions: The manage &
-        # kbuild scripts are used by Github Actions and need not be broadly
-        # compatible.
-        exclude: "^vmtest/(manage|kbuild).py$"
-        args: ['-t=3.6-', '--violations', '--eval-annotations']
+        args: ['-t=3.8-', '--violations', '--eval-annotations']
