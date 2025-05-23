@@ -114,11 +114,11 @@ def takes_program_or_default(f: "TakesProgram[P, R]") -> "TakesProgramOrDefault[
                 elif isinstance(args[0], Object):
                     return f(args[0].prog_, *args, **kwds)
             elif "prog" in kwds:
-                return f(**kwds)
+                return f(**kwds)  # type: ignore
             elif param1 in kwds:
                 arg1 = kwds[param1]
                 if isinstance(arg1, Object):
-                    return f(arg1.prog_, **kwds)
+                    return f(arg1.prog_, **kwds)  # type: ignore
             return f(get_default_prog(), *args, **kwds)
 
     # Update the docstring for pydoc.

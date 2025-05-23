@@ -96,9 +96,7 @@ def for_each_task(prog: Program, ns: Optional[Object]) -> Iterator[Object]:
     :return: Iterator of ``struct task_struct *`` objects.
     """
     PIDTYPE_PID = prog["PIDTYPE_PID"].value_()
-    for pid in for_each_pid(
-        prog if ns is None else ns  # type: ignore  # python/mypy#12056
-    ):
+    for pid in for_each_pid(prog if ns is None else ns):
         task = pid_task(pid, PIDTYPE_PID)
         if task:
             yield task

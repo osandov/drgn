@@ -397,7 +397,7 @@ def print_mounts(
     but prints the value of each ``struct mount *``.
     """
     for mnt in for_each_mount(
-        prog if ns is None else ns,  # type: ignore  # python/mypy#12056
+        prog if ns is None else ns,
         src=src,
         dst=dst,
         fstype=fstype,
