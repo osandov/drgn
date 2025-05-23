@@ -149,7 +149,7 @@ def _elf_sym_to_symbol(name: str, obj: Object, has_typetab: bool) -> Symbol:
         binding, kind = _st_info_to_binding_kind(obj.st_info.value_())
     else:
         binding, kind = _nm_type_to_binding_kind(chr(obj.st_info.value_()))
-    return Symbol(  # type: ignore
+    return Symbol(
         name,
         obj.st_value.value_(),
         obj.st_size.value_(),
