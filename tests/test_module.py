@@ -25,6 +25,7 @@ class IntWrapper:
 
 class TestModule(TestCase):
     def _test_module_init_common(self, module):
+        self.assertIsNone(module.address_ranges)
         self.assertIsNone(module.address_range)
         self.assertIsNone(module.build_id)
         self.assertEqual(module.loaded_file_status, ModuleFileStatus.WANT)
@@ -320,6 +321,9 @@ class TestModule(TestCase):
             module.address_range = (1,)
 
         with self.assertRaises(TypeError):
+            module.address_range = (1, 2, 3)
+
+        with self.assertRaises(TypeError):
             module.address_range = ("foo", 1)
 
         with self.assertRaises(TypeError):
@@ -344,6 +348,72 @@ class TestModule(TestCase):
         module = Program().extra_module("/foo/bar", create=True)
         with self.assertRaises(AttributeError):
             del module.address_range
+
+    def test_address_ranges_single(self):
+        module = Program().extra_module("/foo/bar", create=True)
+
+        module.address_ranges = [(0x10000000, 0x10010000)]
+        self.assertEqual(module.address_range, (0x10000000, 0x10010000))
+        self.assertCountEqual(module.address_ranges, [(0x10000000, 0x10010000)])
+
+        module.address_range = (0x20000000, 0x20010000)
+        self.assertCountEqual(module.address_ranges, [(0x20000000, 0x20010000)])
+
+    def test_address_ranges_multiple(self):
+        module = Program().extra_module("/foo/bar", create=True)
+
+        module.address_ranges = [
+            (0x10000000, 0x10010000),
+            (0x20000000, 0x20010000),
+        ]
+        with self.assertRaisesRegex(ValueError, "module has multiple address ranges"):
+            module.address_range
+        self.assertCountEqual(
+            module.address_ranges, [(0x10000000, 0x10010000), (0x20000000, 0x20010000)]
+        )
+
+    def test_address_ranges_empty(self):
+        module = Program().extra_module("/foo/bar", create=True)
+
+        module.address_ranges = ()
+        self.assertEqual(module.address_range, (0, 0))
+        self.assertCountEqual(module.address_ranges, ())
+
+        module.address_range = (0, 0)
+        self.assertCountEqual(module.address_ranges, ())
+
+    def test_address_ranges_type_error(self):
+        module = Program().extra_module("/foo/bar", create=True)
+
+        with self.assertRaises(TypeError):
+            module.address_ranges = 1
+
+        with self.assertRaises(TypeError):
+            module.address_ranges = (1,)
+
+        with self.assertRaises(TypeError):
+            module.address_ranges = ((1,),)
+
+        with self.assertRaises(TypeError):
+            module.address_ranges = ((1, 2, 3),)
+
+        with self.assertRaises(TypeError):
+            module.address_ranges = (("foo", 1),)
+
+        with self.assertRaises(TypeError):
+            module.address_ranges = ((1, "bar"),)
+
+    def test_address_ranges_invalid(self):
+        module = Program().extra_module("/foo/bar", create=True)
+
+        with self.assertRaisesRegex(ValueError, "invalid module address range"):
+            module.address_ranges = ((0x10010000, 0x10000000),)
+
+        with self.assertRaisesRegex(ValueError, "invalid module address range"):
+            module.address_ranges = ((1, 1),)
+
+        with self.assertRaisesRegex(ValueError, "invalid module address range"):
+            module.address_ranges = ((0, 0),)
 
     def test_build_id(self):
         module = Program().extra_module("/foo/bar", create=True)

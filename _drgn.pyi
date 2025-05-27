@@ -848,7 +848,7 @@ class Program:
         Find the module containing the given address, or the module with the
         given name.
 
-        Addresses are matched based on :attr:`Module.address_range`.
+        Addresses are matched based on :attr:`Module.address_ranges`.
 
         If there are multiple modules with the given name, one is returned
         arbitrarily.
@@ -1592,19 +1592,34 @@ class Module:
 
     Its exact meaning varies by module type.
     """
-    address_range: Optional[Tuple[int, int]]
+    address_ranges: Optional[Sequence[Tuple[int, int]]]
     """
-    Address range where this module is loaded.
+    Address ranges where this module is loaded.
 
-    This is a tuple of the start (inclusive) and end (exclusive) addresses. If
-    the module is not loaded in memory, then both are 0. If not known yet, then
-    this is ``None``.
+    This is a sequence of tuples of the start (inclusive) and end (exclusive)
+    addresses. For each range, the start address is strictly less than the end
+    address. If the module is not loaded in memory, then the sequence is empty.
+    If not known yet, then this is ``None``.
 
     :meth:`Program.loaded_modules()` sets this automatically from the program
     state/core dump when possible. Otherwise, for :class:`MainModule`,
     :class:`SharedLibraryModule`, and :class:`VdsoModule`, it may be set
     automatically when a file is assigned to the module. It is never set
     automatically for :class:`ExtraModule`. It can also be set manually.
+
+    Other than Linux kernel loadable modules, most modules have only one
+    address range. See :attr:`address_range`.
+    """
+    address_range: Optional[Tuple[int, int]]
+    """
+    Address range where this module is loaded.
+
+    This is an alias of :attr:`address_ranges[0] <address_ranges>` with a
+    couple of small differences:
+
+    * If the module has more than one address range, then reading this raises a
+      :class:`ValueError`.
+    * If the module is not loaded in memory, then this is ``(0, 0)``.
     """
     build_id: Optional[bytes]
     """
@@ -1652,11 +1667,12 @@ class Module:
       dynamic section in the file.
     * For :class:`RelocatableModule`, it is set to zero. Addresses are adjusted
       according to :attr:`~RelocatableModule.section_addresses` instead.
-    * For :class:`ExtraModule`, if :attr:`~Module.address_range` is set before
-      the file is added, then the bias is set to :attr:`address_range[0]
-      <Module.address_range>` (i.e., the module's start address) minus the
-      file's start address. If :attr:`~Module.address_range` is not set when
-      the file is added or is set to ``(0, 0)``, then the bias is set to zero.
+    * For :class:`ExtraModule`, if :attr:`~Module.address_ranges` is set to a
+      single range before the file is added, then the bias is set to
+      :attr:`address_ranges[0][0] <Module.address_ranges>` (i.e., the module's
+      start address) minus the file's start address. If
+      :attr:`~Module.address_ranges` is not set when the file is added, is
+      empty, or comprises more than one range, then the bias is set to zero.
 
     This cannot be set manually.
     """

@@ -1366,26 +1366,58 @@ const char *drgn_module_name(const struct drgn_module *module);
 uint64_t drgn_module_info(const struct drgn_module *module);
 
 /**
- * Get the address range where a module is loaded.
+ * Get the number of address ranges where a module is loaded.
  *
- * If the module is not loaded in memory, then the start and end are both 0
+ * @param[out] ret Returned number of address ranges (zero if address ranges are
+ * empty or not set).
+ * @return @c true on success (including if address ranges are empty), @c false
+ * if address ranges are not set.
+ */
+bool drgn_module_num_address_ranges(const struct drgn_module *module,
+				    size_t *ret);
+
+/**
+ * Get the @p i-th address range where a module is loaded.
  *
  * @param[out] start_ret Minimum address (inclusive).
  * @param[out] end_ret Maximum address (exclusive).
- * @return @c true on success, @c false if the address range is not known yet.
+ * @return @c true on success, @c false if @p i is out of bounds (i.e., if it is
+ * greater than @ref drgn_module_num_address_ranges()).
  */
-bool drgn_module_address_range(const struct drgn_module *module,
+bool drgn_module_address_range(const struct drgn_module *module, size_t i,
 			       uint64_t *start_ret, uint64_t *end_ret);
 
 /**
  * Set the address range of a module.
  *
- * @p start and @p end may both be 0 to indicate that the module is not loaded
- * in memory. They may both be @c UINT64_MAX to unset the range. Otherwise, @p
- * start must be less than @p end.
+ * This is equivalent to:
+ *
+ * ```
+ * uint64_t range[2] = {start, end};
+ * drgn_module_set_address_ranges(module, &range, 1);
+ * ```
  */
 struct drgn_error *drgn_module_set_address_range(struct drgn_module *module,
 						 uint64_t start, uint64_t end);
+
+/**
+ * Set the address ranges of a module.
+ *
+ * @param[in] ranges Ranges to set. The first element of each range is the
+ * start. The second is the end. The start must be less than the end. This is
+ * copied, so it need not remain valid after this function returns.
+ * @param[in] num_ranges Number of ranges in @p ranges.
+ */
+struct drgn_error *drgn_module_set_address_ranges(struct drgn_module *module,
+						  uint64_t ranges[][2],
+						  size_t num_ranges);
+
+/** Unset the address ranges for a module. */
+void drgn_module_unset_address_ranges(struct drgn_module *module);
+
+/** Return whether a module's address ranges contain @p address. */
+bool drgn_module_contains_address(const struct drgn_module *module,
+				  uint64_t address);
 
 /**
  * Get the unique byte string (e.g., GNU build ID) identifying files used by

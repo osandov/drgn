@@ -3910,10 +3910,8 @@ addr:
 			 * address but an offset). Don't apply the bias in that
 			 * case.
 			 */
-			if (ctx->file->module->start
-			    <= uvalue + ctx->file->module->debug_file_bias
-			    && uvalue + ctx->file->module->debug_file_bias
-			       < ctx->file->module->end)
+			if (drgn_module_contains_address(ctx->file->module,
+					uvalue + ctx->file->module->debug_file_bias))
 				uvalue += ctx->file->module->debug_file_bias;
 			PUSH(uvalue);
 			break;

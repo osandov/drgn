@@ -200,42 +200,150 @@ static PyObject *Module_get_name(Module *self, void *arg)
 	return PyUnicode_DecodeFSDefault(drgn_module_name(self->module));
 }
 
+static PyObject *Module_get_address_ranges(Module *self, void *arg)
+{
+	size_t n;
+	if (!drgn_module_num_address_ranges(self->module, &n))
+		Py_RETURN_NONE;
+	_cleanup_pydecref_ PyObject *ret = PyTuple_New(n);
+	if (!ret)
+		return NULL;
+	for (size_t i = 0; i < n; i++) {
+		uint64_t start, end;
+		drgn_module_address_range(self->module, i, &start, &end);
+		PyObject *range = Py_BuildValue("KK", (unsigned long long)start,
+						(unsigned long long)end);
+		if (!range)
+			return NULL;
+		PyTuple_SET_ITEM(ret, i, range);
+	}
+	return_ptr(ret);
+}
+
+DEFINE_VECTOR(uint64_pair_vector, uint64_t [2]);
+
+static int Module_set_address_ranges(Module *self, PyObject *value, void *arg)
+{
+	SETTER_NO_DELETE("address_ranges", value);
+
+	if (value == Py_None) {
+		drgn_module_unset_address_ranges(self->module);
+		return 0;
+	}
+
+	struct drgn_error *err;
+	_cleanup_pydecref_ PyObject *it = PyObject_GetIter(value);
+	if (!it)
+		return -1;
+
+	Py_ssize_t length_hint = PyObject_LengthHint(value, 1);
+	if (length_hint == -1)
+		return -1;
+
+	VECTOR(uint64_pair_vector, ranges);
+	if (!uint64_pair_vector_reserve(&ranges, length_hint)) {
+		PyErr_NoMemory();
+		return -1;
+	}
+
+	for (;;) {
+		_cleanup_pydecref_ PyObject *item = PyIter_Next(it);
+		if (!item)
+			break;
+
+		if (!PyTuple_Check(item) || PyTuple_GET_SIZE(item) != 2) {
+			PyErr_SetString(PyExc_TypeError,
+					"address_ranges must None or sequence of (int, int)");
+			return -1;
+		}
+		_cleanup_pydecref_ PyObject *start_obj =
+			PyNumber_Index(PyTuple_GET_ITEM(item, 0));
+		if (!start_obj)
+			return -1;
+		_cleanup_pydecref_ PyObject *end_obj =
+			PyNumber_Index(PyTuple_GET_ITEM(item, 1));
+		if (!end_obj)
+			return -1;
+
+		uint64_t range[2];
+		range[0] = PyLong_AsUint64(start_obj);
+		if (range[0] == UINT64_MAX && PyErr_Occurred())
+			return -1;
+		range[1] = PyLong_AsUint64(end_obj);
+		if (range[1] == UINT64_MAX && PyErr_Occurred())
+			return -1;
+
+		if (!uint64_pair_vector_append(&ranges, &range)) {
+			PyErr_NoMemory();
+			return -1;
+		}
+	}
+	if (PyErr_Occurred())
+		return -1;
+
+	err = drgn_module_set_address_ranges(self->module,
+					     uint64_pair_vector_begin(&ranges),
+					     uint64_pair_vector_size(&ranges));
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+	return 0;
+}
+
 static PyObject *Module_get_address_range(Module *self, void *arg)
 {
-	uint64_t start, end;
-	if (!drgn_module_address_range(self->module, &start, &end))
+	size_t n;
+	if (!drgn_module_num_address_ranges(self->module, &n))
 		Py_RETURN_NONE;
-	return Py_BuildValue("KK", (unsigned long long)start,
-			     (unsigned long long)end);
+	if (n == 0) {
+		return Py_BuildValue("ii", 0, 0);
+	} else if (n == 1) {
+		uint64_t start, end;
+		drgn_module_address_range(self->module, 0, &start, &end);
+		return Py_BuildValue("KK", (unsigned long long)start,
+				     (unsigned long long)end);
+	} else {
+		PyErr_SetString(PyExc_ValueError,
+				"module has multiple address ranges");
+		return NULL;
+	}
 }
 
 static int Module_set_address_range(Module *self, PyObject *value, void *arg)
 {
 	SETTER_NO_DELETE("address_range", value);
-	struct drgn_error *err;
+
 	if (value == Py_None) {
-		err = drgn_module_set_address_range(self->module, -1, -1);
+		drgn_module_unset_address_ranges(self->module);
+		return 0;
+	}
+
+	struct drgn_error *err;
+	if (!PyTuple_Check(value) || PyTuple_GET_SIZE(value) != 2) {
+		PyErr_SetString(PyExc_TypeError,
+				"address_range must be None or (int, int)");
+		return -1;
+	}
+	_cleanup_pydecref_ PyObject *start_obj =
+		PyNumber_Index(PyTuple_GET_ITEM(value, 0));
+	if (!start_obj)
+		return -1;
+	_cleanup_pydecref_ PyObject *end_obj =
+		PyNumber_Index(PyTuple_GET_ITEM(value, 1));
+	if (!end_obj)
+		return -1;
+
+	uint64_t start = PyLong_AsUint64(start_obj);
+	if (start == UINT64_MAX && PyErr_Occurred())
+		return -1;
+	uint64_t end = PyLong_AsUint64(end_obj);
+	if (end == UINT64_MAX && PyErr_Occurred())
+		return -1;
+
+	if (start == 0 && end == 0) {
+		err = drgn_module_set_address_ranges(self->module, NULL, 0);
 	} else {
-		if (!PyTuple_Check(value) || PyTuple_GET_SIZE(value) != 2) {
-			PyErr_SetString(PyExc_TypeError,
-					"address_range must be (int, int) or None");
-			return -1;
-		}
-		_cleanup_pydecref_ PyObject *start_obj =
-			PyNumber_Index(PyTuple_GET_ITEM(value, 0));
-		if (!start_obj)
-			return -1;
-		_cleanup_pydecref_ PyObject *end_obj =
-			PyNumber_Index(PyTuple_GET_ITEM(value, 1));
-		if (!end_obj)
-			return -1;
-		uint64_t start = PyLong_AsUint64(start_obj);
-		uint64_t end = PyLong_AsUint64(end_obj);
-		if (start == UINT64_MAX && end == UINT64_MAX) {
-			PyErr_SetString(PyExc_ValueError,
-					"invalid module address range");
-			return -1;
-		}
 		err = drgn_module_set_address_range(self->module, start, end);
 	}
 	if (err) {
@@ -425,6 +533,8 @@ static PyMethodDef Module_methods[] = {
 static PyGetSetDef Module_getset[] = {
 	{"prog", (getter)Module_get_prog, NULL, drgn_Module_prog_DOC},
 	{"name", (getter)Module_get_name, NULL, drgn_Module_name_DOC},
+	{"address_ranges", (getter)Module_get_address_ranges,
+	 (setter)Module_set_address_ranges, drgn_Module_address_ranges_DOC},
 	{"address_range", (getter)Module_get_address_range,
 	 (setter)Module_set_address_range, drgn_Module_address_range_DOC},
 	{"build_id", (getter)Module_get_build_id, (setter)Module_set_build_id,

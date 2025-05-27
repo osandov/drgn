@@ -151,13 +151,14 @@ static inline const char *drgn_module_entry_name(struct drgn_module * const *ent
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_module_table, drgn_module_entry_name,
 			    c_string_key_hash_pair, c_string_key_eq);
 
-static inline uint64_t drgn_module_address_key(const struct drgn_module *entry)
+static inline uint64_t
+drgn_module_address_range_key(const struct drgn_module_address_range *entry)
 {
 	return entry->start;
 }
 
 DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_module_address_tree, node,
-				    drgn_module_address_key,
+				    drgn_module_address_range_key,
 				    binary_search_tree_scalar_cmp, splay);
 
 static void drgn_module_free_section_addresses(struct drgn_module *module)
@@ -185,7 +186,7 @@ struct drgn_module *drgn_module_find_by_address(struct drgn_program *prog,
 						   &address);
 	if (!it.entry || address >= it.entry->end)
 		return NULL;
-	return it.entry;
+	return it.entry->module;
 }
 
 static struct drgn_module *drgn_module_find(struct drgn_program *prog,
@@ -249,7 +250,6 @@ drgn_module_find_or_create(struct drgn_program *prog,
 	struct drgn_module *module = calloc(1, sizeof(*module));
 	if (!module)
 		return &drgn_enomem;
-	module->start = module->end = UINT64_MAX;
 
 	module->prog = prog;
 	module->kind = kind;
@@ -450,20 +450,31 @@ static void drgn_module_destroy(struct drgn_module *module)
 	if (module->debug_file != module->loaded_file)
 		drgn_elf_file_destroy(module->debug_file);
 	drgn_elf_file_destroy(module->loaded_file);
+	if (module->address_ranges != &module->single_address_range)
+		free(module->address_ranges);
 	free(module->build_id);
 	free(module->name);
 	drgn_object_deinit(&module->object);
 	free(module);
 }
 
+static void drgn_module_delete_address_ranges(struct drgn_module *module)
+{
+	for (size_t i = 0; i < module->num_address_ranges; i++) {
+		drgn_module_address_tree_delete_entry(&module->prog->dbinfo.modules_by_address,
+						      &module->address_ranges[i]);
+	}
+	if (module->address_ranges != &module->single_address_range)
+		free(module->address_ranges);
+}
+
 void drgn_module_delete(struct drgn_module *module)
 {
 	assert(!module->loaded_file);
 	assert(!module->debug_file);
-	if (module->start < module->end) {
-		drgn_module_address_tree_delete_entry(&module->prog->dbinfo.modules_by_address,
-						      module);
-	}
+	drgn_module_delete_address_ranges(module);
+	// So drgn_module_destroy() doesn't free it again.
+	module->address_ranges = NULL;
 
 	const char *name = module->name;
 	struct drgn_module_table_iterator it =
@@ -506,42 +517,121 @@ LIBDRGN_PUBLIC uint64_t drgn_module_info(const struct drgn_module *module)
 	return module->info;
 }
 
+LIBDRGN_PUBLIC
+bool drgn_module_num_address_ranges(const struct drgn_module *module,
+				    size_t *ret)
+{
+	*ret = module->num_address_ranges;
+	return module->address_ranges != NULL;
+}
+
 LIBDRGN_PUBLIC bool drgn_module_address_range(const struct drgn_module *module,
-					      uint64_t *start_ret,
+					      size_t i, uint64_t *start_ret,
 					      uint64_t *end_ret)
 {
-	if (module->start == UINT64_MAX)
+	if (i >= module->num_address_ranges)
 		return false;
-	*start_ret = module->start;
-	*end_ret = module->end;
+	*start_ret = module->address_ranges[i].start;
+	*end_ret = module->address_ranges[i].end;
 	return true;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_module_set_address_range(struct drgn_module *module, uint64_t start,
-			      uint64_t end)
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_module_set_address_range(struct drgn_module *module,
+						 uint64_t start, uint64_t end)
 {
-	if (start >= end && start != 0 && end != UINT64_MAX) {
+	// This is a special case instead of a wrapper around
+	// drgn_module_set_address_ranges() so we can avoid allocating memory.
+	// Since the old address range might be module->single_address_range,
+	// this has to do things in a different order.
+
+	if (start >= end) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "invalid module address range");
 	}
 
-	if (module->start < module->end) {
-		drgn_module_address_tree_delete_entry(&module->prog->dbinfo.modules_by_address,
-						      module);
+	drgn_module_delete_address_ranges(module);
+
+	module->single_address_range.start = start;
+	module->single_address_range.end = end;
+	module->single_address_range.module = module;
+
+	// We don't bother checking for overlapping address ranges, which
+	// shouldn't happen with well-formed programs and at worst causes
+	// spurious failed lookups. We may need to revisit this if it's a
+	// problem in practice.
+	drgn_module_address_tree_insert(&module->prog->dbinfo.modules_by_address,
+					&module->single_address_range, NULL);
+
+	module->address_ranges = &module->single_address_range;
+	module->num_address_ranges = 1;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_module_set_address_ranges(struct drgn_module *module,
+						  uint64_t ranges[][2],
+						  size_t num_ranges)
+{
+	if (num_ranges == 1) {
+		return drgn_module_set_address_range(module, ranges[0][0],
+						     ranges[0][1]);
 	}
 
-	module->start = start;
-	module->end = end;
-	if (start < end) {
-		// We don't bother checking for overlapping address ranges,
-		// which shouldn't happen with well-formed programs and at worst
-		// causes spurious failed lookups. We may need to revisit this
-		// if it's a problem in practice.
-		drgn_module_address_tree_insert(&module->prog->dbinfo.modules_by_address,
-						module, NULL);
+	_cleanup_free_ struct drgn_module_address_range *address_ranges = NULL;
+	if (num_ranges) {
+		address_ranges =
+			malloc_array(num_ranges, sizeof(*address_ranges));
+		if (!address_ranges)
+			return &drgn_enomem;
+		for (size_t i = 0; i < num_ranges; i++) {
+			if (ranges[i][0] >= ranges[i][1]) {
+				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+							 "invalid module address range");
+			}
+			address_ranges[i].start = ranges[i][0];
+			address_ranges[i].end = ranges[i][1];
+			address_ranges[i].module = module;
+		}
 	}
+
+	drgn_module_delete_address_ranges(module);
+
+	for (size_t i = 0; i < num_ranges; i++) {
+		// We don't bother checking for overlapping address ranges; see
+		// drgn_module_set_address_range().
+		drgn_module_address_tree_insert(&module->prog->dbinfo.modules_by_address,
+						&address_ranges[i], NULL);
+	}
+
+	if (num_ranges) {
+		module->address_ranges = no_cleanup_ptr(address_ranges);
+	} else {
+		// We need a non-NULL pointer to distinguish this from the unset
+		// case.
+		module->address_ranges = &module->single_address_range;
+	}
+	module->num_address_ranges = num_ranges;
 	return NULL;
+}
+
+LIBDRGN_PUBLIC void drgn_module_unset_address_ranges(struct drgn_module *module)
+{
+	drgn_module_delete_address_ranges(module);
+	module->address_ranges = NULL;
+	module->num_address_ranges = 0;
+}
+
+LIBDRGN_PUBLIC
+bool drgn_module_contains_address(const struct drgn_module *module,
+				  uint64_t address)
+{
+	for (size_t i = 0; i < module->num_address_ranges; i++) {
+		if (module->address_ranges[i].start <= address
+		    && address < module->address_ranges[i].end)
+			return true;
+	}
+	return false;
 }
 
 LIBDRGN_PUBLIC
@@ -1194,14 +1284,18 @@ static bool drgn_module_elf_file_bias(struct drgn_module *module,
 	case DRGN_MODULE_SHARED_LIBRARY:
 	case DRGN_MODULE_VDSO:
 		return elf_dso_bias(prog, file->elf, module->info, ret);
-	case DRGN_MODULE_EXTRA:
-		if (module->start < module->end) {
+	case DRGN_MODULE_EXTRA: {
+		size_t num_address_ranges;
+		if (drgn_module_num_address_ranges(module, &num_address_ranges)
+		    && num_address_ranges == 1) {
+			uint64_t start, end;
+			drgn_module_address_range(module, 0, &start, &end);
 			uint64_t elf_start, elf_end;
 			if (!drgn_elf_file_address_range(file, &elf_start,
 							 &elf_end))
 				return false;
 			if (elf_start < elf_end) {
-				*ret = module->start - elf_start;
+				*ret = start - elf_start;
 				drgn_log_debug(prog,
 					       "got bias 0x%" PRIx64 " from ELF start address",
 					       *ret);
@@ -1209,6 +1303,7 @@ static bool drgn_module_elf_file_bias(struct drgn_module *module,
 			}
 		}
 		fallthrough;
+	}
 	case DRGN_MODULE_RELOCATABLE:
 	default:
 		*ret = 0;
@@ -1219,7 +1314,7 @@ static bool drgn_module_elf_file_bias(struct drgn_module *module,
 static bool
 drgn_module_should_set_address_range_from_elf_file(struct drgn_module *module)
 {
-	if (module->start != UINT64_MAX)
+	if (module->address_ranges)
 		return false;
 
 	SWITCH_ENUM(module->kind) {
@@ -1646,19 +1741,22 @@ drgn_module_try_vdso_in_core(struct drgn_module *module,
 	if (module->loaded_file_status != DRGN_MODULE_FILE_WANT)
 		return NULL;
 
-	uint64_t start, end;
-	if (!drgn_module_address_range(module, &start, &end)) {
+	size_t num_address_ranges;
+	if (!drgn_module_num_address_ranges(module, &num_address_ranges)) {
 		drgn_log_debug(prog,
 			       "vDSO address range is not known; "
 			       "can't read from program");
 		return NULL;
 	}
-	if (start >= end) {
-		drgn_log_debug(prog,
-			       "vDSO address range is empty; "
-			       "can't read from program");
+	if (num_address_ranges != 1) {
+		drgn_log_debug(prog, "vDSO has %s; can't read from program",
+			       num_address_ranges
+			       ? "multiple address ranges"
+			       : "empty address range");
 		return NULL;
 	}
+	uint64_t start, end;
+	drgn_module_address_range(module, 0, &start, &end);
 	uint64_t size = end - start;
 	if (size > MAX_MEMORY_READ_FOR_DEBUG_INFO) {
 		drgn_log_debug(prog,

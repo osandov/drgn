@@ -65,7 +65,8 @@ static inline bool drgn_have_debuginfod(void)
 
 DEFINE_HASH_TABLE_TYPE(drgn_elf_file_dwarf_table, struct drgn_elf_file *);
 DEFINE_HASH_TABLE_TYPE(drgn_module_table, struct drgn_module *);
-DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_module_address_tree, struct drgn_module);
+DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_module_address_tree,
+			       struct drgn_module_address_range);
 
 struct drgn_debug_info_finder {
 	struct drgn_handler handler;
@@ -186,6 +187,15 @@ enum drgn_module_file_mask {
 
 DEFINE_HASH_MAP_TYPE(drgn_module_section_address_map, char *, uint64_t);
 
+struct drgn_module_address_range {
+	/** Node in @ref drgn_debug_info::modules_by_address. */
+	struct binary_tree_node node;
+	/** Address range. */
+	uint64_t start, end;
+	/** Module owning this range. */
+	struct drgn_module *module;
+};
+
 struct drgn_module {
 	struct drgn_program *prog;
 	enum drgn_module_kind kind;
@@ -216,13 +226,22 @@ struct drgn_module {
 	 * This is allocated together with @ref drgn_module::build_id.
 	 */
 	char *build_id_str;
-	/** Node in @ref drgn_debug_info::modules_by_address. */
-	struct binary_tree_node node;
+	/** Load address ranges. @c NULL if not known yet. */
+	struct drgn_module_address_range *address_ranges;
+	/** Number of ranges in @ref address_ranges. */
+	size_t num_address_ranges;
 	/**
-	 * Load address range. Both 0 if not loaded. Both @c UINT64_MAX if not
-	 * known yet.
+	 * Placeholder assigned to @ref address_ranges in two cases:
+	 *
+	 * 1. If @ref num_address_ranges is 1. This lets us avoid allocating the
+	 *    address ranges separately. This is a minor optimization for the
+	 *    common case, but more importantly,
+	 *    `drgn_module_maybe_use_elf_file()` can't handle @ref
+	 *    drgn_module_set_address_range() failing.
+	 * 2. If the address range is known to be empty. This allows us to
+	 *    distinguish between that and the unknown case.
 	 */
-	uint64_t start, end;
+	struct drgn_module_address_range single_address_range;
 
 	struct drgn_elf_file *loaded_file;
 	struct drgn_elf_file *debug_file;
