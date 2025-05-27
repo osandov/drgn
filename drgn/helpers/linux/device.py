@@ -10,13 +10,17 @@ Linux devices, including the kernel encoding of ``dev_t``.
 """
 
 import operator
+from typing import Iterator, Tuple
 
-from drgn import IntegerLike
+from drgn import IntegerLike, Object, Program, cast
+from drgn.helpers.common.prog import takes_program_or_default
 
 __all__ = (
     "MAJOR",
     "MINOR",
     "MKDEV",
+    "for_each_registered_blkdev",
+    "for_each_registered_chrdev",
 )
 
 
@@ -51,3 +55,33 @@ def MKDEV(major: IntegerLike, minor: IntegerLike) -> int:
     :param minor: Device minor ID.
     """
     return (operator.index(major) << _MINORBITS) | operator.index(minor)
+
+
+@takes_program_or_default
+def for_each_registered_chrdev(
+    prog: Program,
+) -> Iterator[Tuple[int, int, bytes, Object]]:
+    cdev_map_probes = prog["cdev_map"].probes
+    for cd in prog["chrdevs"]:
+        while cd := cd.read_():
+            major = cd.major.value_()
+            dev = MKDEV(major, cd.baseminor)
+            cdev = cd.cdev.read_()
+            if not cdev:
+                probe = cdev_map_probes[major].read_()
+                while next := probe.next.read_():
+                    if probe.dev.value_() == dev:
+                        cdev = cast("struct cdev *", probe.data)
+                        break
+                    probe = next
+
+            yield dev, cd.minorct.value_(), cd.name.string_(), cdev
+            cd = cd.next
+
+
+@takes_program_or_default
+def for_each_registered_blkdev(prog: Program) -> Iterator[Tuple[int, bytes]]:
+    for name in prog["major_names"]:
+        while name := name.read_():
+            yield name.major.value_(), name.name.string_()
+            name = name.next
