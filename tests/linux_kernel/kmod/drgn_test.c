@@ -1277,6 +1277,9 @@ int drgn_test_function(int x)
 	return x + 1;
 }
 
+char drgn_test_data[] = "abc";
+const char drgn_test_rodata[] = "def";
+
 // kmodify
 
 #ifdef __x86_64__

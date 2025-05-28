@@ -120,7 +120,11 @@ class TestModule(LinuxKernelTestCase):
         def module_dict(prog):
             return {
                 (module.name, module.address): (
-                    module.address_range,
+                    (
+                        None
+                        if module.address_ranges is None
+                        else sorted(module.address_ranges)
+                    ),
                     module.build_id,
                     dict(module.section_addresses),
                 )

@@ -1401,6 +1401,149 @@ yield_vmlinux(struct linux_kernel_loaded_module_iterator *it,
 	return NULL;
 }
 
+enum kernel_module_address_ranges_version {
+	// Since Linux kernel commit ac3b43283923 ("module: replace
+	// module_layout with module_memory") (in v6.4), `struct module`
+	// contains an array, `struct module_memory mem[]`, of discontiguous
+	// allocations per memory type (`module->mem[type].base` and
+	// `module->mem[type].size`). The module address is
+	// `module->mem[MOD_TEXT].base`.
+	MODULE_MEMORY,
+	// Between that and Linux kernel commit 7523e4dc5057 ("module: use a
+	// structure to encapsulate layout.") (in v4.5), `struct module`
+	// contains a `struct module_layout core_layout` member with the base
+	// address (`module->core_layout.base`) and contiguous size
+	// (`module->core_layout.size`).
+	MODULE_LAYOUT,
+	// Before that, `struct module` contains the base address
+	// (`module->module_core`) and contiguous size (`module->core_size`)
+	// directly.
+	IN_MODULE,
+};
+
+static struct drgn_error *
+kernel_module_address(const struct drgn_object *module_obj,
+		      struct drgn_object *mem,
+		      enum kernel_module_address_ranges_version *version_ret,
+		      uint64_t *address_ret)
+{
+	struct drgn_program *prog = drgn_object_program(module_obj);
+	struct drgn_error *err;
+
+	DRGN_OBJECT(tmp, prog);
+	err = drgn_object_member(mem, module_obj, "mem");
+	if (!err) {
+		*version_ret = MODULE_MEMORY;
+		if (!prog->mod_text_cached) {
+			err = drgn_program_find_object(prog, "MOD_TEXT", NULL,
+						       DRGN_FIND_OBJECT_CONSTANT,
+						       &tmp);
+			if (err)
+				return err;
+			union drgn_value mod_text_value;
+			err = drgn_object_read_integer(&tmp, &mod_text_value);
+			if (err)
+				return err;
+			prog->mod_text = mod_text_value.uvalue;
+			prog->mod_text_cached = true;
+		}
+		err = drgn_object_subscript(&tmp, mem, prog->mod_text);
+		if (err)
+			return err;
+		err = drgn_object_member(&tmp, &tmp, "base");
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+		err = drgn_object_member(mem, module_obj, "core_layout");
+		if (!err) {
+			*version_ret = MODULE_LAYOUT;
+			err = drgn_object_member(&tmp, mem, "base");
+		} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+			*version_ret = IN_MODULE;
+			err = drgn_object_member(&tmp, module_obj,
+						 "module_core");
+		}
+	}
+	if (err)
+		return err;
+	return drgn_object_read_unsigned(&tmp, address_ret);
+}
+
+// If version is MODULE_MEMORY, mem is struct module::mem. If version is
+// MODULE_LAYOUT, mem is struct module::core_layout.
+static struct drgn_error *
+kernel_module_set_address_ranges(struct drgn_module *module,
+				 enum kernel_module_address_ranges_version version,
+				 const struct drgn_object *module_obj,
+				 const struct drgn_object *mem,
+				 uint64_t address)
+{
+	struct drgn_program *prog = module->prog;
+	struct drgn_error *err;
+
+	DRGN_OBJECT(tmp, prog);
+	if (version != MODULE_MEMORY) {
+		if (version == IN_MODULE)
+			err = drgn_object_member(&tmp, module_obj, "core_size");
+		else
+			err = drgn_object_member(&tmp, mem, "size");
+		if (err)
+			return err;
+		uint64_t size;
+		err = drgn_object_read_unsigned(&tmp, &size);
+		if (err)
+			return err;
+		drgn_log_debug(prog, "module size is %" PRIu64, size);
+		return drgn_module_set_address_range(module, address,
+						     address + size);
+	}
+
+	struct drgn_type *mem_array_type = drgn_underlying_type(mem->type);
+	if (drgn_type_kind(mem_array_type) != DRGN_TYPE_ARRAY) {
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "struct module::mem is not an array");
+	}
+	uint64_t length = drgn_type_length(mem_array_type);
+
+	if (length > SIZE_MAX)
+		return &drgn_enomem;
+	_cleanup_free_ uint64_t (*ranges)[2] =
+		malloc_array(length, sizeof(*ranges));
+	if (!ranges)
+		return &drgn_enomem;
+
+	DRGN_OBJECT(element, prog);
+	size_t num_ranges = 0;
+	for (size_t i = 0; i < length; i++) {
+		err = drgn_object_subscript(&element, mem, i);
+		if (err)
+			return err;
+
+		err = drgn_object_member(&tmp, &element, "size");
+		if (err)
+			return err;
+		uint64_t size;
+		err = drgn_object_read_unsigned(&tmp, &size);
+		if (err)
+			return err;
+		if (!size)
+			continue;
+
+		err = drgn_object_member(&tmp, &element, "base");
+		if (err)
+			return err;
+		uint64_t base;
+		err = drgn_object_read_unsigned(&tmp, &base);
+		if (err)
+			return err;
+
+		drgn_log_debug(prog, "module has address range %" PRIu64 "-%" PRIu64,
+			       base, base + size);
+		ranges[num_ranges][0] = base;
+		ranges[num_ranges][1] = base + size;
+		num_ranges++;
+	}
+	return drgn_module_set_address_ranges(module, ranges, num_ranges);
+}
+
 static struct drgn_error *
 kernel_module_set_build_id_live(struct drgn_module *module)
 {
@@ -1852,56 +1995,9 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 	const char *name = drgn_object_buffer(module_obj) + name_offset;
 
 	DRGN_OBJECT(mem, prog);
-	DRGN_OBJECT(val, prog);
-	bool layout_in_module = false;
-	err = drgn_object_member(&mem, module_obj, "mem");
-	if (!err) {
-		// Since Linux kernel commit ac3b43283923 ("module: replace
-		// module_layout with module_memory") (in v6.4), the base and
-		// size are in the `struct module_memory mem[MOD_TEXT]` member
-		// of `struct module`.
-		if (!prog->mod_text_cached) {
-			err = drgn_program_find_object(prog, "MOD_TEXT", NULL,
-						       DRGN_FIND_OBJECT_CONSTANT,
-						       &val);
-			if (err)
-				return err;
-			union drgn_value mod_text_value;
-			err = drgn_object_read_integer(&val, &mod_text_value);
-			if (err)
-				return err;
-			prog->mod_text = mod_text_value.uvalue;
-			prog->mod_text_cached = true;
-		}
-		err = drgn_object_subscript(&mem, &mem, prog->mod_text);
-		if (err)
-			return err;
-	} else {
-		if (err->code != DRGN_ERROR_LOOKUP)
-			return err;
-		drgn_error_destroy(err);
-		// Between that and Linux kernel commit 7523e4dc5057 ("module:
-		// use a structure to encapsulate layout.") (in v4.5), the base
-		// and size are in the `struct module_layout core_layout` member
-		// of `struct module`.
-		err = drgn_object_member(&mem, module_obj, "core_layout");
-		if (err) {
-			if (err->code != DRGN_ERROR_LOOKUP)
-				return err;
-			drgn_error_destroy(err);
-			// Before that, they are directly in the `struct
-			// module`.
-			layout_in_module = true;
-		}
-	}
-	if (layout_in_module)
-		err = drgn_object_member(&val, module_obj, "module_core");
-	else
-		err = drgn_object_member(&val, &mem, "base");
-	if (err)
-		return err;
+	enum kernel_module_address_ranges_version version;
 	uint64_t address;
-	err = drgn_object_read_unsigned(&val, &address);
+	err = kernel_module_address(module_obj, &mem, &version, &address);
 	if (err)
 		return err;
 
@@ -1934,19 +2030,8 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 	if (err)
 		return err;
 
-	if (layout_in_module)
-		err = drgn_object_member(&val, module_obj, "core_size");
-	else
-		err = drgn_object_member(&val, &mem, "size");
-	if (err)
-		return err;
-	uint64_t size;
-	err = drgn_object_read_unsigned(&val, &size);
-	if (err)
-		return err;
-
-	drgn_log_debug(prog, "module size is %" PRIu64, size);
-	err = drgn_module_set_address_range(module, address, address + size);
+	err = kernel_module_set_address_ranges(module, version, module_obj,
+					       &mem, address);
 	if (err)
 		return err;
 
