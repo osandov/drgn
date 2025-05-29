@@ -320,26 +320,26 @@ def _load_debugging_symbols(prog: drgn.Program, args: argparse.Namespace) -> Non
         for option, value in debug_info_options.items():
             setattr(prog.debug_info_options, option, value)
 
-    if args.debug_directories is not None:
-        if args.no_default_debug_directories:
-            prog.debug_info_options.directories = args.debug_directories
-        else:
-            prog.debug_info_options.directories = (
-                tuple(args.debug_directories) + prog.debug_info_options.directories
-            )
-    elif args.no_default_debug_directories:
-        prog.debug_info_options.directories = ()
+    def directories_option(arg_name: str, option_name: Optional[str] = None) -> None:
+        if option_name is None:
+            option_name = arg_name
+        arg = getattr(args, arg_name)
+        no_default = getattr(args, "no_default_" + arg_name)
+        if arg is not None:
+            if no_default:
+                setattr(prog.debug_info_options, option_name, arg)
+            else:
+                setattr(
+                    prog.debug_info_options,
+                    option_name,
+                    tuple(arg) + getattr(prog.debug_info_options, option_name),
+                )
+        elif no_default:
+            setattr(prog.debug_info_options, option_name, ())
 
-    if args.kernel_directories is not None:
-        if args.no_default_kernel_directories:
-            prog.debug_info_options.kernel_directories = args.kernel_directories
-        else:
-            prog.debug_info_options.kernel_directories = (
-                tuple(args.kernel_directories)
-                + prog.debug_info_options.kernel_directories
-            )
-    elif args.no_default_kernel_directories:
-        prog.debug_info_options.kernel_directories = ()
+    directories_option("debug_directories", "directories")
+    directories_option("debug_link_directories")
+    directories_option("kernel_directories")
 
     if args.default_symbols is None:
         args.default_symbols = {"default": True, "main": True}
@@ -453,22 +453,40 @@ def _main() -> None:
         + "). "
         "This option may be given more than once",
     )
-    symbol_group.add_argument(
+
+    directories_group = parser.add_argument_group("debugging symbol directories")
+    directories_group.add_argument(
         "--debug-directory",
         dest="debug_directories",
         metavar="PATH",
         type=str,
         action="append",
-        help="search for debugging symbols by build ID and debug link in the given directory. "
+        help="search for debugging symbols in the given directory. "
         "This option may be given more than once",
     )
-    symbol_group.add_argument(
+    directories_group.add_argument(
         "--no-default-debug-directories",
         action="store_true",
-        help="don't search for debugging symbols by build ID and debug link "
+        help="don't search for debugging symbols "
         "in the standard directories or those added by plugins",
     )
-    symbol_group.add_argument(
+    directories_group.add_argument(
+        "--debug-link-directory",
+        dest="debug_link_directories",
+        metavar="PATH",
+        type=str,
+        action="append",
+        help="search for debugging symbols by debug link in the given directory. "
+        "$ORIGIN is replaced with the directory containing the loaded file. "
+        "This option may be given more than once",
+    )
+    directories_group.add_argument(
+        "--no-default-debug-link-directories",
+        action="store_true",
+        help="don't search for debugging symbols by debug link "
+        "in the standard directories or those added by plugins",
+    )
+    directories_group.add_argument(
         "--kernel-directory",
         dest="kernel_directories",
         metavar="PATH",
@@ -477,7 +495,7 @@ def _main() -> None:
         help="search for the kernel image and loadable kernel modules in the given directory. "
         "This option may be given more than once",
     )
-    symbol_group.add_argument(
+    directories_group.add_argument(
         "--no-default-kernel-directories",
         action="store_true",
         help="don't search for the kernel image and loadable kernel modules "

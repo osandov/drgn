@@ -701,8 +701,6 @@ drgn_module_try_vmlinux_in_debug_directories(struct drgn_module *module,
 	};
 	for (size_t i = 0; options->directories[i]; i++) {
 		const char *debug_dir = options->directories[i];
-		if (debug_dir[0] != '/')
-			continue;
 		sb->len = 0;
 		if (!string_builder_append(sb, debug_dir))
 			return &drgn_enomem;
@@ -853,8 +851,6 @@ drgn_module_try_depmod_in_debug_directories(struct drgn_module *module,
 	struct drgn_error *err;
 	for (size_t i = 0; options->directories[i]; i++) {
 		const char *debug_dir = options->directories[i];
-		if (debug_dir[0] != '/')
-			continue;
 		sb->len = 0;
 		// Debian, Ubuntu:
 		// $debug_dir/lib/modules/$(uname -r)/$ko_name
@@ -979,9 +975,6 @@ drgn_kmod_walk_next_dir(struct drgn_program *prog,
 	for (;;) {
 		if (state->next_debug_dir) {
 			const char *debug_dir = *state->next_debug_dir++;
-			if (debug_dir && debug_dir[0] != '/')
-				continue;
-
 			path->len = 0;
 			if (debug_dir) {
 				if (!string_builder_append(path, debug_dir))

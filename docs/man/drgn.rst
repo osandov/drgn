@@ -130,17 +130,45 @@ in the Python API.
     option may be given more than once, in which case the lists will be
     combined.
 
+Debugging Symbol Directories
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+These options correspond to :attr:`drgn.DebugInfoOptions.directories` in the
+Python API.
+
 .. option:: --debug-directory {PATH}
 
-    Search for debugging symbols by build ID and debug link in the given
-    directory.
+    Search for debugging symbols in the given directory.
+
+    By default, these directories are used for searches by build ID, debug
+    link, for supplementary files, and for kernel files.
 
     This option may be given more than once to search in multiple directories.
 
 .. option:: --no-default-debug-directories
 
-    Don't search for debugging symbols by build ID and debug link in the
-    standard directories or those added by plugins.
+    Don't search for debugging symbols in the standard directories or those
+    added by plugins.
+
+These options correspond to
+:attr:`drgn.DebugInfoOptions.debug_link_directories` in the Python API.
+
+.. option:: --debug-link-directory {PATH}
+
+    Search for debugging symbols by debug link in the given directory.
+
+    ``$ORIGIN`` (or ``${ORIGIN}``) is replaced with the absolute path of the
+    directory containing the loaded file.
+
+    This option may be given more than once to search in multiple directories.
+
+.. option:: --no-default-debug-link-directories
+
+    Don't search for debugging symbols by debug link in the standard
+    directories or those added by plugins.
+
+These options correspond to :attr:`drgn.DebugInfoOptions.kernel_directories` in
+the Python API.
 
 .. option:: --kernel-directory {PATH}
 

@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <byteswap.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <elf.h>
 #include <elfutils/libdw.h>
@@ -1886,8 +1887,6 @@ drgn_module_try_standard_supplementary_files(struct drgn_module *module,
 	if (dwz) {
 		for (size_t i = 0; options->directories[i]; i++) {
 			const char *debug_dir = options->directories[i];
-			if (debug_dir[0] != '/')
-				continue;
 
 			sb.len = 0;
 			if (!string_builder_append(&sb, debug_dir)
@@ -2150,8 +2149,6 @@ drgn_module_try_files_by_build_id(struct drgn_module *module,
 	STRING_BUILDER(sb);
 	for (size_t i = 0; options->directories[i]; i++) {
 		const char *debug_dir = options->directories[i];
-		if (debug_dir[0] != '/')
-			continue;
 		if (!string_builder_append(&sb, debug_dir)
 		    || !string_builder_appendf(&sb, "/.build-id/%c%c/%s.debug",
 					       build_id_str[0], build_id_str[1],
@@ -2179,6 +2176,30 @@ drgn_module_try_files_by_build_id(struct drgn_module *module,
 		sb.len = 0;
 	}
 	return NULL;
+}
+
+// Return the first occurrence of either $ORIGIN followed by a word boundary or
+// ${ORIGIN}, and set *end_ret to the character after that occurrence. Return
+// NULL if not found (and *end_ret is not modified).
+static const char *find_dollar_origin(const char *s, const char **end_ret)
+{
+	const char *dollar;
+	while ((dollar = strchr(s, '$'))) {
+		if (strstartswith(dollar + 1, "ORIGIN")) {
+			s = dollar + (sizeof("$ORIGIN") - 1);
+			// Skip it if it doesn't end at a word boundary.
+			if (*s == '_' || isalnum(*s))
+				continue;
+			*end_ret = s;
+			break;
+		} else if (strstartswith(dollar + 1, "{ORIGIN}")) {
+			*end_ret = dollar + (sizeof("${ORIGIN}") - 1);
+			break;
+		} else {
+			s = dollar + 1;
+		}
+	}
+	return dollar;
 }
 
 static struct drgn_error *
@@ -2234,46 +2255,66 @@ drgn_module_try_files_by_gnu_debuglink(struct drgn_module *module,
 	STRING_BUILDER(sb);
 	if (debuglink[0] == '/') {
 		// debuglink is absolute. Try it directly.
-		err = drgn_module_try_standard_file(module, options, debuglink,
-						    -1, false, &crc);
+		return drgn_module_try_standard_file(module, options, debuglink,
+						     -1, false, &crc);
+	}
+
+	if (!debuglink[0] || file->path[0] != '/') {
+		// debuglink is empty or file path is not absolute. Ignore it.
+		return NULL;
+	}
+
+	// debuglink is relative. Try it in the debug link directories.
+	const char *slash = strrchr(file->path, '/');
+	// We just checked that the file path is absolute, so there must be a
+	// slash. Also trim extra slashes just in case.
+	while (slash != file->path && slash[-1] == '/')
+		slash--;
+	size_t dir_len = slash - file->path;
+	const char * const *next_debug_link_dir =
+		options->debug_link_directories;
+	const char * const *next_debug_dir = NULL;
+	for (;;) {
+		if (next_debug_dir) {
+			const char *debug_dir = *next_debug_dir++;
+			if (!debug_dir) {
+				next_debug_dir = NULL;
+				continue;
+			}
+			if (!string_builder_append(&sb, debug_dir)
+			    || !string_builder_appendn(&sb, file->path, dir_len))
+				return &drgn_enomem;
+		} else {
+			const char *debug_link_dir = *next_debug_link_dir++;
+			if (!debug_link_dir)
+				return NULL;
+			if (!debug_link_dir[0]) {
+				// Empty path. Try under the debug directories.
+				next_debug_dir = options->directories;
+				continue;
+			}
+			const char *s = debug_link_dir;
+			const char *dollar, *end;
+			while ((dollar = find_dollar_origin(s, &end))) {
+				if (!string_builder_appendn(&sb, s, dollar - s)
+				    || !string_builder_appendn(&sb, file->path,
+							       dir_len))
+					return &drgn_enomem;
+				s = end;
+			}
+			if (!string_builder_append(&sb, s))
+				return &drgn_enomem;
+		}
+		if (!string_builder_appendc(&sb, '/')
+		    || !string_builder_appendn(&sb, debuglink, debuglink_len)
+		    || !string_builder_null_terminate(&sb))
+			return &drgn_enomem;
+		err = drgn_module_try_standard_file(module, options, sb.str, -1,
+						    false, &crc);
 		if (err || !drgn_module_wants_file(module))
 			return err;
-	} else if (file->path[0] && debuglink[0]) {
-		// debuglink is relative. Try it in the debug directories.
-		const char *slash = strrchr(file->path, '/');
-		size_t dirslash_len = slash ? slash - file->path + 1 : 0;
-		for (size_t i = 0; options->directories[i]; i++) {
-			const char *debug_dir = options->directories[i];
-			// If debug_dir is empty, then try:
-			// $(dirname $path)/$debuglink
-			// If debug_dir is relative, then try:
-			// $(dirname $path)/$debug_dir/$debuglink
-			// If debug_dir is absolute, then try:
-			// $debug_dir/$(dirname $path)/$debuglink
-			if (debug_dir[0] == '/') {
-				if (file->path[0] != '/')
-					continue;
-				if (!string_builder_append(&sb, debug_dir))
-					return &drgn_enomem;
-			}
-			if (!string_builder_appendn(&sb, file->path,
-						    dirslash_len)
-			    || (debug_dir[0] && debug_dir[0] != '/'
-				&& (!string_builder_append(&sb, debug_dir)
-				    || !string_builder_appendc(&sb, '/')))
-			    || !string_builder_appendn(&sb, debuglink,
-						       debuglink_len)
-			    || !string_builder_null_terminate(&sb))
-				return &drgn_enomem;
-			err = drgn_module_try_standard_file(module, options,
-							    sb.str, -1, false,
-							    &crc);
-			if (err || !drgn_module_wants_file(module))
-				return err;
-			sb.len = 0;
-		}
+		sb.len = 0;
 	}
-	return NULL;
 }
 
 static struct drgn_error *

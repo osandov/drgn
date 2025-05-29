@@ -1382,12 +1382,13 @@ class DebugInfoOptions:
     """
     Directories to search for debugging information files.
 
-    Defaults to ``("", ".debug", "/usr/lib/debug")``, which should work out of
-    the box on most Linux distributions.
+    Defaults to ``("/usr/lib/debug",)``, which should work out of the box on
+    most Linux distributions. Empty strings are not allowed.
 
-    This controls searches by build ID (see :attr:`try_build_id`) and debug
-    link (see :attr:`try_debug_link`), and for kernel files (see
-    :attr:`kernel_directories`).
+    By default, this is used for searches by build ID (see
+    :attr:`try_build_id`), debug link (see :attr:`debug_link_directories`), for
+    supplementary files (see :attr:`try_supplementary`), and for kernel files
+    (see :attr:`kernel_directories`).
     """
     try_module_name: bool
     """
@@ -1407,10 +1408,24 @@ class DebugInfoOptions:
     configured correctly, it is also present in core dumps and provides a
     reliable way to identify the correct files for a module.
 
-    Searches by build ID check under each absolute path in :attr:`directories`
-    for a file named ``.build-id/xx/yyyy`` (for loaded files) or
+    Searches by build ID check under each path in :attr:`directories` for a
+    file named ``.build-id/xx/yyyy`` (for loaded files) or
     ``.build-id/xx/yyyy.debug`` (for debug files), where ``xxyyyy`` is the
     lowercase hexadecimal representation of the build ID.
+    """
+    debug_link_directories: Tuple[str, ...]
+    """
+    Directories to search for debug links.
+
+    Defaults to ``("$ORIGIN", "$ORIGIN/.debug", "")``, which should work out of
+    the box on most Linux distributions.
+
+    ``$ORIGIN`` (or ``${ORIGIN}``) is replaced with the absolute path of the
+    directory containing the loaded file. An empty string means to check under
+    each path in :attr:`directories` (i.e., ``path$ORIGIN`` for each path in
+    :attr:`directories`).
+
+    See :attr:`try_debug_link`.
     """
     try_debug_link: bool
     """
@@ -1422,10 +1437,8 @@ class DebugInfoOptions:
     <module-loaded-file>` to its :ref:`debug file <module-debug-file>`. It
     consists of a name and a checksum.
 
-    Searches by debug link check every path in :attr:`directories` for a file
-    with a matching name and checksum. Relative paths in :attr:`directories`
-    are relative to the directory containing the loaded file. An empty path in
-    :attr:`directories` means the directory containing the loaded file.
+    Searches by debug link check every path in :attr:`debug_link_directories`
+    for a file with a matching name and checksum.
     """
     try_procfs: bool
     """
@@ -1461,9 +1474,9 @@ class DebugInfoOptions:
 
     Defaults to ``("",)``.
 
-    An empty path means to check standard paths (e.g.,
+    An empty string means to check standard paths (e.g.,
     :file:`/boot/vmlinux-{release}`, :file:`/lib/modules/{release}`) absolutely
-    and under each absolute path in :attr:`directories`.
+    and under each path in :attr:`directories`.
     """
     try_kmod: KmodSearchMethod
     """

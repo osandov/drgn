@@ -9,12 +9,19 @@
 #include "util.h"
 
 static const char * const drgn_debug_info_options_default_directories[] = {
-	"", ".debug", "/usr/lib/debug", NULL
+	"/usr/lib/debug", NULL
 };
+static const bool drgn_debug_info_options_directories_allow_empty = false;
+
+static const char * const drgn_debug_info_options_default_debug_link_directories[] = {
+	"$ORIGIN", "$ORIGIN/.debug", "", NULL
+};
+static const bool drgn_debug_info_options_debug_link_directories_allow_empty = true;
 
 static const char * const drgn_debug_info_options_default_kernel_directories[] = {
 	"", NULL
 };
+static const bool drgn_debug_info_options_kernel_directories_allow_empty = true;
 
 void drgn_debug_info_options_init(struct drgn_debug_info_options *options)
 {
@@ -77,45 +84,54 @@ drgn_debug_info_options_destroy(struct drgn_debug_info_options *options)
 	}
 }
 
-static const char * const *
-drgn_debug_info_options_list_dup(const char * const *list)
+static struct drgn_error *
+drgn_debug_info_options_list_dup(const char * const *list, bool allow_empty,
+				 const char * const **ret)
 {
 	size_t n = 0;
-	while (list[n])
+	while (list[n]) {
+		if (!allow_empty && !list[n][0]) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "string cannot be empty");
+		}
 		n++;
+	}
 	char **copy = malloc_array(n + 1, sizeof(copy[0]));
 	if (!copy)
-		return NULL;
+		return &drgn_enomem;
 	for (size_t i = 0; i < n; i++) {
 		copy[i] = strdup(list[i]);
 		if (!copy[i]) {
 			for (size_t j = 0; j < i; j++)
 				free(copy[j]);
 			free(copy);
-			return NULL;
+			return &drgn_enomem;
 		}
 	}
 	copy[n] = NULL;
-	return (const char * const *)copy;
+	*ret = (const char * const *)copy;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_debug_info_options_copy(struct drgn_debug_info_options *dst,
 			     const struct drgn_debug_info_options *src)
 {
+	struct drgn_error *err;
 	if (dst == src)
 		return NULL;
 
 	// Since copying any list could fail, make all of the copies first.
 	// Replace the default lists with NULL for now to avoid unnecessary
 	// copies and simplify cleanup.
-#define LIST_OPTION(name)							\
-	_cleanup_(drgn_debug_info_options_listp_destroy)			\
-	const char * const *name##_copy = NULL;					\
-	if (src->name != drgn_debug_info_options_default_##name) {		\
-		name##_copy = drgn_debug_info_options_list_dup(src->name);	\
-		if (!name##_copy)						\
-			return &drgn_enomem;					\
+#define LIST_OPTION(name)						\
+	_cleanup_(drgn_debug_info_options_listp_destroy)		\
+		const char * const *name##_copy = NULL;			\
+	if (src->name != drgn_debug_info_options_default_##name) {	\
+		err = drgn_debug_info_options_list_dup(src->name, true,	\
+						       &name##_copy);	\
+		if (err)						\
+			return err;					\
 	}
 #define BOOL_OPTION(name, default_value)
 #define ENUM_OPTION(name, type, default_value)
@@ -165,13 +181,16 @@ LIBDRGN_PUBLIC struct drgn_error *						\
 drgn_debug_info_options_set_##name(struct drgn_debug_info_options *options,	\
 				   const char * const *value)			\
 {										\
+	struct drgn_error *err;							\
 	const char * const *copy;						\
 	if (value == drgn_debug_info_options_default_##name) {			\
 		copy = value;							\
 	} else {								\
-		copy = drgn_debug_info_options_list_dup(value);			\
-		if (!copy)							\
-			return &drgn_enomem;					\
+		err = drgn_debug_info_options_list_dup(value,			\
+						       drgn_debug_info_options_##name##_allow_empty,\
+						       &copy);			\
+		if (err)							\
+			return err;						\
 	}									\
 	drgn_debug_info_options_list_destroy(options->name,			\
 					     drgn_debug_info_options_default_##name);\

@@ -7,9 +7,7 @@ from tests import TestCase
 
 class TestDebugInfoOptions(TestCase):
     def test_list_default(self):
-        self.assertEqual(
-            DebugInfoOptions().directories, ("", ".debug", "/usr/lib/debug")
-        )
+        self.assertEqual(DebugInfoOptions().directories, ("/usr/lib/debug",))
 
     def test_list_init(self):
         self.assertEqual(
@@ -29,6 +27,10 @@ class TestDebugInfoOptions(TestCase):
         self.assertEqual(options.directories, ("foo", "bar"))
         with self.assertRaises(TypeError):
             DebugInfoOptions().directories = None
+
+    def test_directories_empty_string(self):
+        with self.assertRaises(ValueError):
+            DebugInfoOptions().directories = ("",)
 
     def test_bool_default(self):
         self.assertIs(DebugInfoOptions().try_build_id, True)

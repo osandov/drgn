@@ -11,6 +11,7 @@
 	LIST_OPTION(directories)			\
 	BOOL_OPTION(try_module_name, true)		\
 	BOOL_OPTION(try_build_id, true)			\
+	LIST_OPTION(debug_link_directories)		\
 	BOOL_OPTION(try_debug_link, true)		\
 	BOOL_OPTION(try_procfs, true)			\
 	BOOL_OPTION(try_embedded_vdso, true)		\

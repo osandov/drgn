@@ -565,6 +565,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
     def setUp(self):
         self.prog = Program()
         self.prog.debug_info_options.directories = ()
+        self.prog.debug_info_options.debug_link_directories = ()
         self.prog.set_enabled_debug_info_finders(["standard"])
 
     def test_loaded_modules(self):
@@ -1716,6 +1717,7 @@ class TestStandardDebugInfoFinder(TestCase):
     def setUp(self):
         self.prog = Program()
         self.prog.debug_info_options.directories = ()
+        self.prog.debug_info_options.debug_link_directories = ()
         self.prog.set_enabled_debug_info_finders(["standard"])
 
     def test_by_module_name(self):
@@ -1856,28 +1858,32 @@ class TestStandardDebugInfoFinder(TestCase):
     def test_by_build_id(self):
         build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
 
-        with tempfile.TemporaryDirectory(
-            prefix="bin-"
-        ) as bin_dir, tempfile.TemporaryDirectory(prefix="debug-") as debug_dir:
-            bin_dir = Path(bin_dir)
-            debug_dir = Path(debug_dir)
+        for i, relative in enumerate((False, True)):
+            with self.subTest(relative=relative):
+                with tempfile.TemporaryDirectory(
+                    prefix="bin-"
+                ) as bin_dir, tempfile.TemporaryDirectory(prefix="debug-") as debug_dir:
+                    bin_dir = Path(bin_dir)
+                    debug_dir = Path(debug_dir)
 
-            build_id_dir = debug_dir / ".build-id" / build_id.hex()[:2]
-            build_id_dir.mkdir(parents=True)
-            binary_path = build_id_dir / build_id.hex()[2:]
-            binary_path.write_bytes(
-                create_dwarf_file((), sections=(ALLOCATED_SECTION,))
-            )
+                    build_id_dir = debug_dir / ".build-id" / build_id.hex()[:2]
+                    build_id_dir.mkdir(parents=True)
+                    binary_path = build_id_dir / build_id.hex()[2:]
+                    binary_path.write_bytes(
+                        create_dwarf_file((), sections=(ALLOCATED_SECTION,))
+                    )
 
-            module = self.prog.extra_module(bin_dir / "binary", create=True)
-            module.build_id = build_id
+                    module = self.prog.extra_module(bin_dir / "binary", i, create=True)
+                    module.build_id = build_id
 
-            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
-            self.prog.load_module_debug_info(module)
-            self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
-            self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
-            self.assertEqual(module.loaded_file_path, str(binary_path))
-            self.assertEqual(module.debug_file_path, str(binary_path))
+                    self.prog.debug_info_options.directories = (
+                        os.path.relpath(debug_dir) if relative else str(debug_dir),
+                    )
+                    self.prog.load_module_debug_info(module)
+                    self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
+                    self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
+                    self.assertEqual(module.loaded_file_path, str(binary_path))
+                    self.assertEqual(module.debug_file_path, str(binary_path))
 
     def test_by_build_id_separate(self):
         build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
@@ -1900,7 +1906,7 @@ class TestStandardDebugInfoFinder(TestCase):
             module = self.prog.extra_module(bin_dir / "binary", create=True)
             module.build_id = build_id
 
-            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
+            self.prog.debug_info_options.directories = (str(debug_dir),)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -1929,7 +1935,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)
 
-            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
+            self.prog.debug_info_options.directories = (str(debug_dir),)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -1957,7 +1963,7 @@ class TestStandardDebugInfoFinder(TestCase):
 
             self.prog.find_standard_debug_info(
                 [module],
-                options=DebugInfoOptions(directories=("", ".debug", str(debug_dir))),
+                options=DebugInfoOptions(directories=(str(debug_dir),)),
             )
             self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
@@ -1983,7 +1989,12 @@ class TestStandardDebugInfoFinder(TestCase):
                 )
             )
 
-            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
+            self.prog.debug_info_options.directories = (str(debug_dir),)
+            self.prog.debug_info_options.debug_link_directories = (
+                "$ORIGIN",
+                "$ORIGIN/.debug",
+                "",
+            )
             for i, debug_path in enumerate(
                 (
                     bin_dir / "binary.debug",
@@ -2046,6 +2057,111 @@ class TestStandardDebugInfoFinder(TestCase):
             self.assertEqual(module.loaded_file_path, str(loadable_path))
             self.assertEqual(module.debug_file_path, str(debug_path))
 
+    def test_by_gnu_debuglink_origin_with_braces(self):
+        with tempfile.TemporaryDirectory(prefix="bin-") as bin_dir:
+            bin_dir = Path(bin_dir)
+
+            debug_file_contents = create_dwarf_file(())
+            crc = binascii.crc32(debug_file_contents)
+            debug_path = bin_dir / "binary.debug"
+
+            loadable_path = bin_dir / "binary"
+            loadable_path.write_bytes(
+                create_elf_file(
+                    ET.EXEC,
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debuglink=("binary.debug", crc),
+                )
+            )
+
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_bytes(debug_file_contents)
+
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
+
+            self.prog.debug_info_options.debug_link_directories = ("${ORIGIN}",)
+            self.prog.load_module_debug_info(module)
+            self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
+            self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
+            self.assertEqual(module.loaded_file_path, str(loadable_path))
+            self.assertEqual(module.debug_file_path, str(debug_path))
+
+    def test_by_gnu_debuglink_not_origin(self):
+        # Test that strings other than $ORIGIN followed by a word boundary are
+        # not replaced.
+        for i, subdir in enumerate(("$ORIGINAL", "$foo", "$")):
+            with self.subTest(subdir=subdir):
+                with tempfile.TemporaryDirectory(prefix="bin-") as bin_dir:
+                    bin_dir = Path(bin_dir)
+                    debug_dir = bin_dir / subdir
+
+                    debug_file_contents = create_dwarf_file(())
+                    crc = binascii.crc32(debug_file_contents)
+                    debug_path = debug_dir / "binary.debug"
+
+                    loadable_path = bin_dir / "binary"
+                    loadable_path.write_bytes(
+                        create_elf_file(
+                            ET.EXEC,
+                            sections=(ALLOCATED_SECTION,),
+                            gnu_debuglink=("binary.debug", crc),
+                        )
+                    )
+
+                    debug_path.parent.mkdir(parents=True, exist_ok=True)
+                    debug_path.write_bytes(debug_file_contents)
+
+                    module = self.prog.extra_module(bin_dir / "binary", i, create=True)
+
+                    self.prog.debug_info_options.debug_link_directories = (
+                        str(debug_dir),
+                    )
+                    self.prog.load_module_debug_info(module)
+                    self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
+                    self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
+                    self.assertEqual(module.loaded_file_path, str(loadable_path))
+                    self.assertEqual(module.debug_file_path, str(debug_path))
+
+    def test_by_gnu_debuglink_origin_multiple(self):
+        # Pathological case combining the cases above.
+        with tempfile.TemporaryDirectory(prefix="bin-") as bin_dir:
+            bin_dir = Path(bin_dir)
+            debug_dir = (
+                bin_dir
+                / "$ORIGINx"
+                / (bin_dir.parent / (bin_dir.name + "x")).relative_to("/")
+                / "$"
+                / bin_dir.relative_to("/")
+                / "$O"
+            )
+
+            debug_file_contents = create_dwarf_file(())
+            crc = binascii.crc32(debug_file_contents)
+            debug_path = debug_dir / "binary.debug"
+
+            loadable_path = bin_dir / "binary"
+            loadable_path.write_bytes(
+                create_elf_file(
+                    ET.EXEC,
+                    sections=(ALLOCATED_SECTION,),
+                    gnu_debuglink=("binary.debug", crc),
+                )
+            )
+
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_bytes(debug_file_contents)
+
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
+
+            self.prog.debug_info_options.debug_link_directories = (
+                str(bin_dir) + "/$ORIGINx${ORIGIN}x/$$ORIGIN/$O",
+            )
+            self.prog.load_module_debug_info(module)
+            self.assertEqual(module.loaded_file_status, ModuleFileStatus.HAVE)
+            self.assertEqual(module.debug_file_status, ModuleFileStatus.HAVE)
+            self.assertEqual(module.loaded_file_path, str(loadable_path))
+            self.assertEqual(module.debug_file_path, str(debug_path))
+
     def test_by_gnu_debuglink_crc_mismatch(self):
         with tempfile.TemporaryDirectory(prefix="bin-") as bin_dir:
             bin_dir = Path(bin_dir)
@@ -2066,7 +2182,7 @@ class TestStandardDebugInfoFinder(TestCase):
             debug_path.write_bytes(debug_file_contents)
 
             module = self.prog.extra_module(bin_dir / "binary", create=True)
-            self.prog.debug_info_options.directories = ("",)
+            self.prog.debug_info_options.debug_link_directories = ("$ORIGIN",)
             self.prog.load_module_debug_info(module)
             self.assertEqual(module.debug_file_status, ModuleFileStatus.WANT)
 
@@ -2278,7 +2394,7 @@ class TestStandardDebugInfoFinder(TestCase):
             alt_path.parent.mkdir()
             alt_path.write_bytes(create_dwarf_file((), build_id=alt_build_id))
 
-            self.prog.debug_info_options.directories = ("", ".debug", str(debug_dir))
+            self.prog.debug_info_options.directories = (str(debug_dir),)
             for i, debugaltlink in enumerate(
                 (
                     bin_dir / "debug/.dwz/alt.debug",

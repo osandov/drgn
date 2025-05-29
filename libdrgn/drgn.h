@@ -1763,6 +1763,27 @@ void
 drgn_debug_info_options_set_try_build_id(struct drgn_debug_info_options *options,
 					 bool value);
 
+/**
+ * Get the list of directories to search for by debug link.
+ *
+ * @return Null-terminated list of directories. Valid until @ref
+ * drgn_debug_info_options_set_debug_link_directories() or @ref
+ * drgn_debug_info_options_destroy() is called on @p options.
+ */
+const char * const *
+drgn_debug_info_options_get_debug_link_directories(const struct drgn_debug_info_options *options);
+
+/**
+ * Set the list of directories to search for by debug link.
+ *
+ * @param[in] value Null-terminated list of directories. It is copied, so it
+ * need not remain valid after this function returns.
+ */
+struct drgn_error *
+drgn_debug_info_options_set_debug_link_directories(struct drgn_debug_info_options *options,
+						   const char * const *value)
+	__attribute__((__nonnull__(1, 2)));
+
 /** Get whether to try files by debug link. */
 bool
 drgn_debug_info_options_get_try_debug_link(const struct drgn_debug_info_options *options);
