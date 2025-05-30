@@ -388,7 +388,7 @@ class Program:
     def read(
         self, address: IntegerLike, size: IntegerLike, physical: bool = False
     ) -> bytes:
-        """
+        r"""
         Read *size* bytes of memory starting at *address* in the program. The
         address may be virtual (the default) or physical if the program
         supports it.
@@ -2502,7 +2502,7 @@ class Object:
         bit_offset: IntegerLike = 0,
         bit_field_size: Optional[IntegerLike] = None,
     ) -> Object:
-        """
+        r"""
         Return a value object from its binary representation.
 
         >>> print(Object.from_bytes_(prog, "int", b"\x10\x00\x00\x00"))
