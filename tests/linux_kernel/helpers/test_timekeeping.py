@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import time
+import unittest
 
 from drgn import cast
 from drgn.helpers.linux.timekeeping import (
@@ -36,6 +37,9 @@ class TestTimekeeping(LinuxKernelTestCase):
         self.assert_in_range(t1, t2.value_(), t3)
         self.assertIdentical(t2, cast("time64_t", t2))
 
+    @unittest.skipUnless(
+        hasattr(time, "clock_gettime_ns"), "no time.clock_gettime_ns in Python < 3.7"
+    )
     def test_ktime_get_coarse_ns(self):
         t1 = time.clock_gettime_ns(CLOCK_MONOTONIC_COARSE)
         t2 = ktime_get_coarse_ns(self.prog)
@@ -52,6 +56,9 @@ class TestTimekeeping(LinuxKernelTestCase):
         self.assert_in_range(t1, t2.value_(), t3)
         self.assertIdentical(t2, cast("time64_t", t2))
 
+    @unittest.skipUnless(
+        hasattr(time, "clock_gettime_ns"), "no time.clock_gettime_ns in Python < 3.7"
+    )
     def test_ktime_get_coarse_real_ns(self):
         t1 = time.clock_gettime_ns(CLOCK_REALTIME_COARSE)
         t2 = ktime_get_coarse_real_ns(self.prog)
