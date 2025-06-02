@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Mapping, NamedTuple, Sequence
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
+from util import KernelVersion
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
@@ -438,6 +439,8 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     patch_level = 0
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
+    if KernelVersion("4.18") <= KernelVersion(version) < KernelVersion("5.18"):
+        patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 

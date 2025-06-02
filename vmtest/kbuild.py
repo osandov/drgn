@@ -161,6 +161,14 @@ _PATCHES = (
             (KernelVersion("5.9"), KernelVersion("5.10.183")),
         ),
     ),
+    _Patch(
+        name="5.17-page_pool-enable-CONFIG_PAGE_POOL-by-default.patch",
+        versions=((KernelVersion("5.5"), KernelVersion("5.18")),),
+    ),
+    _Patch(
+        name="5.4-page_pool-enable-CONFIG_PAGE_POOL-by-default.patch",
+        versions=((KernelVersion("4.18"), KernelVersion("5.5")),),
+    ),
 )
 
 
