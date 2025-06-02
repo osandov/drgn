@@ -16,6 +16,9 @@ It optionally depends on:
 - `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_ for `makedumpfile
   <https://github.com/makedumpfile/makedumpfile>`_ compressed kernel core dump
   format support
+- `liblzma <https://tukaani.org/xz/>`_ for `MiniDebuginfo
+  <https://sourceware.org/gdb/current/onlinedocs/gdb.html/MiniDebugInfo.html>`_
+  support
 
 The build requires:
 
