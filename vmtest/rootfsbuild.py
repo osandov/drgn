@@ -28,6 +28,7 @@ _ROOTFS_PACKAGES = [
     "libdw-dev",
     "libelf-dev",
     "libkdumpfile-dev",
+    "liblzma-dev",
     "libtool",
     "make",
     "pkgconf",
