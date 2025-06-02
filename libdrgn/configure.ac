@@ -117,17 +117,17 @@ AS_CASE(["x$with_libkdumpfile"],
 AM_CONDITIONAL([WITH_LIBKDUMPFILE], [test "x$with_libkdumpfile" = xyes])
 AM_COND_IF([WITH_LIBKDUMPFILE], [AC_DEFINE(WITH_LIBKDUMPFILE)])
 
-AC_ARG_WITH([liblzma],
-	    [AS_HELP_STRING([--with-liblzma],
+AC_ARG_WITH([lzma],
+	    [AS_HELP_STRING([--with-lzma],
 			    [build with support for lzma decompression of ELF sections
 			     @<:@default=auto@:>@])],
-			     [], [with_liblzma=auto])
-AS_CASE(["x$with_liblzma"],
+			     [], [with_lzma=auto])
+AS_CASE(["x$with_lzma"],
 	[xyes], [PKG_CHECK_MODULES(lzma, [liblzma])],
 	[xauto], [PKG_CHECK_MODULES(lzma, [liblzma],
-				    [with_liblzma=yes],
-				    [with_liblzma=no])])
-AM_CONDITIONAL([WITH_LZMA], [test "x$with_liblzma" != xno])
+				    [with_lzma=yes],
+				    [with_lzma=no])])
+AM_CONDITIONAL([WITH_LZMA], [test "x$with_lzma" != xno])
 AM_COND_IF([WITH_LZMA], [AC_DEFINE(WITH_LZMA)])
 
 dnl We need check for running tests, but we don't want to fail the build over
