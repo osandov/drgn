@@ -114,7 +114,8 @@ def version_header() -> str:
     if drgn._enable_dlopen_debuginfod:
         debuginfod += " (dlopen)"
     libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
-    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {debuginfod}, {libkdumpfile})"
+    lzma = f'with{"" if drgn._with_lzma else "out"} lzma'
+    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {debuginfod}, {libkdumpfile}, {lzma})"
 
 
 def default_globals(prog: drgn.Program) -> Dict[str, Any]:

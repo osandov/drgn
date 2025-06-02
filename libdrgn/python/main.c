@@ -375,6 +375,15 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		    ))
 		goto err;
 
+	if (add_bool(m, "_with_lzma",
+#ifdef WITH_LZMA
+		     true
+#else
+		     false
+#endif
+		    ))
+		goto err;
+
 	return m;
 
 err:
