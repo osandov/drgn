@@ -4,8 +4,10 @@
 import itertools
 import lzma
 import tempfile
+import unittest
 
 from _drgn_util.elf import ET, PT, SHF, SHT, STB, STT
+import drgn
 from drgn import Program, Symbol, SymbolBinding, SymbolIndex, SymbolKind
 from tests import TestCase
 from tests.dwarfwriter import create_dwarf_file
@@ -566,6 +568,7 @@ class TestElfSymbol(TestCase):
         self.assertEqual(prog.symbol(0xFFFF0004), full)
 
 
+@unittest.skipUnless(drgn._with_lzma, "built without lzma support")
 class TestGnuDebugdata(TestCase):
 
     def assert_all_symbols_found_by_name(self, prog, symbols):
