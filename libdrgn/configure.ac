@@ -137,6 +137,26 @@ PKG_CHECK_MODULES(check, [check >= 0.10.0],,
 		  [check_CFLAGS="\$(error Test requires 'check' ('check-devel') >= 0.10.0)"
 		   check_LIBS="\$(error Test requires 'check' ('check-devel') >= 0.10.0)"])
 
+dnl libctf does not ship with pkg-config scripts
+CTF_LIBS=
+AC_ARG_WITH([libctf],
+            [AS_HELP_STRING([--with-libctf@<:@=ARG@:>@],
+                            [build with support for the compact type format (CTF)
+                             @<:@default=auto@:>@])],
+            [with_libctf=$withval], [with_libctf=auto])
+AS_CASE(["x$with_libctf"],
+        [xnobfd], [CTF_LIBS=-lctf-nobfd],
+        [xyes], [CTF_LIBS=-lctf],
+        [xno], [],
+        [xauto], [AC_SEARCH_LIBS(ctf_archive_next, [ctf ctf-nobfd],
+                                 [with_libctf=yes, CTF_LIBS=$ac_cv_search_ctf_archive_next],
+                                 [with_libctf=no])])
+AM_CONDITIONAL([WITH_LIBCTF], [test ! "x$with_libctf" = xno])
+AM_CONDITIONAL([WITH_LIBBFD], [test "x$CTF_LIBS" = x-lctf])
+AM_COND_IF([WITH_LIBCTF], [AC_DEFINE(WITH_LIBCTF)])
+AM_COND_IF([WITH_LIBBFD], [AC_DEFINE(WITH_LIBBFD)])
+AC_SUBST(CTF_LIBS)
+
 AC_ARG_ENABLE([compiler-warnings],
 	      [AS_HELP_STRING([--enable-compiler-warnings@<:@=no|yes|error@:>@],
 			      [enable compiler warnings. If no, then only the
