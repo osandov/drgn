@@ -115,6 +115,7 @@ from _drgn import (  # noqa: F401
     _enable_dlopen_debuginfod as _enable_dlopen_debuginfod,
     _have_debuginfod as _have_debuginfod,
     _with_libkdumpfile as _with_libkdumpfile,
+    _with_lzma as _with_lzma,
 )
 from drgn.internal.version import __version__ as __version__  # noqa: F401
 
