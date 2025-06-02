@@ -81,7 +81,7 @@ build_for_python() {
 
 for pybin in /opt/python/cp*/bin; do
 	if build_for_python "$pybin/python"; then
-		CONFIGURE_FLAGS="--with-debuginfod --disable-dlopen-debuginfod --with-libkdumpfile" \
+		CONFIGURE_FLAGS="--with-debuginfod --disable-dlopen-debuginfod --with-libkdumpfile --with-lzma" \
 			"$pybin/pip" wheel . --no-deps -w /tmp/wheels/
 	fi
 done
