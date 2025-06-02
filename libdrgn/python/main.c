@@ -23,6 +23,16 @@ static int add_type(PyObject *module, PyTypeObject *type)
 	return ret;
 }
 
+static int add_bool(PyObject *module, const char *name, bool value)
+{
+	PyObject *obj = value ? Py_True : Py_False;
+	Py_INCREF(obj);
+	int ret = PyModule_AddObject(module, name, obj);
+	if (ret)
+		Py_DECREF(obj);
+	return ret;
+}
+
 PyObject *MissingDebugInfoError;
 static PyObject *NoDefaultProgramError;
 PyObject *ObjectAbsentError;
@@ -344,36 +354,26 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 				       dwfl_version(NULL)))
 		goto err;
 
-	PyObject *have_debuginfod = PyBool_FromLong(drgn_have_debuginfod());
-	if (PyModule_AddObject(m, "_have_debuginfod", have_debuginfod)) {
-		Py_XDECREF(have_debuginfod);
+	if (add_bool(m, "_have_debuginfod", drgn_have_debuginfod()))
 		goto err;
-	}
 
-	PyObject *enable_dlopen_debuginfod;
+	if (add_bool(m, "_enable_dlopen_debuginfod",
 #if ENABLE_DLOPEN_DEBUGINFOD
-	enable_dlopen_debuginfod = Py_True;
+		     true
 #else
-	enable_dlopen_debuginfod = Py_False;
+		     false
 #endif
-	Py_INCREF(enable_dlopen_debuginfod);
-	if (PyModule_AddObject(m, "_enable_dlopen_debuginfod",
-			       enable_dlopen_debuginfod)) {
-		Py_DECREF(enable_dlopen_debuginfod);
+		    ))
 		goto err;
-	}
 
-	PyObject *with_libkdumpfile;
+	if (add_bool(m, "_with_libkdumpfile",
 #ifdef WITH_LIBKDUMPFILE
-	with_libkdumpfile = Py_True;
+		     true
 #else
-	with_libkdumpfile = Py_False;
+		     false
 #endif
-	Py_INCREF(with_libkdumpfile);
-	if (PyModule_AddObject(m, "_with_libkdumpfile", with_libkdumpfile)) {
-		Py_DECREF(with_libkdumpfile);
+		    ))
 		goto err;
-	}
 
 	return m;
 
