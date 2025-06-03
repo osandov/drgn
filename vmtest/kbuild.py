@@ -169,6 +169,17 @@ _PATCHES = (
         name="5.4-page_pool-enable-CONFIG_PAGE_POOL-by-default.patch",
         versions=((KernelVersion("4.18"), KernelVersion("5.5")),),
     ),
+    _Patch(
+        name="kernel-reboot-emergency_restart-Set-correct-system_s.patch",
+        versions=(
+            (KernelVersion("6.6"), KernelVersion("6.6.3")),
+            (KernelVersion("6.2"), KernelVersion("6.5.13")),
+            (KernelVersion("5.16"), KernelVersion("6.1.64")),
+            (KernelVersion("5.11"), KernelVersion("5.15.140")),
+            (KernelVersion("5.5"), KernelVersion("5.10.202")),
+            (None, KernelVersion("5.4.262")),
+        ),
+    ),
 )
 
 

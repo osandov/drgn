@@ -1,0 +1,50 @@
+From 60466c067927abbcaff299845abd4b7069963139 Mon Sep 17 00:00:00 2001
+Message-ID: <60466c067927abbcaff299845abd4b7069963139.1748973068.git.osandov@osandov.com>
+From: Benjamin Bara <benjamin.bara@skidata.com>
+Date: Sat, 15 Jul 2023 09:53:23 +0200
+Subject: [PATCH] kernel/reboot: emergency_restart: Set correct system_state
+
+As the emergency restart does not call kernel_restart_prepare(), the
+system_state stays in SYSTEM_RUNNING.
+
+Since bae1d3a05a8b, this hinders i2c_in_atomic_xfer_mode() from becoming
+active, and therefore might lead to avoidable warnings in the restart
+handlers, e.g.:
+
+[   12.667612] WARNING: CPU: 1 PID: 1 at kernel/rcu/tree_plugin.h:318 rcu_note_context_switch+0x33c/0x6b0
+[   12.676926] Voluntary context switch within RCU read-side critical section!
+...
+[   12.742376]  schedule_timeout from wait_for_completion_timeout+0x90/0x114
+[   12.749179]  wait_for_completion_timeout from tegra_i2c_wait_completion+0x40/0x70
+...
+[   12.994527]  atomic_notifier_call_chain from machine_restart+0x34/0x58
+[   13.001050]  machine_restart from panic+0x2a8/0x32c
+
+Avoid these by setting the correct system_state.
+
+Fixes: bae1d3a05a8b ("i2c: core: remove use of in_atomic()")
+Cc: stable@vger.kernel.org # v5.2+
+Reviewed-by: Dmitry Osipenko <dmitry.osipenko@collabora.com>
+Tested-by: Nishanth Menon <nm@ti.com>
+Signed-off-by: Benjamin Bara <benjamin.bara@skidata.com>
+Link: https://lore.kernel.org/r/20230327-tegra-pmic-reboot-v7-1-18699d5dcd76@skidata.com
+Signed-off-by: Lee Jones <lee@kernel.org>
+---
+ kernel/reboot.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/kernel/reboot.c b/kernel/reboot.c
+index 3bba88c7ffc6..6ebef11c8876 100644
+--- a/kernel/reboot.c
++++ b/kernel/reboot.c
+@@ -74,6 +74,7 @@ void __weak (*pm_power_off)(void);
+ void emergency_restart(void)
+ {
+ 	kmsg_dump(KMSG_DUMP_EMERG);
++	system_state = SYSTEM_RESTART;
+ 	machine_emergency_restart();
+ }
+ EXPORT_SYMBOL_GPL(emergency_restart);
+-- 
+2.49.0
+
