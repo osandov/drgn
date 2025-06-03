@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import contextlib
 import enum
 import os
 from pathlib import Path
@@ -255,11 +256,12 @@ def run_in_vm(
         virtfs_options += ",multidevs=remap"
     _9pfs_mount_options = f"trans=virtio,cache=loose,msize={1024 * 1024}"
 
-    with tempfile.TemporaryDirectory(prefix="drgn-vmtest-") as temp_dir, socket.socket(
-        socket.AF_UNIX
-    ) as server_sock:
-        temp_path = Path(temp_dir)
+    with contextlib.ExitStack() as exit_stack:
+        temp_path = Path(
+            exit_stack.enter_context(tempfile.TemporaryDirectory(prefix="drgn-vmtest-"))
+        )
         socket_path = temp_path / "socket"
+        server_sock = exit_stack.enter_context(socket.socket(socket.AF_UNIX))
         server_sock.bind(str(socket_path))
         server_sock.listen()
 
@@ -302,19 +304,16 @@ def run_in_vm(
         else:
             stty_command = ""
 
-        with init_path.open("w") as init_file:
-            init_file.write(
-                _INIT_TEMPLATE.format(
-                    cwd=shlex.quote(host_dir_prefix + os.getcwd()),
-                    kernel_dir=shlex.quote(
-                        host_dir_prefix + str(kernel.path.resolve())
-                    ),
-                    command=shlex.quote(command),
-                    kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
-                    test_kmod=test_kmod_command,
-                    stty=stty_command,
-                )
+        init_path.write_text(
+            _INIT_TEMPLATE.format(
+                cwd=shlex.quote(host_dir_prefix + os.getcwd()),
+                kernel_dir=shlex.quote(host_dir_prefix + str(kernel.path.resolve())),
+                command=shlex.quote(command),
+                kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
+                test_kmod=test_kmod_command,
+                stty=stty_command,
             )
+        )
         init_path.chmod(0o755)
 
         disk_path = temp_path / "disk"
@@ -366,23 +365,20 @@ def run_in_vm(
         try:
             server_sock.settimeout(5)
             try:
-                sock = server_sock.accept()[0]
+                sock = exit_stack.enter_context(server_sock.accept()[0])
             except socket.timeout:
                 raise LostVMError(
                     f"QEMU did not connect within {server_sock.gettimeout()} seconds"
                 )
-            try:
-                status_buf = bytearray()
-                while True:
-                    try:
-                        buf = sock.recv(4)
-                    except ConnectionResetError:
-                        buf = b""
-                    if not buf:
-                        break
-                    status_buf.extend(buf)
-            finally:
-                sock.close()
+            status_buf = bytearray()
+            while True:
+                try:
+                    buf = sock.recv(4)
+                except ConnectionResetError:
+                    buf = b""
+                if not buf:
+                    break
+                status_buf.extend(buf)
         except BaseException:
             proc.terminate()
             raise
