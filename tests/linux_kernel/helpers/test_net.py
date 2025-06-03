@@ -124,6 +124,7 @@ class TestNet(LinuxKernelTestCase):
             skb_shinfo(self.prog["drgn_test_skb"]), self.prog["drgn_test_skb_shinfo"]
         )
 
+    @skip_unless_have_test_kmod
     def test_is_pp_page(self):
         if not self.prog["drgn_test_have_page_pool"]:
             self.skipTest("kernel does not support page pools")
