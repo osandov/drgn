@@ -41,10 +41,10 @@ export DRGN_TEST_DISK=/dev/vda
 {kdump_needs_nosmp}
 
 # On exit, power off. We don't use the poweroff command because very minimal
-# installations don't have it (e.g., the debootstrap minbase variant). The
-# magic SysRq returns immediately without waiting for the poweroff, so we sleep
-# for a while and panic if it takes longer than that.
-trap 'echo o > /proc/sysrq-trigger && sleep 60' exit
+# installations don't have it (e.g., the debootstrap minbase variant). We don't
+# use the "o" magic SysRq because it returns immediately. Since we run QEMU
+# with -no-reboot, we can use the "b" magic SysRq, which is synchronous.
+trap 'echo b > /proc/sysrq-trigger' exit
 
 umask 022
 
