@@ -214,6 +214,7 @@ def run_in_vm(
     *,
     extra_qemu_options: Sequence[str] = (),
     test_kmod: TestKmodMode = TestKmodMode.NONE,
+    interactive: bool = False,
 ) -> int:
     if root_dir is None:
         if kernel.arch is HOST_ARCHITECTURE:
@@ -249,6 +250,18 @@ def run_in_vm(
                 "warning: /dev/kvm cannot be accessed; falling back to emulation",
                 file=sys.stderr,
             )
+
+    if interactive:
+        serial_args = ["-serial", "mon:stdio"]
+        infile = None
+    else:
+        serial_args = [
+            "-chardev",
+            "stdio,id=stdio,signal=off",
+            "-serial",
+            "chardev:stdio",
+        ]
+        infile = subprocess.DEVNULL
 
     virtfs_options = "security_model=none,readonly=on"
     # multidevs was added in QEMU 4.2.0.
@@ -332,7 +345,7 @@ def run_in_vm(
                 # Limit the number of cores to 8, otherwise we can reach an OOM troubles.
                 "-smp", str(min(nproc(), 8)), "-m", "2G",
 
-                "-display", "none", "-serial", "mon:stdio",
+                "-display", "none", *serial_args,
 
                 # This along with -append panic=-1 ensures that we exit on a
                 # panic instead of hanging.
@@ -361,6 +374,7 @@ def run_in_vm(
                 # fmt: on
             ],
             env=env,
+            stdin=infile,
         )
         try:
             server_sock.settimeout(5)
@@ -514,6 +528,7 @@ if __name__ == "__main__":
                 args.directory,
                 extra_qemu_options=args.qemu_options,
                 test_kmod=args.test_kmod,
+                interactive=True,
             )
         )
     except LostVMError as e:
