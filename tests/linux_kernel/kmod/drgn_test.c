@@ -48,6 +48,21 @@
 #define HAVE_XARRAY 0
 #endif
 
+// Page pools were added in Linux kernel commit ff7d6b27f894 ("page_pool:
+// refurbish version of page_pool code") (in v4.18) and may not be enabled.
+#ifdef CONFIG_PAGE_POOL
+#define HAVE_PAGE_POOL 1
+// The header file was moved in Linux kernel commit a9ca9f9ceff3 ("page_pool:
+// split types and declarations from page_pool.h") (in v6.6).
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+#include <net/page_pool/helpers.h>
+#else
+#include <net/page_pool.h>
+#endif
+#else
+#define HAVE_PAGE_POOL 0
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 18, 0)
 // These were added in b9ff604cff11 ("timekeeping: Add
 // ktime_get_coarse_with_offset") (in v4.18-rc1).
@@ -519,6 +534,56 @@ static void drgn_test_net_exit(void)
 {
 	kfree_skb(drgn_test_skb);
 	dev_put(drgn_test_netdev);
+}
+
+// page_pool
+
+const int drgn_test_have_page_pool = HAVE_PAGE_POOL;
+
+#if HAVE_PAGE_POOL
+struct page_pool *drgn_test_page_pool;
+struct page *drgn_test_page_pool_page;
+#endif
+
+static int drgn_test_page_pool_init(void)
+{
+#if HAVE_PAGE_POOL
+	struct page_pool_params params = {
+		.order = 0,
+		.flags = 0,
+		.pool_size = 1,
+		.nid = NUMA_NO_NODE,
+	};
+	struct page_pool *pool;
+
+	pool = page_pool_create(&params);
+	if (IS_ERR(pool))
+		return PTR_ERR(pool);
+	drgn_test_page_pool = pool;
+
+	drgn_test_page_pool_page = page_pool_alloc_pages(pool, GFP_KERNEL);
+	if (!drgn_test_page_pool_page)
+		return -ENOMEM;
+#endif
+	return 0;
+}
+
+static void drgn_test_page_pool_exit(void)
+{
+#if HAVE_PAGE_POOL
+	if (drgn_test_page_pool_page) {
+		// page_pool_put_page() changed in Linux kernel commit
+		// 458de8a97f10 ("net: page_pool: API cleanup and comments") (in
+		// v5.7).
+		page_pool_put_page(drgn_test_page_pool,
+				   drgn_test_page_pool_page,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
+				   0,
+#endif
+				   true);
+	}
+	page_pool_destroy(drgn_test_page_pool);
+#endif
 }
 
 // percpu
@@ -1560,6 +1625,7 @@ static void drgn_test_exit(void)
 	drgn_test_maple_tree_exit();
 	drgn_test_mm_exit();
 	drgn_test_net_exit();
+	drgn_test_page_pool_exit();
 	drgn_test_stack_trace_exit();
 	drgn_test_radix_tree_exit();
 	drgn_test_xarray_exit();
@@ -1581,6 +1647,9 @@ static int __init drgn_test_init(void)
 	if (ret)
 		goto out;
 	ret = drgn_test_net_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_page_pool_init();
 	if (ret)
 		goto out;
 	ret = drgn_test_percpu_init();

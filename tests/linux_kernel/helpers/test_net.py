@@ -14,6 +14,7 @@ from drgn.helpers.linux.net import (
     SOCKET_I,
     for_each_net,
     get_net_ns_by_fd,
+    is_pp_page,
     netdev_for_each_tx_queue,
     netdev_get_by_index,
     netdev_get_by_name,
@@ -27,6 +28,7 @@ from tests.linux_kernel import (
     create_socket,
     skip_unless_have_test_kmod,
 )
+from util import KernelVersion
 
 
 class TestNet(LinuxKernelTestCase):
@@ -121,3 +123,11 @@ class TestNet(LinuxKernelTestCase):
         self.assertEqual(
             skb_shinfo(self.prog["drgn_test_skb"]), self.prog["drgn_test_skb_shinfo"]
         )
+
+    def test_is_pp_page(self):
+        if not self.prog["drgn_test_have_page_pool"]:
+            self.skipTest("kernel does not support page pools")
+        if KernelVersion(os.uname().release) < KernelVersion("5.14"):
+            self.skipTest("kernel does not support identifying page_pool pages")
+        self.assertTrue(is_pp_page(self.prog["drgn_test_page_pool_page"]))
+        self.assertFalse(is_pp_page(self.prog["drgn_test_page"]))
