@@ -287,6 +287,9 @@ def is_pp_page(page: Object) -> bool:
     Check if given page is a page_pool page.
 
     :param page: ``struct page *``
+    :raises NotImplementedError: If page_pool pages cannot be identified on
+        this kernel. This is the case from Linux 4.18 (when page_pool was
+        introduced) up to and including Linux 5.13.
     """
     PP_SIGNATURE = _poison_pointer_delta(page.prog_) + 0x40
     PP_MAGIC_MASK = ~0x3
@@ -294,4 +297,13 @@ def is_pp_page(page: Object) -> bool:
     try:
         return (page.pp_magic & PP_MAGIC_MASK) == PP_SIGNATURE
     except AttributeError:
+        pass
+    # Before Linux kernel commit ff7d6b27f894 ("page_pool: refurbish version of
+    # page_pool code") (in v4.18), page_pool didn't exist.
+    try:
+        page.prog_.type("struct page_pool")
+    except LookupError:
         return False
+    # Between that and Linux kernel commit c07aea3ef4d4 ("mm: add a signature
+    # in struct page") (in v5.14), there is no way to identify page_pool pages.
+    raise NotImplementedError("page_pool pages cannot be identified before Linux 5.14")
