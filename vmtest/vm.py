@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import shlex
 import shutil
-import signal
 import socket
 import subprocess
 import sys
@@ -196,6 +195,18 @@ def _build_onoatimehack(dir: Path) -> Path:
     return onoatimehack_so
 
 
+def _have_setpriv_pdeathsig() -> bool:
+    # util-linux supports setpriv --pdeathsig since v2.33. BusyBox doesn't
+    # support it as of v1.37.
+    try:
+        help = subprocess.run(
+            ["setpriv", "--help"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        ).stdout
+    except FileNotFoundError:
+        return False
+    return b"--pdeathsig" in help
+
+
 class TestKmodMode(enum.Enum):
     NONE = 0
     BUILD = 1
@@ -240,6 +251,14 @@ def run_in_vm(
     if qemu_version < (5, 0, 1):
         onoatimehack_so = _build_onoatimehack(build_dir)
         env["LD_PRELOAD"] = f"{str(onoatimehack_so)}:{env.get('LD_PRELOAD', '')}"
+
+    # Kill the child QEMU process if we die. If we die between the fork() and
+    # the prctl(PR_SET_PDEATHSIG), then the signal won't be delivered, but then
+    # QEMU will fail to connect to our socket and exit.
+    if _have_setpriv_pdeathsig():
+        setpriv_args = ["setpriv", "--pdeathsig=TERM"]
+    else:
+        setpriv_args = []
 
     kvm_args = []
     if HOST_ARCHITECTURE is not None and kernel.arch.name == HOST_ARCHITECTURE.name:
@@ -333,11 +352,10 @@ def run_in_vm(
         with disk_path.open("wb") as f:
             os.ftruncate(f.fileno(), 1024 * 1024 * 1024)
 
-        signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
-
         proc = subprocess.Popen(
             [
                 # fmt: off
+                *setpriv_args,
                 *unshare_args,
 
                 qemu_exe, *kvm_args,
