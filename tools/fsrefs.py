@@ -89,6 +89,29 @@ class InodeVisitor:
         return path.format_(**format_args)
 
 
+def _format_file_with_path(file: Object) -> str:
+    match = file.format_(**format_args)
+    with ignore_fault:
+        match += " " + os.fsdecode(d_path(file.f_path))
+    return match
+
+
+def _format_inode_with_path(inode: Object) -> str:
+    match = inode.format_(**format_args)
+    with ignore_fault:
+        path = inode_path(inode)
+        if path:
+            match += " " + os.fsdecode(path)
+    return match
+
+
+def _format_path_with_path(path: Object) -> str:
+    match = path.format_(**format_args)
+    with ignore_fault:
+        match += " " + os.fsdecode(d_path(path))
+    return match
+
+
 class SuperBlockVisitor:
     def __init__(self, sb: Object) -> None:
         self._sb = sb.read_()
@@ -96,28 +119,52 @@ class SuperBlockVisitor:
     def visit_file(self, file: Object) -> Optional[str]:
         if file.f_inode.i_sb != self._sb:
             return None
-        match = file.format_(**format_args)
-        with ignore_fault:
-            match += " " + os.fsdecode(d_path(file.f_path))
-        return match
+        return _format_file_with_path(file)
 
     def visit_inode(self, inode: Object) -> Optional[str]:
         if inode.i_sb != self._sb:
             return None
-        match = inode.format_(**format_args)
-        with ignore_fault:
-            path = inode_path(inode)
-            if path:
-                match += " " + os.fsdecode(path)
-        return match
+        return _format_inode_with_path(inode)
 
     def visit_path(self, path: Object) -> Optional[str]:
         if path.mnt.mnt_sb != self._sb:
             return None
-        match = path.format_(**format_args)
-        with ignore_fault:
-            match += " " + os.fsdecode(d_path(path))
-        return match
+        return _format_path_with_path(path)
+
+
+class BtrfsSubvolumeVisitor:
+    def __init__(self, root: Object) -> None:
+        self._root = root.read_()
+        # We compare the super block first to easily filter out non-Btrfs
+        # inodes.
+        self._sb = self._root.fs_info.sb.read_()
+
+    def visit_file(self, file: Object) -> Optional[str]:
+        f_inode = file.f_inode.read_()
+        if (
+            f_inode.i_sb != self._sb
+            or container_of(f_inode, "struct btrfs_inode", "vfs_inode").root
+            != self._root
+        ):
+            return None
+        return _format_file_with_path(file)
+
+    def visit_inode(self, inode: Object) -> Optional[str]:
+        if (
+            inode.i_sb != self._sb
+            or container_of(inode, "struct btrfs_inode", "vfs_inode").root != self._root
+        ):
+            return None
+        return _format_inode_with_path(inode)
+
+    def visit_path(self, path: Object) -> Optional[str]:
+        inode = path.dentry.d_inode.read_()
+        if (
+            inode.i_sb != self._sb
+            or container_of(inode, "struct btrfs_inode", "vfs_inode").root != self._root
+        ):
+            return None
+        return _format_path_with_path(path)
 
 
 def super_block_on_bdev(bdev: Object) -> Optional[Object]:
@@ -526,6 +573,17 @@ def main(prog: Program, argv: Sequence[str]) -> None:
         type=hexint,
         help="find references to the given struct super_block pointer",
     )
+    object_group.add_argument(
+        "--btrfs-subvolume",
+        metavar="PATH",
+        help="find references to the Btrfs subvolume containing the given path",
+    )
+    object_group.add_argument(
+        "--btrfs-subvolume-pointer",
+        metavar="ADDRESS",
+        type=hexint,
+        help="find references to the given struct btrfs_root pointer",
+    )
 
     CHECKS = [
         "binfmt_misc",
@@ -597,6 +655,26 @@ def main(prog: Program, argv: Sequence[str]) -> None:
     elif args.super_block_pointer is not None:
         visitor = SuperBlockVisitor(
             Object(prog, "struct super_block *", args.super_block_pointer)
+        )
+    elif args.btrfs_subvolume is not None:
+        fd = os.open(
+            args.btrfs_subvolume, os.O_PATH | (0 if args.dereference else os.O_NOFOLLOW)
+        )
+        try:
+            inode = fget(find_task(prog, os.getpid()), fd).f_inode.read_()
+            # It'd be better to check the filesystem type directly from
+            # userspace using fstatfs(2), but Python doesn't provide
+            # {,f}statfs() (and os.statvfs() doesn't include f_type).
+            if inode.i_sb.s_type.name.string_() != b"btrfs":
+                sys.exit(f"{args.btrfs_subvolume} is not on Btrfs")
+            visitor = BtrfsSubvolumeVisitor(
+                container_of(inode, "struct btrfs_inode", "vfs_inode").root
+            )
+        finally:
+            os.close(fd)
+    elif args.btrfs_subvolume_pointer is not None:
+        visitor = BtrfsSubvolumeVisitor(
+            Object(prog, "struct btrfs_root *", args.btrfs_subvolume_pointer)
         )
     else:
         assert False
