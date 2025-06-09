@@ -121,26 +121,34 @@ class GitHubApi(_GitHubApiBase):
     ) -> Any:
         if params:
             url += "?" + urllib.parse.urlencode(params)
-        return urllib.request.urlopen(
-            urllib.request.Request(
-                url,
-                data=data,
-                headers={} if headers is None else headers,
-                method=method,
-            )
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={} if headers is None else headers,
+            method=method,
         )
+        # Work around python/cpython#77842.
+        if req.has_header("Authorization"):
+            authorization = req.get_header("Authorization")
+            req.remove_header("Authorization")
+            req.add_unredirected_header("Authorization", authorization)
+        return urllib.request.urlopen(req)
 
     def _cached_get_json(self, endpoint: str, cache: _CACHE) -> Any:
         cached = self._read_cache(cache)
         if self._trust_cache(cached):
             return cached["body"]
+        req = urllib.request.Request(
+            self._HOST + "/" + endpoint,
+            headers=self._cached_get_headers(cached),
+        )
+        # Work around python/cpython#77842.
+        if req.has_header("Authorization"):
+            authorization = req.get_header("Authorization")
+            req.remove_header("Authorization")
+            req.add_unredirected_header("Authorization", authorization)
         try:
-            with urllib.request.urlopen(
-                urllib.request.Request(
-                    self._HOST + "/" + endpoint,
-                    headers=self._cached_get_headers(cached),
-                )
-            ) as resp:
+            with urllib.request.urlopen(req) as resp:
                 body = json.load(resp)
                 self._write_cache(cache, body, resp.headers)
                 return body
