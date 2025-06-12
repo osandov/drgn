@@ -114,6 +114,7 @@ class Function:
 @dataclasses.dataclass
 class Variable:
     annotation: Optional[ast.expr]
+    value: Optional[ast.expr]
     docstring: Optional[str]
 
     def has_docstring(self) -> bool:
@@ -254,8 +255,8 @@ class _ModuleVisitor(NodeVisitor):
     def _add_assign(
         self,
         name: str,
-        have_value: bool,
         annotation: Optional[ast.expr],
+        value: Optional[ast.expr],
         docstring: Optional[str],
     ) -> None:
         try:
@@ -264,19 +265,19 @@ class _ModuleVisitor(NodeVisitor):
             pass
         else:
             # The name was previously defined. If it's a variable, add the
-            # annotation and/or docstring. If this is an annotation without a
-            # value, don't do anything. Otherwise, replace the previous
-            # definition.
+            # annotation, value, and/or docstring. If this is an annotation
+            # without a value, don't do anything. Otherwise, replace the
+            # previous definition.
             if isinstance(var, Variable):
-                if not annotation and docstring is None:
-                    return
-                if not annotation:
+                if annotation is None:
                     annotation = var.annotation
+                if value is None:
+                    value = var.value
                 if docstring is None:
                     docstring = var.docstring
-            elif not have_value:
+            elif value is None:
                 return
-        self._attrs[name] = Variable(annotation, docstring)
+        self._attrs[name] = Variable(annotation, value, docstring)
 
     def visit_Assign(
         self, node: ast.Assign, parent: Optional[ast.AST], sibling: Optional[ast.AST]
@@ -287,7 +288,7 @@ class _ModuleVisitor(NodeVisitor):
             docstring = None
         for target in node.targets:
             if isinstance(target, ast.Name):
-                self._add_assign(target.id, True, None, docstring)
+                self._add_assign(target.id, None, node.value, docstring)
 
     def visit_AnnAssign(
         self, node: ast.AnnAssign, parent: Optional[ast.AST], sibling: Optional[ast.AST]
@@ -295,8 +296,8 @@ class _ModuleVisitor(NodeVisitor):
         if isinstance(node.target, ast.Name):
             self._add_assign(
                 node.target.id,
-                node.value is not None,
                 node.annotation,
+                node.value,
                 _docstring_from_node(sibling),
             )
 
