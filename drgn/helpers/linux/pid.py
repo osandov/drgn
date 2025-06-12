@@ -19,13 +19,14 @@ from _drgn import (
 from drgn import IntegerLike, Object, Program, cast, container_of
 from drgn.helpers.common.prog import takes_object_or_program_or_default
 from drgn.helpers.linux.idr import idr_for_each
-from drgn.helpers.linux.list import hlist_for_each_entry
+from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
 __all__ = (
     "find_pid",
     "find_task",
     "for_each_pid",
     "for_each_task",
+    "for_each_task_in_group",
     "pid_task",
 )
 
@@ -100,3 +101,41 @@ def for_each_task(prog: Program, ns: Optional[Object]) -> Iterator[Object]:
         task = pid_task(pid, PIDTYPE_PID)
         if task:
             yield task
+
+
+def for_each_task_in_group(
+    task: Object, include_self: bool = False
+) -> Iterator[Object]:
+    """
+    Iterate over all tasks in the thread group
+
+    Or, in the more common userspace terms, iterate over all threads of a
+    process.
+
+    :param task: a task whose group to iterate over
+    :param include_self: should ``task`` itself be returned
+    :returns: an iterable of every thread in the thread group
+    """
+    if include_self:
+        yield task
+    if hasattr(task, "thread_group"):
+        yield from list_for_each_entry(
+            "struct task_struct",
+            task.thread_group.address_of_(),
+            "thread_group",
+        )
+    else:
+        # Since commit 8e1f385104ac0 ("kill task_struct->thread_group") from
+        # 6.7, the thread_group list is gone, replaced by a list inside the
+        # task.signal struct. This has an explicit list_head (unlike the
+        # thread_group which just linked each task together with no explicit
+        # head node).
+        for other in list_for_each_entry(
+            "struct task_struct",
+            task.signal.thread_head.address_of_(),
+            "thread_node",
+        ):
+            # We've already yielded "task" (or not, depending on the caller's
+            # preference) so skip it here.
+            if other != task:
+                yield other
