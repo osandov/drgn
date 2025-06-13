@@ -269,6 +269,8 @@ variables with ``trace["name"]``:
     >>> d_path(file.f_path.address_of_())
     b'/proc/115/mountinfo'
 
+.. TODO: commands
+
 .. end-quick-start
 
 See the `user guide <https://drgn.readthedocs.io/en/latest/user_guide.html>`_

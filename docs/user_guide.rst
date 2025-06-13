@@ -8,6 +8,8 @@ Quick Start
     :start-after: start-quick-start
     :end-before: end-quick-start
 
+.. TODO: mention commands somewhere
+
 Core Concepts
 -------------
 
