@@ -1,11 +1,15 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import io
+
 from drgn import Program, TypeEnumerator
 from drgn.helpers.common.format import (
+    CellFormat,
     decode_enum_type_flags,
     decode_flags,
     number_in_binary_units,
+    print_table,
 )
 from tests import MOCK_PLATFORM, TestCase
 
@@ -124,3 +128,46 @@ class TestNumberInBinaryUnits(TestCase):
     def test_huge(self):
         self.assertEqual(number_in_binary_units(1024**8 * 1.5), "1.5Y")
         self.assertEqual(number_in_binary_units(1024**10), "1048576Y")
+
+
+class TestPrintTable(TestCase):
+    def assert_print_table(self, rows, expected, **kwargs):
+        f = io.StringIO()
+        print_table(rows, file=f)
+        self.assertEqual(f.getvalue(), expected)
+
+    def test_empty(self):
+        self.assert_print_table([], "")
+
+    def test_one_row(self):
+        self.assert_print_table([["abc", "de", "fghi"]], "abc  de  fghi\n")
+
+    def test_align(self):
+        self.assert_print_table(
+            [[2, 2000, 4], [13, 3, 19]],
+            """\
+ 2  2000   4
+13     3  19
+""",
+        )
+
+    def test_empty_cell(self):
+        self.assert_print_table(
+            [[2, 2000, 4], ["", 3, 13, 19]],
+            """\
+2  2000   4
+      3  13  19
+""",
+        )
+
+    def test_cell_format(self):
+        self.assert_print_table(
+            [
+                ["DECIMAL", "HEXADECIMAL"],
+                [CellFormat(10, "<"), CellFormat(10, "<x")],
+            ],
+            """\
+DECIMAL  HEXADECIMAL
+10       a
+""",
+        )

@@ -9,16 +9,31 @@ The ``drgn.helpers.common.format`` module provides generic helpers for
 formatting different things as text.
 """
 
-from typing import Iterable, SupportsFloat, Tuple
+import re
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    SupportsFloat,
+    Tuple,
+)
 
 from drgn import IntegerLike, Type
 
+if TYPE_CHECKING:
+    from _typeshed import SupportsWrite
+
 __all__ = (
+    "CellFormat",
     "decode_enum_type_flags",
     "decode_flags",
     "escape_ascii_character",
     "escape_ascii_string",
     "number_in_binary_units",
+    "print_table",
 )
 
 
@@ -238,3 +253,105 @@ def number_in_binary_units(n: SupportsFloat, precision: int = 1) -> str:
     if n.is_integer():
         precision = 0
     return f"{n:.{precision}f}{prefix}"
+
+
+def print_table(
+    rows: Sequence[Sequence[Any]],
+    *,
+    sep: str = "  ",
+    file: "Optional[SupportsWrite[str]]" = None,
+) -> None:
+    """
+    Print data as a table.
+
+    The input is given as a sequence (e.g., :class:`list` or :class:`tuple`) of
+    rows, where each row is a sequence of values. Rows can have different
+    lengths.
+
+    >>> print_table([[2, 2000, 4], ["", 3, 13, 19]])
+    2  2000   4
+          3  13  19
+
+    By default, numbers are right-aligned and most other objects are
+    left-aligned. This (and other format options) can be changed by wrapping
+    the value in a :class:`CellFormat`.
+
+    >>> print_table(
+    ...     [
+    ...         ["DECIMAL", "HEXADECIMAL"],
+    ...         [CellFormat(10, "<"), CellFormat(10, "<x")],
+    ...     ]
+    ... )
+    DECIMAL  HEXADECIMAL
+    10       a
+
+    :param rows: Sequence of rows, where each row is a sequence of cells.
+    :param sep: Column separator.
+    :param file: File to write to (defaults to ``sys.stdout``).
+    """
+    width: List[int] = []
+    for row in rows:
+        for i, value in enumerate(row):
+            cell_width = len(str(value))
+            if i < len(width):
+                width[i] = max(width[i], cell_width)
+            else:
+                width.append(cell_width)
+
+    for row in rows:
+        print(
+            *(
+                f"{value:{width[i]}}".rstrip(" " if i == len(row) - 1 else "")
+                for i, value in enumerate(row)
+            ),
+            sep=sep,
+            file=file,
+        )
+
+
+class CellFormat:
+    _FORMAT_SPEC_RE = re.compile(
+        r"""
+        (?P<options>
+            (?:
+                .?      # fill
+                [<>=^]  # align
+            )?
+            [-+ ]?  # sign
+            z?
+            [#]?
+            0?
+        )
+        (?P<width>[0-9]+)?
+        (?P<rest>
+            [,_]?               # grouping
+            (?:\.[0-9])?        # precision
+            [bcdeEfFgGnosxX%]?  # type
+        )
+        """,
+        flags=re.VERBOSE,
+    )
+
+    def __init__(self, value: Any, format_spec: str) -> None:
+        """
+        Wrap a value with additional format options to apply when it is
+        formatted by :func:`print_table()`.
+
+        :param value: Value to wrap.
+        :param format_spec: :ref:`Format specification <formatspec>`. It may
+            not specify a width.
+        """
+        self._value = value
+        match = self._FORMAT_SPEC_RE.fullmatch(format_spec)
+        if not match:
+            raise ValueError(f"invalid format_spec {format_spec!r}")
+        if match.group("width"):
+            raise ValueError("format_spec must not have width")
+        self._options = match.group("options")
+        self._rest = match.group("rest")
+
+    def __str__(self) -> str:
+        return f"{self._value:{self._options}{self._rest}}"
+
+    def __format__(self, format_spec: str) -> str:
+        return f"{self._value:{self._options}{format_spec}{self._rest}}"
