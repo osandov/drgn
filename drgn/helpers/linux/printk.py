@@ -15,8 +15,11 @@ from typing import TYPE_CHECKING, Dict, List, NamedTuple, Optional, Tuple
 if TYPE_CHECKING:
     from _typeshed import SupportsWrite
 
+from datetime import datetime
+
 from drgn import Object, Program, cast, sizeof
 from drgn.helpers.common.prog import takes_program_or_default
+from drgn.helpers.linux.timekeeping import ktime_get_coarse_ns, ktime_get_coarse_real_ns
 
 __all__ = (
     "get_dmesg",
@@ -243,7 +246,7 @@ def get_printk_records(prog: Program) -> List[PrintkRecord]:
 
 
 @takes_program_or_default
-def get_dmesg(prog: Program) -> bytes:
+def get_dmesg(prog: Program, *, human_readable_time: bool = False) -> bytes:
     """
     Get the contents of the kernel log buffer formatted like
     :manpage:`dmesg(1)`.
@@ -258,22 +261,46 @@ def get_dmesg(prog: Program) -> bytes:
 
     If you need to format the log buffer differently, use
     :func:`get_printk_records()` and format it yourself.
+
+    :param human_readable_time: Print human-readable timestamps. Note that this
+        is only correct for messages printed since the last suspend/resume.
     """
-    lines = [
-        b"[% 5d.%06d] %s"
-        % (
-            record.timestamp // 1000000000,
-            record.timestamp % 1000000000 // 1000,
-            record.text,
+    if human_readable_time:
+        boot_time_s = int(ktime_get_coarse_real_ns(prog)) - int(
+            ktime_get_coarse_ns(prog)
         )
-        for record in get_printk_records(prog)
-    ]
-    lines.append(b"")  # So we get a trailing newline.
+        lines = [
+            b"[%s] %s"
+            % (
+                datetime.fromtimestamp((boot_time_s + record.timestamp) // 1000000000)
+                .astimezone()
+                .strftime("%a %b %e %T %Z %Y")
+                .encode("utf-8"),
+                record.text,
+            )
+            for record in get_printk_records(prog)
+        ]
+    else:
+        lines = [
+            b"[% 5d.%06d] %s"
+            % (
+                record.timestamp // 1000000000,
+                record.timestamp % 1000000000 // 1000,
+                record.text,
+            )
+            for record in get_printk_records(prog)
+        ]
+    lines.append(b"")
     return b"\n".join(lines)
 
 
 @takes_program_or_default
-def print_dmesg(prog: Program, *, file: "Optional[SupportsWrite[str]]" = None) -> None:
+def print_dmesg(
+    prog: Program,
+    *,
+    human_readable_time: bool = False,
+    file: "Optional[SupportsWrite[str]]" = None
+) -> None:
     """
     Print the contents of the kernel log buffer.
 
@@ -283,8 +310,13 @@ def print_dmesg(prog: Program, *, file: "Optional[SupportsWrite[str]]" = None) -
     [    0.000000] BIOS-provided physical RAM map:
     ...
 
+    :param human_readable_time: Print human-readable timestamps. Note that this
+        is only correct for messages printed since the last suspend/resume.
+
     :param file: File to print to. Defaults to :data:`sys.stdout`.
     """
     (sys.stdout if file is None else file).write(
-        get_dmesg(prog).decode(errors="replace")
+        get_dmesg(prog, human_readable_time=human_readable_time).decode(
+            errors="replace"
+        )
     )
