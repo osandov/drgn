@@ -228,6 +228,12 @@ Commands
 
 .. drgndoc:: commands
 
+.. py:currentmodule:: drgn.commands.crash
+
+.. drgndoc:: CRASH_COMMAND_NAMESPACE
+.. drgndoc:: crash_command
+.. drgndoc:: crash_get_context
+
 .. _plugins:
 
 Plugins

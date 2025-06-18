@@ -142,6 +142,8 @@ def default_globals(prog: drgn.Program) -> Dict[str, Any]:
         module = importlib.import_module("drgn.helpers.linux")
         for name in module.__dict__["__all__"]:
             init_globals[name] = getattr(module, name)
+        # TODO: I wonder if there's a better way to do this.
+        import drgn.commands.crash as _  # noqa: F401
     return init_globals
 
 
