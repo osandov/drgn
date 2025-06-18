@@ -182,11 +182,3 @@ This error is fixed in this release::
 Another change in Linux 6.15 broke the
 :func:`~drgn.helpers.linux.fs.path_lookup()` helper's handling of mount points.
 This is fixed in this release.
-
-Last Release With Python 3.6 & 3.7 Support
-------------------------------------------
-
-This will be the last release of drgn with support for Python 3.6 and 3.7. Both
-versions have been EOL for awhile, and the maintenance burden has become
-unsustainable. See `here <https://github.com/osandov/drgn/issues/467>`_ for the
-announcement. Python 3.8 support will probably follow suit soon.

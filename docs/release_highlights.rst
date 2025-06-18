@@ -6,6 +6,7 @@ from the full `release notes <https://github.com/osandov/drgn/releases>`_.
 
 .. toctree::
 
+   release_highlights/0.0.32.rst
    release_highlights/0.0.31.rst
    release_highlights/0.0.30.rst
    release_highlights/0.0.28.rst

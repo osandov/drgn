@@ -1,0 +1,115 @@
+0.0.32 (Released June 18th, 2025)
+==================================
+
+These are some of the highlights of drgn 0.0.32. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.0.32>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+.. program:: drgn
+
+MiniDebugInfo Symbol Support
+----------------------------
+
+Stephen Brennan added support for `MiniDebugInfo
+<https://sourceware.org/gdb/current/onlinedocs/gdb.html/MiniDebugInfo.html>`_,
+a format providing additional, compressed symbols for stack traces used in
+Fedora Linux and its derivatives. Support for this feature requires liblzma.
+
+Page Pool Helper and Leak Scripts
+---------------------------------
+
+Dragos Tatulea contributed the :func:`~drgn.helpers.linux.net.is_pp_page()`
+helper for identifying page pool pages, as well as ``contrib/pp_leak``
+containing scripts from his `talk
+<https://netdevconf.info/0x19/sessions/tutorial/diagnosing-page-pool-leaks.html>`_
+at Netdev 0x19.
+
+Timekeeping Helpers
+-------------------
+
+This release adds :mod:`drgn.helpers.linux.timekeeping` containing helpers for
+getting various timestamps in seconds::
+
+    >>> ktime_get_seconds()
+    (time64_t)1586340
+    >>> ktime_get_real_seconds()
+    (time64_t)1750283629
+    >>> ktime_get_boottime_seconds()
+    (time64_t)3625799
+    >>> ktime_get_clocktai_seconds()
+    (time64_t)1750283674
+
+and nanoseconds::
+
+    >>> ktime_get_coarse_ns()
+    (u64)1586359078118365
+    >>> ktime_get_coarse_real_ns()
+    (u64)1750283652394676256
+    >>> ktime_get_coarse_boottime_ns()
+    (u64)3625825587469558
+    >>> ktime_get_coarse_clocktai_ns()
+    (u64)1750283701569703118
+
+There are also shortcuts for getting the system uptime::
+
+    >>> uptime()
+    3625837.988496921
+    >>> uptime_pretty()
+    '5 weeks, 6 days, 23 hours, 10 minutes, 42 seconds'
+
+Note that these helpers have a maximum granularity of one tick (~1-10 ms) and
+can race with timekeeping updates for an error of up to 1 second.
+
+CPU Mask Weight Helpers
+-----------------------
+
+This release adds helpers for getting the number of CPUs to
+:mod:`drgn.helpers.linux.cpumask`::
+
+    >>> num_online_cpus()
+    8
+    >>> num_possible_cpus()
+    8
+    >>> num_present_cpus()
+    8
+
+Relative Paths for ``--debug-directory``
+----------------------------------------
+
+The :option:`--debug-directory` command line option (and the underlying
+:attr:`drgn.DebugInfoOptions.directories` setting) now supports relative paths.
+Previously, a relative path was used for searches by debug link. That has been
+split into a separate option, :option:`--debug-link-directory`
+(:attr:`drgn.DebugInfoOptions.debug_link_directories`). This is a breaking
+change that was deemed necessary to fix the previous surprising behavior.
+
+Bug Fixes
+---------
+
+The following bugs were fixed in this release:
+
+* Symbols from data sections in Linux kernel loadable modules could previously
+  not be found since Linux 6.4.
+* If a partial ELF symbol table (i.e., ``.dynsym``) was found, then later a
+  full ELF symbol table (i.e., ``.symtab``) was found, then the latter was
+  supposed to override the former, but previously it wouldn't.
+* Stack unwinding through Linux kernel modules using ORC would previously fail
+  when the :option:`--main-symbols` command line option was used. Fixed by
+  Stephen Brennan.
+
+Linux 6.16 Support
+------------------
+
+No drgn changes were required to support Linux 6.16 as of rc2.
+
+Last Release With Python 3.6 & 3.7 Support
+------------------------------------------
+
+This will be the last release of drgn with support for Python 3.6 and 3.7. Both
+versions have been EOL for awhile, and the maintenance burden has become
+unsustainable. See `here <https://github.com/osandov/drgn/issues/467>`_ for the
+announcement. Python 3.8 support will probably follow suit soon.
+
+(drgn 0.0.31 was intended to be the last release to support Python 3.6 and 3.7,
+but it was postponed by one release.)
