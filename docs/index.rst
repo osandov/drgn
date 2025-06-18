@@ -47,6 +47,7 @@ Table of Contents
 
     api_reference
     helpers
+    commands
     Man Page <man/drgn>
     support_matrix
     release_highlights
