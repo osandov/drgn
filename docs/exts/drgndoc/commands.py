@@ -132,7 +132,7 @@ class CommandFormatter:
         if name is not None:
             return name
 
-        prefix = "_cmd_"
+        prefix = "_crash_cmd_" if namespace == "crash" else "_cmd_"
         if not func_name.startswith(prefix):
             raise UnrecognizedInputError(f"invalid function name {func_name!r}")
 
@@ -159,6 +159,8 @@ class CommandFormatter:
                 ):
                     namespace = ""
                     enabled = "linux"
+                elif name == "drgn.commands.crash.crash_command":
+                    namespace = "crash"
                 else:
                     continue
 
