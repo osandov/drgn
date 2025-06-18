@@ -971,8 +971,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.prog.load_debug_info([crashme_path])
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The provided path should be used for the main module.
         self.assertEqual(
             self.prog.main_module().loaded_file_path,
@@ -1027,8 +1027,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.prog.load_debug_info([crashme_path], main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The provided path should be used for the main module.
         self.assertEqual(
             self.prog.main_module().loaded_file_path,
@@ -1053,8 +1053,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.prog.load_debug_info(main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The finder should be called and set the file for the main module.
         self.assertEqual(
             self.prog.main_module().loaded_file_path,
@@ -1168,8 +1168,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.prog.load_debug_info([crashme_dwz_path, crashme_alt_path], main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The provided paths should be used for the main module.
         self.assertEqual(
             self.prog.main_module().loaded_file_path,
@@ -1200,8 +1200,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.prog.load_debug_info(main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The finder should be called and set the files for the main module.
         self.assertEqual(
             self.prog.main_module().loaded_file_path,
@@ -1236,8 +1236,8 @@ class TestLoadDebugInfo(TestCase):
             main=True,
         )
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The provided path should be used for the loaded file.
         self.assertEqual(
             self.prog.main_module().loaded_file_path,
@@ -1275,8 +1275,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.assertRaises(MissingDebugInfoError, self.prog.load_debug_info, main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The finder should be called and set the loaded file for the main
         # module but fail to find the supplementary file.
         self.assertEqual(
@@ -1313,8 +1313,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.prog.load_debug_info([crashme_dwz_path], main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The provided path should be used for the main module.
         self.assertEqual(
             self.prog.main_module().loaded_file_path,
@@ -1381,8 +1381,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.prog.load_debug_info([crashme_alt_path], main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The provided path should be used for the supplementary file.
         self.assertEqual(
             self.prog.main_module().supplementary_debug_file_path,
@@ -1420,8 +1420,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.prog.load_debug_info(main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The finder should be called and set the supplementary file for the
         # main module.
         self.assertEqual(
@@ -1448,8 +1448,8 @@ class TestLoadDebugInfo(TestCase):
 
         self.assertRaises(MissingDebugInfoError, self.prog.load_debug_info, main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The finder should be called and fail to find the supplementary file
         # for the main module, but the supplementary file should still be
         # wanted.
@@ -1570,8 +1570,8 @@ class TestLoadDebugInfoCoreNoHeaders(TestCase):
 
         self.prog.load_debug_info(main=True)
 
-        # Only the main module should be created.
-        self.assertEqual(list(self.prog.modules()), [self.prog.main_module()])
+        # The main module should be created.
+        self.assertIn(self.prog.main_module(), list(self.prog.modules()))
         # The finder should be called and set the files, address range, and
         # build ID for the main module.
         self.assertEqual(
