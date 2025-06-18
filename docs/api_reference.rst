@@ -221,13 +221,21 @@ CLI
 
 .. drgndoc:: cli
 
+.. _api-commands:
+
+Commands
+--------
+
+.. drgndoc:: commands
+
 .. _plugins:
 
 Plugins
 -------
 
 drgn can be extended with plugins. A drgn plugin is a Python module defining
-one or more hook functions that are called at specific times.
+one or more hook functions that are called at specific times. Plugins can also
+register :ref:`commands <api-commands>`.
 
 By default, drgn loads installed modules registered as :ref:`entry points
 <writing-plugins>` for the ``drgn.plugins`` group. The :envvar:`DRGN_PLUGINS`
