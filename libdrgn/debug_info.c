@@ -5362,17 +5362,6 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 			    && drgn_module_kind(module) == DRGN_MODULE_MAIN))
 		    && !drgn_module_vector_append(&modules, &module))
 			return &drgn_enomem;
-
-		// If we are only trying files for the main module (i.e., if
-		// we're not loading all default debug info and any provided
-		// files were all for the main module), then we only want to
-		// create the main module.
-		if (!load_default
-		    && drgn_module_kind(module) == DRGN_MODULE_MAIN
-		    && state.unmatched_provided == 0) {
-			err = NULL;
-			break;
-		}
 	}
 	if (err)
 		return err;
