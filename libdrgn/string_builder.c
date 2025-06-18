@@ -52,6 +52,8 @@ bool string_builder_appendc(struct string_builder *sb, char c)
 bool string_builder_appendn(struct string_builder *sb, const char *str,
 			    size_t len)
 {
+	if (len == 0)
+		return true;
 	if (!string_builder_reserve_for_append(sb, len))
 		return false;
 	memcpy(&sb->str[sb->len], str, len);
