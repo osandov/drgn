@@ -4,6 +4,7 @@
 """Commands for getting system information."""
 
 import argparse
+import collections
 import datetime
 import itertools
 import logging
@@ -27,7 +28,13 @@ from drgn.helpers.common.format import (
     number_in_binary_units,
     print_table,
 )
+from drgn.helpers.linux.block import for_each_disk
 from drgn.helpers.linux.cpumask import num_online_cpus, num_present_cpus
+from drgn.helpers.linux.device import (
+    MAJOR,
+    for_each_registered_blkdev,
+    for_each_registered_chrdev,
+)
 from drgn.helpers.linux.kconfig import _get_raw_kconfig
 from drgn.helpers.linux.mm import totalram_pages
 from drgn.helpers.linux.panic import panic_message, panic_task
@@ -355,3 +362,78 @@ kconfig = get_kconfig()
         return
 
     _SysPrinter(prog, args.drgn).print()
+
+
+@crash_command(
+    description="devices",
+    # TODO: arguments
+    arguments=(drgn_argument,),
+)
+def _crash_cmd_dev(
+    prog: Program, command_name: str, args: argparse.Namespace, **kwargs: Any
+) -> None:
+    # TODO: --drgn
+    rows: List[Tuple[Any, ...]] = [
+        (
+            "CHRDEV",
+            "NAME",
+            CellFormat("CDEV", "^"),
+            "OPERATIONS",
+        )
+    ]
+    for dev, _, name, cdev in for_each_registered_chrdev(prog):
+        operations_cell: Any = ""
+        if cdev:
+            cdev_cell = CellFormat(cdev.value_(), "^x")
+            ops = cdev.ops.value_()
+            try:
+                operations_cell = prog.symbol(ops).name
+            except LookupError:
+                operations_cell = CellFormat(ops, "x")
+        else:
+            cdev_cell = CellFormat("(none)", "^")
+        rows.append(
+            (
+                MAJOR(dev),
+                escape_ascii_string(name, escape_backslash=True),
+                cdev_cell,
+                operations_cell,
+            )
+        )
+
+    rows.append(())
+
+    major_to_gendisk = collections.defaultdict(list)
+    for disk in for_each_disk(prog):
+        major_to_gendisk[disk.major.value_()].append(disk)
+    major_to_gendisk.default_factory = None
+
+    rows.append(
+        (
+            "BLKDEV",
+            "NAME",
+            CellFormat("GENDISK", "^"),
+            "OPERATIONS",
+        )
+    )
+
+    for major, name in for_each_registered_blkdev(prog):
+        name_string = escape_ascii_string(name, escape_backslash=True)
+        try:
+            gendisks = major_to_gendisk[major]
+        except KeyError:
+            rows.append((major, name_string, CellFormat("(none)", "^")))
+        else:
+            cell0 = major
+            cell1 = name_string
+            for disk in gendisks:
+                ops = disk.fops.value_()
+                try:
+                    operations_cell = prog.symbol(ops).name
+                except LookupError:
+                    operations_cell = CellFormat(ops, "x")
+                rows.append(
+                    (cell0, cell1, CellFormat(disk.value_(), "^x"), operations_cell)
+                )
+
+    print_table(rows)
