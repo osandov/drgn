@@ -112,19 +112,13 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 		return -1;
 	}
 
-	_cleanup_pydecref_ PyObject *tmp = PyMapping_Items(value_obj);
-	if (!tmp)
-		return -1;
-	// Since Python 3.7, PyMapping_Items() always returns a list. However,
-	// before that, it could also return a tuple.
-	_cleanup_pydecref_ PyObject *items =
-		PySequence_Fast(tmp, "items must be sequence");
+	_cleanup_pydecref_ PyObject *items = PyMapping_Items(value_obj);
 	if (!items)
 		return -1;
 
-	Py_ssize_t num_items = PySequence_Fast_GET_SIZE(items);
+	Py_ssize_t num_items = PyList_GET_SIZE(items);
 	for (Py_ssize_t i = 0; i < num_items; i++) {
-		PyObject *item = PySequence_Fast_GET_ITEM(items, i);
+		PyObject *item = PyList_GET_ITEM(items, i);
 		if (!PyTuple_Check(item) || PyTuple_GET_SIZE(item) != 2) {
 			PyErr_SetString(PyExc_TypeError, "invalid item");
 			return -1;
