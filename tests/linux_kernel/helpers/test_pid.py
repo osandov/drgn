@@ -34,11 +34,8 @@ class TestPid(LinuxKernelTestCase):
         NUM_PROCS = 12
         barrier = Barrier(NUM_PROCS + 1)
 
-        def proc_func():
-            barrier.wait()
-
         try:
-            procs = [Process(target=proc_func) for _ in range(NUM_PROCS)]
+            procs = [Process(target=barrier.wait) for _ in range(NUM_PROCS)]
             for proc in procs:
                 proc.start()
             pids = {task.pid.value_() for task in for_each_task(self.prog)}
