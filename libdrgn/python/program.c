@@ -146,14 +146,10 @@ static int get_logging_status(int *log_level_ret, bool *enable_progress_bar_ret)
 // and there are no APIs to be notified of this.
 //
 // To sync the log level, we monkey patch logger._cache.clear() to update the
-// libdrgn log level on every live program. This only works since CPython commit
-// 78c18a9b9a14 ("bpo-30962: Added caching to Logger.isEnabledFor() (GH-2752)")
-// (in v3.7), though. Before that, the best we can do is sync the level at the
-// time that the program is created.
+// libdrgn log level on every live program.
 //
 // We also check handlers in that monkey patch, which isn't the right place to
 // hook but should work in practice in most cases.
-#if PY_VERSION_HEX >= 0x030700a1
 static int cached_log_level;
 static bool cached_enable_progress_bar;
 static struct pyobjectp_set programs = HASH_TABLE_INIT;
@@ -228,24 +224,6 @@ static void Program_deinit_logging(Program *prog)
 	PyObject *obj = (PyObject *)prog;
 	pyobjectp_set_delete(&programs, &obj);
 }
-#else
-static int init_logger_cache_wrapper(void) { return 0; }
-
-static int Program_init_logging(Program *prog)
-{
-	int level;
-	bool enable_progress_bar;
-	if (get_logging_status(&level, &enable_progress_bar))
-		return -1;
-	drgn_program_set_log_callback(&prog->prog, drgnpy_log_fn, NULL);
-	drgn_program_set_log_level(&prog->prog, level);
-	drgn_program_set_progress_file(&prog->prog,
-				       enable_progress_bar ? stderr : NULL);
-	return 0;
-}
-
-static void Program_deinit_logging(Program *prog) {}
-#endif
 
 int init_logging(void)
 {

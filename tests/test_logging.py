@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import logging
-import sys
-import unittest
 
 from drgn import Program
 from tests import TestCase
@@ -19,9 +17,6 @@ class TestLogging(TestCase):
             prog._log(0, "foo")
         self.assertIn("DEBUG:drgn:foo", cm.output)
 
-    @unittest.skipIf(
-        sys.version_info < (3, 7), "syncing log level only works since Python 3.7"
-    )
     def test_set_level_after(self):
         prog = Program()
         logger = logging.getLogger("drgn")
