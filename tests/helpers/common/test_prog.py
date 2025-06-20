@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import contextlib
-import inspect
 import unittest.mock
 
 from drgn import NoDefaultProgramError, Object, get_default_prog, set_default_prog
@@ -11,15 +10,6 @@ from drgn.helpers.common.prog import (
     takes_program_or_default,
 )
 from tests import IdenticalMatcher, TestCase, mock_program
-
-
-def my_create_autospec(f):
-    mock = unittest.mock.create_autospec(f)
-    # unittest.mock.create_autospec() does this automatically since CPython
-    # commit f7fa62ef4422 ("bpo-17185: Add __signature__ to mock that can be
-    # used by inspect for signature (GH11048)") (in v3.8).
-    mock.__signature__ = inspect.signature(f)
-    return mock
 
 
 @contextlib.contextmanager
@@ -41,17 +31,17 @@ class TestTakesProgramOrDefault(TestCase):
         def f1(prog):
             pass
 
-        self.mock1 = my_create_autospec(f1)
+        self.mock1 = unittest.mock.create_autospec(f1)
 
         def f2(prog, x):
             pass
 
-        self.mock2 = my_create_autospec(f2)
+        self.mock2 = unittest.mock.create_autospec(f2)
 
         def f3(prog, x, s):
             pass
 
-        self.mock3 = my_create_autospec(f3)
+        self.mock3 = unittest.mock.create_autospec(f3)
 
     def test_explicit_prog_no_args(self):
         prog = mock_program()
@@ -169,17 +159,17 @@ class TestTakesObjectOrProgramOrDefault(TestCase):
         def f1(prog, obj):
             pass
 
-        self.mock1 = my_create_autospec(f1)
+        self.mock1 = unittest.mock.create_autospec(f1)
 
         def f2(prog, obj, x):
             pass
 
-        self.mock2 = my_create_autospec(f2)
+        self.mock2 = unittest.mock.create_autospec(f2)
 
         def f3(prog, obj, x, s):
             pass
 
-        self.mock3 = my_create_autospec(f3)
+        self.mock3 = unittest.mock.create_autospec(f3)
 
     def test_explicit_prog_no_args(self):
         prog = mock_program()
