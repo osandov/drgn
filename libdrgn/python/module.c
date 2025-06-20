@@ -142,7 +142,7 @@ static PyObject *Module_richcompare(Module *self, PyObject *other, int op)
 
 static Py_hash_t Module_hash(Module *self)
 {
-	return _Py_HashPointer(self->module);
+	return Py_HashPointer(self->module);
 }
 
 static PyObject *Module_wanted_supplementary_debug_file(Module *self)

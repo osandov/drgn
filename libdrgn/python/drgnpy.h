@@ -56,6 +56,10 @@ static inline PyObject *PyObject_CallOneArg(PyObject *callable, PyObject *arg)
 #define PyThreadState_GetUnchecked _PyThreadState_UncheckedGet
 #endif
 
+#if PY_VERSION_HEX < 0x030e00a5
+#define Py_HashPointer _Py_HashPointer
+#endif
+
 #define DRGNPY_PUBLIC __attribute__((__visibility__("default")))
 
 // PyLong_From* and PyLong_As* for stdint.h types. These use _Generic for
