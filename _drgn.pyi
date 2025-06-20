@@ -16,6 +16,7 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
+    Final,
     Iterable,
     Iterator,
     List,
@@ -23,17 +24,13 @@ from typing import (
     MutableMapping,
     NamedTuple,
     Optional,
+    Protocol,
     Sequence,
     Set,
     Tuple,
     Union,
     overload,
 )
-
-if sys.version_info < (3, 8):
-    from typing_extensions import Final, Protocol
-else:
-    from typing import Final, Protocol
 
 if sys.version_info < (3, 10):
     from typing_extensions import TypeAlias
