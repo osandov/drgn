@@ -184,15 +184,6 @@ __all__ = (
 )
 
 
-if sys.version_info >= (3, 8):
-    _open_code = io.open_code  # novermin
-else:
-    from typing import BinaryIO
-
-    def _open_code(path: str) -> BinaryIO:
-        return open(path, "rb")
-
-
 # From https://docs.python.org/3/reference/import.html#import-related-module-attributes.
 _special_globals = frozenset(
     [
@@ -265,10 +256,10 @@ def execscript(path: str, *args: str, globals: Optional[Dict[str, Any]] = None) 
         sys.argv = [path]
         sys.argv.extend(args)
 
-        with _open_code(path) as f:
+        with io.open_code(path) as f:
             code = pkgutil.read_code(f)
         if code is None:
-            with _open_code(path) as f:
+            with io.open_code(path) as f:
                 code = compile(f.read(), path, "exec")
         module.__spec__ = None
         module.__file__ = path
