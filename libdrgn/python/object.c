@@ -1369,39 +1369,20 @@ static DrgnObject *DrgnObject_member(DrgnObject *self, PyObject *args,
 static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 {
 	struct drgn_error *err;
-	PyObject *attr;
-	const char *name;
-	DrgnObject *res;
 
-	/*
-	 * In Python 3.7 and newer, _PyObject_GenericGetAttrWithDict() can
-	 * suppress the AttributeError if the attribute isn't found. This makes
-	 * member lookups much more efficient.
-	 */
-#define GETATTR_SUPPRESS (PY_VERSION_HEX >= 0x030700b1)
-#if GETATTR_SUPPRESS
-	attr = _PyObject_GenericGetAttrWithDict((PyObject *)self, attr_name,
-						NULL, 1);
+	PyObject *attr = _PyObject_GenericGetAttrWithDict((PyObject *)self,
+							  attr_name, NULL, 1);
 	if (attr || PyErr_Occurred())
 		return attr;
-#else
-	PyObject *exc_type, *exc_value, *exc_traceback;
 
-	attr = PyObject_GenericGetAttr((PyObject *)self, attr_name);
-	if (attr || !PyErr_ExceptionMatches(PyExc_AttributeError))
-		return attr;
-	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
-#endif
+	const char *name = PyUnicode_AsUTF8(attr_name);
+	if (!name)
+		return NULL;
 
-	name = PyUnicode_AsUTF8(attr_name);
-	if (!name) {
-		res = NULL;
-		goto out;
-	}
-
-	res = DrgnObject_alloc(DrgnObject_prog(self));
+	_cleanup_pydecref_ DrgnObject *res =
+		DrgnObject_alloc(DrgnObject_prog(self));
 	if (!res)
-		goto out;
+		return NULL;
 
 	if (self->obj.encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
 		err = drgn_object_member_dereference(&res->obj, &self->obj,
@@ -1409,38 +1390,20 @@ static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 	} else {
 		err = drgn_object_member(&res->obj, &self->obj, name);
 	}
-	if (err) {
-		Py_CLEAR(res);
-		if (err->code == DRGN_ERROR_TYPE) {
-			/*
-			 * If the object doesn't have a compound type, raise a
-			 * generic AttributeError (or restore the original one
-			 * if we weren't able to suppress it).
-			 */
-#if GETATTR_SUPPRESS
-			PyErr_Format(PyExc_AttributeError,
-				     "'%s' object has no attribute '%U'",
-				     Py_TYPE(self)->tp_name, attr_name);
-#else
-			PyErr_Restore(exc_type, exc_value, exc_traceback);
-#endif
-			drgn_error_destroy(err);
-			return NULL;
-		} else if (err->code == DRGN_ERROR_LOOKUP) {
-			PyErr_SetString(PyExc_AttributeError, err->message);
-			drgn_error_destroy(err);
-		} else {
-			set_drgn_error(err);
-		}
+	if (drgn_error_catch(&err, DRGN_ERROR_TYPE)) {
+		// If the object doesn't have a compound type, raise a generic
+		// AttributeError.
+		return PyErr_Format(PyExc_AttributeError,
+				    "'%s' object has no attribute '%U'",
+				    Py_TYPE(self)->tp_name, attr_name);
+	} else if (err && err->code == DRGN_ERROR_LOOKUP) {
+		PyErr_SetString(PyExc_AttributeError, err->message);
+		drgn_error_destroy(err);
+		return NULL;
+	} else if (err) {
+		return set_drgn_error(err);
 	}
-out:
-#if !GETATTR_SUPPRESS
-	Py_XDECREF(exc_traceback);
-	Py_XDECREF(exc_value);
-	Py_DECREF(exc_type);
-#endif
-#undef GETATTR_SUPPRESS
-	return (PyObject *)res;
+	return (PyObject *)no_cleanup_ptr(res);
 }
 
 static Py_ssize_t DrgnObject_length(DrgnObject *self)
