@@ -75,7 +75,7 @@ build_for_python() {
 		"$1" -c "import sys; sys.exit(sys.version_info[:2] != $BUILD_ONLY_PYTHON)"
 	else
 		# Build for all supported Pythons
-		"$1" -c 'import sys; sys.exit(sys.version_info < (3, 6))'
+		"$1" -c 'import sys; sys.exit(sys.version_info < (3, 8))'
 	fi
 }
 

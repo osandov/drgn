@@ -466,7 +466,7 @@ setup(
         "test": test,
     },
     entry_points={"console_scripts": ["drgn=drgn.cli:_main"]},
-    python_requires=">=3.6",
+    python_requires=">=3.8",
     # We use pkg_resources on Python < 3.8.
     install_requires=['setuptools;python_version<"3.8"'],
     author="Omar Sandoval",

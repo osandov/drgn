@@ -146,9 +146,9 @@ This will install a binary wheel by default. If you get a build error, then pip
 wasn't able to use the binary wheel. Install the dependencies listed `below
 <#from-source>`_ and try again.
 
-Note that RHEL/CentOS 6, Debian Stretch, Ubuntu Trusty, and Ubuntu Xenial (and
-older) ship Python versions which are too old. Python 3.6 or newer must be
-installed.
+Note that RHEL/CentOS 7, Debian 10 ("buster"), and Ubuntu 18.04 ("Bionic
+Beaver") (and older) ship Python versions which are too old. Python 3.8 or
+newer must be installed.
 
 .. _installation-from-source:
 

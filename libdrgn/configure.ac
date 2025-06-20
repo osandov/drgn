@@ -44,7 +44,7 @@ AC_SUBST(OPENMP_CFLAGS)
 AC_SUBST(OPENMP_LIBS)
 
 dnl We need Python for code generation even if we're not building the bindings.
-AM_PATH_PYTHON([3.6])
+AM_PATH_PYTHON([3.8])
 
 AC_ARG_ENABLE([libdrgn],
 	      [AS_HELP_STRING([--disable-libdrgn],
