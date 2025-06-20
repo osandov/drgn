@@ -12,7 +12,8 @@ from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 class TestListModules(LinuxKernelTestCase):
     def test_for_each_module(self):
-        sys_modules = set(line.split(maxsplit=1)[0] for line in open("/proc/modules"))
+        with open("/proc/modules") as f:
+            sys_modules = set(line.split(maxsplit=1)[0] for line in f)
         drgn_modules = set()
         for module in for_each_module(self.prog):
             drgn_modules.add(module.name.string_().decode())
