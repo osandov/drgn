@@ -10,8 +10,7 @@ The ``drgn.helpers.common.memory`` module provides helpers for working with memo
 
 import operator
 import os
-import typing
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 import drgn
 from drgn import FaultError, IntegerLike, Object, PlatformFlags, Program, SymbolKind
@@ -216,7 +215,7 @@ def print_annotated_memory(
     # The platform must be known if we were able to read memory.
     assert prog.platform is not None
 
-    byteorder: 'typing.Literal["little", "big"]'
+    byteorder: Literal["little", "big"]
     if prog.platform.flags & PlatformFlags.IS_LITTLE_ENDIAN:
         byteorder = "little"
     else:

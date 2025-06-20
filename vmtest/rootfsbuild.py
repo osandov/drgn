@@ -4,15 +4,8 @@
 import logging
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
-import typing
-
-if typing.TYPE_CHECKING:
-    if sys.version_info < (3, 8):
-        from typing_extensions import Literal
-    else:
-        from typing import Literal  # novermin
+from typing import Literal
 
 from vmtest.config import ARCHITECTURES, HOST_ARCHITECTURE, Architecture
 
@@ -52,7 +45,7 @@ def build_rootfs(
     arch: Architecture,
     path: Path,
     *,
-    btrfs: "Literal['never', 'always', 'auto']" = "auto",
+    btrfs: Literal["never", "always", "auto"] = "auto",
 ) -> None:
     if path.exists():
         logger.info("%s already exists", path)
