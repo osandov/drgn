@@ -48,32 +48,13 @@ def _load_plugins() -> List[Tuple[str, object]]:
     if env != "*" or enabled_entry_points:
         disable_plugins = env.split(",") if env else []
 
+        import importlib.metadata
+
         group = "drgn.plugins"
         if sys.version_info >= (3, 10):
-            import importlib.metadata  # novermin
-
-            entry_points = importlib.metadata.entry_points(group=group)  # novermin
-
-            def entry_point_str(  # novermin
-                entry_point: importlib.metadata.EntryPoint,
-            ) -> str:
-                return f"{entry_point.name} = {entry_point.value}"
-
-        elif sys.version_info >= (3, 8):
-            import importlib.metadata  # novermin
-
-            entry_points = importlib.metadata.entry_points().get(group, ())  # novermin
-
-            def entry_point_str(  # novermin
-                entry_point: importlib.metadata.EntryPoint,
-            ) -> str:
-                return f"{entry_point.name} = {entry_point.value}"
-
+            entry_points = importlib.metadata.entry_points(group=group)
         else:
-            import pkg_resources
-
-            entry_points = pkg_resources.iter_entry_points(group)
-            entry_point_str = str
+            entry_points = importlib.metadata.entry_points().get(group, ())
 
         for entry_point in entry_points:
             if entry_point.name in enabled_entry_points:
@@ -88,14 +69,14 @@ def _load_plugins() -> List[Tuple[str, object]]:
             except Exception:
                 logger.warning(
                     "failed to load %r:",
-                    entry_point_str(entry_point),
+                    f"{entry_point.name} = {entry_point.value}",
                     exc_info=True,
                 )
             else:
                 plugins.append((entry_point.name, plugin))
                 logger.debug(
                     "loaded entry point %r",
-                    entry_point_str(entry_point),
+                    f"{entry_point.name} = {entry_point.value}",
                 )
 
         missing_entry_points = [
