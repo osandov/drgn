@@ -17,7 +17,6 @@ from drgn.helpers.linux.bpf import (
     cgroup_bpf_prog_for_each_effective,
 )
 from drgn.helpers.linux.cgroup import cgroup_get_from_path
-from tests import classCleanups
 from tests.linux_kernel import LinuxKernelTestCase
 from tests.linux_kernel.bpf import (
     BPF_CGROUP_INET_INGRESS,
@@ -49,7 +48,6 @@ class TestBpf(LinuxKernelTestCase):
         INSNS = (0xB700000000000000, 0x9500000000000000)
 
     @classmethod
-    @classCleanups
     def setUpClass(cls):
         super().setUpClass()
         if _SYS_bpf is None:

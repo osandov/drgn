@@ -9,7 +9,6 @@ import unittest
 from drgn.helpers.linux.fs import path_lookup
 from drgn.helpers.linux.net import get_net_ns_by_inode, netdev_get_by_name
 from drgn.helpers.linux.tc import qdisc_lookup
-from tests import classCleanups
 from tests.linux_kernel import LinuxKernelTestCase
 from util import verrevcmp
 
@@ -27,7 +26,6 @@ except ImportError:
 @unittest.skipUnless(have_pyroute2, "pyroute2 >= 0.6.10 not found")
 class TestTc(LinuxKernelTestCase):
     @classmethod
-    @classCleanups
     def setUpClass(cls):
         super().setUpClass()
         cls.ns = None

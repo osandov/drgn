@@ -19,7 +19,6 @@ from drgn.helpers.linux.cgroup import (
 )
 from drgn.helpers.linux.fs import fget
 from drgn.helpers.linux.pid import find_task
-from tests import classCleanups
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     create_socket,
@@ -50,7 +49,6 @@ def tmp_cgroups():
 
 class TestCgroup(LinuxKernelTestCase):
     @classmethod
-    @classCleanups
     def setUpClass(cls):
         super().setUpClass()
 
