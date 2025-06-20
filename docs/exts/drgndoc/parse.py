@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import ast
+import dataclasses
 import inspect
 import operator
 import os.path
@@ -64,32 +65,21 @@ class _PreTransformer(ast.NodeTransformer):
         return self.visit(node.value)
 
 
-# Once we don't care about Python 3.6, we can replace all of this boilerplate
-# with dataclasses.
-
-
+@dataclasses.dataclass
 class Module:
-    def __init__(
-        self, path: Optional[str], docstring: Optional[str], attrs: Mapping[str, "Node"]
-    ) -> None:
-        self.path = path
-        self.docstring = docstring
-        self.attrs = attrs
+    path: Optional[str]
+    docstring: Optional[str]
+    attrs: Mapping[str, "Node"]
 
     def has_docstring(self) -> bool:
         return self.docstring is not None
 
 
+@dataclasses.dataclass
 class Class:
-    def __init__(
-        self,
-        bases: Sequence[ast.expr],
-        docstring: Optional[str],
-        attrs: Mapping[str, "NonModuleNode"],
-    ) -> None:
-        self.bases = bases
-        self.docstring = docstring
-        self.attrs = attrs
+    bases: Sequence[ast.expr]
+    docstring: Optional[str]
+    attrs: Mapping[str, "NonModuleNode"]
 
     def has_docstring(self) -> bool:
         if self.docstring is not None:
@@ -98,18 +88,12 @@ class Class:
         return isinstance(init, Function) and init.has_docstring()
 
 
+@dataclasses.dataclass
 class FunctionSignature:
-    def __init__(
-        self,
-        args: ast.arguments,
-        returns: Optional[ast.expr],
-        decorator_list: Sequence[ast.expr],
-        docstring: Optional[str],
-    ) -> None:
-        self.args = args
-        self.returns = returns
-        self.decorator_list = decorator_list
-        self.docstring = docstring
+    args: ast.arguments
+    returns: Optional[ast.expr]
+    decorator_list: Sequence[ast.expr]
+    docstring: Optional[str]
 
     def has_decorator(self, name: str) -> bool:
         return any(
@@ -118,43 +102,39 @@ class FunctionSignature:
         )
 
 
+@dataclasses.dataclass
 class Function:
-    def __init__(self, async_: bool, signatures: Sequence[FunctionSignature]) -> None:
-        self.async_ = async_
-        self.signatures = signatures
+    async_: bool
+    signatures: Sequence[FunctionSignature]
 
     def has_docstring(self) -> bool:
         return any(signature.docstring is not None for signature in self.signatures)
 
 
+@dataclasses.dataclass
 class Variable:
-    def __init__(
-        self, annotation: Optional[ast.expr], docstring: Optional[str]
-    ) -> None:
-        self.annotation = annotation
-        self.docstring = docstring
+    annotation: Optional[ast.expr]
+    docstring: Optional[str]
 
     def has_docstring(self) -> bool:
         return self.docstring is not None
 
 
+@dataclasses.dataclass
 class Import:
-    def __init__(self, module: str, aliased: bool) -> None:
-        self.module = module
-        self.aliased = aliased
+    module: str
+    aliased: bool
 
     def has_docstring(self) -> bool:
         return False
 
 
+@dataclasses.dataclass
 class ImportFrom:
-    def __init__(
-        self, name: str, module: Optional[str], level: int, aliased: bool
-    ) -> None:
-        self.name = name
-        self.module = module
-        self.level = level
-        self.aliased = aliased
+    name: str
+    module: Optional[str]
+    level: int
+    aliased: bool
 
     def has_docstring(self) -> bool:
         return False
