@@ -107,6 +107,17 @@ def missing_reference(
         reftarget = node.get("reftarget")
         if reftarget and node.get("reftype") == "class":
             resolved = env.drgndoc_namespace.resolve_global_name(reftarget)
+            if not isinstance(resolved, ResolvedNode):
+                py_module = node.get("py:module", "")
+                if py_module:
+                    resolved = env.drgndoc_namespace.resolve_global_name(
+                        dot_join(py_module, reftarget)
+                    )
+                classes = node.get("classes")
+                if not isinstance(resolved, ResolvedNode) and classes:
+                    resolved = env.drgndoc_namespace.resolve_global_name(
+                        dot_join(py_module, *classes, reftarget)
+                    )
             if (
                 isinstance(resolved, ResolvedNode)
                 and isinstance(resolved.node, Variable)
