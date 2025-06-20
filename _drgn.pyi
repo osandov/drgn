@@ -27,6 +27,7 @@ from typing import (
     Protocol,
     Sequence,
     Set,
+    SupportsIndex,
     Tuple,
     Union,
     overload,
@@ -42,22 +43,15 @@ if sys.version_info < (3, 12):
 else:
     from collections.abc import Buffer
 
-# This is effectively typing.SupportsIndex without @typing.runtime_checkable
-# (both of which are only available since Python 3.8), with a more
-# self-explanatory name.
-class IntegerLike(Protocol):
-    """
-    An :class:`int` or integer-like object.
+IntegerLike: TypeAlias = SupportsIndex
+"""
+An :class:`int` or integer-like object.
 
-    Parameters annotated with this type expect an integer which may be given as
-    a Python :class:`int` or an :class:`Object` with integer type.
+Parameters annotated with this type expect an integer which may be given as a
+Python :class:`int` or an :class:`Object` with integer type.
 
-    .. note::
-        This is equivalent to :class:`typing.SupportsIndex` except that it is
-        not runtime-checkable.
-    """
-
-    def __index__(self) -> int: ...
+This is equivalent to :class:`typing.SupportsIndex`.
+"""
 
 Path: TypeAlias = Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]
 """

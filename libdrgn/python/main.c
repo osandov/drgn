@@ -251,17 +251,10 @@ static int add_type_aliases(PyObject *m)
 	if (!typing_Union)
 		return -1;
 
-	// This should be a subclass of typing.Protocol, but that is only
-	// available since Python 3.8.
-	PyObject *IntegerLike = PyType_FromSpec(&(PyType_Spec){
-		.name = "_drgn.IntegerLike",
-		.flags = Py_TPFLAGS_DEFAULT,
-		.slots = (PyType_Slot []){{0, NULL}},
-	});
-	if (!IntegerLike)
-		return -1;
-	if (PyModule_AddObject(m, "IntegerLike", IntegerLike) == -1) {
-		Py_DECREF(IntegerLike);
+	PyObject *typing_SupportsIndex =
+		PyObject_GetAttrString(typing_module, "SupportsIndex");
+	if (PyModule_AddObject(m, "IntegerLike", typing_SupportsIndex) == -1) {
+		Py_XDECREF(typing_SupportsIndex);
 		return -1;
 	}
 
