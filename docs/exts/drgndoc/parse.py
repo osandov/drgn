@@ -59,23 +59,6 @@ class _PreTransformer(ast.NodeTransformer):
         node.annotation = self._visit_annotation(node.annotation)
         return node
 
-    # Replace the old constant nodes produced by ast.parse() before Python 3.8
-    # with Constant.
-    def visit_Num(self, node: Any) -> ast.Constant:
-        return ast.copy_location(ast.Constant(node.n), node)
-
-    def visit_Str(self, node: Any) -> ast.Constant:
-        return ast.copy_location(ast.Constant(node.s), node)
-
-    def visit_Bytes(self, node: Any) -> ast.Constant:
-        return ast.copy_location(ast.Constant(node.s), node)
-
-    def visit_Ellipsis(self, node: Any) -> ast.Constant:
-        return ast.copy_location(ast.Constant(...), node)
-
-    def visit_NameConstant(self, node: Any) -> ast.Constant:
-        return ast.copy_location(ast.Constant(node.value), node)
-
     # Get rid of Index nodes, which are deprecated as of Python 3.9.
     def visit_Index(self, node: Any) -> Any:
         return self.visit(node.value)
