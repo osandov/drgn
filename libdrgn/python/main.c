@@ -415,11 +415,6 @@ PyGILState_STATE drgn_initialize_python(bool *success_ret)
 		Py_InitializeEx(0);
 		// Note: we don't have a good place to call Py_Finalize(), so we
 		// don't call it.
-#if PY_VERSION_HEX < 0x03070000
-		// Py_Initialize() calls this for us since Python 3.7, and it
-		// was deprecated in Python 3.9.
-		PyEval_InitThreads();
-#endif
 		const char *env = getenv("PYTHONSAFEPATH");
 		if (!env || !env[0])
 			PyRun_SimpleString("import sys\nsys.path.insert(0, '')");
