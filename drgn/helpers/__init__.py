@@ -14,6 +14,17 @@ e.g., glibc and libstdc++.
 
 class ValidationError(Exception):
     """
-    Error raised by a :ref:`validator <validators>` when an inconsistent or
-    invalid state is detected.
+    Error raised by a validator when an inconsistent or invalid state is
+    detected.
+
+    Validators are a special category of helpers that check the consistency of
+    a data structure. In general, helpers assume that the data structures that
+    they examine are valid. Validators do not make this assumption and do
+    additional (potentially expensive) checks to detect broken invariants,
+    corruption, etc.
+
+    Validators raise :class:`drgn.helpers.ValidationError` if the data
+    structure is not valid or :class:`drgn.FaultError` if the data structure is
+    invalid in a way that causes a bad memory access. They have names prefixed
+    with ``validate_``.
     """

@@ -204,6 +204,9 @@ def validate_list(head: Object) -> None:
     """
     Validate that the ``next`` and ``prev`` pointers in a list are consistent.
 
+    >>> validate_list(prog["my_list"].address_of_())
+    drgn.helpers.ValidationError: (struct list_head *)0xffffffffc029e460 next 0xffffffffc029e000 has prev 0xffffffffc029e450
+
     :param head: ``struct list_head *``
     :raises ValidationError: if the list is invalid
     """
@@ -240,6 +243,17 @@ def validate_list_for_each_entry(
     """
     Like :func:`list_for_each_entry()`, but validates the list like
     :func:`validate_list()` while iterating.
+
+    .. code-block:: python3
+
+       def validate_my_list(prog):
+            for entry in validate_list_for_each_entry(
+                "struct my_entry",
+                prog["my_list"].address_of_(),
+                "list",
+            ):
+                if entry.value < 0:
+                    raise ValidationError("list contains negative entry")
 
     :param type: Entry type.
     :param head: ``struct list_head *``
