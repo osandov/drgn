@@ -7,6 +7,7 @@ import os
 from drgn import NULL, cast
 from drgn.helpers.linux.fs import fget
 from drgn.helpers.linux.kernfs import (
+    kernfs_children,
     kernfs_name,
     kernfs_parent,
     kernfs_path,
@@ -77,3 +78,35 @@ class TestKernfs(LinuxKernelTestCase):
         finally:
             for fd in fds:
                 os.close(fd)
+
+    def test_kernfs_children(self):
+        path = b"/sys/kernel"
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            kn = self.kernfs_node_from_fd(fd)
+            self.assertCountEqual(
+                [kernfs_name(child) for child in kernfs_children(kn)], os.listdir(path)
+            )
+
+            for child in kernfs_children(kn):
+                child_fd = os.open(b"/sys/" + kernfs_path(child), os.O_RDONLY)
+                try:
+                    child_kn = self.kernfs_node_from_fd(child_fd)
+                    if child_kn:
+                        self.assertEqual(child, child_kn)
+                finally:
+                    os.close(child_fd)
+        finally:
+            os.close(fd)
+
+        # Check that calling kernfs_children() on a non-directory raises an
+        # exception
+        path = b"/sys/kernel/vmcoreinfo"
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            kn = self.kernfs_node_from_fd(fd)
+            with self.assertRaises(ValueError) as context:
+                kernfs_children(kn)
+            self.assertEqual(str(context.exception), "not a directory")
+        finally:
+            os.close(fd)
