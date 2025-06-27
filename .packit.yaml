@@ -34,10 +34,6 @@ jobs:
     fedora-eln-ppc64le: {}
     fedora-eln-s390x: {}
     fedora-eln-x86_64: {}
-    epel-8-aarch64: {}
-    epel-8-ppc64le: {}
-    epel-8-s390x: {}
-    epel-8-x86_64: {}
     centos-stream+epel-next-9-aarch64:
       additional_repos:
         - https://kojihub.stream.centos.org/kojifiles/repos/c9s-build/latest/aarch64/
@@ -65,10 +61,6 @@ jobs:
     fedora-eln-ppc64le: {}
     fedora-eln-s390x: {}
     fedora-eln-x86_64: {}
-    epel-8-aarch64: {}
-    epel-8-ppc64le: {}
-    epel-8-s390x: {}
-    epel-8-x86_64: {}
     centos-stream+epel-next-9-aarch64:
       additional_repos:
         - https://kojihub.stream.centos.org/kojifiles/repos/c9s-build/latest/aarch64/
