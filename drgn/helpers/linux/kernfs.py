@@ -87,6 +87,11 @@ def kernfs_path(kn: Object) -> bytes:
     return b"/".join(names)
 
 
+def _kernfs_node_type(kn: Object, node_type: str) -> bool:
+    KERNFS_TYPE_MASK = 0x000F
+    return kn.flags & KERNFS_TYPE_MASK == kn.prog_.constant(node_type)
+
+
 def kernfs_walk(parent: Object, path: Path) -> Object:
     """
     Find the kernfs node with the given path from the given parent kernfs node.
@@ -122,10 +127,7 @@ def kernfs_children(kn: Object) -> Optional[Iterator[Object]]:
     :param kn: ``struct kernfs_node *``
     :return: Iterator of ``struct kernfs_node *`` objects.
     """
-    KERNFS_TYPE_MASK = 0x000F
-    kernfs_dir = kn.prog_.constant("KERNFS_DIR")
-
-    if (kn.flags & KERNFS_TYPE_MASK) != kernfs_dir:
+    if not _kernfs_node_type(kn, "KERNFS_DIR"):
         raise ValueError("not a directory")
 
     return rbtree_inorder_for_each_entry(
