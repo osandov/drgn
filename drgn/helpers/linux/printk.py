@@ -299,7 +299,7 @@ def print_dmesg(
     prog: Program,
     *,
     human_readable_time: bool = False,
-    file: "Optional[SupportsWrite[str]]" = None
+    file: "Optional[SupportsWrite[str]]" = None,
 ) -> None:
     """
     Print the contents of the kernel log buffer.
