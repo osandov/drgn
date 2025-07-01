@@ -79,6 +79,36 @@ class TestKernfs(LinuxKernelTestCase):
             for fd in fds:
                 os.close(fd)
 
+    def test_kernfs_walk_follow_symlinks(self):
+        fds = []
+        path = "/sys/block"
+        if not os.path.exists(path):
+            self.skipTest(f"{path} does not exist")
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            fds.append(fd)
+            kn = self.kernfs_node_from_fd(fd)
+            with os.scandir(path) as entries:
+                entry = next((e for e in entries if e.is_symlink()), None)
+                if not entry:
+                    self.skipTest(f"No symlink entries found under {path}")
+                sub_path = os.path.join(entry.path, "subsystem")
+                fd = os.open(sub_path, os.O_RDONLY)
+                fds.append(fd)
+                target_kn = self.kernfs_node_from_fd(fd)
+                rel_path = os.path.join(entry.name, "subsystem")
+                self.assertEqual(
+                    kernfs_walk(kn, rel_path),
+                    target_kn,
+                )
+                self.assertNotEqual(
+                    kernfs_walk(kn, rel_path, False),
+                    target_kn,
+                )
+        finally:
+            for fd in fds:
+                os.close(fd)
+
     def test_kernfs_children(self):
         path = b"/sys/kernel"
         fd = os.open(path, os.O_RDONLY)
