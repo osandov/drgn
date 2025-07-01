@@ -5,8 +5,15 @@
 set -eux
 
 : "${PYTHON=python3}"
-"$PYTHON" setup.py sdist
-SDIST=dist/drgn-"$("$PYTHON" setup.py --version)".tar.gz
+tmp_dir="$(mktemp -d dist.XXXXXXXXXX)"
+trap 'rm -rf "$tmp_dir"' EXIT
+"$PYTHON" -m build --sdist -o "$tmp_dir"
+cd "$tmp_dir"
+SDIST="$(echo *.tar.gz)"
+cd -
+mkdir -p dist
+mv "$tmp_dir/$SDIST" "dist/"
+SDIST="dist/$SDIST"
 
 if [ "${DOCKER+set}" = set ]; then
 	PODMAN="$DOCKER"

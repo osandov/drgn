@@ -36,3 +36,7 @@ repos:
     hooks:
     -   id: vermin
         args: ['-t=3.8-', '--violations', '--eval-annotations']
+-   repo: https://github.com/osandov/meson-python-sources-fixer
+    rev: v1.0
+    hooks:
+    -   id: meson-python-sources-fixer

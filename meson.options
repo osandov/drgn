@@ -1,0 +1,7 @@
+option('openmp', type : 'feature', value : 'enabled',
+       description : 'Use OpenMP')
+option('kdumpfile', type : 'feature', value : 'auto',
+       description : 'Build with support for the makedumpfile kernel core ' +
+                     'dump format using libkdumpfile')
+option('lzma', type : 'feature', value : 'auto',
+       description : 'Build with support for lzma decompression of ELF sections')

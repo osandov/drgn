@@ -1,9 +1,0 @@
-*
-!/.gitignore
-!/checkmk
-!/codegen_utils.py
-!/gen_arch_inc_strswitch.py
-!/gen_c_keywords_inc_strswitch.py
-!/gen_constants.py
-!/gen_elf_sections.py
-!/gen_strswitch.py

@@ -46,6 +46,9 @@
 /** Patch level of drgn. */
 #define DRGN_VERSION_PATCH 32
 
+/** drgn version string. */
+extern const char drgn_version[];
+
 /**
  * @defgroup ErrorHandling Error handling
  *

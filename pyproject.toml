@@ -1,3 +1,36 @@
+[project]
+name = "drgn"
+requires-python = ">=3.6"
+authors = [
+    {name = "Omar Sandoval", email = "osandov@osandov.com"}
+]
+description = "Programmable debugger"
+readme = "README.rst"
+license = {file = "COPYING"}
+classifiers=[
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: System :: Operating System Kernels :: Linux",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/osandov/drgn"
+Documentation = "https://drgn.readthedocs.io"
+Issues = "https://github.com/osandov/drgn/issues"
+
+[project.scripts]
+drgn = "drgn.cli:_main"
+
+[build-system]
+build-backend = "mesonpy"
+requires = ["meson-python"]
+
 [tool.isort]
 profile = "black"
 known_first_party = ["drgn", "_drgn", "drgndoc", "vmtest"]

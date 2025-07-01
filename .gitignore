@@ -9,7 +9,6 @@
 /docs/_build
 /drgn-*.tar.gz
 /drgn.egg-info
-/drgn/internal/version.py
 /htmlcov
 /python-drgn-*.src.rpm
 /python-drgn.spec

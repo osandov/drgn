@@ -331,6 +331,14 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    init_logging())
 		goto err;
 
+	PyObject *version = PyUnicode_FromString(drgn_version);
+	if (!version)
+		goto err;
+	if (PyModule_AddObject(m, "__version__", version)) {
+		Py_DECREF(version);
+		goto err;
+	}
+
 	FaultError_type.tp_base = (PyTypeObject *)PyExc_Exception;
 	if (add_type(m, &FaultError_type))
 		goto err;

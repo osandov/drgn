@@ -92,6 +92,7 @@ from _drgn import (
     TypeTemplateParameter,
     VdsoModule,
     WantedSupplementaryFile,
+    __version__,
     alignof,
     cast,
     container_of,
@@ -117,7 +118,6 @@ from _drgn import (  # noqa: F401
     _with_libkdumpfile as _with_libkdumpfile,
     _with_lzma as _with_lzma,
 )
-from drgn.internal.version import __version__ as __version__  # noqa: F401
 
 __all__ = (
     "AbsenceReason",
@@ -165,6 +165,7 @@ __all__ = (
     "TypeTemplateParameter",
     "VdsoModule",
     "WantedSupplementaryFile",
+    "__version__",
     "alignof",
     "cast",
     "container_of",

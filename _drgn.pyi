@@ -43,6 +43,8 @@ if sys.version_info < (3, 12):
 else:
     from collections.abc import Buffer
 
+__version__: str
+
 IntegerLike: TypeAlias = SupportsIndex
 """
 An :class:`int` or integer-like object.
