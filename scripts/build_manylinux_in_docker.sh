@@ -22,11 +22,6 @@ yum install -y \
 	zlib-devel \
 	zstd
 
-# The manylinux image contains an upgraded autotools in /usr/local, but the
-# pkg-config macros are not present for this upgraded package. See
-# https://github.com/pypa/manylinux/issues/731.
-ln -s /usr/share/aclocal/pkg.m4 /usr/local/share/aclocal/
-
 BUILD_ONLY_PYTHON=""
 if [ -n "${1:-}" ]; then
 	# Translate, e.g. 3.10 -> (3, 10)
