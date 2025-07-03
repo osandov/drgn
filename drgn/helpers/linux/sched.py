@@ -22,6 +22,7 @@ from drgn.helpers.common.prog import takes_program_or_default
 
 __all__ = (
     "cpu_curr",
+    "get_task_state",
     "idle_task",
     "loadavg",
     "task_cpu",
@@ -119,6 +120,32 @@ def task_state_to_char(task: Object) -> str:
         return "I"
     else:
         return char
+
+
+_TASK_STATE_CHAR_TO_STATE = {
+    "R": "R (running)",
+    "S": "S (sleeping)",
+    "D": "D (disk sleep)",
+    "T": "T (stopped)",
+    "t": "t (tracing stop)",
+    "X": "X (dead)",
+    "Z": "Z (zombie)",
+    "P": "P (parked)",
+    "I": "I (idle)",
+}
+
+
+def get_task_state(task: Object) -> str:
+    """
+    Get the state of the task as a character plus a parenthesized name (e.g.,
+    ``'R (running)'``).
+
+    See also :func:`task_state_to_char()`.
+
+    :param task: ``struct task_struct *``
+    """
+    char = task_state_to_char(task)
+    return _TASK_STATE_CHAR_TO_STATE.get(char, char)
 
 
 @takes_program_or_default
