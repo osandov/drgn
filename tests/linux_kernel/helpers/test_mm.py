@@ -5,6 +5,8 @@ import contextlib
 import ctypes
 import mmap
 import os
+from pathlib import Path
+import re
 import struct
 import sys
 import tempfile
@@ -34,6 +36,7 @@ from drgn.helpers.linux.mm import (
     follow_phys,
     for_each_vma,
     for_each_vmap_area,
+    get_task_rss_info,
     page_size,
     page_to_pfn,
     page_to_phys,
@@ -452,3 +455,32 @@ class TestMm(LinuxKernelTestCase):
             proc_totalram = 1024 * int(parts[1])
             page_size = self.prog["PAGE_SIZE"].value_()
             self.assertEqual(totalram_pages(self.prog) * page_size, proc_totalram)
+
+    def test_get_task_rss_info(self):
+        with fork_and_stop() as pid:
+            task = find_task(self.prog, pid)
+            rss_info = get_task_rss_info(self.prog, task)
+
+            page_size = self.prog["PAGE_SIZE"].value_()
+            # Get the relevant RSS counters, converting from kB to pages.
+            stats = {
+                key: int(value) * 1024 // page_size
+                for key, value in re.findall(
+                    r"^(VmRSS|RssAnon|RssFile|RssShmem|VmSwap):\s*([0-9]+)",
+                    Path(f"/proc/{pid}/status").read_text(),
+                    flags=re.MULTILINE,
+                )
+            }
+
+            # The kernel code uses percpu_counter_read_positive(), but the
+            # helper uses percpu_counter_sum() for better accuracy. We need to
+            # account for the deviation.
+            delta = self.prog["percpu_counter_batch"].value_() * os.cpu_count()
+
+            self.assertAlmostEqual(rss_info.file, stats["RssFile"], delta=delta)
+            self.assertAlmostEqual(rss_info.anon, stats["RssAnon"], delta=delta)
+            self.assertAlmostEqual(
+                rss_info.shmem, stats.get("RssShmem", 0), delta=delta
+            )
+            self.assertAlmostEqual(rss_info.swap, stats["VmSwap"], delta=delta)
+            self.assertAlmostEqual(rss_info.total, stats["VmRSS"], delta=delta)
