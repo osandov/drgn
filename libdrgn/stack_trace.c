@@ -783,26 +783,9 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		bool on_cpu;
-		err = drgn_object_member_dereference(&tmp, &obj, "on_cpu");
-		if (!err) {
-			err = drgn_object_bool(&tmp, &on_cpu);
-			if (err)
-				return err;
-		} else if (err->code == DRGN_ERROR_LOOKUP) {
-			// The kernel must be !SMP. We have to check cpu_curr(0)
-			// instead.
-			drgn_error_destroy(err);
-			err = linux_helper_cpu_curr(&tmp, 0);
-			if (err)
-				return err;
-			int cmp;
-			err = drgn_object_cmp(&tmp, &obj, &cmp);
-			if (err)
-				return err;
-			on_cpu = cmp == 0;
-		} else {
+		err = linux_helper_task_on_cpu(&obj, &on_cpu);
+		if (err)
 			return err;
-		}
 		if (on_cpu) {
 			if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
 				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,

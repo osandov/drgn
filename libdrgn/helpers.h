@@ -48,6 +48,9 @@ linux_helper_task_thread_info(struct drgn_object *res,
 struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
 					 uint64_t *ret);
 
+struct drgn_error *linux_helper_task_on_cpu(const struct drgn_object *task,
+					    bool *ret);
+
 struct drgn_error *
 linux_helper_xa_load(struct drgn_object *res, const struct drgn_object *xa,
 		     uint64_t index);

@@ -165,6 +165,23 @@ PyObject *drgnpy_linux_helper_task_cpu(PyObject *self, PyObject *args,
 	return PyLong_FromUint64(cpu);
 }
 
+PyObject *drgnpy_linux_helper_task_on_cpu(PyObject *self, PyObject *args,
+					  PyObject *kwds)
+{
+	static char *keywords[] = {"task", NULL};
+	struct drgn_error *err;
+	DrgnObject *task;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:task_on_cpu", keywords,
+					 &DrgnObject_type, &task))
+		return NULL;
+	bool on_cpu;
+	err = linux_helper_task_on_cpu(&task->obj, &on_cpu);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_BOOL(on_cpu);
+}
+
 DrgnObject *drgnpy_linux_helper_xa_load(PyObject *self, PyObject *args,
 					PyObject *kwds)
 {

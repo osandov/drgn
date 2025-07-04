@@ -8,9 +8,11 @@ from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.sched import (
     cpu_curr,
+    get_task_state,
     idle_task,
     loadavg,
     task_cpu,
+    task_on_cpu,
     task_state_to_char,
     task_thread_info,
 )
@@ -40,6 +42,7 @@ class TestSched(LinuxKernelTestCase):
     def test_task_state_to_char(self):
         task = find_task(self.prog, os.getpid())
         self.assertEqual(task_state_to_char(task), "R")
+        self.assertEqual(get_task_state(task), "R (running)")
 
         pid = os.fork()
         try:
@@ -54,6 +57,7 @@ class TestSched(LinuxKernelTestCase):
 
             wait_until(lambda: proc_state(pid) == "S")
             self.assertEqual(task_state_to_char(task), "S")
+            self.assertEqual(get_task_state(task), "S (sleeping)")
 
             os.kill(pid, signal.SIGSTOP)
             wait_until(lambda: proc_state(pid) == "T")
@@ -65,6 +69,14 @@ class TestSched(LinuxKernelTestCase):
         finally:
             os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
+
+    def test_task_on_cpu(self):
+        task = find_task(self.prog, os.getpid())
+        self.assertTrue(task_on_cpu(task))
+
+        with fork_and_stop() as pid:
+            task = find_task(self.prog, pid)
+            self.assertFalse(task_on_cpu(task))
 
     def test_cpu_curr(self):
         task = find_task(self.prog, os.getpid())
