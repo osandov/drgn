@@ -26,7 +26,7 @@ multiple reasons:
 
 import operator
 import re
-from typing import Callable, Iterable, Iterator, List, NamedTuple, Optional
+from typing import Callable, Iterator, List, NamedTuple, Optional
 
 from _drgn import (
     _linux_helper_direct_mapping_offset,
@@ -39,6 +39,7 @@ from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.mapletree import mt_for_each, mtree_load
 from drgn.helpers.linux.percpu import percpu_counter_sum
+from drgn.helpers.linux.pid import for_each_task_in_group
 from drgn.helpers.linux.rbtree import rb_find
 
 __all__ = (
@@ -1441,7 +1442,7 @@ def in_direct_map(prog: Program, addr: IntegerLike) -> bool:
 
 class TaskRss(NamedTuple):
     """
-    Represent's a task's resident set size in pages. See task_rss().
+    Represent's a task's resident set size in pages. See :func:`get_task_rss_info()`.
     """
 
     rss_file: int
@@ -1452,44 +1453,6 @@ class TaskRss(NamedTuple):
     @property
     def total(self) -> int:
         return self.rss_file + self.rss_anon + self.rss_shmem
-
-
-def for_each_task_in_group(
-    task: Object, include_self: bool = False
-) -> Iterable[Object]:
-    """
-    Iterate over all tasks in the thread group
-
-    Or, in the more common userspace terms, iterate over all threads of a
-    process.
-
-    :param task: a task whose group to iterate over
-    :param include_self: should `task itself be returned
-    :returns: an iterable of every thread in the thread group
-    """
-    if include_self:
-        yield task
-    if hasattr(task, "thread_group"):
-        yield from list_for_each_entry(
-            "struct task_struct",
-            task.thread_group.address_of_(),
-            "thread_group",
-        )
-    else:
-        # Since commit 8e1f385104ac0 ("kill task_struct->thread_group") from
-        # 6.7, the thread_group list is gone, replaced by a list inside the
-        # task.signal struct. This has an explicit list_head (unlike the
-        # thread_group which just linked each task together with no explicit
-        # head node).
-        for other in list_for_each_entry(
-            "struct task_struct",
-            task.signal.thread_head.address_of_(),
-            "thread_node",
-        ):
-            # We've already yielded "task" (or not, depending on the caller's
-            # preference) so skip it here.
-            if other != task:
-                yield other
 
 
 @takes_program_or_default
@@ -1554,6 +1517,5 @@ def get_task_rss_info(prog: Program, task: Object) -> TaskRss:
             swapents += gtask.rss_stat.count[MM_SWAPENTS].value_()
             if MM_SHMEMPAGES >= 0:
                 shmemrss += gtask.rss_stat.count[MM_SHMEMPAGES].value_()
-    rss = TaskRss(filerss, anonrss, shmemrss, swapents)
 
-    return rss
+    return TaskRss(filerss, anonrss, shmemrss, swapents)

@@ -34,6 +34,7 @@ from drgn.helpers.linux.mm import (
     follow_phys,
     for_each_vma,
     for_each_vmap_area,
+    get_task_rss_info,
     page_size,
     page_to_pfn,
     page_to_phys,
@@ -452,3 +453,25 @@ class TestMm(LinuxKernelTestCase):
             proc_totalram = 1024 * int(parts[1])
             page_size = self.prog["PAGE_SIZE"].value_()
             self.assertEqual(totalram_pages(self.prog) * page_size, proc_totalram)
+
+    def test_get_task_rss_info(self):
+        with fork_and_stop() as pid:
+            task = find_task(self.prog, pid)
+            rss_info = get_task_rss_info(self.prog, task)
+
+            with open(f"/proc/{pid}/statm") as f:
+                statm = f.read().split()
+                rss_pages = int(statm[1])
+
+            with open(f"/proc/{pid}/status") as f:
+                lines = f.read().splitlines()
+                line = [line for line in lines if line.startswith("VmRSS:")][0]
+                rss_kb = line.split()[1]
+
+            rss_total = rss_info.total
+            page_size = self.prog["PAGE_SIZE"].value_()
+
+            self.assertTrue(abs(rss_total - rss_pages) <= 3)
+            if rss_kb is not None:
+                rss_pages_from_kb = rss_kb * 1024 // page_size
+                self.assertTrue(abs(rss_total - rss_pages_from_kb) <= 3)
