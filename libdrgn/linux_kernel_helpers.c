@@ -367,6 +367,31 @@ struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
 	return err;
 }
 
+struct drgn_error *linux_helper_task_on_cpu(const struct drgn_object *task,
+					    bool *ret)
+{
+	struct drgn_error *err;
+	DRGN_OBJECT(tmp, drgn_object_program(task));
+
+	err = drgn_object_member_dereference(&tmp, task, "on_cpu");
+	if (!err)
+		return drgn_object_bool(&tmp, ret);
+
+	if (!drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
+		return err;
+
+	// The kernel must be !SMP. We have to check cpu_curr(0) instead.
+	err = linux_helper_cpu_curr(&tmp, 0);
+	if (err)
+		return err;
+	int cmp;
+	err = drgn_object_cmp(&tmp, task, &cmp);
+	if (err)
+		return err;
+	*ret = cmp == 0;
+	return NULL;
+}
+
 struct drgn_error *
 linux_helper_xa_load(struct drgn_object *res,
 		     const struct drgn_object *xa, uint64_t index)

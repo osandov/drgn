@@ -3713,6 +3713,14 @@ def _linux_helper_task_cpu(task: Object) -> int:
     """
     ...
 
+def _linux_helper_task_on_cpu(task: Object) -> bool:
+    """
+    Return whether the given task is currently running on a CPU.
+
+    :param task: ``struct task_struct *``
+    """
+    ...
+
 def _linux_helper_idr_find(idr: Object, id: IntegerLike) -> Object: ...
 def _linux_helper_find_pid(__ns: Object, __pid: IntegerLike) -> Object: ...
 def _linux_helper_pid_task(pid: Object, pid_type: IntegerLike) -> Object:

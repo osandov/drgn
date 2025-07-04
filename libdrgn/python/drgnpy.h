@@ -482,6 +482,8 @@ DrgnObject *drgnpy_linux_helper_task_thread_info(PyObject *self, PyObject *args,
 						 PyObject *kwds);
 PyObject *drgnpy_linux_helper_task_cpu(PyObject *self, PyObject *args,
 				       PyObject *kwds);
+PyObject *drgnpy_linux_helper_task_on_cpu(PyObject *self, PyObject *args,
+					  PyObject *kwds);
 DrgnObject *drgnpy_linux_helper_xa_load(PyObject *self, PyObject *args,
 					PyObject *kwds);
 DrgnObject *drgnpy_linux_helper_idr_find(PyObject *self, PyObject *args,

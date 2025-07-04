@@ -15,6 +15,7 @@ from _drgn import (
     _linux_helper_cpu_curr,
     _linux_helper_idle_task,
     _linux_helper_task_cpu as task_cpu,
+    _linux_helper_task_on_cpu as task_on_cpu,
     _linux_helper_task_thread_info as task_thread_info,
 )
 from drgn import IntegerLike, Object, Program
@@ -26,6 +27,7 @@ __all__ = (
     "idle_task",
     "loadavg",
     "task_cpu",
+    "task_on_cpu",
     "task_state_to_char",
     "task_thread_info",
 )
