@@ -21,6 +21,7 @@ from drgn.commands import (
     command,
     custom_command,
 )
+from drgn.commands.crash import _merge_imports
 from tests import TestCase
 
 
@@ -513,3 +514,57 @@ class TestSanitizeRst(TestCase):
 
     def test_bold_and_escaped_dash(self):
         self.assertEqual(_sanitize_rst(r"**\-\-drgn**"), "--drgn")
+
+
+class TestMergeImports(TestCase):
+    def test_both_empty(self):
+        self.assertEqual(_merge_imports("", ""), "")
+
+    def test_deduplicate_imports(self):
+        self.assertEqual(
+            _merge_imports("import os\nimport re\n", "import re\nimport sys\n"),
+            "import os\nimport re\nimport sys\n",
+        )
+
+    def test_sort_imports(self):
+        self.assertEqual(
+            _merge_imports("import sys\n", "import os\n"), "import os\nimport sys\n"
+        )
+
+    def test_merge_from_imports(self):
+        self.assertEqual(
+            _merge_imports("from drgn import Program\n", "from drgn import Object\n"),
+            "from drgn import Object, Program\n",
+        )
+
+    def test_import_and_from_import(self):
+        self.assertEqual(
+            _merge_imports("from drgn import Program\n", "import drgn\n"),
+            "import drgn\nfrom drgn import Program\n",
+        )
+
+    def test_sort_stdlib_and_first_party(self):
+        self.assertEqual(
+            _merge_imports("import drgn\n", "import os\n"), "import os\n\nimport drgn\n"
+        )
+
+    def test_imports_and_other(self):
+        self.assertEqual(
+            _merge_imports("import drgn\nx = 1 + 1\n", "import os\ny = 2 + 2\n"),
+            "import os\n\nimport drgn\n\n\nx = 1 + 1\n\ny = 2 + 2\n",
+        )
+
+    def test_no_imports_first(self):
+        self.assertEqual(
+            _merge_imports("import os\n", "x = 2 + 2\n"), "import os\n\n\nx = 2 + 2\n"
+        )
+
+    def test_no_imports_second(self):
+        self.assertEqual(
+            _merge_imports("x = 2 + 2\n", "import os\n"), "import os\n\n\nx = 2 + 2\n"
+        )
+
+    def test_no_imports_both(self):
+        self.assertEqual(
+            _merge_imports("x = 1 + 1\n", "y = 2 + 2\n"), "x = 1 + 1\n\ny = 2 + 2\n"
+        )

@@ -3,6 +3,7 @@
 
 """Functions for porting commands from :doc:`crash <crash_compatibility>`."""
 
+import collections
 import contextlib
 import os
 import re
@@ -151,3 +152,111 @@ def crash_get_context(
         raise ValueError("no default context")
     prog.config["crash_context"] = task
     return task
+
+
+def _merge_imports(*sources: str) -> str:
+    # Combine multiple strings of Python source code into one, merging and
+    # sorting their imports (which must be at the beginning of each string).
+    imports = collections.defaultdict(set)
+    other_parts: List[str] = []
+
+    for source in sources:
+        for match in re.finditer(
+            r"""
+            (?P<import>
+                ^\s*
+                import
+                [^\S\n]+
+                (?P<import_modules>
+                    [\w.]+
+                    (?:\s*,\s*[\w.]+)*
+                )
+                \s*$\n?
+            )
+            |
+            (?P<from_import>
+                ^\s*
+                from
+                [^\S\n]+
+                (?P<from_import_module>[\w.]+)
+                [^\S\n]+
+                import
+                (?:
+                    [^\S\n]+
+                    (?P<from_import_names>
+                        \w+
+                        (?:[^\S\n]*,[^\S\n]*\w+)*
+                    )
+                    |
+                    [^\S\n]*
+                    \(
+                    \s*
+                    (?P<from_import_names_in_parens>
+                        \w+
+                        (?:\s*,\s*\w+)*
+                        (?:\s*,)?
+                    )
+                    \s*
+                    \)
+                )
+                \s*$\n?
+            )
+            |
+            (?P<rest>(?s:.+))
+            """,
+            source,
+            flags=re.MULTILINE | re.VERBOSE,
+        ):
+            if match.lastgroup == "import":
+                for module in match.group("import_modules").split(","):
+                    imports[module.strip()].add("")
+            elif match.lastgroup == "from_import":
+                module = imports[match.group("from_import_module")]
+                for name in (
+                    match.group("from_import_names")
+                    or match.group("from_import_names_in_parens")
+                ).split(","):
+                    name = name.strip()
+                    if not name:
+                        continue
+                    module.add(name)
+            else:
+                rest = match.group("rest")
+                if rest:
+                    if other_parts:
+                        other_parts.append("\n")
+                    other_parts.append(rest)
+
+    parts: List[str] = []
+    first_party_imports: List[str] = []
+    for module, names in sorted(imports.items()):
+        if module == "drgn" or module.startswith("drgn."):
+            target = first_party_imports
+        else:
+            target = parts
+
+        if "" in names:
+            names.remove("")
+            target.append(f"import {module}\n")
+
+        if names:
+            sorted_names = sorted(names)
+            line = f"from {module} import {', '.join(sorted_names)}\n"
+            # 88 (the default Black line length) + 1 for the newline.
+            if len(line) <= 89:
+                target.append(line)
+            else:
+                target.append(f"from {module} import (\n")
+                for name in sorted_names:
+                    target.append(f"    {name},\n")
+                target.append(")\n")
+
+    if parts and first_party_imports:
+        parts.append("\n")
+    parts.extend(first_party_imports)
+
+    if parts and other_parts:
+        parts.append("\n\n")
+    parts.extend(other_parts)
+
+    return "".join(parts)
