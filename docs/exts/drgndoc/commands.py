@@ -271,7 +271,9 @@ class CommandFormatter:
         raise UnrecognizedInputError("option has no names")
 
     @staticmethod
-    def _option_string(node: ast.Call, *, usage: bool) -> str:
+    def _option_string(
+        node: ast.Call, *, usage: bool, in_mutually_exclusive_group: bool = False
+    ) -> str:
         if usage:
 
             def format_option_name(s: str) -> str:
@@ -393,6 +395,20 @@ class CommandFormatter:
             return arg_name
 
         arg_str = format_arg_name(arg_name)
+
+        if positional and in_mutually_exclusive_group:
+            # A positional argument in a mutually exclusive group must be
+            # optional based on nargs, but inside of the mutually exclusive
+            # group, we want to format it as if it were mandatory.
+            if nargs == "?":
+                nargs = 1
+            elif nargs == "*":
+                nargs = "+"
+            else:
+                raise UnrecognizedInputError(
+                    f"unrecognized nargs for positional argument in mutually exclusive group: {nargs!r}"
+                )
+
         if nargs != 1:
             if isinstance(nargs, int):
                 arg_str = " ".join([arg_str] * nargs)
@@ -428,11 +444,17 @@ class CommandFormatter:
         parts_end: List[str] = []
 
         def append_argument_usage(
-            type: _ArgumentType, node: ast.Call, nested: bool = False
+            type: _ArgumentType,
+            node: ast.Call,
+            in_mutually_exclusive_group: bool = False,
         ) -> None:
             if type == "drgn.commands.argument":
                 try:
-                    option_string = self._option_string(node, usage=True)
+                    option_string = self._option_string(
+                        node,
+                        usage=True,
+                        in_mutually_exclusive_group=in_mutually_exclusive_group,
+                    )
                     if not option_string:
                         return
                 except UnrecognizedInputError as e:
@@ -440,15 +462,21 @@ class CommandFormatter:
                     return
 
                 positional = self._option_is_positional(node)
-                target = parts_end if positional else parts
+                # Unlike argparse, we keep positional arguments inside of
+                # mutually exclusive groups.
+                target = (
+                    parts_end
+                    if not in_mutually_exclusive_group and positional
+                    else parts
+                )
 
                 brackets = (
-                    not nested
+                    not in_mutually_exclusive_group
                     and not positional
                     and not _get_bool_kwarg(node, "required")
                 )
 
-                if not nested:
+                if not in_mutually_exclusive_group:
                     target.append(" ")
                 if brackets:
                     target.append("[")
@@ -464,7 +492,7 @@ class CommandFormatter:
                 for i, (type, node) in enumerate(self._group_arguments(command, node)):
                     if i != 0:
                         parts.append(" | ")
-                    append_argument_usage(type, node, nested=True)
+                    append_argument_usage(type, node, in_mutually_exclusive_group=True)
                 parts.append(")" if required else "]")
             else:
                 assert_never(type)
