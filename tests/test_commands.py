@@ -16,6 +16,7 @@ from drgn.commands import (
     CommandNotFoundError,
     _parse_shell_command,
     _ParsedShellCommand,
+    _sanitize_rst,
     argument,
     command,
     custom_command,
@@ -486,3 +487,29 @@ class TestRunCommand(TestCase):
         self.assertRaises(
             CommandArgumentError, self.run_command, "tac --garbage 2> /dev/null"
         )
+
+
+class TestSanitizeRst(TestCase):
+    def test_empty(self):
+        self.assertEqual(_sanitize_rst(""), "")
+
+    def test_none(self):
+        self.assertEqual(_sanitize_rst(None), None)
+
+    def test_bold(self):
+        self.assertEqual(_sanitize_rst("**true**"), "true")
+
+    def test_italic(self):
+        self.assertEqual(_sanitize_rst("*CPU*"), "CPU")
+
+    def test_escaped_asterisk(self):
+        self.assertEqual(_sanitize_rst(r"\*"), "*")
+
+    def test_bold_escaped_asterisk(self):
+        self.assertEqual(_sanitize_rst(r"**\***"), "*")
+
+    def test_escaped_backslash(self):
+        self.assertEqual(_sanitize_rst("\\\\"), "\\")
+
+    def test_bold_and_escaped_dash(self):
+        self.assertEqual(_sanitize_rst(r"**\-\-drgn**"), "--drgn")

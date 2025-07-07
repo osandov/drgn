@@ -443,10 +443,7 @@ class CommandFormatter:
     def _command_usage(self, command: Command) -> str:
         usage = _get_string_or_none_kwarg(command.decorator, "usage")
         if usage is not None:
-            # Bold the command name at the beginning of the usage string.
-            return re.sub(
-                r"^" + re.escape(command.name) + r"\b", f"**{command.name}**", usage
-            )
+            return usage
 
         parts = [f"**{command.name}**"]
         # Positional arguments go at the end.

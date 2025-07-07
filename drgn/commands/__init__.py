@@ -33,6 +33,7 @@ from typing import (
     Sequence,
     Tuple,
     Union,
+    overload,
 )
 
 if TYPE_CHECKING:
@@ -482,6 +483,20 @@ class Command(Protocol):
         ...
 
 
+@overload
+def _sanitize_rst(s: str) -> str: ...
+
+
+@overload
+def _sanitize_rst(s: None) -> None: ...
+
+
+def _sanitize_rst(s: Optional[str]) -> Optional[str]:
+    if not s:
+        return s
+    return re.sub(r"\\(.)|[*\\]", r"\1", s)
+
+
 class _DrgnCommandArgumentParser(argparse.ArgumentParser):
     def exit(self, status: int = 0, message: Optional[str] = None) -> NoReturn:
         if message is None:
@@ -579,8 +594,8 @@ def command(
         must begin with ``_cmd_``, and the command name is the function name
         with that prefix removed.
     :param description: Mandatory one-line description of the command.
-    :param usage: Usage string. Generated from arguments automatically if not
-        given.
+    :param usage: Usage string in reStructuredText format. Generated from
+        arguments automatically if not given.
     :param long_description: Optional longer description of the command.
     :param epilog: Optional additional information to show at the end of help
         output.
@@ -597,7 +612,7 @@ def command(
         parser = _DrgnCommandArgumentParser(
             prog=command_name,
             description=long_description,
-            usage=usage,
+            usage=_sanitize_rst(usage),
             epilog=epilog,
             formatter_class=_drgn_util.argparseformatter.MultilineHelpFormatter,
             add_help=False,
@@ -879,7 +894,7 @@ def custom_command(
 
         @custom_command(
             description="evaluate a Python literal",
-            usage="literal_eval EXPR",
+            usage="**literal_eval** *EXPR*",
             help="This evaluates and returns a Python literal"
             " (for example, a string, integer, list, etc.).",
         )
@@ -892,7 +907,7 @@ def custom_command(
         must begin with ``_cmd_``, and the command name is the function name
         with that prefix removed.
     :param description: Mandatory one-line description of the command.
-    :param usage: Mandatory usage string.
+    :param usage: Mandatory usage string in reStructuredText format.
     :param help: Mandatory help string.
     :param enabled: Callback returning whether the command should be enabled
         for a given program. Defaults to always enabled.
@@ -906,7 +921,7 @@ def custom_command(
                 func=func,
                 description=description,
                 help=help,
-                usage=usage,
+                usage=_sanitize_rst(usage),
                 enabled=enabled,
             ),
         )
