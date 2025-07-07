@@ -3,9 +3,13 @@
 
 """Functions for porting commands from :doc:`crash <crash_compatibility>`."""
 
+import contextlib
 import os
 import re
-from typing import Any, Literal, Optional, Tuple
+import shutil
+import subprocess
+import sys
+from typing import Any, List, Literal, Optional, Tuple
 
 from _drgn_util.typingutils import copy_func_params
 from drgn import Object, Program, ProgramFlags
@@ -26,6 +30,27 @@ def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
         return "task", int(s, 16)
 
 
+def _find_pager() -> Optional[List[str]]:
+    less = shutil.which("less")
+    if less:
+        return [less, "-E", "-X"]
+
+    more = shutil.which("more")
+    if more:
+        return [more]
+
+    return None
+
+
+def _get_pager(prog: Program) -> Optional[List[str]]:
+    try:
+        return prog.config["crash_pager"]
+    except KeyError:
+        pager = _find_pager()
+        prog.config["crash_pager"] = pager
+        return pager
+
+
 class _CrashCommandNamespace(CommandNamespace):
     def __init__(self) -> None:
         super().__init__(
@@ -39,6 +64,26 @@ class _CrashCommandNamespace(CommandNamespace):
         if match:
             return match.group(1), match.group(2)
         return super().split_command(command)
+
+    def run(self, prog: Program, command: str, **kwargs: Any) -> Any:
+        pager = _get_pager(prog)
+        if pager:
+            # If stdout isn't a file descriptor, we can't actually pipe it
+            # to a pager.
+            try:
+                stdout_fileno = sys.stdout.fileno()
+            except (AttributeError, OSError):
+                pager = None
+
+        if not pager:
+            return super().run(prog, command, **kwargs)
+
+        with subprocess.Popen(
+            pager, stdin=subprocess.PIPE, stdout=stdout_fileno, text=True
+        ) as pager_process, contextlib.redirect_stdout(pager_process.stdin):
+            ret = super().run(prog, command, **kwargs)
+            pager_process.stdin.close()  # type: ignore[union-attr]
+        return ret
 
 
 CRASH_COMMAND_NAMESPACE: CommandNamespace = _CrashCommandNamespace()

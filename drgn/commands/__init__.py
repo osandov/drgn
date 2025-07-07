@@ -165,7 +165,11 @@ def _shell_command(source: str) -> Iterator[_ParsedShellCommand]:
     try:
         if parsed.pipeline is not None:
             pipe_process = subprocess.Popen(
-                parsed.pipeline, shell=True, stdin=subprocess.PIPE, text=True
+                parsed.pipeline,
+                shell=True,
+                stdin=subprocess.PIPE,
+                stdout=sys.stdout,
+                text=True,
             )
             sys.stdout = pipe_process.stdin
 
