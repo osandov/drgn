@@ -96,6 +96,18 @@ def _get_bool_kwarg(node: ast.Call, name: str) -> Optional[bool]:
     return arg.value
 
 
+def _is_argparse_constant(node: Optional[ast.expr], name: str) -> bool:
+    # Technically we should resolve "argparse" to make sure it's actually the
+    # module with that name, but it's very unlikely to matter. We could also
+    # try to handle "from argparse import ...", but I'd rather discourage that.
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "argparse"
+        and node.attr == name
+    )
+
+
 def _format_text(lines: List[str], text: str, *, indent: str = "") -> None:
     lines.extend(multiline_wrap(text, 100, indent=indent))
 
@@ -234,6 +246,12 @@ class CommandFormatter:
                 _log_unrecognized_input(f"argument call not recognized: {name}")
                 continue
 
+            if name == "drgn.commands.argument" and _is_argparse_constant(
+                _get_kwarg(arg, "help"), "SUPPRESS"
+            ):
+                # Skip arguments with help=argparse.SUPPRESS.
+                continue
+
             yield typing.cast(_ArgumentType, name), arg
 
     def _group_arguments(
@@ -330,16 +348,7 @@ class CommandFormatter:
             nargs_node.value, (int, str)
         ):
             nargs = nargs_node.value
-        elif (
-            isinstance(nargs_node, ast.Attribute)
-            # Technically we should resolve "argparse" to make sure it's actually
-            # the module with that name, but it's very unlikely to matter. We could
-            # also try to handle "from argparse import REMAINDER", but I'd rather
-            # discourage that.
-            and isinstance(nargs_node.value, ast.Name)
-            and nargs_node.value.id == "argparse"
-            and nargs_node.attr == "REMAINDER"
-        ):
+        elif _is_argparse_constant(nargs_node, "REMAINDER"):
             # For argparse.REMAINDER, argparse omits the argument name from the
             # usage string, but I don't like that. Format it the same as "*".
             nargs = "*"
