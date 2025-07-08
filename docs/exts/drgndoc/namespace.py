@@ -2,16 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import itertools
-from typing import (
-    Generic,
-    Iterator,
-    List,
-    Mapping,
-    NamedTuple,
-    Sequence,
-    TypeVar,
-    Union,
-)
+from typing import Generic, Iterator, List, Mapping, Sequence, TypeVar, Union
 
 from drgndoc.parse import (
     Class,
@@ -27,16 +18,24 @@ from drgndoc.parse import (
 NodeT_co = TypeVar("NodeT_co", bound=Node, covariant=True)
 
 
-class BoundNode(NamedTuple, Generic[NodeT_co]):
-    name: str
-    node: NodeT_co
+class BoundNode(Generic[NodeT_co]):
+    def __init__(self, name: str, node: NodeT_co) -> None:
+        self.name = name
+        self.node = node
 
 
-class ResolvedNode(NamedTuple, Generic[NodeT_co]):
-    modules: Sequence[BoundNode[Module]]
-    classes: Sequence[BoundNode[Class]]
-    name: str
-    node: NodeT_co
+class ResolvedNode(Generic[NodeT_co]):
+    def __init__(
+        self,
+        modules: Sequence[BoundNode[Module]],
+        classes: Sequence[BoundNode[Class]],
+        name: str,
+        node: NodeT_co,
+    ) -> None:
+        self.modules = modules
+        self.classes = classes
+        self.name = name
+        self.node = node
 
     def qualified_name(self) -> str:
         return ".".join(
