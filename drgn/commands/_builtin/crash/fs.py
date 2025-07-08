@@ -4,11 +4,12 @@
 # Filesystem-related commands.
 
 import argparse
+import sys
 from typing import Any
 
 from drgn import Program
 from drgn.commands import argument, drgn_argument
-from drgn.commands.crash import crash_command, crash_get_context
+from drgn.commands.crash import add_crash_context, crash_command, crash_get_context
 from drgn.helpers.common.format import CellFormat, escape_ascii_string, print_table
 from drgn.helpers.linux.fs import for_each_mount, mount_dst, mount_fstype, mount_src
 
@@ -34,33 +35,33 @@ def _crash_cmd_mount(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
     if args.drgn:
-        if args.task is not None and args.task[0] == "task":
-            print("from drgn import Object")
-        print(
-            "from drgn.helpers.linux.fs import for_each_mount, mount_dst, mount_fstype, mount_src"
-        )
-        if args.task is not None and args.task[0] == "pid":
-            print("from drgn.helpers.linux.pid import find_task")
-        print()
+        source = """\
+from drgn.helpers.linux.fs import for_each_mount, mount_dst, mount_fstype, mount_src
 
-        if args.task is None:
-            print("for mnt in for_each_mount():")
-        else:
-            if args.task[0] == "pid":
-                print(f"task = find_task({args.task[1]})")
-            else:
-                print(
-                    f'task = Object(prog, "struct task_struct *", {hex(args.task[1])})'
-                )
-            print("mnt_ns = task.nsproxy.mnt_ns")
-            print("for mnt in for_each_mount(mnt_ns):")
-        print(
-            """\
+{}
     superblock = mnt.mnt.mnt_sb
     fstype = mount_fstype(mnt)
     devname = mount_src(mnt)
-    dirname = mount_dst(mnt)"""
-        )
+    dirname = mount_dst(mnt)
+"""
+        # Avoid the context/mount namespace noise if -n wasn't given and the
+        # current context is in the initial mount namespace.
+        if (
+            args.task is None
+            and crash_get_context(prog).nsproxy.mnt_ns
+            == prog["init_task"].nsproxy.mnt_ns
+        ):
+            source = source.format("for mnt in for_each_mount():")
+        else:
+            source = add_crash_context(
+                prog,
+                source.format(
+                    "mnt_ns = task.nsproxy.mnt_ns\nfor mnt in for_each_mount(mnt_ns):"
+                ),
+                args.task,
+            )
+
+        sys.stdout.write(source)
         return
 
     task = crash_get_context(prog, args.task)
