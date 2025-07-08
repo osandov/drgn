@@ -353,7 +353,15 @@ class DrgnCommandDirective(sphinx.util.docutils.SphinxDirective):
 
         self.env.ref_context["std:program"] = name
 
-        nodes = self.parse_content_to_nodes(allow_section_headings=True)
+        # parse_content_to_nodes() was added in Sphinx 7.4. Fall back to an
+        # equivalent on older versions.
+        if hasattr(self, "parse_content_to_nodes"):
+            nodes = self.parse_content_to_nodes(allow_section_headings=True)
+        else:
+            node = docutils.nodes.Element()
+            node.document = self.state.document
+            sphinx.util.nodes.nested_parse_with_titles(self.state, self.content, node)
+            nodes = node.children
 
         if nodes:
             node_id = sphinx.util.nodes.make_id(
