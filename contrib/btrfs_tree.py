@@ -370,9 +370,9 @@ class BtrfsKeyPtr(NamedTuple):
 
 
 # class _BtrfsItemHandler(NamedTuple, Generic[_T]) and replacing Any with _T
-# would be more accurate, but that fails at runtime on Python 3.6; see
-# python/typing#449. This is good enough since it's checked more strictly
-# through _register_item_handler().
+# would be more accurate, but that fails at runtime on Python < 3.11; see
+# https://github.com/python/cpython/pull/92027. This is good enough since it's
+# checked more strictly through _register_item_handler().
 class _BtrfsItemHandler(NamedTuple):
     parse: Callable[[BtrfsKey, bytes], Any]
     print: Callable[[BtrfsKey, bytes, Any, str, "Optional[SupportsWrite[str]]"], None]
