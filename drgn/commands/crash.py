@@ -31,14 +31,16 @@ def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
         return "task", int(s, 16)
 
 
-def _find_pager() -> Optional[List[str]]:
-    less = shutil.which("less")
-    if less:
-        return [less, "-E", "-X"]
+def _find_pager(which: Optional[str] = None) -> Optional[List[str]]:
+    if which is None or which == "less":
+        less = shutil.which("less")
+        if less:
+            return [less, "-E", "-X"]
 
-    more = shutil.which("more")
-    if more:
-        return [more]
+    if which is None or which == "more":
+        more = shutil.which("more")
+        if more:
+            return [more]
 
     return None
 
@@ -67,14 +69,17 @@ class _CrashCommandNamespace(CommandNamespace):
         return super().split_command(command)
 
     def run(self, prog: Program, command: str, **kwargs: Any) -> Any:
-        pager = _get_pager(prog)
-        if pager:
-            # If stdout isn't a file descriptor, we can't actually pipe it
-            # to a pager.
-            try:
-                stdout_fileno = sys.stdout.fileno()
-            except (AttributeError, OSError):
-                pager = None
+        if prog.config.get("crash_scroll", True):
+            pager = _get_pager(prog)
+            if pager:
+                # If stdout isn't a file descriptor, we can't actually pipe it
+                # to a pager.
+                try:
+                    stdout_fileno = sys.stdout.fileno()
+                except (AttributeError, OSError):
+                    pager = None
+        else:
+            pager = None
 
         if not pager:
             return super().run(prog, command, **kwargs)
@@ -119,6 +124,17 @@ def crash_custom_command(*args: Any, **kwargs: Any) -> CustomCommandFuncDecorato
     return custom_command(*args, **kwargs, namespace=CRASH_COMMAND_NAMESPACE)
 
 
+def _crash_get_panic_context(prog: Program) -> Object:
+    if (prog.flags & (ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL)) == (
+        ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL
+    ):
+        return find_task(prog, os.getpid())
+    elif not (prog.flags & ProgramFlags.IS_LIVE):
+        return prog.crashed_thread().object
+    else:
+        raise ValueError("no default context")
+
+
 def crash_get_context(
     prog: Program, arg: Optional[Tuple[Literal["pid", "task"], int]] = None
 ) -> Object:
@@ -142,15 +158,7 @@ def crash_get_context(
         return prog.config["crash_context"]
     except KeyError:
         pass
-    if (prog.flags & (ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL)) == (
-        ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL
-    ):
-        task = find_task(prog, os.getpid())
-    elif not (prog.flags & ProgramFlags.IS_LIVE):
-        task = prog.crashed_thread().object
-    else:
-        raise ValueError("no default context")
-    prog.config["crash_context"] = task
+    prog.config["crash_context"] = task = _crash_get_panic_context(prog)
     return task
 
 
@@ -260,3 +268,87 @@ def _merge_imports(*sources: str) -> str:
     parts.extend(other_parts)
 
     return "".join(parts)
+
+
+def _add_context(source: str, context: str) -> str:
+    if not source:
+        return context
+
+    return _merge_imports(context, source)
+
+
+def _add_crash_panic_context(prog: Program, source: str) -> str:
+    if (prog.flags & (ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL)) == (
+        ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL
+    ):
+        context = """\
+import os
+
+from drgn.helpers.linux.pid import find_task
+
+
+task = find_task(os.getpid())
+"""
+    else:
+        context = """\
+from drgn.helpers.linux.panic import panic_task
+
+
+task = panic_task()
+"""
+    return _add_context(source, context)
+
+
+def _add_crash_cpu_context(source: str, cpu: int) -> str:
+    return _add_context(
+        source,
+        f"""\
+from drgn.helpers.linux.sched import cpu_curr
+
+
+cpu = {cpu}
+task = cpu_curr(cpu)
+""",
+    )
+
+
+def add_crash_context(
+    prog: Program, source: str, arg: Optional[Tuple[Literal["pid", "task"], int]] = None
+) -> str:
+    """
+    Edit an output string for :func:`drgn_argument` to include code for getting
+    the task context.
+
+    :param arg: Context parsed by the ``"pid_or_task"`` argparse type to use.
+        If ``None`` or not given, use the current context.
+    """
+    if arg is None:
+        arg = prog.config.get("crash_context_origin")
+        if arg is None:
+            return _add_crash_panic_context(prog, source)
+        elif arg[0] == "cpu":
+            return _add_crash_cpu_context(source, arg[1])
+
+    if arg[0] == "pid":
+        return _add_context(
+            source,
+            f"""\
+from drgn.helpers.linux.pid import find_task
+
+
+pid = {arg[1]}
+task = find_task(pid)
+""",
+        )
+    else:
+        assert arg[0] == "task"
+        return _add_context(
+            source,
+            f"""\
+from drgn import Object
+
+
+address = {hex(arg[1])}
+task = Object(prog, "struct task_struct *", address)
+""",
+        )
