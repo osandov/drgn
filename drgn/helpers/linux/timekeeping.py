@@ -18,6 +18,7 @@ The ``drgn.helpers.linux.timekeeping`` module provides helpers for timestamps.
 
 import functools
 import logging
+import re
 from typing import Optional
 
 from drgn import Object, Program, ProgramFlags, cast, sizeof
@@ -170,6 +171,17 @@ def ktime_get_real_seconds(prog: Program) -> Object:
 
     :return: ``time64_t``
     """
+    match = re.search(
+        b"^CRASHTIME=([0-9]+)$", prog["VMCOREINFO"].string_(), flags=re.MULTILINE
+    )
+    if match:
+        try:
+            time_type = prog.type("time64_t")
+        except LookupError:
+            # We want this to work even without any debugging information, so
+            # fall back to long long.
+            time_type = prog.type("long long")
+        return Object(prog, time_type, int(match.group(1)))
     return cast("time64_t", prog["tk_core"].timekeeper.xtime_sec)
 
 

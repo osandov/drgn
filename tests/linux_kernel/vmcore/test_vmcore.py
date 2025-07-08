@@ -1,10 +1,14 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import unittest
+
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-from drgn import ProgramFlags
+from drgn import Object, Program, ProgramFlags
 from drgn.helpers.linux.pid import find_task
-from tests.linux_kernel.vmcore import LinuxVMCoreTestCase
+from drgn.helpers.linux.timekeeping import ktime_get_real_seconds
+from tests import TestCase
+from tests.linux_kernel.vmcore import VMCORE_PATH, LinuxVMCoreTestCase
 
 
 class TestVMCore(LinuxVMCoreTestCase):
@@ -87,3 +91,19 @@ class TestVMCore(LinuxVMCoreTestCase):
         self._test_crashed_thread_stack_trace(
             self.prog.stack_trace(self.prog.crashed_thread().object)
         )
+
+
+@unittest.skipUnless(VMCORE_PATH.exists(), "not running in kdump")
+class TestVMCoreNoDebugInfo(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.prog = Program()
+        cls.prog.set_core_dump(VMCORE_PATH)
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.prog
+
+    def test_ktime_get_real_seconds(self):
+        self.assertIsInstance(ktime_get_real_seconds(self.prog), Object)
