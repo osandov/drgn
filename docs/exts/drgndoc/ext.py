@@ -371,8 +371,10 @@ class DrgnCommandDirective(sphinx.util.docutils.SphinxDirective):
             target["ids"].append(node_id)
             self.state.document.note_explicit_target(target)
 
-            std = self.env.domains.standard_domain
-            std.note_object("drgncommand", name, node_id, location=target)
+            std = self.env.get_domain("std")
+            std.note_object(  # type: ignore[attr-defined]
+                "drgncommand", name, node_id, location=target
+            )
 
         return nodes
 
