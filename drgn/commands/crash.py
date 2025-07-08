@@ -93,7 +93,7 @@ def crash_get_context(
             return Object(prog, "struct task_struct *", arg[1])
 
     try:
-        return prog.cache["crash_context"]
+        return prog.config["crash_context"]
     except KeyError:
         pass
     if (prog.flags & (ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL)) == (
@@ -104,5 +104,5 @@ def crash_get_context(
         task = prog.crashed_thread().object
     else:
         raise ValueError("no default context")
-    prog.cache["crash_context"] = task
+    prog.config["crash_context"] = task
     return task

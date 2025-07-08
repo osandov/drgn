@@ -326,11 +326,15 @@ static Program *Program_new_impl(const struct drgn_platform *platform)
 	_cleanup_pydecref_ PyObject *cache = PyDict_New();
 	if (!cache)
 		return NULL;
+	_cleanup_pydecref_ PyObject *config = PyDict_New();
+	if (!config)
+		return NULL;
 
 	_cleanup_pydecref_ Program *prog = call_tp_alloc(Program);
 	if (!prog)
 		return NULL;
 	prog->cache = no_cleanup_ptr(cache);
+	prog->config = no_cleanup_ptr(config);
 	pyobjectp_set_init(&prog->objects);
 	drgn_program_init(&prog->prog, platform);
 	if (Program_init_logging(prog))
@@ -403,6 +407,7 @@ static void Program_dealloc(Program *self)
 	hash_table_for_each(pyobjectp_set, it, &self->objects)
 		Py_DECREF(*it.entry);
 	pyobjectp_set_deinit(&self->objects);
+	Py_XDECREF(self->config);
 	Py_XDECREF(self->cache);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
@@ -412,6 +417,7 @@ static int Program_traverse(Program *self, visitproc visit, void *arg)
 	hash_table_for_each(pyobjectp_set, it, &self->objects)
 		Py_VISIT(*it.entry);
 	Py_VISIT(self->cache);
+	Py_VISIT(self->config);
 	return 0;
 }
 
@@ -422,6 +428,7 @@ static int Program_clear(Program *self)
 	pyobjectp_set_deinit(&self->objects);
 	pyobjectp_set_init(&self->objects);
 	Py_CLEAR(self->cache);
+	Py_CLEAR(self->config);
 	return 0;
 }
 
@@ -2045,6 +2052,8 @@ static PyMethodDef Program_methods[] = {
 static PyMemberDef Program_members[] = {
 	{"cache", T_OBJECT_EX, offsetof(Program, cache), 0,
 	 drgn_Program_cache_DOC},
+	{"config", T_OBJECT_EX, offsetof(Program, config), 0,
+	 drgn_Program_config_DOC},
 	{},
 };
 

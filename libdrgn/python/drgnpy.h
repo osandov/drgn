@@ -174,6 +174,7 @@ typedef struct {
 	PyObject_HEAD
 	struct drgn_program prog;
 	PyObject *cache;
+	PyObject *config;
 	/*
 	 * Set of objects that we need to hold a reference to during the
 	 * lifetime of the Program.

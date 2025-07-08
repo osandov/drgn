@@ -993,23 +993,30 @@ class Program:
     """
     Dictionary for caching program metadata.
 
-    This isn't used by drgn itself. It is intended to be used by helpers to
-    cache metadata about the program. For example, if a helper for a program
-    depends on the program version or an optional feature, the helper can
-    detect it and cache it for subsequent invocations:
+    This isn't used by the :class:`Program` itself. It is intended to be used
+    by helpers to cache metadata about the program. For example, if a helper
+    for a program depends on the program version or an optional feature, the
+    helper can detect it and cache it for subsequent invocations:
 
     .. code-block:: python3
 
         def my_helper(prog):
             try:
-                have_foo = prog.cache['have_foo']
+                have_foo = prog.cache["have_foo"]
             except KeyError:
                 have_foo = detect_foo_feature(prog)
-                prog.cache['have_foo'] = have_foo
+                prog.cache["have_foo"] = have_foo
             if have_foo:
-                return prog['foo']
+                return prog["foo"]
             else:
-                return prog['bar']
+                return prog["bar"]
+    """
+    config: Dict[str, Any]
+    """
+    Dictionary for configuration options.
+
+    This isn't used by the :class:`Program` itself. It can be used to store
+    configuration options for commands and helpers.
     """
     def void_type(
         self,
