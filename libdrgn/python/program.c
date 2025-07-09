@@ -1898,6 +1898,14 @@ static PyObject *Program_get_platform(Program *self, void *arg)
 		Py_RETURN_NONE;
 }
 
+static PyObject *Program_get_core_dump_path(Program *self, void *arg)
+{
+	const char *path = drgn_program_core_dump_path(&self->prog);
+	if (!path)
+		Py_RETURN_NONE;
+	return PyUnicode_FromString(path);
+}
+
 static PyObject *Program_get_language(Program *self, void *arg)
 {
 	return Language_wrap(drgn_program_language(&self->prog));
@@ -2061,6 +2069,8 @@ static PyGetSetDef Program_getset[] = {
 	{"flags", (getter)Program_get_flags, NULL, drgn_Program_flags_DOC},
 	{"platform", (getter)Program_get_platform, NULL,
 	 drgn_Program_platform_DOC},
+	{"core_dump_path", (getter)Program_get_core_dump_path, NULL,
+	 drgn_Program_core_dump_path_DOC},
 	{"language", (getter)Program_get_language, (setter)Program_set_language,
 	 drgn_Program_language_DOC},
 	{"debug_info_options", (getter)Program_get_debug_info_options,

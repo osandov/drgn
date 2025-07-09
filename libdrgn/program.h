@@ -71,6 +71,8 @@ struct drgn_program {
 	Elf *core;
 	/* File descriptor for ELF core dump, kdump file, or /proc/pid/mem. */
 	int core_fd;
+	/* Path of core dump. */
+	char *core_path;
 	/* PID of live userspace program. */
 	pid_t pid;
 #ifdef WITH_LIBKDUMPFILE

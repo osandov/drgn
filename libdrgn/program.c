@@ -76,6 +76,12 @@ drgn_program_platform(struct drgn_program *prog)
 	return prog->has_platform ? &prog->platform : NULL;
 }
 
+LIBDRGN_PUBLIC
+const char *drgn_program_core_dump_path(struct drgn_program *prog)
+{
+	return prog->core_path;
+}
+
 LIBDRGN_PUBLIC const struct drgn_language *
 drgn_program_language(struct drgn_program *prog)
 {
@@ -171,6 +177,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	if (prog->kdump_ctx)
 		kdump_free(prog->kdump_ctx);
 #endif
+	free(prog->core_path);
 	elf_end(prog->core);
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
@@ -322,13 +329,19 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 	bool had_vmcoreinfo = have_vmcoreinfo;
 
 	prog->core_fd = fd;
-	err = has_kdump_signature(prog, path, &is_kdump);
-	if (err)
+	prog->core_path = fd_canonical_path(fd, path);
+	if (!prog->core_path) {
+		err = &drgn_enomem;
 		goto out_fd;
+	}
+
+	err = has_kdump_signature(prog, prog->core_path, &is_kdump);
+	if (err)
+		goto out_path;
 	if (is_kdump) {
 		err = drgn_program_set_kdump(prog);
 		if (err)
-			goto out_fd;
+			goto out_path;
 		return NULL;
 	}
 
@@ -337,7 +350,7 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 	prog->core = elf_begin(prog->core_fd, ELF_C_READ, NULL);
 	if (!prog->core) {
 		err = drgn_error_libelf();
-		goto out_fd;
+		goto out_path;
 	}
 
 	ehdr = gelf_getehdr(prog->core, &ehdr_mem);
@@ -447,7 +460,8 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 		struct statfs fs;
 
 		if (fstatfs(prog->core_fd, &fs) == -1) {
-			err = drgn_error_create_os("fstatfs", errno, path);
+			err = drgn_error_create_os("fstatfs", errno,
+						   prog->core_path);
 			if (err)
 				goto out_notes;
 		}
@@ -664,6 +678,9 @@ out_platform:
 out_elf:
 	elf_end(prog->core);
 	prog->core = NULL;
+out_path:
+	free(prog->core_path);
+	prog->core_path = NULL;
 out_fd:
 	close(prog->core_fd);
 	prog->core_fd = -1;
@@ -679,12 +696,7 @@ drgn_program_set_core_dump_fd(struct drgn_program *prog, int fd)
 	if (err)
 		return err;
 
-	#define FORMAT "/proc/self/fd/%d"
-	char path[sizeof(FORMAT) - sizeof("%d") + max_decimal_length(int) + 1];
-	snprintf(path, sizeof(path), FORMAT, fd);
-	#undef FORMAT
-
-	return drgn_program_set_core_dump_fd_internal(prog, fd, path);
+	return drgn_program_set_core_dump_fd_internal(prog, fd, NULL);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

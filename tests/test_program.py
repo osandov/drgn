@@ -70,6 +70,7 @@ class TestProgram(TestCase):
         self.assertIsNone(prog.platform)
         self.assertFalse(prog.flags & ProgramFlags.IS_LIVE)
         prog.set_pid(os.getpid())
+        self.assertIsNone(prog.core_dump_path)
         self.assertEqual(prog.platform, host_platform)
         self.assertTrue(prog.flags & ProgramFlags.IS_LIVE)
         self.assertRaisesRegex(
@@ -1047,6 +1048,7 @@ class TestCoreDump(TestCase):
     def test_simple(self):
         data = b"hello, world"
         prog = Program()
+        self.assertIsNone(prog.core_dump_path)
         with tempfile.NamedTemporaryFile() as f:
             f.write(
                 create_elf_file(
@@ -1055,6 +1057,7 @@ class TestCoreDump(TestCase):
             )
             f.flush()
             prog.set_core_dump(f.name)
+        self.assertEqual(prog.core_dump_path, f.name)
         self.assertEqual(prog.read(0xFFFF0000, len(data)), data)
         self.assertRaises(FaultError, prog.read, 0x0, len(data), physical=True)
 

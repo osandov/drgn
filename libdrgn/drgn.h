@@ -878,6 +878,14 @@ enum drgn_program_flags drgn_program_flags(struct drgn_program *prog);
  */
 const struct drgn_platform *drgn_program_platform(struct drgn_program *prog);
 
+/**
+ * Get the path of the core dump that a @ref drgn_program was created from.
+ *
+ * @return Path which is valid until the program is destroyed, or @c NULL if the
+ * program was not created from a core dump.
+ */
+const char *drgn_program_core_dump_path(struct drgn_program *prog);
+
 /** Get the default language of a @ref drgn_program. */
 const struct drgn_language *drgn_program_language(struct drgn_program *prog);
 

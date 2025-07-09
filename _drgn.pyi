@@ -98,6 +98,12 @@ class Program:
     determined yet.
     """
 
+    core_dump_path: Optional[str]
+    """
+    Path of the core dump that this program was created from, or ``None`` if it
+    was not created from a core dump.
+    """
+
     language: Language
     """
     Default programming language of the program.
