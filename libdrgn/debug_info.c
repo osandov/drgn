@@ -1550,60 +1550,13 @@ drgn_module_try_file_internal(struct drgn_module *module, const char *path,
 		drgn_log_debug(prog, "%s: trying %s", module->name, path);
 	}
 
-	// Try to canonicalize the path, first via
-	// readlink("/proc/self/fd/$fd"), then via realpath().
-#define FORMAT "/proc/self/fd/%d"
-	char fd_path[sizeof(FORMAT)
-		     - (sizeof("%d") - 1)
-		     + max_decimal_length(int)];
-	snprintf(fd_path, sizeof(fd_path), FORMAT, fd);
-#undef FORMAT
-
-	size_t link_buf_size = PATH_MAX;
-	_cleanup_free_ char *link_buf = malloc(link_buf_size);
-	if (!link_buf)
+	_cleanup_free_ char *canonical_path = fd_canonical_path(fd, path);
+	if (!canonical_path)
 		return &drgn_enomem;
-
-	for (;;) {
-		ssize_t r = readlink(fd_path, link_buf, link_buf_size);
-		if (r < 0) {
-			drgn_log_debug(prog, "readlink: %s: %m", fd_path);
-			if (path) {
-				free(link_buf);
-				link_buf = realpath(path, NULL);
-				if (link_buf) {
-					drgn_log_debug(prog,
-						       "canonical path is %s",
-						       link_buf);
-					path = link_buf;
-				} else {
-					drgn_log_debug(prog, "realpath: %s: %m",
-						       path);
-				}
-			} else {
-				path = fd_path;
-			}
-			break;
-		}
-
-		if (r < link_buf_size) {
-			link_buf[r] = '\0';
-			if (drgn_log_is_enabled(prog, DRGN_LOG_DEBUG)
-			    && (!path || strcmp(path, link_buf) != 0)) {
-				drgn_log_debug(prog, "canonical path is %s",
-					       link_buf);
-			}
-			path = link_buf;
-			break;
-		}
-
-		if (__builtin_mul_overflow(link_buf_size, 2U, &link_buf_size))
-			return &drgn_enomem;
-		free(link_buf);
-		link_buf = malloc(link_buf_size);
-		if (!link_buf)
-			return &drgn_enomem;
-	}
+	if (drgn_log_is_enabled(prog, DRGN_LOG_DEBUG)
+	    && (!path || strcmp(path, canonical_path) != 0))
+		drgn_log_debug(prog, "canonical path is %s", canonical_path);
+	path = canonical_path;
 
 	_cleanup_elf_end_ Elf *elf = dwelf_elf_begin(fd);
 	if (!elf) {
