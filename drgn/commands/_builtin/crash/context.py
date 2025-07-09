@@ -15,6 +15,7 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
+from drgn.commands._builtin.crash.sys import _SysPrinter
 from drgn.commands.crash import (
     _add_crash_cpu_context,
     _add_crash_panic_context,
@@ -26,15 +27,7 @@ from drgn.commands.crash import (
     crash_command,
     crash_get_context,
 )
-from drgn.helpers.common.format import CellFormat, escape_ascii_string, print_table
-from drgn.helpers.linux.panic import panic_task
-from drgn.helpers.linux.sched import (
-    cpu_curr,
-    get_task_state,
-    task_cpu,
-    task_on_cpu,
-    task_thread_info,
-)
+from drgn.helpers.linux.sched import cpu_curr
 
 
 def _show_scroll_option(prog: Program) -> None:
@@ -180,33 +173,13 @@ def _crash_cmd_set(
 
     if args.drgn:
         if args.panic:
-            source = _add_crash_panic_context(prog, "")
+            sys.stdout.write(_add_crash_panic_context(prog, ""))
         elif args.cpu is not None:
-            source = _add_crash_cpu_context("", args.cpu)
+            sys.stdout.write(_add_crash_cpu_context("", args.cpu))
+        elif args.task is not None:
+            sys.stdout.write(add_crash_context(prog, "", args.task))
         else:
-            if args.task is None:
-                source = """\
-from drgn.helpers.linux.panic import panic_task
-from drgn.helpers.linux.sched import (
-    get_task_state,
-    task_cpu,
-    task_on_cpu,
-    task_thread_info,
-)
-
-
-pid = task.pid
-comm = task.comm
-thread_info = task_thread_info(task)
-cpu = task_cpu(task)
-state = get_task_state(task)  # See also task_state_to_char(task)
-active = task_on_cpu(task)  # Is the task running on a CPU?
-panic = task == panic_task()  # Is this the task that panicked?
-"""
-            else:
-                source = ""
-            source = add_crash_context(prog, source, args.task)
-        sys.stdout.write(source)
+            _SysPrinter(prog, True, system_fields=False, task="current").print()
         return None
 
     if args.panic:
@@ -219,34 +192,8 @@ panic = task == panic_task()  # Is this the task that panicked?
         task = crash_get_context(prog, args.task)
         prog.config["crash_context_origin"] = args.task
     else:
-        task = crash_get_context(prog)
-        state = get_task_state(task)
-        if task == panic_task(prog):
-            state += " (PANIC)"
-        elif task_on_cpu(task):
-            state += " (ACTIVE)"
-        print_table(
-            [
-                (CellFormat("PID", ">"), CellFormat(task.pid.value_(), "<")),
-                (
-                    CellFormat("COMMAND", ">"),
-                    '"'
-                    + escape_ascii_string(
-                        task.comm.string_(),
-                        escape_double_quote=True,
-                        escape_backslash=True,
-                    )
-                    + '"',
-                ),
-                (
-                    CellFormat("TASK", ">"),
-                    f"{task.value_():x}  [THREAD_INFO: {task_thread_info(task).value_()}]",
-                ),
-                (CellFormat("CPU", ">"), CellFormat(task_cpu(task), "<")),
-                (CellFormat("STATE", ">"), state),
-            ],
-            sep=": ",
-        )
-        return task
+        printer = _SysPrinter(prog, False, system_fields=False, task="current")
+        printer.print()
+        return printer.task
     prog.config["crash_context"] = task
     return task

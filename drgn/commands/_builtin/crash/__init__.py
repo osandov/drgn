@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, Tuple
 
 from drgn import Program
 from drgn.commands import Command, CommandNotFoundError, _write_command_error, argument
+from drgn.commands._builtin.crash.sys import _SysPrinter
 from drgn.commands.crash import (
     CRASH_COMMAND_NAMESPACE,
     crash_command,
@@ -40,6 +41,7 @@ def _cmd_crash(
 ) -> Any:
     if args:
         return CRASH_COMMAND_NAMESPACE.run(prog, args, globals=globals)
+    _SysPrinter(prog, False, task="panic").print()
     while True:
         try:
             line = input("%crash> ")
