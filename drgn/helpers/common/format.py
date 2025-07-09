@@ -30,6 +30,7 @@ __all__ = (
     "CellFormat",
     "decode_enum_type_flags",
     "decode_flags",
+    "double_quote_ascii_string",
     "escape_ascii_character",
     "escape_ascii_string",
     "number_in_binary_units",
@@ -104,6 +105,26 @@ def escape_ascii_string(
         )
         for c in buffer
     )
+
+
+def double_quote_ascii_string(buffer: Iterable[int]) -> str:
+    """
+    Get an iterable of ASCII byte values (e.g., :class:`bytes` or
+    :class:`bytearray`) as a double-quoted string.
+
+    This is equivalent to:
+
+    .. code-block:: python3
+
+        '"' + escape_ascii_string(buffer, escape_double_quote=True, escape_backslash=True) + '"'
+    """
+    parts = [
+        escape_ascii_character(c, escape_double_quote=True, escape_backslash=True)
+        for c in buffer
+    ]
+    parts.insert(0, '"')
+    parts.append('"')
+    return "".join(parts)
 
 
 def decode_flags(
