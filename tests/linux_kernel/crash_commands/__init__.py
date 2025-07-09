@@ -5,39 +5,50 @@ import contextlib
 import io
 import types
 
+import drgn
 from drgn.commands.crash import CRASH_COMMAND_NAMESPACE
 from tests.linux_kernel import LinuxKernelTestCase
 
 
 class CrashCommandTestCase(LinuxKernelTestCase):
-    # Run a crash command and capture its stdout and stderr. By default, also
-    # capture and check the output of the --drgn option.
-    def run_crash_command(self, command, *, check_drgn_option=True):
-        if check_drgn_option:
-            drgn_option_stdout = self.check_crash_command_drgn_option(command)
-
+    # Run a crash command and capture its stdout and stderr.
+    def run_crash_command(self, command):
         with contextlib.redirect_stdout(
             io.StringIO()
         ) as stdout, contextlib.redirect_stderr(io.StringIO()) as stderr:
             CRASH_COMMAND_NAMESPACE.run(self.prog, command)
-        ret = types.SimpleNamespace(stdout=stdout.getvalue(), stderr=stderr.getvalue())
+        return types.SimpleNamespace(stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
-        if check_drgn_option:
-            ret.drgn_option_stdout = drgn_option_stdout
+    # Run a crash command with and without --drgn. Capture its stdout and
+    # stderr, and check that --drgn doesn't write anything to stderr.
+    #
+    # If mode is "compile" or "exec", check that --drgn outputs valid,
+    # non-empty Python code.
+    #
+    # If mode is "exec", also execute the code and capture any globals it sets.
+    def check_crash_command(self, command, mode="exec"):
+        assert mode in {"capture", "compile", "exec"}
+
+        drgn_option = self.run_crash_command(command + " --drgn")
+
+        self.assertFalse(drgn_option.stderr)
+
+        if mode == "compile" or mode == "exec":
+            self.assertTrue(drgn_option.stdout)
+            drgn_option.code = compile(drgn_option.stdout, command + " --drgn", "exec")
+
+        if mode == "exec":
+            drgn_option.globals = {"prog": self.prog}
+            try:
+                old_default_prog = drgn.get_default_prog()
+            except drgn.NoDefaultProgramError:
+                old_default_prog = None
+            try:
+                drgn.set_default_prog(self.prog)
+                exec(drgn_option.stdout, drgn_option.globals)
+            finally:
+                drgn.set_default_prog(old_default_prog)
+
+        ret = self.run_crash_command(command)
+        ret.drgn_option = drgn_option
         return ret
-
-    # Check that running a crash command with the --drgn option outputs valid,
-    # non-empty Python code and doesn't write anything to stderr, then return
-    # the output.
-    def check_crash_command_drgn_option(self, command):
-        with contextlib.redirect_stdout(
-            io.StringIO()
-        ) as stdout, contextlib.redirect_stderr(io.StringIO()) as stderr:
-            CRASH_COMMAND_NAMESPACE.run(self.prog, command + " --drgn")
-
-        compile(stdout.getvalue(), command + " --drgn", "exec")
-
-        self.assertTrue(stdout.getvalue())
-        self.assertFalse(stderr.getvalue())
-
-        return stdout.getvalue()

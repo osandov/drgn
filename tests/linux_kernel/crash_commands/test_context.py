@@ -13,41 +13,44 @@ from tests.linux_kernel.crash_commands import CrashCommandTestCase
 
 class TestSet(CrashCommandTestCase):
     def test_no_options(self):
-        cmd = self.run_crash_command("set")
+        cmd = self.check_crash_command("set")
         self.assertIn("CPU:", cmd.stdout)
-        self.assertIn("task_cpu", cmd.drgn_option_stdout)
+        for name in "task", "pid", "comm", "thread_info", "cpu", "state":
+            self.assertIn(name, cmd.drgn_option.globals)
 
     def test_pid(self):
-        cmd = self.run_crash_command("set 1")
+        cmd = self.check_crash_command("set 1")
         self.assertEqual(crash_get_context(self.prog).pid.value_(), 1)
-        self.assertIn("find_task", cmd.drgn_option_stdout)
+        self.assertEqual(cmd.drgn_option.globals["task"].pid, 1)
 
     def test_task(self):
-        cmd = self.run_crash_command(f"set {hex(self.prog['init_task'].address_)}")
+        cmd = self.check_crash_command(f"set {hex(self.prog['init_task'].address_)}")
         self.assertEqual(
             crash_get_context(self.prog), self.prog["init_task"].address_of_()
         )
-        self.assertIn("Object", cmd.drgn_option_stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["task"], self.prog["init_task"].address_of_()
+        )
 
     def test_cpu(self):
         cpu = os.cpu_count() - 1
         old_affinity = os.sched_getaffinity(0)
         os.sched_setaffinity(0, (cpu,))
         try:
-            cmd = self.run_crash_command(f"set -c {cpu}")
+            cmd = self.check_crash_command(f"set -c {cpu}")
         finally:
             os.sched_setaffinity(0, old_affinity)
-        self.assertEqual(
-            crash_get_context(self.prog), find_task(self.prog, os.getpid())
-        )
-        self.assertIn("cpu_curr", cmd.drgn_option_stdout)
+        task = find_task(self.prog, os.getpid())
+        self.assertEqual(crash_get_context(self.prog), task)
+        self.assertEqual(cmd.drgn_option.globals["task"], task)
 
     def test_panic(self):
-        cmd = self.run_crash_command("set -p")
+        cmd = self.check_crash_command("set -p")
+        task = find_task(self.prog, os.getpid())
         self.assertEqual(
             crash_get_context(self.prog), find_task(self.prog, os.getpid())
         )
-        self.assertIn("os.getpid()", cmd.drgn_option_stdout)
+        self.assertEqual(cmd.drgn_option.globals["task"], task)
 
     def test_scroll_on_off(self):
         try:
@@ -59,14 +62,14 @@ class TestSet(CrashCommandTestCase):
                 self.prog.config.__setitem__, "crash_scroll", old_crash_scroll
             )
 
-        cmd = self.run_crash_command("set scroll on", check_drgn_option=False)
+        cmd = self.run_crash_command("set scroll on")
         self.assertIn("scroll: on", cmd.stdout)
-        cmd = self.run_crash_command("set scroll", check_drgn_option=False)
+        cmd = self.run_crash_command("set scroll")
         self.assertIn("scroll: on", cmd.stdout)
 
-        cmd = self.run_crash_command("set scroll off", check_drgn_option=False)
+        cmd = self.run_crash_command("set scroll off")
         self.assertIn("scroll: off", cmd.stdout)
-        cmd = self.run_crash_command("set scroll", check_drgn_option=False)
+        cmd = self.run_crash_command("set scroll")
         self.assertIn("scroll: off", cmd.stdout)
 
     def test_scroll_less_more(self):
@@ -91,16 +94,16 @@ class TestSet(CrashCommandTestCase):
             "shutil.which", side_effect=only_less, wraps=shutil.which
         ):
             self.prog.config.pop("crash_pager", None)
-            cmd = self.run_crash_command("set scroll", check_drgn_option=False)
+            cmd = self.run_crash_command("set scroll")
             self.assertIn("/usr/bin/less", cmd.stdout)
 
-            cmd = self.run_crash_command("set scroll less", check_drgn_option=False)
+            cmd = self.run_crash_command("set scroll less")
             self.assertIn("/usr/bin/less", cmd.stdout)
-            cmd = self.run_crash_command("set scroll", check_drgn_option=False)
+            cmd = self.run_crash_command("set scroll")
             self.assertIn("/usr/bin/less", cmd.stdout)
 
             with self.assertRaisesRegex(CommandError, "pager not found"):
-                self.run_crash_command("set scroll more", check_drgn_option=False)
+                self.run_crash_command("set scroll more")
 
         def only_more(cmd):
             if cmd == "less":
@@ -114,16 +117,16 @@ class TestSet(CrashCommandTestCase):
             "shutil.which", side_effect=only_more, wraps=shutil.which
         ):
             self.prog.config.pop("crash_pager", None)
-            cmd = self.run_crash_command("set scroll", check_drgn_option=False)
+            cmd = self.run_crash_command("set scroll")
             self.assertIn("/bin/more", cmd.stdout)
 
-            cmd = self.run_crash_command("set scroll more", check_drgn_option=False)
+            cmd = self.run_crash_command("set scroll more")
             self.assertIn("/bin/more", cmd.stdout)
-            cmd = self.run_crash_command("set scroll", check_drgn_option=False)
+            cmd = self.run_crash_command("set scroll")
             self.assertIn("/bin/more", cmd.stdout)
 
             with self.assertRaisesRegex(CommandError, "pager not found"):
-                self.run_crash_command("set scroll less", check_drgn_option=False)
+                self.run_crash_command("set scroll less")
 
         def neither(cmd):
             if cmd == "less" or cmd == "more":
@@ -135,10 +138,10 @@ class TestSet(CrashCommandTestCase):
             "shutil.which", side_effect=neither, wraps=shutil.which
         ):
             self.prog.config.pop("crash_pager", None)
-            cmd = self.run_crash_command("set scroll", check_drgn_option=False)
+            cmd = self.run_crash_command("set scroll")
             self.assertIn("scroll: off (pager not found)", cmd.stdout)
 
             with self.assertRaisesRegex(CommandError, "pager not found"):
-                self.run_crash_command("set scroll less", check_drgn_option=False)
+                self.run_crash_command("set scroll less")
             with self.assertRaisesRegex(CommandError, "pager not found"):
-                self.run_crash_command("set scroll more", check_drgn_option=False)
+                self.run_crash_command("set scroll more")
