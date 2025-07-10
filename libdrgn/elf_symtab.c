@@ -382,7 +382,13 @@ static bool elf_symbol_address(struct drgn_elf_symbol_table *symtab,
 	    && GELF_ST_TYPE(sym->st_info) == STT_FUNC)
 		addr &= ~1;
 
-	addr += symtab->bias;
+	// If the address is not in the module's address range, then it's
+	// probably something special like a Linux per-CPU variable (which isn't
+	// actually a variable address but an offset). Don't apply the bias in
+	// that case.
+	if (drgn_module_contains_address(symtab->file->module,
+					 addr + symtab->bias))
+		addr += symtab->bias;
 	if (symtab->file->is_relocatable) {
 		size_t shndx = elf_symbol_shndx(symtab, sym_idx, sym);
 		if (shndx == SHN_UNDEF)
