@@ -15,7 +15,7 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands._builtin.crash.sys import _SysPrinter
+from drgn.commands._builtin.crash.system import _SysPrinter
 from drgn.commands.crash import (
     _add_crash_cpu_context,
     _add_crash_panic_context,

@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, Tuple
 
 from drgn import Program
 from drgn.commands import Command, CommandNotFoundError, _write_command_error, argument
-from drgn.commands._builtin.crash.sys import _SysPrinter
+from drgn.commands._builtin.crash.system import _SysPrinter
 from drgn.commands.crash import (
     CRASH_COMMAND_NAMESPACE,
     crash_command,
