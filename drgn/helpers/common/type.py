@@ -14,11 +14,12 @@ import operator
 import typing
 from typing import Container, List, Tuple
 
-from drgn import IntegerLike, Type, TypeKind, TypeMember, sizeof
+from drgn import IntegerLike, Object, Type, TypeKind, TypeMember, sizeof
 
 __all__ = (
     "enum_type_to_class",
     "member_at_offset",
+    "typeof_member",
 )
 
 
@@ -290,3 +291,19 @@ def member_at_offset(type: Type, offset: IntegerLike) -> str:
                     break
 
     return " or ".join(results)
+
+
+def typeof_member(type: Type, member: str) -> Type:
+    """
+    Get the type of a member in a :class:`~drgn.Type`.
+
+    This corresponds to the ``typeof_member()`` macro used in the Linux kernel
+    and other projects.
+
+    :param type: Structure, union, or class type.
+    :param member: Name of member. May include one or more member references
+        and zero or more array subscripts.
+    :raises TypeError: if *type* is not a structure, union, or class type
+    :raises LookupError: if *type* does not have a member with the given name
+    """
+    return Object(type.prog, type, address=0).subobject_(member).type_
