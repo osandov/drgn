@@ -6,14 +6,6 @@
 
 DEFINE_VECTOR_FUNCTIONS(drgn_token_vector);
 
-void drgn_lexer_init(struct drgn_lexer *lexer, drgn_lexer_func func,
-		     const char *str)
-{
-	lexer->func = func;
-	lexer->p = str;
-	drgn_token_vector_init(&lexer->stack);
-}
-
 void drgn_lexer_deinit(struct drgn_lexer *lexer)
 {
 	drgn_token_vector_deinit(&lexer->stack);

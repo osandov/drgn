@@ -24,8 +24,7 @@ static struct drgn_error *dummy_lexer_func(struct drgn_lexer *lexer,
 
 #test pop
 {
-	struct drgn_lexer lexer;
-	drgn_lexer_init(&lexer, dummy_lexer_func, "12345");
+	DRGN_LEXER(lexer, dummy_lexer_func, "12345");
 	struct drgn_token token;
 	for (int i = 0; i < 5; i++) {
 		drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
@@ -36,13 +35,11 @@ static struct drgn_error *dummy_lexer_func(struct drgn_lexer *lexer,
 	drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
 	ck_assert_int_eq(token.kind, 0);
 	ck_assert_uint_eq(token.len, 0);
-	drgn_lexer_deinit(&lexer);
 }
 
 #test push
 {
-	struct drgn_lexer lexer;
-	drgn_lexer_init(&lexer, dummy_lexer_func, "12345");
+	DRGN_LEXER(lexer, dummy_lexer_func, "12345");
 	struct drgn_token tokens[4];
 	for (int i = 0; i < 4; i++)
 		drgn_ck_no_err(drgn_lexer_pop(&lexer, &tokens[i]));
@@ -58,13 +55,11 @@ static struct drgn_error *dummy_lexer_func(struct drgn_lexer *lexer,
 	drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
 	ck_assert_int_eq(token.kind, 0);
 	ck_assert_uint_eq(token.len, 0);
-	drgn_lexer_deinit(&lexer);
 }
 
 #test peek
 {
-	struct drgn_lexer lexer;
-	drgn_lexer_init(&lexer, dummy_lexer_func, "12345");
+	DRGN_LEXER(lexer, dummy_lexer_func, "12345");
 	struct drgn_token token;
 	for (int i = 0; i < 5; i++) {
 		drgn_ck_no_err(drgn_lexer_peek(&lexer, &token));
@@ -85,5 +80,4 @@ static struct drgn_error *dummy_lexer_func(struct drgn_lexer *lexer,
 	drgn_ck_no_err(drgn_lexer_pop(&lexer, &token));
 	ck_assert_int_eq(token.kind, 0);
 	ck_assert_uint_eq(token.len, 0);
-	drgn_lexer_deinit(&lexer);
 }
