@@ -1360,6 +1360,26 @@ static DrgnObject *DrgnObject_member(DrgnObject *self, PyObject *args,
 	return_ptr(res);
 }
 
+static DrgnObject *DrgnObject_subobject(DrgnObject *self, PyObject *args,
+					PyObject *kwds)
+{
+	static char *keywords[] = {"designator", NULL};
+	struct drgn_error *err;
+	const char *designator;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "s:subobject_", keywords,
+					 &designator))
+		return NULL;
+
+	_cleanup_pydecref_ DrgnObject *res =
+		DrgnObject_alloc(DrgnObject_prog(self));
+	if (!res)
+		return NULL;
+	err = drgn_object_subobject(&res->obj, &self->obj, designator);
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(res);
+}
+
 static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 {
 	struct drgn_error *err;
@@ -1611,6 +1631,8 @@ static PyMethodDef DrgnObject_methods[] = {
 	 drgn_Object_string__DOC},
 	{"member_", (PyCFunction)DrgnObject_member,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Object_member__DOC},
+	{"subobject_", (PyCFunction)DrgnObject_subobject,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Object_subobject__DOC},
 	{"address_of_", (PyCFunction)DrgnObject_address_of, METH_NOARGS,
 	 drgn_Object_address_of__DOC},
 	{"read_", (PyCFunction)DrgnObject_read, METH_NOARGS,

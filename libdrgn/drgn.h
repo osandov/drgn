@@ -3071,6 +3071,20 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 
 
 /**
+ * Get a subobject (member or element) of this object.
+ *
+ * @param[out] res Returned subobject. May be the same as @p obj.
+ * @param[in] obj Object.
+ * @param[in] designator One or more member references or array subscripts.
+ * @return @c NULL on success, non-@c NULL on error. @p res is not modified on
+ * error.
+ */
+struct drgn_error *drgn_object_subobject(struct drgn_object *res,
+					 const struct drgn_object *obj,
+					 const char *member_designator);
+
+
+/**
  * Get the containing object of a member @ref drgn_object.
  *
  * This corresponds to the @c container_of() macro commonly used in C.

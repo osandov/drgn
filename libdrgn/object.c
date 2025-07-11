@@ -1698,6 +1698,24 @@ drgn_object_member_dereference(struct drgn_object *res,
 					      member_bit_field_size);
 }
 
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_object_subobject(struct drgn_object *res,
+					 const struct drgn_object *obj,
+					 const char *designator)
+{
+	struct drgn_error *err;
+	const struct drgn_language *lang = drgn_object_language(obj);
+	struct drgn_qualified_type qualified_type;
+	uint64_t bit_offset, bit_field_size;
+	err = lang->type_subobject(obj->type, designator, false,
+				   &qualified_type, &bit_offset,
+				   &bit_field_size);
+	if (err)
+		return err;
+	return drgn_object_fragment(res, obj, qualified_type, bit_offset,
+				    bit_field_size);
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 			 struct drgn_qualified_type qualified_type,

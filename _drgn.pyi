@@ -2526,6 +2526,24 @@ class Object:
         """
         ...
 
+    def subobject_(self, designator: str) -> Object:
+        """
+        Get a subobject (member or element) of this object.
+
+        Usually, a combination of the :meth:`. <__getattr__>` and :meth:`[]
+        <.__getitem__>` operators can be used instead, but this can be used as:
+
+        1. A variant of :meth:`member_()` that doesn't automatically
+           dereference pointers.
+        2. A generalization of :func:`offsetof()`.
+
+        >>> prog["init_task"].subobject_("comm[0]") == prog["init_task"].comm[0]
+        True
+
+        :param designator: One or more member references or array subscripts.
+        """
+        ...
+
     def address_of_(self) -> Object:
         """
         Get a pointer to this object.

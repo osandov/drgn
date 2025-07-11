@@ -1711,6 +1711,53 @@ class TestOperators(MockProgramTestCase):
                 SyntaxError, error, container_of, obj, type_, member_designator
             )
 
+    def test_subobject_member(self):
+        obj = Object(self.prog, self.point_type, {"x": 1, "y": 2})
+        self.assertIdentical(
+            obj.subobject_("x"),
+            Object(self.prog, self.prog.int_type("int", 4, True), 1),
+        )
+
+    def test_subobject_element(self):
+        obj = Object(
+            self.prog,
+            self.prog.array_type(self.prog.int_type("int", 4, True), 3),
+            [1, 2, 3],
+        )
+        self.assertIdentical(
+            obj.subobject_("[1]"),
+            Object(self.prog, self.prog.int_type("int", 4, True), 2),
+        )
+
+    def test_subobject_empty(self):
+        obj = Object(self.prog, self.point_type, {"x": 1, "y": 2})
+        self.assertRaisesRegex(
+            SyntaxError, r"expected identifier or '\['", obj.subobject_, ""
+        )
+        self.assertRaisesRegex(
+            SyntaxError, r"expected identifier or '\['", obj.subobject_, " "
+        )
+
+    def test_subobject_chain(self):
+        obj = Object(
+            self.prog,
+            self.prog.array_type(self.line_segment_type, 2),
+            [
+                {
+                    "a": {"x": 1, "y": 2},
+                    "b": {"x": 3, "y": 4},
+                },
+                {
+                    "a": {"x": 5, "y": 6},
+                    "b": {"x": 7, "y": 8},
+                },
+            ],
+        )
+        self.assertIdentical(
+            obj.subobject_("[1].a.y"),
+            Object(self.prog, self.prog.int_type("int", 4, True), 6),
+        )
+
 
 class TestImplicitConvert(MockProgramTestCase):
     def test_to_bool(self):
