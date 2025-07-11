@@ -3,7 +3,7 @@
 
 
 from drgn import TypeMember
-from drgn.helpers.common.type import member_at_offset
+from drgn.helpers.common.type import member_at_offset, typeof_member
 from tests import TestCase, mock_program
 
 
@@ -450,3 +450,19 @@ class TestMemberAtOffset(TestCase):
         self.assertEqual(member_at_offset(line_segment_type, 4), "a.y")
         self.assertEqual(member_at_offset(line_segment_type, 8), "b.x")
         self.assertEqual(member_at_offset(line_segment_type, 12), "b.y")
+
+
+class TestTypeofMember(TestCase):
+    def test_simple(self):
+        prog = mock_program()
+        point_type = prog.struct_type(
+            "point",
+            8,
+            (
+                TypeMember(prog.int_type("int", 4, True), "x", 0),
+                TypeMember(prog.int_type("int", 4, True), "y", 32),
+            ),
+        )
+        self.assertIdentical(
+            typeof_member(point_type, "x"), prog.int_type("int", 4, True)
+        )
