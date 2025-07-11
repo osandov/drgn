@@ -10,7 +10,8 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Any, List, Literal, Optional, Tuple
+import textwrap
+from typing import Any, List, Literal, Optional, Set, Tuple
 
 from _drgn_util.typingutils import copy_func_params
 from drgn import Object, Program, ProgramFlags
@@ -21,7 +22,9 @@ from drgn.commands import (
     command,
     custom_command,
 )
+from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
+from drgn.helpers.linux.sched import task_cpu
 
 
 def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
@@ -351,4 +354,72 @@ from drgn import Object
 address = {hex(arg[1])}
 task = Object(prog, "struct task_struct *", address)
 """,
+        )
+
+
+def _parse_cpuspec_pure(spec: str) -> Tuple[Set[int], bool]:
+    cpus = set()
+    all = False
+    for part in spec.split(","):
+        part = part.strip()
+        if part == "a" or part == "all":
+            all = True
+        else:
+            tokens = [t for token in part.split("-") if (t := token.strip())]
+            try:
+                if len(tokens) == 1:
+                    cpus.add(int(tokens[0]))
+                else:
+                    for start, end in zip(tokens, tokens[1:]):
+                        cpus.update(range(int(start), int(end) + 1))
+            except ValueError:
+                raise ValueError(f"invalid cpuspec: {spec}") from None
+    return cpus, all
+
+
+def _parse_cpuspec(prog: Program, spec: str) -> Tuple[List[int], bool]:
+    possible = set(for_each_possible_cpu(prog))
+    cpus, all = _parse_cpuspec_pure(spec)
+    if cpus > possible:
+        raise ValueError(f"invalid cpuspec: {cpus}")
+    return sorted(possible if all else cpus), all
+
+
+def parse_cpuspec(prog: Program, spec: str) -> List[int]:
+    """TODO"""
+    if not spec or spec.isspace():
+        return [task_cpu(crash_get_context(prog))]
+
+    return _parse_cpuspec(prog, spec)[0]
+
+
+def add_cpuspec(prog: Program, spec: str, source: str, loop_body: str) -> str:
+    """TODO"""
+    if not spec or spec.isspace():
+        return add_crash_context(
+            prog,
+            f"""\
+from drgn.helpers.linux.sched import task_cpu
+
+{source}
+cpu = task_cpu(task)
+{loop_body}""",
+        )
+
+    cpus, all = _parse_cpuspec(prog, spec)
+    if all:
+        return (
+            _merge_imports(
+                source, "from drgn.helpers.linux.cpumask import for_each_possible_cpu\n"
+            )
+            + f"""
+for cpu in for_each_possible_cpu():
+{textwrap.indent(loop_body, '    ')}"""
+        )
+    else:
+        return (
+            source
+            + f"""
+for cpu in {cpus!r}:
+{textwrap.indent(loop_body, '    ')}"""
         )

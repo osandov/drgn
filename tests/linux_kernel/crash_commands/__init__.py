@@ -3,6 +3,7 @@
 
 import contextlib
 import io
+import os
 import types
 
 import drgn
@@ -32,6 +33,11 @@ class CrashCommandTestCase(LinuxKernelTestCase):
         drgn_option = self.run_crash_command(command + " --drgn")
 
         self.assertFalse(drgn_option.stderr)
+
+        if os.getenv("DRGN_TEST_LOG_CRASH_DRGN"):
+            print(
+                f"\n{'=' * 80}\n%crash {command} --drgn\n{drgn_option.stdout}{'=' * 80}"
+            )
 
         if mode == "compile" or mode == "exec":
             self.assertTrue(drgn_option.stdout)
