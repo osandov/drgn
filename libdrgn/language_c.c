@@ -2605,18 +2605,26 @@ static struct drgn_error *c_family_find_type(const struct drgn_language *lang,
 	return NULL;
 }
 
-static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
-					      struct drgn_type *type,
-					      const char *member_designator,
-					      uint64_t *ret)
+static struct drgn_error *
+c_family_type_subobject(struct drgn_type *type, const char *designator,
+			bool expect_member,
+			struct drgn_qualified_type *type_ret,
+			uint64_t *bit_offset_ret, uint64_t *bit_field_size_ret)
 {
 	struct drgn_error *err;
+	struct drgn_program *prog = drgn_type_program(type);
 
-	DRGN_C_FAMILY_LEXER(c_family_lexer, member_designator,
+	DRGN_C_FAMILY_LEXER(c_family_lexer, designator,
 			    prog->lang == &drgn_language_cpp);
 	struct drgn_lexer *lexer = &c_family_lexer.lexer;
 
-	int state = INT_MIN;
+	struct drgn_qualified_type qualified_type = { type };
+	uint64_t bit_field_size = 0;
+	enum {
+		START_ANY = INT_MIN,
+		START_MEMBER,
+	};
+	int state = expect_member ? START_MEMBER : START_ANY;
 	uint64_t bit_offset = 0;
 	for (;;) {
 		struct drgn_token token;
@@ -2625,12 +2633,13 @@ static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
 			return err;
 
 		switch (state) {
-		case INT_MIN:
+		case START_ANY:
+		case START_MEMBER:
 		case C_TOKEN_DOT:
 			if (token.kind == C_TOKEN_IDENTIFIER) {
 				struct drgn_type_member *member;
 				uint64_t member_bit_offset;
-				err = drgn_type_find_member_len(type,
+				err = drgn_type_find_member_len(qualified_type.type,
 								token.value,
 								token.len,
 								&member,
@@ -2643,25 +2652,31 @@ static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
 					return drgn_error_create(DRGN_ERROR_OVERFLOW,
 								 "offset is too large");
 				}
-				struct drgn_qualified_type member_type;
-				err = drgn_member_type(member, &member_type,
-						       NULL);
+				err = drgn_member_type(member, &qualified_type,
+						       &bit_field_size);
 				if (err)
 					return err;
-				type = member_type.type;
 			} else if (state == C_TOKEN_DOT) {
 				return drgn_error_create(DRGN_ERROR_SYNTAX,
 							 "expected identifier after '.'");
-			} else {
+			} else if (state == START_MEMBER) {
 				return drgn_error_create(DRGN_ERROR_SYNTAX,
 							 "expected identifier");
+			} else if (token.kind != C_TOKEN_LBRACKET) {
+				return drgn_error_create(DRGN_ERROR_SYNTAX,
+							 "expected identifier or '['");
 			}
 			break;
 		case C_TOKEN_IDENTIFIER:
 		case C_TOKEN_RBRACKET:
 			switch (token.kind) {
 			case C_TOKEN_EOF:
-				*ret = bit_offset;
+				if (type_ret)
+					*type_ret = qualified_type;
+				if (bit_offset_ret)
+					*bit_offset_ret = bit_offset;
+				if (bit_field_size_ret)
+					*bit_field_size_ret = bit_field_size;
 				return NULL;
 			case C_TOKEN_DOT:
 			case C_TOKEN_LBRACKET:
@@ -2686,10 +2701,10 @@ static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
 				if (err)
 					return err;
 
-				underlying_type = drgn_underlying_type(type);
+				underlying_type = drgn_underlying_type(qualified_type.type);
 				if (drgn_type_kind(underlying_type) != DRGN_TYPE_ARRAY) {
 					return drgn_type_error("'%s' is not an array",
-							       type);
+							       qualified_type.type);
 				}
 				element_type =
 					drgn_type_type(underlying_type).type;
@@ -2705,7 +2720,8 @@ static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
 					return drgn_error_create(DRGN_ERROR_OVERFLOW,
 								 "offset is too large");
 				}
-				type = element_type;
+				qualified_type = (struct drgn_qualified_type){ element_type };
+				bit_field_size = 0;
 			} else {
 				return drgn_error_create(DRGN_ERROR_SYNTAX,
 							 "expected number after '['");
@@ -3818,7 +3834,7 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_c = {
 	.format_variable_declaration = c_format_variable_declaration,
 	.format_object = c_format_object,
 	.find_type = c_family_find_type,
-	.bit_offset = c_family_bit_offset,
+	.type_subobject = c_family_type_subobject,
 	.integer_literal = c_integer_literal,
 	.bool_literal = c_bool_literal,
 	.float_literal = c_float_literal,
@@ -3850,7 +3866,7 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_cpp = {
 	.format_variable_declaration = c_format_variable_declaration,
 	.format_object = c_format_object,
 	.find_type = c_family_find_type,
-	.bit_offset = c_family_bit_offset,
+	.type_subobject = c_family_type_subobject,
 	.integer_literal = c_integer_literal,
 	.bool_literal = c_bool_literal,
 	.float_literal = c_float_literal,

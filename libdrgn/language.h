@@ -60,10 +60,11 @@ typedef struct drgn_error *drgn_find_type_fn(const struct drgn_language *lang,
 					     const char *name,
 					     const char *filename,
 					     struct drgn_qualified_type *ret);
-typedef struct drgn_error *drgn_bit_offset_fn(struct drgn_program *prog,
-					      struct drgn_type *type,
-					      const char *member_designator,
-					      uint64_t *ret);
+typedef struct drgn_error *
+drgn_type_subobject_fn(struct drgn_type *type, const char *designator,
+		       bool expect_member,
+		       struct drgn_qualified_type *type_ret,
+		       uint64_t *bit_offset_ret, uint64_t *bit_field_size_ret);
 typedef struct drgn_error *drgn_integer_literal_fn(struct drgn_object *res,
 						   uint64_t uvalue);
 typedef struct drgn_error *drgn_bool_literal_fn(struct drgn_object *res,
@@ -109,13 +110,19 @@ struct drgn_language {
 	 */
 	drgn_find_type_fn *find_type;
 	/**
-	 * Get the offset of a member in a type.
+	 * Get the type, offset, and bit field size of a subobject of a type.
 	 *
-	 * This should parse @p member_designator (which may include one or more
-	 * member references and zero or more array subscripts) and calculate
-	 * the offset, in bits, of that member from the beginning of @p type.
+	 * @param[in] type Starting type.
+	 * @param[in] designator One or more member references or array
+	 * subscripts.
+	 * @param[in] expect_member Require a member reference first.
+	 * @param[out] type_ret If not @c NULL, returned subobject type.
+	 * @param[out] bit_offset_ret If not @c NULL, returned offset in bits of
+	 * subobject from the beginning of @p type.
+	 * @param[out] bit_field_size_ret If not @c NULL, returned bit field
+	 * size of subobject.
 	 */
-	drgn_bit_offset_fn *bit_offset;
+	drgn_type_subobject_fn *type_subobject;
 	/**
 	 * Set an object to an integer literal.
 	 *

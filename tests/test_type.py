@@ -617,6 +617,13 @@ class TestType(MockProgramTestCase):
             small_point_type,
             "y",
         )
+        self.assertRaisesRegex(
+            SyntaxError,
+            "expected identifier",
+            offsetof,
+            self.prog.array_type(self.prog.int_type("int", 4, True), 10),
+            "[1]",
+        )
 
     def test_enum(self):
         t = self.prog.enum_type(
