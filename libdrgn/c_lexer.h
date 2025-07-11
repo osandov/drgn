@@ -57,4 +57,17 @@ struct drgn_c_family_lexer {
 struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
 					    struct drgn_token *token);
 
+static inline void
+drgn_c_family_lexer_deinit(struct drgn_c_family_lexer *lexer)
+{
+	drgn_lexer_deinit(&lexer->lexer);
+}
+
+#define DRGN_C_FAMILY_LEXER(c_family_lexer, str, cpp_)				\
+	__attribute__((__cleanup__(drgn_c_family_lexer_deinit)))		\
+	struct drgn_c_family_lexer c_family_lexer = {				\
+		.lexer = DRGN_LEXER_INIT(drgn_c_family_lexer_func, (str)),	\
+		.cpp = (cpp_),							\
+	}
+
 #endif /* DRGN_C_LEXER_H */

@@ -2065,21 +2065,18 @@ static const enum drgn_primitive_type specifier_kind[NUM_SPECIFIER_STATES] = {
 enum drgn_primitive_type c_parse_specifier_list(const char *s)
 {
 	struct drgn_error *err;
-	struct drgn_c_family_lexer c_family_lexer;
+
+	DRGN_C_FAMILY_LEXER(c_family_lexer, s, false);
 	struct drgn_lexer *lexer = &c_family_lexer.lexer;
+
 	enum c_type_specifier specifier = SPECIFIER_NONE;
-	enum drgn_primitive_type primitive = DRGN_NOT_PRIMITIVE_TYPE;
-
-	c_family_lexer.cpp = false;
-	drgn_lexer_init(lexer, drgn_c_family_lexer_func, s);
-
 	for (;;) {
 		struct drgn_token token;
 
 		err = drgn_lexer_pop(lexer, &token);
 		if (err) {
 			drgn_error_destroy(err);
-			goto out;
+			return DRGN_NOT_PRIMITIVE_TYPE;
 		}
 
 		if (MIN_SPECIFIER_TOKEN <= token.kind &&
@@ -2090,13 +2087,9 @@ enum drgn_primitive_type c_parse_specifier_list(const char *s)
 		else
 			specifier = SPECIFIER_ERROR;
 		if (specifier == SPECIFIER_ERROR)
-			goto out;
+			return DRGN_NOT_PRIMITIVE_TYPE;
 	}
-
-	primitive = specifier_kind[specifier];
-out:
-	drgn_lexer_deinit(lexer);
-	return primitive;
+	return specifier_kind[specifier];
 }
 
 
@@ -2565,20 +2558,18 @@ static struct drgn_error *c_family_find_type(const struct drgn_language *lang,
 					     struct drgn_qualified_type *ret)
 {
 	struct drgn_error *err;
-	struct drgn_c_family_lexer c_family_lexer;
-	struct drgn_lexer *lexer = &c_family_lexer.lexer;
-	struct drgn_token token;
 
-	c_family_lexer.cpp = lang == &drgn_language_cpp;
-	drgn_lexer_init(lexer, drgn_c_family_lexer_func, name);
+	DRGN_C_FAMILY_LEXER(c_family_lexer, name, lang == &drgn_language_cpp);
+	struct drgn_lexer *lexer = &c_family_lexer.lexer;
 
 	err = c_parse_specifier_qualifier_list(prog, lexer, filename, ret);
 	if (err)
-		goto out;
+		return err;
 
+	struct drgn_token token;
 	err = drgn_lexer_pop(lexer, &token);
 	if (err)
-		goto out;
+		return err;
 	if (token.kind != C_TOKEN_EOF) {
 		struct c_declarator *outer = NULL, *inner;
 
@@ -2595,27 +2586,23 @@ static struct drgn_error *c_family_find_type(const struct drgn_language *lang,
 				free(outer);
 				outer = next;
 			}
-			goto out;
+			return err;
 		}
 
 		err = c_type_from_declarator(prog, outer, ret);
 		if (err)
-			goto out;
+			return err;
 
 		err = drgn_lexer_pop(lexer, &token);
 		if (err)
-			goto out;
+			return err;
 		if (token.kind != C_TOKEN_EOF) {
-			err = drgn_error_create(DRGN_ERROR_SYNTAX,
-						"extra tokens after type name");
-			goto out;
+			return drgn_error_create(DRGN_ERROR_SYNTAX,
+						 "extra tokens after type name");
 		}
 	}
 
-	err = NULL;
-out:
-	drgn_lexer_deinit(lexer);
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
@@ -2624,20 +2611,18 @@ static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
 					      uint64_t *ret)
 {
 	struct drgn_error *err;
-	struct drgn_c_family_lexer c_family_lexer;
+
+	DRGN_C_FAMILY_LEXER(c_family_lexer, member_designator,
+			    prog->lang == &drgn_language_cpp);
 	struct drgn_lexer *lexer = &c_family_lexer.lexer;
+
 	int state = INT_MIN;
 	uint64_t bit_offset = 0;
-
-	c_family_lexer.cpp = prog->lang == &drgn_language_cpp;
-	drgn_lexer_init(lexer, drgn_c_family_lexer_func, member_designator);
-
 	for (;;) {
 		struct drgn_token token;
-
 		err = drgn_lexer_pop(lexer, &token);
 		if (err)
-			goto out;
+			return err;
 
 		switch (state) {
 		case INT_MIN:
@@ -2651,28 +2636,25 @@ static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
 								&member,
 								&member_bit_offset);
 				if (err)
-					goto out;
+					return err;
 				if (__builtin_add_overflow(bit_offset,
 							   member_bit_offset,
 							   &bit_offset)) {
-					err = drgn_error_create(DRGN_ERROR_OVERFLOW,
-								"offset is too large");
-					goto out;
+					return drgn_error_create(DRGN_ERROR_OVERFLOW,
+								 "offset is too large");
 				}
 				struct drgn_qualified_type member_type;
 				err = drgn_member_type(member, &member_type,
 						       NULL);
 				if (err)
-					goto out;
+					return err;
 				type = member_type.type;
 			} else if (state == C_TOKEN_DOT) {
-				err = drgn_error_create(DRGN_ERROR_SYNTAX,
-							"expected identifier after '.'");
-				goto out;
+				return drgn_error_create(DRGN_ERROR_SYNTAX,
+							 "expected identifier after '.'");
 			} else {
-				err = drgn_error_create(DRGN_ERROR_SYNTAX,
-							"expected identifier");
-				goto out;
+				return drgn_error_create(DRGN_ERROR_SYNTAX,
+							 "expected identifier");
 			}
 			break;
 		case C_TOKEN_IDENTIFIER:
@@ -2680,20 +2662,17 @@ static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
 			switch (token.kind) {
 			case C_TOKEN_EOF:
 				*ret = bit_offset;
-				err = NULL;
-				goto out;
+				return NULL;
 			case C_TOKEN_DOT:
 			case C_TOKEN_LBRACKET:
 				break;
 			default:
 				if (state == C_TOKEN_IDENTIFIER) {
-					err = drgn_error_create(DRGN_ERROR_SYNTAX,
-								"expected '.' or '[' after identifier");
-					goto out;
+					return drgn_error_create(DRGN_ERROR_SYNTAX,
+								 "expected '.' or '[' after identifier");
 				} else {
-					err = drgn_error_create(DRGN_ERROR_SYNTAX,
-								"expected '.' or '[' after ']'");
-					goto out;
+					return drgn_error_create(DRGN_ERROR_SYNTAX,
+								 "expected '.' or '[' after ']'");
 				}
 			}
 			break;
@@ -2705,41 +2684,37 @@ static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
 
 				err = c_token_to_u64(&token, &index);
 				if (err)
-					goto out;
+					return err;
 
 				underlying_type = drgn_underlying_type(type);
 				if (drgn_type_kind(underlying_type) != DRGN_TYPE_ARRAY) {
-					err = drgn_type_error("'%s' is not an array",
-							      type);
-					goto out;
+					return drgn_type_error("'%s' is not an array",
+							       type);
 				}
 				element_type =
 					drgn_type_type(underlying_type).type;
 				err = drgn_type_bit_size(element_type,
 							 &bit_size);
 				if (err)
-					goto out;
+					return err;
 				if (__builtin_mul_overflow(index, bit_size,
 							   &element_offset) ||
 				    __builtin_add_overflow(bit_offset,
 							   element_offset,
 							   &bit_offset)) {
-					err = drgn_error_create(DRGN_ERROR_OVERFLOW,
-								"offset is too large");
-					goto out;
+					return drgn_error_create(DRGN_ERROR_OVERFLOW,
+								 "offset is too large");
 				}
 				type = element_type;
 			} else {
-				err = drgn_error_create(DRGN_ERROR_SYNTAX,
-							"expected number after '['");
-				goto out;
+				return drgn_error_create(DRGN_ERROR_SYNTAX,
+							 "expected number after '['");
 			}
 			break;
 		case C_TOKEN_NUMBER:
 			if (token.kind != C_TOKEN_RBRACKET) {
-				err = drgn_error_create(DRGN_ERROR_SYNTAX,
-							"expected ']' after number");
-				goto out;
+				return drgn_error_create(DRGN_ERROR_SYNTAX,
+							 "expected ']' after number");
 			}
 			break;
 		default:
@@ -2747,10 +2722,6 @@ static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
 		}
 		state = token.kind;
 	}
-
-out:
-	drgn_lexer_deinit(lexer);
-	return err;
 }
 
 static struct drgn_error *c_integer_literal(struct drgn_object *res,

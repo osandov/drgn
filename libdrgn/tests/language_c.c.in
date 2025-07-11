@@ -21,9 +21,7 @@ struct test_token {
 static void assert_lexes(const char *s, const struct test_token *tokens,
 			 bool cpp)
 {
-	struct drgn_c_family_lexer lexer;
-	lexer.cpp = cpp;
-	drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s);
+	DRGN_C_FAMILY_LEXER(lexer, s, cpp);
 	for (;;) {
 		struct drgn_token token;
 		drgn_ck_no_err(drgn_lexer_pop(&lexer.lexer, &token));
@@ -34,7 +32,6 @@ static void assert_lexes(const char *s, const struct test_token *tokens,
 			break;
 		tokens++;
 	}
-	drgn_lexer_deinit(&lexer.lexer);
 }
 
 #define assert_lexes_c(s, tokens) assert_lexes(s, tokens, false)
@@ -46,16 +43,13 @@ static const char c_keywords[] =
 
 #test lexer_empty
 {
-	struct drgn_c_family_lexer lexer;
-	lexer.cpp = false;
-	drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, "");
+	DRGN_C_FAMILY_LEXER(lexer, "", false);
 	for (int i = 0; i < 64; i++) {
 		struct drgn_token token;
 		drgn_ck_no_err(drgn_lexer_pop(&lexer.lexer, &token));
 		ck_assert_int_eq(token.kind, C_TOKEN_EOF);
 		ck_assert_uint_eq(token.len, 0);
 	}
-	drgn_lexer_deinit(&lexer.lexer);
 }
 
 #test lexer_symbols
@@ -201,9 +195,7 @@ static const char c_keywords[] =
 		"unordered_map<string, vector<pair<short, bool>>",
 	};
 	for (size_t i = 0; i < array_size(s); i++) {
-		struct drgn_c_family_lexer lexer;
-		lexer.cpp = true;
-		drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s[i]);
+		DRGN_C_FAMILY_LEXER(lexer, s[i], true);
 		struct drgn_token token;
 		struct drgn_error *err;
 		do {
@@ -213,7 +205,6 @@ static const char c_keywords[] =
 		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
 		ck_assert(strstr(err->message, "invalid template arguments"));
 		drgn_error_destroy(err);
-		drgn_lexer_deinit(&lexer.lexer);
 	}
 }
 
@@ -224,9 +215,7 @@ static const char c_keywords[] =
 		"pair<int, double>>",
 	};
 	for (size_t i = 0; i < array_size(s); i++) {
-		struct drgn_c_family_lexer lexer;
-		lexer.cpp = true;
-		drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s[i]);
+		DRGN_C_FAMILY_LEXER(lexer, s[i], true);
 		struct drgn_token token;
 		struct drgn_error *err;
 		do {
@@ -236,7 +225,6 @@ static const char c_keywords[] =
 		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
 		ck_assert(strstr(err->message, "invalid character"));
 		drgn_error_destroy(err);
-		drgn_lexer_deinit(&lexer.lexer);
 	}
 }
 
@@ -256,16 +244,13 @@ static const char c_keywords[] =
 {
 	static const char * const s[] = { "0x", "1234y" };
 	for (size_t i = 0; i < array_size(s); i++) {
-		struct drgn_c_family_lexer lexer;
-		lexer.cpp = false;
-		drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s[i]);
+		DRGN_C_FAMILY_LEXER(lexer, s[i], false);
 		struct drgn_token token;
 		struct drgn_error *err = drgn_lexer_pop(&lexer.lexer, &token);
 		ck_assert_ptr_nonnull(err);
 		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
 		ck_assert(strstr(err->message, "invalid number"));
 		drgn_error_destroy(err);
-		drgn_lexer_deinit(&lexer.lexer);
 	}
 }
 
@@ -273,15 +258,12 @@ static const char c_keywords[] =
 {
 	static const char * const s[] = { "@", "$" };
 	for (size_t i = 0; i < array_size(s); i++) {
-		struct drgn_c_family_lexer lexer;
-		lexer.cpp = false;
-		drgn_lexer_init(&lexer.lexer, drgn_c_family_lexer_func, s[i]);
+		DRGN_C_FAMILY_LEXER(lexer, s[i], false);
 		struct drgn_token token;
 		struct drgn_error *err = drgn_lexer_pop(&lexer.lexer, &token);
 		ck_assert_ptr_nonnull(err);
 		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
 		ck_assert(strstr(err->message, "invalid character"));
 		drgn_error_destroy(err);
-		drgn_lexer_deinit(&lexer.lexer);
 	}
 }
