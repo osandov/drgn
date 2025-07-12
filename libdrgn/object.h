@@ -214,7 +214,7 @@ struct drgn_error *
 drgn_object_fragment_internal(struct drgn_object *res,
 			      const struct drgn_object *obj,
 			      const struct drgn_object_type *type,
-			      uint64_t bit_offset, uint64_t bit_field_size);
+			      int64_t bit_offset, uint64_t bit_field_size);
 
 /**
  * Binary operator implementation.

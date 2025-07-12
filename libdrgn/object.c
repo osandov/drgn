@@ -570,14 +570,16 @@ struct drgn_error *
 drgn_object_fragment_internal(struct drgn_object *res,
 			      const struct drgn_object *obj,
 			      const struct drgn_object_type *type,
-			      uint64_t bit_offset, uint64_t bit_field_size)
+			      int64_t bit_offset, uint64_t bit_field_size)
 {
 	struct drgn_error *err;
 
 	SWITCH_ENUM(obj->kind) {
 	case DRGN_OBJECT_VALUE: {
 		uint64_t bit_end;
-		if (__builtin_add_overflow(bit_offset, type->bit_size, &bit_end)
+		if (bit_offset < 0
+		    || __builtin_add_overflow(bit_offset, type->bit_size,
+					      &bit_end)
 		    || bit_end > obj->bit_size) {
 			return drgn_error_create(DRGN_ERROR_OUT_OF_BOUNDS,
 						 "out of bounds of value");
@@ -603,14 +605,19 @@ drgn_object_fragment_internal(struct drgn_object *res,
 		return drgn_object_set_from_buffer_internal(res, type, buf,
 							    bit_offset);
 	}
-	case DRGN_OBJECT_REFERENCE:
+	case DRGN_OBJECT_REFERENCE: {
 		// obj->bit_offset + bit_offset can overflow, so apply the
 		// byte-aligned part of bit_offset now.
-		return drgn_object_set_reference_internal(res, type,
-							  obj->address
-							  + (bit_offset / 8),
+		//
+		// / and % truncate towards 0. Here, we want to truncate towards
+		// negative infinity. We can accomplish that by replacing "/ 8"
+		// with an arithmetic shift ">> 3" and "% 8" with "& 7".
+		uint64_t address = obj->address + (bit_offset >> 3);
+		bit_offset &= 7;
+		return drgn_object_set_reference_internal(res, type, address,
 							  obj->bit_offset
-							  + (bit_offset % 8));
+							  + bit_offset);
+	}
 	case DRGN_OBJECT_ABSENT:
 		return &drgn_error_object_absent;
 	default:
@@ -621,7 +628,7 @@ drgn_object_fragment_internal(struct drgn_object *res,
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_fragment(struct drgn_object *res, const struct drgn_object *obj,
 		     struct drgn_qualified_type qualified_type,
-		     uint64_t bit_offset, uint64_t bit_field_size)
+		     int64_t bit_offset, uint64_t bit_field_size)
 {
 	struct drgn_error *err;
 	if (drgn_object_program(res) != drgn_object_program(obj)) {

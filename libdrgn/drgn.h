@@ -2624,7 +2624,7 @@ struct drgn_error *drgn_object_copy(struct drgn_object *res,
 struct drgn_error *drgn_object_fragment(struct drgn_object *res,
 					const struct drgn_object *obj,
 					struct drgn_qualified_type qualified_type,
-					uint64_t bit_offset,
+					int64_t bit_offset,
 					uint64_t bit_field_size);
 
 /**

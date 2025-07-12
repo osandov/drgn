@@ -1787,6 +1787,16 @@ class TestGenericOperators(MockProgramTestCase):
         obj = Object(self.prog, "int", value=0)
         self.assertRaises(TypeError, obj.__getitem__, 0)
 
+    def test_negative_subscript(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+        for obj in [arr, incomplete_arr, ptr]:
+            self.assertIdentical(obj[-1], Object(self.prog, "int", address=0xFFFEFFFC))
+
+        obj = arr.read_()
+        self.assertRaisesRegex(OutOfBoundsError, "out of bounds", obj.__getitem__, -1)
+
     def test_cast_primitive_value(self):
         obj = Object(self.prog, "long", value=2**32 + 1)
         self.assertIdentical(cast("int", obj), Object(self.prog, "int", value=1))
