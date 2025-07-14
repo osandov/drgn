@@ -1434,13 +1434,79 @@ static DrgnObject *DrgnObject_subscript_impl(DrgnObject *self,
 	return_ptr(res);
 }
 
-static DrgnObject *DrgnObject_subscript(DrgnObject *self, PyObject *key)
+static int64_t index_to_int64(PyObject *number)
 {
-	struct index_arg index = { .is_signed = true };
+	_cleanup_pydecref_ PyObject *index = PyNumber_Index(number);
+	if (!index)
+		return -1;
+	return PyLong_AsInt64(index);
+}
 
-	if (!index_converter(key, &index))
+static DrgnObject *DrgnObject_subscript(DrgnObject *self, PyObject *item)
+{
+	if (PyIndex_Check(item)) {
+		int64_t index = index_to_int64(item);
+		if (index == -1 && PyErr_Occurred())
+			return NULL;
+		return DrgnObject_subscript_impl(self, index);
+	} else if (PySlice_Check(item)) {
+		PySliceObject *slice = (PySliceObject *)item;
+		Py_ssize_t start, stop;
+		if (slice->start == Py_None) {
+			start = 0;
+		} else {
+			start = index_to_int64(slice->start);
+			if (start == -1 && PyErr_Occurred())
+				return NULL;
+		}
+		if (slice->stop == Py_None) {
+			struct drgn_type *underlying_type =
+				drgn_underlying_type(self->obj.type);
+			if (drgn_type_kind(underlying_type) != DRGN_TYPE_ARRAY
+			    || !drgn_type_is_complete(underlying_type)) {
+				set_error_type_name("'%s' has no length; slice stop must be given",
+						    drgn_object_qualified_type(&self->obj));
+				return NULL;
+			}
+			uint64_t length = drgn_type_length(underlying_type);
+			if (length > INT64_MAX) {
+				PyErr_SetString(PyExc_OverflowError,
+						"length is too large");
+				return NULL;
+			}
+			stop = length;
+		} else {
+			stop = index_to_int64(slice->stop);
+			if (stop == -1 && PyErr_Occurred())
+				return NULL;
+		}
+		if (slice->step != Py_None) {
+			Py_ssize_t step =
+				PyNumber_AsSsize_t(slice->step,
+						   PyExc_OverflowError);
+			if (step == -1 && PyErr_Occurred())
+				return NULL;
+			if (step != 1) {
+				PyErr_SetString(PyExc_ValueError,
+						"object slice step must be 1");
+				return NULL;
+			}
+		}
+		struct drgn_error *err;
+		_cleanup_pydecref_ DrgnObject *res =
+			DrgnObject_alloc(DrgnObject_prog(self));
+		if (!res)
+			return NULL;
+		err = drgn_object_slice(&res->obj, &self->obj, start, stop);
+		if (err)
+			return set_drgn_error(err);
+		return_ptr(res);
+	} else {
+		PyErr_Format(PyExc_TypeError,
+			     "object subscript must be integer or slice, not %.200s",
+			     Py_TYPE(item)->tp_name);
 		return NULL;
-	return DrgnObject_subscript_impl(self, index.svalue);
+	}
 }
 
 static ObjectIterator *DrgnObject_iter(DrgnObject *self)

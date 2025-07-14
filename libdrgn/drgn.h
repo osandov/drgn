@@ -3026,6 +3026,22 @@ drgn_object_dereference(struct drgn_object *res, const struct drgn_object *obj)
 }
 
 /**
+ * Slice (i.e., get an array from a range of another array) a @ref drgn_object.
+ *
+ * This is applicable to pointers and arrays.
+ *
+ * @param[out] res Resulting array. May be the same as @p obj.
+ * @param[in] obj Object to slice.
+ * @param[in] start Start index (inclusive).
+ * @param[in] end End index (exclusive).
+ * @return @c NULL on success, non-@c NULL on error. @p res is not modified on
+ * error.
+ */
+struct drgn_error *drgn_object_slice(struct drgn_object *res,
+				     const struct drgn_object *obj,
+				     int64_t start, int64_t end);
+
+/**
  * Get a member of a structure, union, or class @ref drgn_object (@c .).
  *
  * @param[out] res Returned member. May be the same as @p obj.

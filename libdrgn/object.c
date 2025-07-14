@@ -1600,6 +1600,44 @@ drgn_object_subscript(struct drgn_object *res, const struct drgn_object *obj,
 	}
 }
 
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_object_slice(struct drgn_object *res,
+				     const struct drgn_object *obj,
+				     int64_t start, int64_t end)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_object_program(obj);
+
+	if (drgn_object_program(res) != prog) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "objects are from different programs");
+	}
+
+	struct drgn_element_info element;
+	err = drgn_program_element_info(drgn_object_program(obj), obj->type,
+					&element);
+	if (err)
+		return err;
+
+	struct drgn_qualified_type array_type;
+	err = drgn_array_type_create(prog, element.qualified_type,
+				     end > start ? end - start : 0,
+				     drgn_type_language(element.qualified_type.type),
+				     &array_type.type);
+	if (err)
+		return err;
+	array_type.qualifiers = 0;
+
+	if (obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
+		return drgn_object_dereference_offset(res, obj, array_type,
+						      start * element.bit_size,
+						      0);
+	} else {
+		return drgn_object_fragment(res, obj, array_type,
+					    start * element.bit_size, 0);
+	}
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_member(struct drgn_object *res, const struct drgn_object *obj,
 		   const char *member_name)

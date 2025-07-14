@@ -1797,6 +1797,121 @@ class TestGenericOperators(MockProgramTestCase):
         obj = arr.read_()
         self.assertRaisesRegex(OutOfBoundsError, "out of bounds", obj.__getitem__, -1)
 
+    def test_slice(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+        for obj in [arr, incomplete_arr, ptr]:
+            self.assertIdentical(
+                obj[1:3], Object(self.prog, "int [2]", address=0xFFFF0004)
+            )
+
+        obj = arr.read_()
+        self.assertIdentical(obj[1:3], Object(self.prog, "int [2]", [1, 2]))
+
+    def test_slice_step(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+        for obj in [arr, incomplete_arr, ptr]:
+            self.assertIdentical(
+                obj[1:3:1], Object(self.prog, "int [2]", address=0xFFFF0004)
+            )
+
+    def test_slice_invalid_step(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        with self.assertRaisesRegex(ValueError, "object slice step must be 1"):
+            arr[0:4:2]
+
+    def test_slice_negative_start(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+        for obj in [arr, incomplete_arr, ptr]:
+            self.assertIdentical(
+                obj[-2:2], Object(self.prog, "int [4]", address=0xFFFEFFF8)
+            )
+
+        obj = arr.read_()
+        with self.assertRaisesRegex(OutOfBoundsError, "out of bounds"):
+            obj[-2:2]
+
+    def test_slice_both_negative(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+        for obj in [arr, incomplete_arr, ptr]:
+            self.assertIdentical(
+                obj[-4:-2], Object(self.prog, "int [2]", address=0xFFFEFFF0)
+            )
+
+        obj = arr.read_()
+        with self.assertRaisesRegex(OutOfBoundsError, "out of bounds"):
+            obj[-4:-2]
+
+    def test_slice_both_none(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+
+        self.assertIdentical(arr[:], Object(self.prog, "int [4]", address=0xFFFF0000))
+        with self.assertRaisesRegex(TypeError, "has no length"):
+            incomplete_arr[:]
+        with self.assertRaisesRegex(TypeError, "has no length"):
+            ptr[:]
+
+        self.assertIdentical(arr.read_()[:], Object(self.prog, "int [4]", [0, 1, 2, 3]))
+
+    def test_slice_start_none(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+        for obj in [arr, incomplete_arr, ptr]:
+            self.assertIdentical(
+                obj[:3], Object(self.prog, "int [3]", address=0xFFFF0000)
+            )
+
+        self.assertIdentical(arr.read_()[:3], Object(self.prog, "int [3]", [0, 1, 2]))
+
+    def test_slice_stop_none(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+
+        self.assertIdentical(arr[1:], Object(self.prog, "int [3]", address=0xFFFF0004))
+        with self.assertRaisesRegex(TypeError, "has no length"):
+            incomplete_arr[1:]
+        with self.assertRaisesRegex(TypeError, "has no length"):
+            ptr[1:]
+
+        self.assertIdentical(arr.read_()[1:], Object(self.prog, "int [3]", [1, 2, 3]))
+
+    def test_slice_start_negative_stop_none(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+
+        self.assertIdentical(arr[-2:], Object(self.prog, "int [6]", address=0xFFFEFFF8))
+        with self.assertRaisesRegex(TypeError, "has no length"):
+            incomplete_arr[-2:]
+        with self.assertRaisesRegex(TypeError, "has no length"):
+            ptr[-2:]
+
+        obj = arr.read_()
+        with self.assertRaisesRegex(OutOfBoundsError, "out of bounds"):
+            obj[-2:]
+
+    def test_slice_start_none_stop_negative(self):
+        arr = Object(self.prog, "int [4]", address=0xFFFF0000)
+        incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
+        ptr = Object(self.prog, "int *", value=0xFFFF0000)
+        for obj in [arr, incomplete_arr, ptr]:
+            self.assertIdentical(
+                obj[:-2], Object(self.prog, "int [0]", address=0xFFFF0000)
+            )
+
+        self.assertIdentical(arr.read_()[:-2], Object(self.prog, "int [0]", []))
+
     def test_cast_primitive_value(self):
         obj = Object(self.prog, "long", value=2**32 + 1)
         self.assertIdentical(cast("int", obj), Object(self.prog, "int", value=1))
