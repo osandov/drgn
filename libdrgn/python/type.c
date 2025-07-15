@@ -611,6 +611,24 @@ static PyObject *DrgnType_type_name(DrgnType *self)
 	return PyUnicode_FromString(str);
 }
 
+static PyObject *DrgnType_variable_declaration(DrgnType *self, PyObject *args,
+					       PyObject *kwds)
+{
+	static char *keywords[] = {"name", NULL};
+	const char *name;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "s:variable_declaration",
+					 keywords, &name))
+		return NULL;
+
+	_cleanup_free_ char *str = NULL;
+	struct drgn_error *err =
+		drgn_format_variable_declaration(DrgnType_unwrap(self), name,
+						 &str);
+	if (err)
+		return set_drgn_error(err);
+	return PyUnicode_FromString(str);
+}
+
 static PyObject *DrgnType_is_complete(DrgnType *self)
 {
 	Py_RETURN_BOOL(drgn_type_is_complete(self->type));
@@ -693,6 +711,8 @@ static PyObject *DrgnType_has_member(DrgnType *self, PyObject *args,
 static PyMethodDef DrgnType_methods[] = {
 	{"type_name", (PyCFunction)DrgnType_type_name, METH_NOARGS,
 	 drgn_Type_type_name_DOC},
+	{"variable_declaration", (PyCFunction)DrgnType_variable_declaration,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Type_variable_declaration_DOC},
 	{"is_complete", (PyCFunction)DrgnType_is_complete, METH_NOARGS,
 	 drgn_Type_is_complete_DOC},
 	{"qualified", (PyCFunction)DrgnType_qualified,

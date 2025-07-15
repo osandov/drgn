@@ -48,6 +48,9 @@ enum drgn_language_number {
 
 typedef struct drgn_error *drgn_format_type_fn(struct drgn_qualified_type,
 					       char **);
+typedef struct drgn_error *
+drgn_format_variable_declaration_fn(struct drgn_qualified_type, const char *,
+				    char **);
 typedef struct drgn_error *drgn_format_object_fn(const struct drgn_object *,
 						 size_t,
 						 enum drgn_format_object_flags,
@@ -94,6 +97,8 @@ struct drgn_language {
 	drgn_format_type_fn *format_type_name;
 	/** Implement @ref drgn_format_type(). */
 	drgn_format_type_fn *format_type;
+	/** Implement @ref drgn_format_variable_declaration(). */
+	drgn_format_variable_declaration_fn *format_variable_declaration;
 	/** Implement @ref drgn_format_object(). */
 	drgn_format_object_fn *format_object;
 	/**

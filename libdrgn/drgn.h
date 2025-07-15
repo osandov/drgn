@@ -3775,6 +3775,24 @@ drgn_format_type_name(struct drgn_qualified_type qualified_type, char **ret);
 struct drgn_error *drgn_format_type(struct drgn_qualified_type qualified_type,
 				    char **ret);
 
+
+/**
+ * Format a variable declaration with the given type and name.
+ *
+ * This will format the variable as it would be declared in its programming
+ * language.
+ *
+ * @param[in] qualified_type Variable type.
+ * @param[in] name Variable name.
+ * @param[out] ret Returned string. On success, it must be freed with @c free().
+ * On error, it is not modified.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_format_variable_declaration(struct drgn_qualified_type qualified_type,
+				 const char *name, char **ret)
+	__attribute__((__nonnull__(2, 3)));
+
 /** @} */
 
 /**
