@@ -344,20 +344,36 @@ def _load_debugging_symbols(prog: drgn.Program, args: argparse.Namespace) -> Non
 
     if args.default_symbols is None:
         args.default_symbols = {"default": True, "main": True}
-    try:
-        prog.load_debug_info(args.symbols, **args.default_symbols)
-    except drgn.MissingDebugInfoError as e:
-        if args.default_symbols.get("main"):
-            try:
-                main_module = prog.main_module()
-                critical = (
-                    main_module.wants_debug_file() or main_module.wants_loaded_file()
-                )
-            except LookupError:
-                critical = True
-        else:
-            critical = False
-        logger.log(logging.CRITICAL if critical else logging.WARNING, "%s", e)
+
+    if args.ctf:
+        try:
+            from drgn.helpers.linux.ctf import load_ctf
+
+            if not args.symbols:
+                ctfa = None
+            elif len(args.symbols) == 1:
+                ctfa = args.symbols[0]
+            else:
+                sys.exit("error: CTF accepts only one -s argument")
+            load_ctf(prog, ctfa)
+            logger.info("Using CTF debuginfo")
+        except (ImportError, ModuleNotFoundError):
+            sys.exit("error: CTF support is not available")
+    else:
+        try:
+            prog.load_debug_info(args.symbols, **args.default_symbols)
+        except drgn.MissingDebugInfoError as e:
+            if args.default_symbols.get("main"):
+                try:
+                    main_module = prog.main_module()
+                    critical = (
+                        main_module.wants_debug_file() or main_module.wants_loaded_file()
+                    )
+                except LookupError:
+                    critical = True
+            else:
+                critical = False
+            logger.log(logging.CRITICAL if critical else logging.WARNING, "%s", e)
 
     if args.extra_symbols:
         for extra_symbol_path in args.extra_symbols:
@@ -502,6 +518,14 @@ def _main() -> None:
         help="don't search for the kernel image and loadable kernel modules "
         "in the standard directories or those added by plugins",
     )
+    symbol_group.add_argument(
+        "--ctf",
+        "-C",
+        dest="ctf",
+        action="store_true",
+        help="use CTF rather than DWARF debuginfo",
+    )
+
 
     advanced_group = parser.add_argument_group("advanced")
     advanced_group.add_argument(
