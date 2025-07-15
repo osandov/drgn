@@ -1044,6 +1044,14 @@ drgn_format_type(struct drgn_qualified_type qualified_type, char **ret)
 	return lang->format_type(qualified_type, ret);
 }
 
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_format_variable_declaration(struct drgn_qualified_type qualified_type,
+				 const char *name, char **ret)
+{
+	const struct drgn_language *lang = drgn_type_language(qualified_type.type);
+	return lang->format_variable_declaration(qualified_type, name, ret);
+}
+
 bool drgn_type_is_integer(struct drgn_type *type)
 {
 	switch (drgn_type_kind(type)) {

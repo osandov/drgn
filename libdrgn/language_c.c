@@ -575,6 +575,25 @@ c_format_type(struct drgn_qualified_type qualified_type, char **ret)
 }
 
 static struct drgn_error *
+c_format_variable_declaration(struct drgn_qualified_type qualified_type,
+			      const char *name, char **ret)
+{
+	struct drgn_error *err;
+	STRING_BUILDER(sb);
+	struct string_callback name_callback = {
+		.fn = c_variable_name,
+		.arg = (char *)name,
+	};
+	err = c_declare_variable(qualified_type, &name_callback, 0, true, &sb);
+	if (err)
+		return err;
+	if (!string_builder_null_terminate(&sb))
+		return &drgn_enomem;
+	*ret = string_builder_steal(&sb);
+	return NULL;
+}
+
+static struct drgn_error *
 c_format_object_impl(const struct drgn_object *obj, size_t indent,
 		     size_t one_line_columns, size_t multi_line_columns,
 		     enum drgn_format_object_flags flags,
@@ -3825,6 +3844,7 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_c = {
 	.has_namespaces = false,
 	.format_type_name = c_format_type_name,
 	.format_type = c_format_type,
+	.format_variable_declaration = c_format_variable_declaration,
 	.format_object = c_format_object,
 	.find_type = c_family_find_type,
 	.bit_offset = c_family_bit_offset,
@@ -3856,6 +3876,7 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_cpp = {
 	.has_namespaces = true,
 	.format_type_name = c_format_type_name,
 	.format_type = c_format_type,
+	.format_variable_declaration = c_format_variable_declaration,
 	.format_object = c_format_object,
 	.find_type = c_family_find_type,
 	.bit_offset = c_family_bit_offset,

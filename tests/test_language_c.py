@@ -401,6 +401,66 @@ class TestPrettyPrintTypeName(MockProgramTestCase):
         )
 
 
+class TestVariableDeclaration(MockProgramTestCase):
+    def assert_variable_declaration(self, type, expected):
+        self.assertEqual(type.variable_declaration("foo"), expected)
+
+    def test_int(self):
+        self.assert_variable_declaration(self.prog.int_type("int", 4, True), "int foo")
+
+    def test_pointer(self):
+        self.assert_variable_declaration(
+            self.prog.pointer_type(self.prog.int_type("int", 4, True)), "int *foo"
+        )
+
+    def test_pointer_to_pointer(self):
+        self.assert_variable_declaration(
+            self.prog.pointer_type(
+                self.prog.pointer_type(self.prog.int_type("int", 4, True))
+            ),
+            "int **foo",
+        )
+
+    def test_array(self):
+        self.assert_variable_declaration(
+            self.prog.array_type(self.prog.int_type("int", 4, True), 3), "int foo[3]"
+        )
+
+    def test_incomplete_array(self):
+        self.assert_variable_declaration(
+            self.prog.array_type(self.prog.int_type("int", 4, True)), "int foo[]"
+        )
+
+    def test_struct(self):
+        self.assert_variable_declaration(self.point_type, "struct point foo")
+
+    def test_anonymous_struct(self):
+        self.assert_variable_declaration(
+            self.prog.struct_type(
+                None,
+                8,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                    TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+                ),
+            ),
+            """\
+struct {
+	int x;
+	int y;
+} foo""",
+        )
+
+    def test_function(self):
+        self.assert_variable_declaration(
+            self.prog.function_type(
+                self.prog.int_type("unsigned int", 4, True),
+                (TypeParameter(self.prog.int_type("int", 4, True), "j"),),
+            ),
+            "unsigned int foo(int j)",
+        )
+
+
 class TestPrettyPrintType(MockProgramTestCase):
     def assertPrettyPrint(self, type, expected):
         self.assertEqual(str(type), expected)

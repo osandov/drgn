@@ -3290,6 +3290,17 @@ class Type:
         """Get a descriptive full name of this type."""
         ...
 
+    def variable_declaration(self, name: str) -> str:
+        """
+        Format a variable declaration with this type.
+
+        >>> prog.type("int [4]").variable_declaration("my_array")
+        'int my_array[4]'
+
+        :param name: Name of the variable.
+        :return: Variable declaration in programming language syntax.
+        """
+
     def is_complete(self) -> bool:
         """
         Get whether this type is complete (i.e., the type definition is known).
