@@ -33,6 +33,7 @@ from _drgn import (
     _linux_helper_follow_phys,
     _linux_helper_read_vm,
 )
+import drgn
 from drgn import NULL, IntegerLike, Object, ObjectAbsentError, Program, TypeKind, cast
 from drgn.helpers.common.format import decode_enum_type_flags
 from drgn.helpers.common.prog import takes_program_or_default
@@ -118,6 +119,8 @@ __all__ = (
     "PageXenRemapped",
     "PageYoung",
 )
+
+ByteToKB = 1024
 
 
 def PageActive(page: Object) -> bool:
@@ -1523,3 +1526,16 @@ def get_task_rss_info(prog: Program, task: Object) -> TaskRss:
                 shmemrss += gtask.rss_stat.count[MM_SHMEMPAGES].value_()
 
     return TaskRss(filerss, anonrss, shmemrss, swapents)
+
+
+def get_task_vmem(task: Object) -> float:
+    """
+    Return virtual memory size of the task
+    """
+    prog = task.prog_
+    page_size = prog["PAGE_SIZE"].value_()
+    try:
+        vmem = (task.mm.total_vm.value_() * page_size) // ByteToKB
+    except drgn.FaultError:
+        vmem = 0
+    return vmem

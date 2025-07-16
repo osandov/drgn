@@ -17,9 +17,11 @@ from _drgn import (
     _linux_helper_pid_task as pid_task,
 )
 from drgn import IntegerLike, Object, Program, cast, container_of
+from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.prog import takes_object_or_program_or_default
 from drgn.helpers.linux.idr import idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
+from drgn.helpers.linux.sched import task_state_to_char
 
 __all__ = (
     "find_pid",
@@ -123,3 +125,39 @@ def for_each_task_in_group(
     ):
         if other != task or include_self:
             yield other
+
+
+def is_kthread(t: Object) -> bool:
+    """
+    Check if a task is kernel thread.
+    """
+    if not t.mm and not task_state_to_char(t) == "Z":
+        return True
+    return False
+
+
+def is_user(t: Object) -> bool:
+    """
+    Check if a task is user thread.
+    """
+    if t.mm:
+        return True
+    elif task_state_to_char(t) == "Z":
+        return True
+    return False
+
+
+def is_group_leader(t: Object) -> bool:
+    """
+    Check if a task is thread group leader.
+    """
+    if t.pid.value_() == t.tgid.value_():
+        return True
+    return False
+
+
+def get_command(task: Object) -> str:
+    """
+    :returns: name of the command
+    """
+    return escape_ascii_string(task.comm.string_())
