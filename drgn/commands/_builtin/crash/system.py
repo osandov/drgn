@@ -269,7 +269,7 @@ from drgn.helpers.linux.sched import task_thread_info
 
 thread_info = task_thread_info(task)
 """
-        return f"{self.task.value_():x}  [THREAD_INFO: {task_thread_info(self.task).value_()}]"
+        return f"{self.task.value_():x}  [THREAD_INFO: {task_thread_info(self.task).value_():x}]"
 
     def _get_cpu(self) -> str:
         if self.drgn:
