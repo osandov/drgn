@@ -4,7 +4,6 @@
 """Crash commands related to the current context."""
 
 import argparse
-import sys
 from typing import Any, Callable, NamedTuple, Optional
 
 from drgn import Object, Program
@@ -17,13 +16,11 @@ from drgn.commands import (
 )
 from drgn.commands._builtin.crash.system import _SysPrinter
 from drgn.commands.crash import (
-    _add_crash_cpu_context,
-    _add_crash_panic_context,
+    CrashDrgnCodeBuilder,
     _crash_get_panic_context,
     _find_pager,
     _get_pager,
     _pid_or_task,
-    add_crash_context,
     crash_command,
     crash_get_context,
 )
@@ -173,13 +170,19 @@ def _crash_cmd_set(
 
     if args.drgn:
         if args.panic:
-            sys.stdout.write(_add_crash_panic_context(prog, ""))
+            code = CrashDrgnCodeBuilder(prog)
+            code._append_crash_panic_context()
+            code.print()
         elif args.cpu is not None:
-            sys.stdout.write(_add_crash_cpu_context("", args.cpu))
+            code = CrashDrgnCodeBuilder(prog)
+            code._append_crash_cpu_context(args.cpu)
+            code.print()
         elif args.task is not None:
-            sys.stdout.write(add_crash_context(prog, "", args.task))
+            code = CrashDrgnCodeBuilder(prog)
+            code.append_crash_context(args.task)
+            code.print()
         else:
-            _SysPrinter(prog, True, system_fields=False, task="current").print()
+            _SysPrinter(prog, True, system_fields=False, context="current").print()
         return None
 
     if args.panic:
@@ -192,7 +195,7 @@ def _crash_cmd_set(
         task = crash_get_context(prog, args.task)
         prog.config["crash_context_origin"] = args.task
     else:
-        printer = _SysPrinter(prog, False, system_fields=False, task="current")
+        printer = _SysPrinter(prog, False, system_fields=False, context="current")
         printer.print()
         return printer.task
     prog.config["crash_context"] = task

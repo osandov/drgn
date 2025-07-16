@@ -3,7 +3,6 @@
 
 """Functions for porting commands from :doc:`crash <crash_compatibility>`."""
 
-import collections
 import contextlib
 import os
 import re
@@ -18,6 +17,7 @@ from drgn.commands import (
     CommandFuncDecorator,
     CommandNamespace,
     CustomCommandFuncDecorator,
+    DrgnCodeBuilder,
     command,
     custom_command,
 )
@@ -162,193 +162,75 @@ def crash_get_context(
     return task
 
 
-def _merge_imports(*sources: str) -> str:
-    # Combine multiple strings of Python source code into one, merging and
-    # sorting their imports (which must be at the beginning of each string).
-    imports = collections.defaultdict(set)
-    other_parts: List[str] = []
+class CrashDrgnCodeBuilder(DrgnCodeBuilder):
+    """
+    Helper class for generating code for :func:`drgn_argument` for crash
+    commands.
+    """
 
-    for source in sources:
-        for match in re.finditer(
-            r"""
-            (?P<import>
-                ^\s*
-                import
-                [^\S\n]+
-                (?P<import_modules>
-                    [\w.]+
-                    (?:\s*,\s*[\w.]+)*
-                )
-                \s*$\n?
-            )
-            |
-            (?P<from_import>
-                ^\s*
-                from
-                [^\S\n]+
-                (?P<from_import_module>[\w.]+)
-                [^\S\n]+
-                import
-                (?:
-                    [^\S\n]+
-                    (?P<from_import_names>
-                        \w+
-                        (?:[^\S\n]*,[^\S\n]*\w+)*
-                    )
-                    |
-                    [^\S\n]*
-                    \(
-                    \s*
-                    (?P<from_import_names_in_parens>
-                        \w+
-                        (?:\s*,\s*\w+)*
-                        (?:\s*,)?
-                    )
-                    \s*
-                    \)
-                )
-                \s*$\n?
-            )
-            |
-            (?P<rest>(?s:.+))
-            """,
-            source,
-            flags=re.MULTILINE | re.VERBOSE,
+    def __init__(self, prog: Program) -> None:
+        super().__init__()
+        self._prog = prog
+
+    def _append_crash_panic_context(self) -> None:
+        if (self._prog.flags & (ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL)) == (
+            ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL
         ):
-            if match.lastgroup == "import":
-                for module in match.group("import_modules").split(","):
-                    imports[module.strip()].add("")
-            elif match.lastgroup == "from_import":
-                module = imports[match.group("from_import_module")]
-                for name in (
-                    match.group("from_import_names")
-                    or match.group("from_import_names_in_parens")
-                ).split(","):
-                    name = name.strip()
-                    if not name:
-                        continue
-                    module.add(name)
-            else:
-                rest = match.group("rest")
-                if rest:
-                    if other_parts:
-                        other_parts.append("\n")
-                    other_parts.append(rest)
-
-    parts: List[str] = []
-    first_party_imports: List[str] = []
-    for module, names in sorted(imports.items()):
-        if module == "drgn" or module.startswith("drgn."):
-            target = first_party_imports
+            self.add_import("os")
+            self.add_from_import("drgn.helpers.linux.pid", "find_task")
+            self.append("task = find_task(os.getpid())\n")
         else:
-            target = parts
+            self.add_from_import("drgn.helpers.linux.panic", "panic_task")
+            self.append("task = panic_task()\n")
 
-        if "" in names:
-            names.remove("")
-            target.append(f"import {module}\n")
-
-        if names:
-            sorted_names = sorted(names)
-            line = f"from {module} import {', '.join(sorted_names)}\n"
-            # 88 (the default Black line length) + 1 for the newline.
-            if len(line) <= 89:
-                target.append(line)
-            else:
-                target.append(f"from {module} import (\n")
-                for name in sorted_names:
-                    target.append(f"    {name},\n")
-                target.append(")\n")
-
-    if parts and first_party_imports:
-        parts.append("\n")
-    parts.extend(first_party_imports)
-
-    if parts and other_parts:
-        parts.append("\n\n")
-    parts.extend(other_parts)
-
-    return "".join(parts)
-
-
-def _add_context(source: str, context: str) -> str:
-    if not source:
-        return context
-
-    return _merge_imports(context, source)
-
-
-def _add_crash_panic_context(prog: Program, source: str) -> str:
-    if (prog.flags & (ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL)) == (
-        ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL
-    ):
-        context = """\
-import os
-
-from drgn.helpers.linux.pid import find_task
-
-
-task = find_task(os.getpid())
-"""
-    else:
-        context = """\
-from drgn.helpers.linux.panic import panic_task
-
-
-task = panic_task()
-"""
-    return _add_context(source, context)
-
-
-def _add_crash_cpu_context(source: str, cpu: int) -> str:
-    return _add_context(
-        source,
-        f"""\
-from drgn.helpers.linux.sched import cpu_curr
-
-
+    def _append_crash_cpu_context(self, cpu: int) -> None:
+        self.add_from_import("drgn.helpers.linux.sched", "cpu_curr")
+        self.append(
+            f"""\
 cpu = {cpu}
 task = cpu_curr(cpu)
-""",
-    )
+"""
+        )
 
-
-def add_crash_context(
-    prog: Program, source: str, arg: Optional[Tuple[Literal["pid", "task"], int]] = None
-) -> str:
-    """
-    Edit an output string for :func:`drgn_argument` to include code for getting
-    the task context.
-
-    :param arg: Context parsed by the ``"pid_or_task"`` argparse type to use.
-        If ``None`` or not given, use the current context.
-    """
-    if arg is None:
-        arg = prog.config.get("crash_context_origin")
-        if arg is None:
-            return _add_crash_panic_context(prog, source)
-        elif arg[0] == "cpu":
-            return _add_crash_cpu_context(source, arg[1])
-
-    if arg[0] == "pid":
-        return _add_context(
-            source,
+    def _append_crash_pid_context(self, pid: int) -> None:
+        self.add_from_import("drgn.helpers.linux.pid", "find_task")
+        self.append(
             f"""\
-from drgn.helpers.linux.pid import find_task
-
-
-pid = {arg[1]}
+pid = {pid}
 task = find_task(pid)
-""",
+"""
         )
-    else:
-        assert arg[0] == "task"
-        return _add_context(
-            source,
+
+    def _append_crash_task_context(self, address: int) -> None:
+        self.add_from_import("drgn", "Object")
+        self.append(
             f"""\
-from drgn import Object
-
-
-address = {hex(arg[1])}
+address = {hex(address)}
 task = Object(prog, "struct task_struct *", address)
-""",
+"""
         )
+
+    def append_crash_context(
+        self, arg: Optional[Tuple[Literal["pid", "task"], int]] = None
+    ) -> None:
+        """
+        Append code for getting the task context in a variable named ``task``.
+
+        :param arg: Context parsed by the ``"pid_or_task"`` argparse type to
+            use. If ``None`` or not given, use the current context.
+        """
+
+        if arg is None:
+            arg = self._prog.config.get("crash_context_origin")
+            if arg is None:
+                self._append_crash_panic_context()
+                return
+            elif arg[0] == "cpu":
+                self._append_crash_cpu_context(arg[1])
+                return
+
+        if arg[0] == "pid":
+            self._append_crash_pid_context(arg[1])
+        else:
+            assert arg[0] == "task"
+            self._append_crash_task_context(arg[1])

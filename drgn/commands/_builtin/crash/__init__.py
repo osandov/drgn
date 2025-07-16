@@ -41,7 +41,7 @@ def _cmd_crash(
 ) -> Any:
     if args:
         return CRASH_COMMAND_NAMESPACE.run(prog, args, globals=globals)
-    _SysPrinter(prog, False, task="panic").print()
+    _SysPrinter(prog, False, context="panic").print()
     while True:
         try:
             line = input("%crash> ")
