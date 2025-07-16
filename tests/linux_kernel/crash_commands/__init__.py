@@ -3,6 +3,8 @@
 
 import contextlib
 import io
+import os
+import sys
 import types
 
 import drgn
@@ -33,6 +35,18 @@ class CrashCommandTestCase(LinuxKernelTestCase):
 
         self.assertFalse(drgn_option.stderr)
 
+        if os.getenv("DRGN_TEST_LOG_CRASH_DRGN"):
+            sys.stderr.write(
+                f"""
+{'=' * 88}
+%crash {command} --drgn
+{'-' * 88}
+{drgn_option.stdout}\
+{'=' * 88}
+"""
+            )
+            sys.stderr.flush()
+
         if mode == "compile" or mode == "exec":
             self.assertTrue(drgn_option.stdout)
             drgn_option.code = compile(drgn_option.stdout, command + " --drgn", "exec")
@@ -50,5 +64,18 @@ class CrashCommandTestCase(LinuxKernelTestCase):
                 drgn.set_default_prog(old_default_prog)
 
         ret = self.run_crash_command(command)
+
+        if os.getenv("DRGN_TEST_LOG_CRASH_OUTPUT"):
+            sys.stderr.write(
+                f"""
+{'=' * 88}
+%crash {command}
+{'-' * 88}
+{ret.stdout}\
+{'=' * 88}
+"""
+            )
+            sys.stderr.flush()
+
         ret.drgn_option = drgn_option
         return ret
