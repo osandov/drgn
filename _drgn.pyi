@@ -123,9 +123,7 @@ class Program:
         Implement ``self[name]``. Get the object (variable, constant, or
         function) with the given name.
 
-        This is equivalent to ``prog.object(name)`` except that this raises
-        :exc:`KeyError` instead of :exc:`LookupError` if no objects with the
-        given name are found.
+        This is equivalent to ``prog.object(name)``.
 
         If there are multiple objects with the same name, one is returned
         arbitrarily. In this case, the :meth:`variable()`, :meth:`constant()`,
@@ -160,8 +158,8 @@ class Program:
         :param name: The variable name.
         :param filename: The source code file that contains the definition. See
             :ref:`api-filenames`.
-        :raises LookupError: if no variables with the given name are found in
-            the given file
+        :raises ObjectNotFoundError: if no variables with the given name are
+            found in the given file
         """
         ...
 
@@ -182,8 +180,8 @@ class Program:
         :param name: The constant name.
         :param filename: The source code file that contains the definition. See
             :ref:`api-filenames`.
-        :raises LookupError: if no constants with the given name are found in
-            the given file
+        :raises ObjectNotFoundError: if no constants with the given name are
+            found in the given file
         """
         ...
 
@@ -200,8 +198,8 @@ class Program:
         :param name: The function name.
         :param filename: The source code file that contains the definition. See
             :ref:`api-filenames`.
-        :raises LookupError: if no functions with the given name are found in
-            the given file
+        :raises ObjectNotFoundError: if no functions with the given name are
+            found in the given file
         """
         ...
 
@@ -222,8 +220,8 @@ class Program:
         :param flags: Flags indicating what kind of object to look for.
         :param filename: The source code file that contains the definition. See
             :ref:`api-filenames`.
-        :raises LookupError: if no objects with the given name are found in
-            the given file
+        :raises ObjectNotFoundError: if no objects with the given name are
+            found in the given file
         """
         ...
 
@@ -1350,6 +1348,13 @@ class FindObjectFlags(enum.Flag):
     ""
     ANY = ...
     ""
+
+class ObjectNotFoundError(KeyError):
+    def __init__(self, *args: object, name: str) -> None:
+        """Error raised when an object is not found in a program."""
+        ...
+    name: str
+    """Object name that was not found."""
 
 class DebugInfoOptions:
     """

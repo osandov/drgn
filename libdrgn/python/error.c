@@ -53,6 +53,34 @@ PyTypeObject FaultError_type = {
 	.tp_init = (initproc)FaultError_init,
 };
 
+static int ObjectNotFoundError_init(PyObject *self, PyObject *args,
+				    PyObject *kwds)
+{
+	if (((PyTypeObject *)PyExc_BaseException)->tp_init(self, args, NULL) < 0)
+		return -1;
+
+	static char *keywords[] = {"name", NULL};
+	_cleanup_pydecref_ PyObject *empty_tuple = PyTuple_New(0);
+	if (!empty_tuple)
+		return -1;
+	PyObject *name;
+	if (!PyArg_ParseTupleAndKeywords(empty_tuple, kwds,
+					 "|$O:ObjectNotFoundError", keywords,
+					 &name))
+		return -1;
+
+	return PyObject_SetAttrString(self, "name", name);
+}
+
+PyTypeObject ObjectNotFoundError_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "_drgn.ObjectNotFoundError",
+	.tp_basicsize = sizeof(PyBaseExceptionObject),
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+	.tp_doc = drgn_ObjectNotFoundError_DOC,
+	.tp_init = (initproc)ObjectNotFoundError_init,
+};
+
 static struct drgn_error drgn_error_python = {
 	.code = DRGN_ERROR_OTHER,
 	.message = "error in Python callback",

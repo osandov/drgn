@@ -15,6 +15,7 @@ from drgn import (
     Language,
     NoDefaultProgramError,
     Object,
+    ObjectNotFoundError,
     Platform,
     PlatformFlags,
     Program,
@@ -105,46 +106,65 @@ class TestProgram(TestCase):
 
         self.assertEqual(prog.read(ctypes.addressof(buf), len(data)), data)
 
-    def test_lookup_error(self):
+    def test_object_not_found_error(self):
         prog = mock_program()
-        self.assertRaisesRegex(
-            LookupError, "^could not find constant 'foo'$", prog.constant, "foo"
-        )
-        self.assertRaisesRegex(
-            LookupError,
-            "^could not find constant 'foo' in 'foo.c'$",
-            prog.constant,
-            "foo",
-            "foo.c",
-        )
-        self.assertRaisesRegex(
-            LookupError, "^could not find function 'foo'$", prog.function, "foo"
-        )
-        self.assertRaisesRegex(
-            LookupError,
-            "^could not find function 'foo' in 'foo.c'$",
-            prog.function,
-            "foo",
-            "foo.c",
-        )
+
+        with self.assertRaisesRegex(
+            ObjectNotFoundError, "^could not find constant 'foo'$"
+        ) as cm:
+            prog.constant("foo")
+        self.assertEqual(cm.exception.name, "foo")
+
+        with self.assertRaisesRegex(
+            ObjectNotFoundError, "^could not find constant 'foo' in 'foo.c'$"
+        ) as cm:
+            prog.constant("foo", "foo.c")
+        self.assertEqual(cm.exception.name, "foo")
+
+        with self.assertRaisesRegex(
+            ObjectNotFoundError, "^could not find function 'foo'$"
+        ) as cm:
+            prog.function("foo")
+        self.assertEqual(cm.exception.name, "foo")
+
+        with self.assertRaisesRegex(
+            ObjectNotFoundError, "^could not find function 'foo' in 'foo.c'$"
+        ) as cm:
+            prog.function("foo", "foo.c")
+        self.assertEqual(cm.exception.name, "foo")
+
+        with self.assertRaisesRegex(
+            ObjectNotFoundError, "^could not find variable 'foo'$"
+        ) as cm:
+            prog.variable("foo")
+        self.assertEqual(cm.exception.name, "foo")
+
+        with self.assertRaisesRegex(
+            ObjectNotFoundError, "^could not find variable 'foo' in 'foo.c'$"
+        ) as cm:
+            prog.variable("foo", "foo.c")
+        self.assertEqual(cm.exception.name, "foo")
+
+        with self.assertRaisesRegex(
+            ObjectNotFoundError, "^could not find 'foo'$"
+        ) as cm:
+            prog["foo"]
+        self.assertEqual(cm.exception.name, "foo")
+
+        # If name isn't a string, prog.object(name) should raise TypeError, and
+        # prog[name] should raise KeyError (not ObjectNotFoundError).
+        self.assertRaises(TypeError, prog.object, 9)
+        with self.assertRaises(KeyError) as cm:
+            prog[9]
+        self.assertIs(type(cm.exception), KeyError)
+
+    def test_type_lookup_error(self):
+        prog = mock_program()
+
         self.assertRaisesRegex(LookupError, "^could not find 'foo'$", prog.type, "foo")
         self.assertRaisesRegex(
             LookupError, "^could not find 'foo' in 'foo.c'$", prog.type, "foo", "foo.c"
         )
-        self.assertRaisesRegex(
-            LookupError, "^could not find variable 'foo'$", prog.variable, "foo"
-        )
-        self.assertRaisesRegex(
-            LookupError,
-            "^could not find variable 'foo' in 'foo.c'$",
-            prog.variable,
-            "foo",
-            "foo.c",
-        )
-        # prog[key] should raise KeyError instead of LookupError.
-        self.assertRaises(KeyError, prog.__getitem__, "foo")
-        # Even for non-strings.
-        self.assertRaises(KeyError, prog.__getitem__, 9)
 
     def test_flags(self):
         self.assertIsInstance(mock_program().flags, ProgramFlags)
