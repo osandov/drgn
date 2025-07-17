@@ -15,6 +15,7 @@ from drgn import (
     FindObjectFlags,
     Language,
     Object,
+    ObjectNotFoundError,
     Program,
     ProgramFlags,
     Qualifiers,
@@ -4570,7 +4571,7 @@ class TestObjects(TestCase):
         )
         self.assertIdentical(prog.object("abs", FindObjectFlags.FUNCTION), prog["abs"])
         self.assertRaisesRegex(
-            LookupError,
+            ObjectNotFoundError,
             "could not find variable",
             prog.object,
             "abs",
@@ -4792,7 +4793,7 @@ class TestObjects(TestCase):
         )
         self.assertIdentical(prog.object("x", FindObjectFlags.VARIABLE), prog["x"])
         self.assertRaisesRegex(
-            LookupError,
+            ObjectNotFoundError,
             "could not find constant",
             prog.object,
             "x",
@@ -6824,7 +6825,7 @@ class TestObjects(TestCase):
 
     def test_not_found(self):
         prog = dwarf_program(int_die)
-        self.assertRaisesRegex(LookupError, "could not find", prog.object, "y")
+        self.assertRaisesRegex(ObjectNotFoundError, "could not find", prog.object, "y")
 
 
 class TestScopes(TestCase):

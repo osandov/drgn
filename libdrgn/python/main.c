@@ -338,6 +338,14 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (add_type(m, &FaultError_type))
 		goto err;
 
+	ObjectNotFoundError_type.tp_base = (PyTypeObject *)PyExc_KeyError;
+	// KeyError.__str__() returns repr(args[0]). Use BaseException.__str__()
+	// instead, which returns str(args[0]).
+	ObjectNotFoundError_type.tp_str =
+		((PyTypeObject *)PyExc_BaseException)->tp_str;
+	if (add_type(m, &ObjectNotFoundError_type))
+		goto err;
+
 	PyObject *host_platform_obj = Platform_wrap(&drgn_host_platform);
 	if (!host_platform_obj)
 		goto err;

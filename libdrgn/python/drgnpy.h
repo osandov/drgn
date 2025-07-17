@@ -295,6 +295,7 @@ extern PyTypeObject ModuleIterator_type;
 extern PyTypeObject ModuleSectionAddressesIterator_type;
 extern PyTypeObject Module_type;
 extern PyTypeObject ObjectIterator_type;
+extern PyTypeObject ObjectNotFoundError_type;
 extern PyTypeObject Platform_type;
 extern PyTypeObject Program_type;
 extern PyTypeObject Register_type;

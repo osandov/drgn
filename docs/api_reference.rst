@@ -10,6 +10,7 @@ Programs
     :exclude: (void|int|bool|float|struct|union|class|enum|typedef|pointer|array|function)_type|(main|shared_library|vdso|relocatable|linux_kernel_loadable|extra)_module
 .. drgndoc:: ProgramFlags
 .. drgndoc:: FindObjectFlags
+.. drgndoc:: ObjectNotFoundError
 
 .. drgndoc:: DebugInfoOptions
 .. drgndoc:: KmodSearchMethod
