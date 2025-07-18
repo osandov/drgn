@@ -199,10 +199,16 @@ def _shell_command(source: str) -> Iterator[_ParsedShellCommand]:
             else:
                 assert_never(op)
             if getattr(sys, attr) != saved[attr]:
-                getattr(sys, attr).close()
+                try:
+                    getattr(sys, attr).close()
+                except BrokenPipeError:
+                    pass
             setattr(sys, attr, open(path, mode))
 
-        yield parsed
+        try:
+            yield parsed
+        except BrokenPipeError:
+            pass
     except Exception as e:
         exceptions.append(e)
     finally:
@@ -210,6 +216,8 @@ def _shell_command(source: str) -> Iterator[_ParsedShellCommand]:
             if getattr(sys, attr) != file:
                 try:
                     getattr(sys, attr).close()
+                except BrokenPipeError:
+                    pass
                 except Exception as e:
                     exceptions.append(e)
                 setattr(sys, attr, file)
