@@ -1516,10 +1516,16 @@ def get_task_rss_info(prog: Program, task: Object) -> TaskRss:
             shmemrss = rss_stat.count[MM_SHMEMPAGES].counter.value_()
 
         for gtask in for_each_task_in_group(task, include_self=True):
-            filerss += gtask.rss_stat.count[MM_FILEPAGES].value_()
-            anonrss += gtask.rss_stat.count[MM_ANONPAGES].value_()
-            swapents += gtask.rss_stat.count[MM_SWAPENTS].value_()
+            # Kernel configurations with a small NR_CPUS don't have the
+            # per-thread cache.
+            try:
+                rss_stat = gtask.rss_stat
+            except AttributeError:
+                break
+            filerss += rss_stat.count[MM_FILEPAGES].value_()
+            anonrss += rss_stat.count[MM_ANONPAGES].value_()
+            swapents += rss_stat.count[MM_SWAPENTS].value_()
             if MM_SHMEMPAGES >= 0:
-                shmemrss += gtask.rss_stat.count[MM_SHMEMPAGES].value_()
+                shmemrss += rss_stat.count[MM_SHMEMPAGES].value_()
 
     return TaskRss(filerss, anonrss, shmemrss, swapents)

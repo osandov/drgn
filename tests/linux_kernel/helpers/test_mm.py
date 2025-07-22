@@ -13,7 +13,7 @@ import tempfile
 import unittest
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-from drgn import NULL, FaultError
+from drgn import NULL, FaultError, ObjectNotFoundError
 from drgn.helpers.linux.mm import (
     PFN_PHYS,
     PHYS_PFN,
@@ -475,7 +475,11 @@ class TestMm(LinuxKernelTestCase):
             # The kernel code uses percpu_counter_read_positive(), but the
             # helper uses percpu_counter_sum() for better accuracy. We need to
             # account for the deviation.
-            delta = self.prog["percpu_counter_batch"].value_() * os.cpu_count()
+            try:
+                percpu_counter_batch = self.prog["percpu_counter_batch"].value_()
+            except ObjectNotFoundError:
+                percpu_counter_batch = 32
+            delta = percpu_counter_batch * os.cpu_count()
 
             self.assertAlmostEqual(rss_info.file, stats["RssFile"], delta=delta)
             self.assertAlmostEqual(rss_info.anon, stats["RssAnon"], delta=delta)
