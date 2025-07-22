@@ -590,9 +590,11 @@ static void drgn_test_page_pool_exit(void)
 
 DEFINE_PER_CPU(u32, drgn_test_percpu_static);
 u32 __percpu *drgn_test_percpu_dynamic;
+struct percpu_counter drgn_test_percpu_counter;
 
 static int drgn_test_percpu_init(void)
 {
+	int ret;
 	int cpu;
 	u32 static_seed = drgn_test_prng32_seed("PCPU");
 	u32 dynamic_seed = drgn_test_prng32_seed("pcpu");
@@ -607,11 +609,19 @@ static int drgn_test_percpu_init(void)
 		dynamic_seed = drgn_test_prng32(dynamic_seed);
 		*per_cpu_ptr(drgn_test_percpu_dynamic, cpu) = dynamic_seed;
 	}
+
+	ret = percpu_counter_init(&drgn_test_percpu_counter,
+				  10, GFP_KERNEL);
+	if (ret)
+		return ret;
+	percpu_counter_add(&drgn_test_percpu_counter, 3);
+
 	return 0;
 }
 
 static void drgn_test_percpu_exit(void)
 {
+	percpu_counter_destroy(&drgn_test_percpu_counter);
 	free_percpu(drgn_test_percpu_dynamic);
 }
 

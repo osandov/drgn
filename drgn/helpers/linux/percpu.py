@@ -45,7 +45,12 @@ def percpu_counter_sum(fbc: Object) -> int:
     :param fbc: ``struct percpu_counter *``
     """
     ret = fbc.count.value_()
-    ptr = fbc.counters
-    for cpu in for_each_online_cpu(fbc.prog_):
-        ret += per_cpu_ptr(ptr, cpu)[0].value_()
+    try:
+        ptr = fbc.counters
+    except AttributeError:
+        # On !SMP kernels, there's nothing to sum.
+        pass
+    else:
+        for cpu in for_each_online_cpu(fbc.prog_):
+            ret += per_cpu_ptr(ptr, cpu)[0].value_()
     return ret

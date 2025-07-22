@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
-from drgn.helpers.linux.percpu import per_cpu, per_cpu_ptr
+from drgn.helpers.linux.percpu import per_cpu, per_cpu_ptr, percpu_counter_sum
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     prng32,
@@ -37,3 +37,9 @@ class TestPerCpu(LinuxKernelTestCase):
             self.assertEqual(
                 per_cpu_ptr(self.prog["drgn_test_percpu_dynamic"], cpu)[0], expected
             )
+
+
+@skip_unless_have_test_kmod
+class TestPercpuCounter(LinuxKernelTestCase):
+    def test_percpu_counter_sum(self):
+        self.assertEqual(percpu_counter_sum(self.prog["drgn_test_percpu_counter"]), 13)
