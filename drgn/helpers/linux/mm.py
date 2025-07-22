@@ -1501,9 +1501,7 @@ def get_task_rss_info(prog: Program, task: Object) -> TaskRss:
         filerss = percpu_counter_sum(rss_stat[MM_FILEPAGES].address_of_())
         anonrss = percpu_counter_sum(rss_stat[MM_ANONPAGES].address_of_())
         swapents = percpu_counter_sum(rss_stat[MM_SWAPENTS].address_of_())
-        shmemrss = 0
-        if MM_SHMEMPAGES >= 0:
-            shmemrss = percpu_counter_sum(rss_stat[MM_SHMEMPAGES].address_of_())
+        shmemrss = percpu_counter_sum(rss_stat[MM_SHMEMPAGES].address_of_())
     else:
         # Prior to this, the "rss_stat" was a structure containing counters that
         # were cached on each task_struct and periodically updated into the
@@ -1512,6 +1510,7 @@ def get_task_rss_info(prog: Program, task: Object) -> TaskRss:
         filerss = rss_stat.count[MM_FILEPAGES].counter.value_()
         anonrss = rss_stat.count[MM_ANONPAGES].counter.value_()
         swapents = rss_stat.count[MM_SWAPENTS].counter.value_()
+        shmemrss = 0
         if MM_SHMEMPAGES >= 0:
             shmemrss = rss_stat.count[MM_SHMEMPAGES].counter.value_()
 
