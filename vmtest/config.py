@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Dict, Mapping, NamedTuple, Sequence
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-from util import KernelVersion
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
@@ -148,6 +147,9 @@ CONFIG_NAMESPACES=y
 
 # For nodemask tests.
 CONFIG_NUMA=y
+
+# For sched tests.
+CONFIG_SCHEDSTATS=y
 
 # For slab allocator tests.
 CONFIG_SLAB_FREELIST_HARDENED=y
@@ -433,25 +435,13 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     vmtest_kernel_version = [
         # Increment the major version to rebuild every
         # architecture/flavor/version combination.
-        35,
+        36,
         # The minor version makes the default flavor the "latest" version.
         1 if flavor.name == "default" else 0,
     ]
     patch_level = 0
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
-    kver = KernelVersion(version)
-    if KernelVersion("4.18") <= kver < KernelVersion("5.18"):
-        patch_level += 1
-    if (
-        (KernelVersion("6.6") <= kver < KernelVersion("6.6.3"))
-        or (KernelVersion("6.2") <= kver < KernelVersion("6.5.13"))
-        or (KernelVersion("5.16") <= kver < KernelVersion("6.1.64"))
-        or (KernelVersion("5.11") <= kver < KernelVersion("5.15.140"))
-        or (KernelVersion("5.5") <= kver < KernelVersion("5.10.202"))
-        or (kver < KernelVersion("5.4.262"))
-    ):
-        patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 
