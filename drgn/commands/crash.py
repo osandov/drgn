@@ -4,12 +4,14 @@
 """Functions for porting commands from :doc:`crash <crash_compatibility>`."""
 
 import contextlib
+import dataclasses
 import os
 import re
 import shutil
 import subprocess
 import sys
-from typing import Any, List, Literal, Optional, Tuple
+import textwrap
+from typing import Any, FrozenSet, List, Literal, Optional, Set, Tuple
 
 from _drgn_util.typingutils import copy_func_params
 from drgn import Object, Program, ProgramFlags
@@ -21,7 +23,9 @@ from drgn.commands import (
     command,
     custom_command,
 )
+from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
+from drgn.helpers.linux.sched import task_cpu
 
 
 def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
@@ -162,6 +166,73 @@ def crash_get_context(
     return task
 
 
+@dataclasses.dataclass(frozen=True)
+class Cpuspec:
+    """Parsed crash CPU specifier."""
+
+    current: bool = False
+    """Include the CPU of the current context."""
+
+    all: bool = False
+    """Include all possible CPUs."""
+
+    explicit_cpus: FrozenSet[int] = frozenset()
+    """Explicitly listed CPUs."""
+
+    def __post_init__(self) -> None:
+        if self.current + self.all + bool(self.explicit_cpus) > 1:
+            raise ValueError(
+                "at most one of current, all, or explicit_cpus may be given"
+            )
+
+    def cpus(self, prog: Program) -> List[int]:
+        """
+        Resolve the CPU specifier to a sorted list of CPU numbers, checking
+        that all given CPUs were valid.
+        """
+        if self.current:
+            return [task_cpu(crash_get_context(prog))]
+        elif self.all:
+            return sorted(for_each_possible_cpu(prog))
+        elif self.explicit_cpus:
+            possible = set(for_each_possible_cpu(prog))
+            if not self.explicit_cpus.issubset(possible):
+                raise ValueError(f"invalid CPUs: {self.explicit_cpus - possible}")
+            return sorted(self.explicit_cpus)
+        else:
+            return []
+
+
+def parse_cpuspec(spec: str) -> Cpuspec:
+    """
+    Parse a crash CPU specifier.
+
+    A CPU specifier may be a comma-separated string of CPU numbers or ranges
+    (e.g., '0,3-4'), 'a' or 'all' (meaning all possible CPUs), or an empty
+    string (meaning the CPU of the current context).
+    """
+    if not spec:
+        return Cpuspec(current=True)
+
+    # Crash's parser is much more permissive: it allows extra commas (e.g.,
+    # 0,,1,), extra hyphens (e.g., 0-1-2,-3--4-), and mixing "all" with CPU
+    # numbers (e.g., 0-1,all). We chose to be stricter, but we can loosen it if
+    # requested.
+    if spec == "a" or spec == "all":
+        return Cpuspec(all=True)
+
+    cpus: Set[int] = set()
+    for part in spec.split(","):
+        match = re.fullmatch(r"([0-9]+)(?:-([0-9]+))?", part)
+        if not match:
+            raise ValueError(f"invalid cpuspec: {spec}") from None
+        if match.group(2):
+            cpus.update(range(int(match.group(1)), int(match.group(2)) + 1))
+        else:
+            cpus.add(int(match.group(1)))
+    return Cpuspec(explicit_cpus=frozenset(cpus))
+
+
 class CrashDrgnCodeBuilder(DrgnCodeBuilder):
     """
     Helper class for generating code for :func:`drgn_argument` for crash
@@ -234,3 +305,25 @@ task = Object(prog, "struct task_struct *", address)
         else:
             assert arg[0] == "task"
             self._append_crash_task_context(arg[1])
+
+    def append_cpuspec(self, cpuspec: Cpuspec, loop_body: str) -> None:
+        """
+        Append code to be executed for each CPU in a CPU specifier.
+
+        :param cpuspec: CPU specifier parsed by :func:`parse_cpuspec()`.
+        :param loop_body: Code to add for each CPU. Will be indented if
+            needed.
+        """
+        if cpuspec.current:
+            self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+            self.append_crash_context()
+            self.append("cpu = task_cpu(task)\n")
+            self.append(loop_body)
+            return
+
+        if cpuspec.all:
+            self.add_from_import("drgn.helpers.linux.cpumask", "for_each_possible_cpu")
+            self.append("for cpu in for_each_possible_cpu():\n")
+        else:
+            self.append(f"for cpu in {cpuspec.cpus(self._prog)!r}:\n")
+        self.append(textwrap.indent(loop_body, "    "))
