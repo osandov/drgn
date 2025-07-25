@@ -9,11 +9,12 @@ import re
 import sys
 from typing import Any, Iterable, List, Optional, Tuple, Union
 
-from drgn import Object, Program, Type, TypeKind, offsetof, sizeof
+from drgn import Object, Program, offsetof, sizeof
 from drgn.commands import CommandError, argument, drgn_argument
 from drgn.commands.crash import (
     Cpuspec,
     CrashDrgnCodeBuilder,
+    _guess_type,
     crash_command,
     parse_cpuspec,
 )
@@ -25,36 +26,6 @@ from drgn.helpers.linux.percpu import per_cpu_ptr
 @functools.wraps(int)
 def _int_or_suppress(s: str) -> Union[int, str]:
     return s if s is argparse.SUPPRESS else int(s)
-
-
-def _guess_type(prog: Program, kind: str, name: str) -> Type:
-    if kind != "union":
-        try:
-            return prog.type("struct " + name)
-        except LookupError:
-            pass
-
-    if kind != "struct":
-        try:
-            return prog.type("union " + name)
-        except LookupError:
-            pass
-
-    # Try a typedef.
-    type = prog.type(name)
-
-    # Make sure it's a typedef of our desired type kind.
-    underlying_type = type
-    while underlying_type.kind == TypeKind.TYPEDEF:
-        underlying_type = underlying_type.type
-    if (kind != "union" and underlying_type.kind == TypeKind.STRUCT) or (
-        kind != "struct" and underlying_type.kind == TypeKind.UNION
-    ):
-        return type
-
-    if kind == "*":
-        kind = "struct or union"
-    raise LookupError(f"{type.type_name()} is not a {kind}")
 
 
 _NAME_PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]*"
@@ -257,7 +228,50 @@ address = prog.symbol({address_or_symbol!r}).address{subtract_offset}
     return
 
 
-def _struct_common(prog: Program, kind: str, args: argparse.Namespace) -> None:
+@crash_command(
+    description="structure contents",
+    arguments=(
+        argument(
+            "name",
+            metavar="struct_name[.member[,member]]",
+            help="name of structure type; one or more comma-separated members "
+            "(each of which can be nested and include array subscripts) "
+            "may also be given to limit the output to those members",
+        ),
+        argument(
+            "address_or_symbol",
+            metavar="address_or_symbol[:cpuspec]",
+            nargs="?",
+            help="hexadecimal address or symbol name of structure. "
+            "If not given, the type and its size are printed instead. "
+            "For per-cpu variables, this may also contain a colon (':') "
+            "followed by a specification of which CPUs to print, "
+            "which may be a comma-separated string of CPU numbers or ranges "
+            "(e.g., '0,3-4'), "
+            "'a' or 'all' (meaning all possible CPUs), "
+            "or an empty string (meaning the CPU of the current context)",
+        ),
+        argument(
+            "-l",
+            dest="offset",
+            help="offset from the beginning of the desired structure to the "
+            "given address or symbol, either as a number of bytes or a "
+            "struct_name.member",
+        ),
+        argument("-c", dest="count", type=int, help="number of consecutive structures"),
+        argument(
+            "count",
+            type=_int_or_suppress,
+            nargs="?",
+            default=argparse.SUPPRESS,
+            help="number of consecutive structures",
+        ),
+        drgn_argument,
+    ),
+)
+def _crash_cmd_struct(
+    prog: Program, kind: str, args: argparse.Namespace, **kwargs: Any
+) -> None:
     name, members = _parse_name_and_members(args.name)
     offset_arg = None if args.offset is None else _parse_offset_arg(args.offset)
 
@@ -280,7 +294,12 @@ def _struct_common(prog: Program, kind: str, args: argparse.Namespace) -> None:
     # name (e.g., "atomic_t", not "struct atomic_t") if it exists. If it
     # doesn't, then it's only a hard error without --drgn.
     try:
-        type = _guess_type(prog, kind, name)
+        # If this was run via an implicit type command, then the type should
+        # already be smuggled in here.
+        try:
+            type = kwargs["type"]
+        except KeyError:
+            type = _guess_type(prog, kind, name)
     except LookupError:
         if not args.drgn:
             raise
@@ -372,53 +391,6 @@ def _struct_common(prog: Program, kind: str, args: argparse.Namespace) -> None:
 
 
 @crash_command(
-    description="structure contents",
-    arguments=(
-        argument(
-            "name",
-            metavar="struct_name[.member[,member]]",
-            help="name of structure type; one or more comma-separated members "
-            "(each of which can be nested and include array subscripts) "
-            "may also be given to limit the output to those members",
-        ),
-        argument(
-            "address_or_symbol",
-            metavar="address_or_symbol[:cpuspec]",
-            nargs="?",
-            help="hexadecimal address or symbol name of structure. "
-            "If not given, the type and its size are printed instead. "
-            "For per-cpu variables, this may also contain a colon (':') "
-            "followed by a specification of which CPUs to print, "
-            "which may be a comma-separated string of CPU numbers or ranges "
-            "(e.g., '0,3-4'), "
-            "'a' or 'all' (meaning all possible CPUs), "
-            "or an empty string (meaning the CPU of the current context)",
-        ),
-        argument(
-            "-l",
-            dest="offset",
-            help="offset from the beginning of the desired structure to the "
-            "given address or symbol, either as a number of bytes or a "
-            "struct_name.member",
-        ),
-        argument("-c", dest="count", type=int, help="number of consecutive structures"),
-        argument(
-            "count",
-            type=_int_or_suppress,
-            nargs="?",
-            default=argparse.SUPPRESS,
-            help="number of consecutive structures",
-        ),
-        drgn_argument,
-    ),
-)
-def _crash_cmd_struct(
-    prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
-) -> None:
-    return _struct_common(prog, "struct", args)
-
-
-@crash_command(
     description="union contents",
     arguments=(
         argument(
@@ -462,4 +434,41 @@ def _crash_cmd_struct(
 def _crash_cmd_union(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
-    return _struct_common(prog, "union", args)
+    return _crash_cmd_struct(prog, name, args, **kwargs)
+
+
+@crash_command(
+    name="*",
+    description="shortcut for struct or union",
+    usage=r"\* [*struct or union command arguments*]",
+    long_description="""
+    This is a shortcut that allows typing, e.g., ``*list_head`` instead of
+    ``struct list_head``. Note that if the type name is not also the name of a
+    command, then the ``*`` can also be omitted, e.g., ``list_head``.
+    """,
+    arguments=(
+        argument(
+            "name", metavar="struct_name[.member[,member]]", help=argparse.SUPPRESS
+        ),
+        argument(
+            "address_or_symbol",
+            metavar="address_or_symbol[:cpuspec]",
+            nargs="?",
+            help=argparse.SUPPRESS,
+        ),
+        argument("-l", dest="offset", help=argparse.SUPPRESS),
+        argument("-c", dest="count", type=int, help=argparse.SUPPRESS),
+        argument(
+            "count",
+            type=_int_or_suppress,
+            nargs="?",
+            default=argparse.SUPPRESS,
+            help=argparse.SUPPRESS,
+        ),
+        argument("--drgn", action="store_true", help=argparse.SUPPRESS),
+    ),
+)
+def _crash_cmd_asterisk(
+    prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
+) -> None:
+    return _crash_cmd_struct(prog, name, args, **kwargs)

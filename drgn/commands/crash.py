@@ -11,15 +11,18 @@ import shutil
 import subprocess
 import sys
 import textwrap
-from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Tuple
+from typing import Any, FrozenSet, List, Literal, Optional, Set, Tuple
 
 from _drgn_util.typingutils import copy_func_params
-from drgn import Object, Program, ProgramFlags
+from drgn import Object, Program, ProgramFlags, Type, TypeKind
 from drgn.commands import (
+    _SHELL_TOKEN_REGEX,
     CommandFuncDecorator,
     CommandNamespace,
+    CommandNotFoundError,
     CustomCommandFuncDecorator,
     DrgnCodeBuilder,
+    _unquote,
     command,
     custom_command,
 )
@@ -33,6 +36,36 @@ def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
         return "pid", int(s)
     except ValueError:
         return "task", int(s, 16)
+
+
+def _guess_type(prog: Program, kind: str, name: str) -> Type:
+    if kind != "union":
+        try:
+            return prog.type("struct " + name)
+        except LookupError:
+            pass
+
+    if kind != "struct":
+        try:
+            return prog.type("union " + name)
+        except LookupError:
+            pass
+
+    # Try a typedef.
+    type = prog.type(name)
+
+    # Make sure it's a typedef of our desired type kind.
+    underlying_type = type
+    while underlying_type.kind == TypeKind.TYPEDEF:
+        underlying_type = underlying_type.type
+    if (kind != "union" and underlying_type.kind == TypeKind.STRUCT) or (
+        kind != "struct" and underlying_type.kind == TypeKind.UNION
+    ):
+        return type
+
+    if kind == "*":
+        kind = "struct or union"
+    raise LookupError(f"{type.type_name()} is not a {kind}")
 
 
 def _find_pager(which: Optional[str] = None) -> Optional[List[str]]:
@@ -65,15 +98,41 @@ class _CrashCommandNamespace(CommandNamespace):
             argparse_types=(("pid_or_task", _pid_or_task),),
         )
 
-    def _run(self, prog: Program, command: str, *, globals: Dict[str, Any]) -> Any:
-        match = re.fullmatch(r"\s*!\s*(.*)", command)
-        if match:
-            args = match.group(1)
+    def _run(self, prog: Program, command: str, **kwargs: Any) -> Any:
+        command = command.lstrip()
+        if command.startswith("!"):
+            args = command[1:].lstrip()
             if args:
                 return subprocess.call(["sh", "-c", "--", args])
             else:
                 return subprocess.call(["sh", "-i"])
-        return super()._run(prog, command, globals=globals)
+
+        if command.startswith("*"):
+            command_name = "*"
+            command_obj = self.lookup(prog, "*")
+            args = command[1:].lstrip()
+        else:
+            match = _SHELL_TOKEN_REGEX.match(command)
+            if not match or match.lastgroup != "WORD":
+                raise SyntaxError("expected command name")
+
+            command_name = _unquote(match.group())
+            try:
+                command_obj = self.lookup(prog, command_name)
+            except CommandNotFoundError as e:
+                try:
+                    # Smuggle the type into the command function.
+                    kwargs["type"] = _guess_type(prog, "*", command_name)
+                except LookupError:
+                    raise e
+                else:
+                    command_name = "*"
+                    command_obj = self.lookup(prog, "*")
+                    args = command
+            else:
+                args = command[match.end() :].lstrip()
+
+        return command_obj.run(prog, command_name, args, **kwargs)
 
     def run(self, prog: Program, command: str, **kwargs: Any) -> Any:
         if prog.config.get("crash_scroll", True):

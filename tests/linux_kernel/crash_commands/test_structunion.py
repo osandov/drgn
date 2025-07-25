@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 
 from drgn import offsetof, reinterpret
-from drgn.commands import CommandError
+from drgn.commands import CommandError, CommandNotFoundError
 from tests.linux_kernel import parse_range_list, skip_unless_have_test_kmod
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 
@@ -413,3 +413,84 @@ class TestUnion(CrashCommandTestCase):
 
     def test_anonymous_struct(self):
         self.assertRaises(LookupError, self.run_crash_command, "union atomic_t")
+
+
+class TestAsterisk(CrashCommandTestCase):
+    def test_struct(self):
+        cmd = self.check_crash_command("*list_head")
+        self.assertIn("struct list_head {", cmd.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "struct list_head"
+        )
+
+    def test_struct_with_space(self):
+        cmd = self.check_crash_command("* list_head")
+        self.assertIn("struct list_head {", cmd.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "struct list_head"
+        )
+
+    @skip_unless_have_test_kmod
+    def test_union(self):
+        cmd = self.check_crash_command("*drgn_test_union")
+        self.assertIn("union drgn_test_union {", cmd.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "union drgn_test_union"
+        )
+
+    def test_struct_typedef(self):
+        cmd = self.check_crash_command("*atomic_t")
+        self.assertIn("} atomic_t", cmd.stdout)
+        self.assertIn('prog.type("atomic_t")', cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["type"].type_name(), "atomic_t")
+
+    @skip_unless_have_test_kmod
+    def test_union_typedef(self):
+        cmd = self.check_crash_command("*drgn_test_anonymous_union")
+        self.assertIn("} drgn_test_anonymous_union", cmd.stdout)
+        self.assertIn('prog.type("drgn_test_anonymous_union")', cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "drgn_test_anonymous_union"
+        )
+
+    def test_not_found(self):
+        self.assertRaises(
+            LookupError, self.run_crash_command, "*drgn_test_non_existent"
+        )
+
+
+class TestImplicit(CrashCommandTestCase):
+    def test_struct(self):
+        cmd = self.check_crash_command("list_head")
+        self.assertIn("struct list_head {", cmd.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "struct list_head"
+        )
+
+    @skip_unless_have_test_kmod
+    def test_union(self):
+        cmd = self.check_crash_command("drgn_test_union")
+        self.assertIn("union drgn_test_union {", cmd.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "union drgn_test_union"
+        )
+
+    def test_struct_typedef(self):
+        cmd = self.check_crash_command("atomic_t")
+        self.assertIn("} atomic_t", cmd.stdout)
+        self.assertIn('prog.type("atomic_t")', cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["type"].type_name(), "atomic_t")
+
+    @skip_unless_have_test_kmod
+    def test_union_typedef(self):
+        cmd = self.check_crash_command("drgn_test_anonymous_union")
+        self.assertIn("} drgn_test_anonymous_union", cmd.stdout)
+        self.assertIn('prog.type("drgn_test_anonymous_union")', cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "drgn_test_anonymous_union"
+        )
+
+    def test_not_found(self):
+        self.assertRaises(
+            CommandNotFoundError, self.run_crash_command, "drgn_test_non_existent"
+        )
