@@ -1,0 +1,415 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+from pathlib import Path
+import re
+
+from drgn import offsetof, reinterpret
+from drgn.commands import CommandError
+from tests.linux_kernel import parse_range_list, skip_unless_have_test_kmod
+from tests.linux_kernel.crash_commands import CrashCommandTestCase
+
+POSSIBLE_CPUS_PATH = Path("/sys/devices/system/cpu/possible")
+
+
+class TestStruct(CrashCommandTestCase):
+    def test_type(self):
+        cmd = self.check_crash_command("struct list_head")
+        self.assertIn("struct list_head {", cmd.stdout)
+        self.assertRegex(cmd.stdout, "(?m)^SIZE: [0-9]+$")
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "struct list_head"
+        )
+        self.assertIsInstance(cmd.drgn_option.globals["size"], int)
+
+    def test_typedef(self):
+        # atomic_t is a typedef of an anonymous struct. Crash allows this.
+        cmd = self.check_crash_command("struct atomic_t")
+        self.assertIn("} atomic_t", cmd.stdout)
+        self.assertIn('prog.type("atomic_t")', cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["type"].type_name(), "atomic_t")
+
+    def test_not_found(self):
+        self.assertRaises(
+            LookupError, self.run_crash_command, "struct drgn_test_non_existent"
+        )
+
+    def test_not_found_drgn_option(self):
+        cmd = self.run_crash_command("struct drgn_test_non_existent --drgn")
+        self.assertIn('prog.type("struct drgn_test_non_existent")', cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_union(self):
+        self.assertRaises(LookupError, self.run_crash_command, "struct drgn_test_union")
+
+    @skip_unless_have_test_kmod
+    def test_anonymous_union(self):
+        self.assertRaises(
+            LookupError, self.run_crash_command, "struct drgn_test_anonymous_union"
+        )
+
+    def test_type_member(self):
+        cmd = self.check_crash_command("struct list_head.next")
+        self.assertRegex(cmd.stdout, r"\[[0-9]+\] struct list_head \*next;")
+        self.assertEqual(
+            cmd.drgn_option.globals["next_type"].type_name(), "struct list_head *"
+        )
+        self.assertIsInstance(cmd.drgn_option.globals["next_offset"], int)
+
+    def test_type_multiple_members(self):
+        cmd = self.check_crash_command("struct list_head.next,prev")
+        self.assertRegex(cmd.stdout, r"\[[0-9]+\] struct list_head \*next;")
+        self.assertRegex(cmd.stdout, r"\[[0-9]+\] struct list_head \*prev;")
+        self.assertEqual(
+            cmd.drgn_option.globals["next_type"].type_name(), "struct list_head *"
+        )
+        self.assertIsInstance(cmd.drgn_option.globals["next_offset"], int)
+        self.assertEqual(
+            cmd.drgn_option.globals["prev_type"].type_name(), "struct list_head *"
+        )
+        self.assertIsInstance(cmd.drgn_option.globals["prev_offset"], int)
+
+    @skip_unless_have_test_kmod
+    def test_address(self):
+        address = self.prog["drgn_test_singular_list"].address_
+        cmd = self.check_crash_command(f"struct list_head {address:x}")
+        self.assertIn("(struct list_head){", cmd.stdout)
+        self.assertIn(
+            'Object(prog, "struct list_head", address=0x', cmd.drgn_option.stdout
+        )
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"], self.prog["drgn_test_singular_list"]
+        )
+
+    @skip_unless_have_test_kmod
+    def test_symbol(self):
+        cmd = self.check_crash_command("struct list_head drgn_test_singular_list")
+        self.assertIn("(struct list_head){", cmd.stdout)
+        self.assertIn(
+            "object = prog['drgn_test_singular_list']", cmd.drgn_option.stdout
+        )
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"], self.prog["drgn_test_singular_list"]
+        )
+
+    @skip_unless_have_test_kmod
+    def test_symbol_wrong_type(self):
+        cmd = self.check_crash_command("struct hlist_head drgn_test_singular_list")
+        self.assertIn("(struct hlist_head){", cmd.stdout)
+        self.assertIn("prog.symbol", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"],
+            reinterpret("struct hlist_head", self.prog["drgn_test_singular_list"]),
+        )
+
+    def test_member(self):
+        cmd = self.check_crash_command("struct task_struct.pid init_task")
+        self.assertRegex(cmd.stdout, r"pid = \([^)]*\)0")
+        self.assertIn(".pid", cmd.drgn_option.stdout)
+        self.assertIdentical(cmd.drgn_option.globals["object"], self.prog["init_task"])
+        self.assertEqual(cmd.drgn_option.globals["pid"], 0)
+
+    def test_multiple_members(self):
+        cmd = self.check_crash_command("struct task_struct.pid,tgid init_task")
+        self.assertRegex(cmd.stdout, r"pid = \([^)]*\)0")
+        self.assertRegex(cmd.stdout, r"tgid = \([^)]*\)0")
+        self.assertIn(".pid", cmd.drgn_option.stdout)
+        self.assertIn(".tgid", cmd.drgn_option.stdout)
+        self.assertIdentical(cmd.drgn_option.globals["object"], self.prog["init_task"])
+        self.assertEqual(cmd.drgn_option.globals["pid"], 0)
+        self.assertEqual(cmd.drgn_option.globals["tgid"], 0)
+
+    @skip_unless_have_test_kmod
+    def test_address_and_offset(self):
+        address = hex(self.prog["drgn_test_singular_list"].next)
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(
+            f"struct drgn_test_list_entry {address} -l {offset}"
+        )
+        self.assertIn("(struct drgn_test_list_entry){", cmd.stdout)
+        self.assertIn(".value = (int)0,", cmd.stdout)
+        self.assertIn(f"- {offset}", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"],
+            self.prog["drgn_test_singular_list_entry"],
+        )
+
+    @skip_unless_have_test_kmod
+    def test_container_of_address(self):
+        address = hex(self.prog["drgn_test_singular_list"].next)
+        cmd = self.check_crash_command(
+            f"struct drgn_test_list_entry {address} -l drgn_test_list_entry.node"
+        )
+        self.assertIn("(struct drgn_test_list_entry){", cmd.stdout)
+        self.assertIn(".value = (int)0,", cmd.stdout)
+        self.assertIn("container_of(", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"],
+            self.prog["drgn_test_singular_list_entry"],
+        )
+
+    @skip_unless_have_test_kmod
+    def test_container_of_address_wrong_type(self):
+        address = hex(self.prog["drgn_test_singular_list"].next)
+        cmd = self.check_crash_command(
+            f"struct hlist_head {address} -l drgn_test_list_entry.node"
+        )
+        self.assertIn("(struct hlist_head){", cmd.stdout)
+        self.assertIn("container_of(", cmd.drgn_option.stdout)
+        self.assertIn("reinterpret(", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"],
+            reinterpret(
+                "struct hlist_head", self.prog["drgn_test_singular_list_entry"]
+            ),
+        )
+
+    @skip_unless_have_test_kmod
+    def test_container_of_address_with_member(self):
+        address = hex(self.prog["drgn_test_singular_list"].next)
+        cmd = self.check_crash_command(
+            f"struct drgn_test_list_entry.value {address} -l drgn_test_list_entry.node"
+        )
+        self.assertIn("(int)0", cmd.stdout)
+        self.assertIn("container_of(", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"],
+            self.prog["drgn_test_singular_list_entry"],
+        )
+        self.assertIdentical(
+            cmd.drgn_option.globals["value"],
+            self.prog["drgn_test_singular_list_entry"].value,
+        )
+
+    @skip_unless_have_test_kmod
+    def test_positional_count(self):
+        cmd = self.check_crash_command(
+            "struct drgn_test_list_entry drgn_test_list_entries 3"
+        )
+        self.assertEqual(cmd.stdout.count("(struct drgn_test_list_entry){"), 3)
+        self.assertIn("for object in pointer[:3]", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"], self.prog["drgn_test_list_entries"][2]
+        )
+
+    @skip_unless_have_test_kmod
+    def test_count_option(self):
+        cmd = self.check_crash_command(
+            "struct drgn_test_list_entry drgn_test_list_entries -c 3"
+        )
+        self.assertEqual(cmd.stdout.count("(struct drgn_test_list_entry){"), 3)
+        self.assertIn("for object in pointer[:3]", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"], self.prog["drgn_test_list_entries"][2]
+        )
+
+    @skip_unless_have_test_kmod
+    def test_negative_count(self):
+        address = self.prog["drgn_test_list_entries"][2].address_
+        cmd = self.check_crash_command(
+            f"struct drgn_test_list_entry {hex(address)} -c -3"
+        )
+        self.assertEqual(cmd.stdout.count("(struct drgn_test_list_entry){"), 3)
+        self.assertIn("for object in pointer[-2:1]", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"], self.prog["drgn_test_list_entries"][2]
+        )
+
+    @skip_unless_have_test_kmod
+    def test_count_with_member(self):
+        cmd = self.check_crash_command(
+            "struct drgn_test_list_entry.value drgn_test_list_entries 3"
+        )
+        self.assertEqual(cmd.stdout.count("(int)"), 3)
+        self.assertIn("for object in pointer[:3]", cmd.drgn_option.stdout)
+        self.assertIn("    value = object.value", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["value"],
+            self.prog["drgn_test_list_entries"][2].value,
+        )
+
+    @skip_unless_have_test_kmod
+    def test_count_with_offset(self):
+        address = self.prog["drgn_test_list_entries"][0].value.address_
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "value")
+        cmd = self.check_crash_command(
+            f"struct drgn_test_list_entry {hex(address)} -l {offset} -c 3"
+        )
+        self.assertEqual(cmd.stdout.count("(struct drgn_test_list_entry){"), 3)
+        self.assertIn(f"- {offset}", cmd.drgn_option.stdout)
+        self.assertIn("for object in pointer[:3]", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"], self.prog["drgn_test_list_entries"][2]
+        )
+
+    @skip_unless_have_test_kmod
+    def test_count_with_container_of(self):
+        address = self.prog["drgn_test_list_entries"][0].value.address_
+        cmd = self.check_crash_command(
+            f"struct drgn_test_list_entry {hex(address)} -l drgn_test_list_entry.value -c 3"
+        )
+        self.assertEqual(cmd.stdout.count("(struct drgn_test_list_entry){"), 3)
+        self.assertIn("container_of(", cmd.drgn_option.stdout)
+        self.assertIn("for object in pointer[:3]", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"], self.prog["drgn_test_list_entries"][2]
+        )
+
+    @skip_unless_have_test_kmod
+    def test_count_with_offset_and_member(self):
+        address = self.prog["drgn_test_list_entries"][0].value.address_
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "value")
+        cmd = self.check_crash_command(
+            f"struct drgn_test_list_entry.value {hex(address)} -l {offset} -c 3"
+        )
+        self.assertEqual(cmd.stdout.count("(int)"), 3)
+        self.assertIn(f"- {offset}", cmd.drgn_option.stdout)
+        self.assertIn("for object in pointer[:3]", cmd.drgn_option.stdout)
+        self.assertIn("    value = object.value", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"], self.prog["drgn_test_list_entries"][2]
+        )
+        self.assertIdentical(
+            cmd.drgn_option.globals["value"],
+            self.prog["drgn_test_list_entries"][2].value,
+        )
+
+    @skip_unless_have_test_kmod
+    def test_count_with_container_of_and_member(self):
+        address = self.prog["drgn_test_list_entries"][0].value.address_
+        cmd = self.check_crash_command(
+            f"struct drgn_test_list_entry.value {hex(address)} -l drgn_test_list_entry.value -c 3"
+        )
+        self.assertEqual(cmd.stdout.count("(int)"), 3)
+        self.assertIn("container_of(", cmd.drgn_option.stdout)
+        self.assertIn("for object in pointer[:3]", cmd.drgn_option.stdout)
+        self.assertIn("    value = object.value", cmd.drgn_option.stdout)
+        self.assertIdentical(
+            cmd.drgn_option.globals["object"], self.prog["drgn_test_list_entries"][2]
+        )
+        self.assertIdentical(
+            cmd.drgn_option.globals["value"],
+            self.prog["drgn_test_list_entries"][2].value,
+        )
+
+    def test_cpuspec(self):
+        cmd = self.check_crash_command("struct rq runqueues:a")
+        cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
+        matches = re.findall(
+            r"^\[([0-9]+)\]: [0-9a-f]+\n\(struct rq\)\{", cmd.stdout, flags=re.MULTILINE
+        )
+        self.assertEqual([int(match) for match in matches], cpus)
+        self.assertIn("per_cpu(", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["object"].cpu, max(cpus))
+
+    def test_cpuspec_with_member(self):
+        cmd = self.check_crash_command("struct rq.cpu runqueues:a")
+        cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
+        matches = re.findall(r"cpu = \([^)]*\)([0-9]+)", cmd.stdout, flags=re.MULTILINE)
+        self.assertEqual([int(match) for match in matches], cpus)
+        self.assertIn("per_cpu(", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["object"].cpu, max(cpus))
+        self.assertEqual(cmd.drgn_option.globals["cpu"], max(cpus))
+
+    @skip_unless_have_test_kmod
+    def test_cpuspec_with_count(self):
+        cmd = self.check_crash_command(
+            "struct drgn_test_percpu_struct drgn_test_percpu_arrays:a 3"
+        )
+        cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
+        matches = re.findall(
+            r"(cpu|i) = \([^)]*\)([0-9]+)", cmd.stdout, flags=re.MULTILINE
+        )
+        expected = []
+        for cpu in cpus:
+            for i in range(3):
+                expected.append(("cpu", str(cpu)))
+                expected.append(("i", str(i)))
+        self.assertEqual(matches, expected)
+        self.assertEqual(cmd.drgn_option.globals["object"].cpu, max(cpus))
+        self.assertEqual(cmd.drgn_option.globals["object"].i, 2)
+
+    @skip_unless_have_test_kmod
+    def test_cpuspec_with_count_and_members(self):
+        cmd = self.check_crash_command(
+            "struct drgn_test_percpu_struct.cpu,i drgn_test_percpu_arrays:a 3"
+        )
+        cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
+        matches = re.findall(
+            r"^(cpu|i) = \([^)]*\)([0-9]+)", cmd.stdout, flags=re.MULTILINE
+        )
+        expected = []
+        for cpu in cpus:
+            for i in range(3):
+                expected.append(("cpu", str(cpu)))
+                expected.append(("i", str(i)))
+        self.assertEqual(matches, expected)
+        self.assertEqual(cmd.drgn_option.globals["object"].cpu, max(cpus))
+        self.assertEqual(cmd.drgn_option.globals["object"].i, 2)
+        self.assertEqual(cmd.drgn_option.globals["cpu"], max(cpus))
+        self.assertEqual(cmd.drgn_option.globals["i"], 2)
+
+    def test_type_with_count(self):
+        self.assertRaisesRegex(
+            CommandError,
+            "requires address",
+            self.run_crash_command,
+            "struct list_head -c 1",
+        )
+
+    def test_type_with_offset(self):
+        self.assertRaisesRegex(
+            CommandError,
+            "requires address",
+            self.run_crash_command,
+            "struct list_head -l 0",
+        )
+
+    def test_invalid_structure_name(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "invalid structure name",
+            self.check_crash_command,
+            "struct 1234",
+        )
+
+    def test_invalid_member(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "invalid member name",
+            self.check_crash_command,
+            "struct rq.[1]",
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "invalid member name",
+            self.check_crash_command,
+            "struct rq.2",
+        )
+
+
+class TestUnion(CrashCommandTestCase):
+    @skip_unless_have_test_kmod
+    def test_type(self):
+        cmd = self.check_crash_command("union drgn_test_union")
+        self.assertIn("union drgn_test_union {", cmd.stdout)
+        self.assertRegex(cmd.stdout, "(?m)^SIZE: [0-9]+$")
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "union drgn_test_union"
+        )
+        self.assertIsInstance(cmd.drgn_option.globals["size"], int)
+
+    @skip_unless_have_test_kmod
+    def test_typedef(self):
+        cmd = self.check_crash_command("union drgn_test_anonymous_union")
+        self.assertIn("} drgn_test_anonymous_union", cmd.stdout)
+        self.assertIn('prog.type("drgn_test_anonymous_union")', cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["type"].type_name(), "drgn_test_anonymous_union"
+        )
+
+    def test_struct(self):
+        self.assertRaises(LookupError, self.run_crash_command, "union task_struct")
+
+    def test_anonymous_struct(self):
+        self.assertRaises(LookupError, self.run_crash_command, "union atomic_t")

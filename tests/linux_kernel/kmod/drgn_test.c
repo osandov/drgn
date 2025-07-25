@@ -592,6 +592,15 @@ DEFINE_PER_CPU(u32, drgn_test_percpu_static);
 u32 __percpu *drgn_test_percpu_dynamic;
 struct percpu_counter drgn_test_percpu_counter;
 
+struct drgn_test_percpu_struct {
+	int cpu;
+	int i;
+};
+
+typedef struct drgn_test_percpu_struct drgn_test_percpu_array[3];
+
+DEFINE_PER_CPU(drgn_test_percpu_array, drgn_test_percpu_arrays);
+
 static int drgn_test_percpu_init(void)
 {
 	int ret;
@@ -604,10 +613,20 @@ static int drgn_test_percpu_init(void)
 		return -ENOMEM;
 	// Initialize the per-cpu variables with a PRNG sequence.
 	for_each_possible_cpu(cpu) {
+		int i;
+
 		static_seed = drgn_test_prng32(static_seed);
 		per_cpu(drgn_test_percpu_static, cpu) = static_seed;
 		dynamic_seed = drgn_test_prng32(dynamic_seed);
 		*per_cpu_ptr(drgn_test_percpu_dynamic, cpu) = dynamic_seed;
+
+		for (i = 0; i < 3; i++) {
+			per_cpu(drgn_test_percpu_arrays, cpu)[i] =
+				(struct drgn_test_percpu_struct){
+					.cpu = cpu,
+					.i = i,
+				};
+		}
 	}
 
 	ret = percpu_counter_init(&drgn_test_percpu_counter,
@@ -1626,6 +1645,20 @@ static void drgn_test_sysfs_exit(void)
 static inline int drgn_test_sysfs_init(void) { return 0; }
 static inline void drgn_test_sysfs_exit(void) {}
 #endif
+
+// types
+
+union drgn_test_union {
+	u32 u;
+	s32 s;
+};
+union drgn_test_union drgn_test_union_var;
+
+typedef union {
+	u64 u;
+	s64 s;
+} drgn_test_anonymous_union;
+drgn_test_anonymous_union drgn_test_anonymous_union_var;
 
 static void drgn_test_exit(void)
 {
