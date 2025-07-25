@@ -6,6 +6,7 @@
 import argparse
 import functools
 import re
+import shutil
 import sys
 from typing import Any, Iterable, List, Optional, Tuple, Union
 
@@ -378,6 +379,7 @@ def _crash_cmd_struct(
                 print(f"[{cpu}]: {pcpu_ptr.value_():x}")
                 yield pcpu_ptr[sl]
 
+    columns = shutil.get_terminal_size().columns
     for arr in arrays():
         for i, obj in enumerate(arr):
             if i != 0:
@@ -385,9 +387,11 @@ def _crash_cmd_struct(
 
             if members:
                 for member in members:
-                    print(f"{member} = {obj.subobject_(member)}")
+                    print(
+                        f"{member} = {obj.subobject_(member).format_(columns=columns)}"
+                    )
             else:
-                print(obj)
+                print(obj.format_(columns=columns))
 
 
 @crash_command(
