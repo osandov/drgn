@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
-from typing import Any, FrozenSet, List, Literal, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Tuple
 
 from _drgn_util.typingutils import copy_func_params
 from drgn import Object, Program, ProgramFlags
@@ -65,12 +65,15 @@ class _CrashCommandNamespace(CommandNamespace):
             argparse_types=(("pid_or_task", _pid_or_task),),
         )
 
-    def split_command(self, command: str) -> Tuple[str, str]:
-        # '*' and '!' may be combined with their first argument.
-        match = re.fullmatch(r"\s*([!*])\s*(.*)", command)
+    def _run(self, prog: Program, command: str, *, globals: Dict[str, Any]) -> Any:
+        match = re.fullmatch(r"\s*!\s*(.*)", command)
         if match:
-            return match.group(1), match.group(2)
-        return super().split_command(command)
+            args = match.group(1)
+            if args:
+                return subprocess.call(["sh", "-c", "--", args])
+            else:
+                return subprocess.call(["sh", "-i"])
+        return super()._run(prog, command, globals=globals)
 
     def run(self, prog: Program, command: str, **kwargs: Any) -> Any:
         if prog.config.get("crash_scroll", True):

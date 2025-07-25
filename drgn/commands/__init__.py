@@ -382,15 +382,17 @@ class CommandNamespace:
             if command.enabled(prog)
         )
 
-    def split_command(self, command: str) -> Tuple[str, str]:
+    def _run(self, prog: Program, command: str, *, globals: Dict[str, Any]) -> Any:
         command = command.lstrip()
         match = _SHELL_TOKEN_REGEX.match(command)
         if not match or match.lastgroup != "WORD":
             raise SyntaxError("expected command name")
 
-        name = _unquote(match.group())
+        command_name = _unquote(match.group())
         args = command[match.end() :].lstrip()
-        return name, args
+        return self.lookup(prog, command_name).run(
+            prog, command_name, args, globals=globals
+        )
 
     def run(
         self,
@@ -409,10 +411,7 @@ class CommandNamespace:
             globals = sys._getframe(1).f_globals
 
         try:
-            command_name, args = self.split_command(command)
-            return self.lookup(prog, command_name).run(
-                prog, command_name, args, globals=globals
-            )
+            return self._run(prog, command, globals=globals)
         except Exception as e:
             if onerror is None:
                 raise

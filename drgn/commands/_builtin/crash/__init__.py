@@ -2,18 +2,13 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import argparse
-import subprocess
 import sys
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict
 
 from drgn import Program
 from drgn.commands import Command, CommandNotFoundError, _write_command_error, argument
 from drgn.commands._builtin.crash.system import _SysPrinter
-from drgn.commands.crash import (
-    CRASH_COMMAND_NAMESPACE,
-    crash_command,
-    crash_custom_command,
-)
+from drgn.commands.crash import CRASH_COMMAND_NAMESPACE, crash_command
 from drgn.commands.linux import linux_kernel_custom_command
 
 
@@ -54,24 +49,8 @@ def _cmd_crash(
         )
 
 
-# Note: we implement '!' as a command for convenience, but the crash
-# documentation doesn't consider it a command.
-@crash_custom_command(name="!", description="", usage="", help="")
-def _crash_cmd_bang(prog: Program, name: str, args: str, **kwargs: Any) -> int:
-    if args:
-        return subprocess.call(["sh", "-c", "--", args])
-    else:
-        return subprocess.call(["sh", "-i"])
-
-
-def _enabled_crash_commands(prog: Program) -> Iterable[Tuple[str, Command]]:
-    for name, command in CRASH_COMMAND_NAMESPACE.enabled(prog):
-        if name != "!":  # crash doesn't document '!' as a command.
-            yield name, command
-
-
 def _help_overview(prog: Program) -> None:
-    command_names = [name for name, _ in _enabled_crash_commands(prog)]
+    command_names = [name for name, _ in CRASH_COMMAND_NAMESPACE.enabled(prog)]
     command_names.sort()
     columns = 5
     rows = (len(command_names) + columns - 1) // columns
@@ -134,7 +113,7 @@ def _crash_cmd_help(
     first = True
     for name in args.command:
         if name == "all":
-            for name, command in _enabled_crash_commands(prog):
+            for name, command in CRASH_COMMAND_NAMESPACE.enabled(prog):
                 if first:
                     first = False
                 else:
@@ -147,8 +126,6 @@ def _crash_cmd_help(
                 print()
 
             try:
-                if name == "!":  # crash doesn't document '!' as a command.
-                    raise CommandNotFoundError("!")
                 command = CRASH_COMMAND_NAMESPACE.lookup(prog, name)
             except CommandNotFoundError as e:
                 print(f"No command named {e.name!r}")
