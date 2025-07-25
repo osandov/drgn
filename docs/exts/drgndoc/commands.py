@@ -532,9 +532,10 @@ class CommandFormatter:
                 _format_text(lines, help, indent="    ")
 
     def format(self, command: Command) -> List[str]:
+        command_name = command.name.replace("*", r"\*")
         lines = [
-            command.name,
-            "=" * len(command.name),
+            command_name,
+            "=" * len(command_name),
         ]
 
         try:
