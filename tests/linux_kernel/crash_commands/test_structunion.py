@@ -490,6 +490,13 @@ class TestImplicit(CrashCommandTestCase):
             cmd.drgn_option.globals["type"].type_name(), "drgn_test_anonymous_union"
         )
 
+    def test_member(self):
+        cmd = self.check_crash_command("task_struct.pid init_task")
+        self.assertRegex(cmd.stdout, r"pid = \([^)]*\)0")
+        self.assertIn(".pid", cmd.drgn_option.stdout)
+        self.assertIdentical(cmd.drgn_option.globals["object"], self.prog["init_task"])
+        self.assertEqual(cmd.drgn_option.globals["pid"], 0)
+
     def test_not_found(self):
         self.assertRaises(
             CommandNotFoundError, self.run_crash_command, "drgn_test_non_existent"

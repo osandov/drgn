@@ -122,7 +122,9 @@ class _CrashCommandNamespace(CommandNamespace):
             except CommandNotFoundError as e:
                 try:
                     # Smuggle the type into the command function.
-                    kwargs["type"] = _guess_type(prog, "*", command_name)
+                    kwargs["type"] = _guess_type(
+                        prog, "*", command_name.partition(".")[0]
+                    )
                 except LookupError:
                     raise e
                 else:
