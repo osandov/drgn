@@ -113,7 +113,7 @@ def _crash_cmd_help(
     first = True
     for name in args.command:
         if name == "all":
-            for name, command in CRASH_COMMAND_NAMESPACE.enabled(prog):
+            for name, command in sorted(CRASH_COMMAND_NAMESPACE.enabled(prog)):
                 if first:
                     first = False
                 else:
