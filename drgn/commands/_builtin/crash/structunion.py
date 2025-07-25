@@ -286,10 +286,8 @@ def _crash_cmd_struct(
     else:
         if args.count is None:
             args.count = 1
-        address_or_symbol, cpuspec_sep, cpuspec_str = args.address_or_symbol.partition(
-            ":"
-        )
-        cpuspec = parse_cpuspec(cpuspec_str) if cpuspec_sep else None
+        address_or_symbol, sep, cpuspec_str = args.address_or_symbol.partition(":")
+        cpuspec = parse_cpuspec(cpuspec_str) if sep else None
 
     # We look up the type even for --drgn so that we can get the correct type
     # name (e.g., "atomic_t", not "struct atomic_t") if it exists. If it
