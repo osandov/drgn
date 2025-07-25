@@ -388,7 +388,7 @@ def _crash_cmd_struct(
             if members:
                 for member in members:
                     print(
-                        f"{member} = {obj.subobject_(member).format_(columns=columns)}"
+                        f"{member} = {obj.subobject_(member).format_(columns=columns, dereference=False)}"
                     )
             else:
                 print(obj.format_(columns=columns))
