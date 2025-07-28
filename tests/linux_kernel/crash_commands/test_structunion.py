@@ -292,18 +292,26 @@ class TestStruct(CrashCommandTestCase):
             self.prog["drgn_test_list_entries"][2].value,
         )
 
+    @skip_unless_have_test_kmod
     def test_cpuspec(self):
-        cmd = self.check_crash_command("struct rq runqueues:a")
+        cmd = self.check_crash_command(
+            "struct drgn_test_percpu_struct drgn_test_percpu_structs:a"
+        )
         cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
         matches = re.findall(
-            r"^\[([0-9]+)\]: [0-9a-f]+\n\(struct rq\)\{", cmd.stdout, flags=re.MULTILINE
+            r"^\[([0-9]+)\]: [0-9a-f]+\n\(struct drgn_test_percpu_struct\)\{",
+            cmd.stdout,
+            flags=re.MULTILINE,
         )
         self.assertEqual([int(match) for match in matches], cpus)
         self.assertIn("per_cpu(", cmd.drgn_option.stdout)
         self.assertEqual(cmd.drgn_option.globals["object"].cpu, max(cpus))
 
+    @skip_unless_have_test_kmod
     def test_cpuspec_with_member(self):
-        cmd = self.check_crash_command("struct rq.cpu runqueues:a")
+        cmd = self.check_crash_command(
+            "struct drgn_test_percpu_struct.cpu drgn_test_percpu_structs:a"
+        )
         cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
         matches = re.findall(r"cpu = \([^)]*\)([0-9]+)", cmd.stdout, flags=re.MULTILINE)
         self.assertEqual([int(match) for match in matches], cpus)

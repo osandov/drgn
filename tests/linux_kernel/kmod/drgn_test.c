@@ -597,6 +597,8 @@ struct drgn_test_percpu_struct {
 	int i;
 };
 
+DEFINE_PER_CPU(struct drgn_test_percpu_struct, drgn_test_percpu_structs);
+
 typedef struct drgn_test_percpu_struct drgn_test_percpu_array[3];
 
 DEFINE_PER_CPU(drgn_test_percpu_array, drgn_test_percpu_arrays);
@@ -619,6 +621,11 @@ static int drgn_test_percpu_init(void)
 		per_cpu(drgn_test_percpu_static, cpu) = static_seed;
 		dynamic_seed = drgn_test_prng32(dynamic_seed);
 		*per_cpu_ptr(drgn_test_percpu_dynamic, cpu) = dynamic_seed;
+
+		per_cpu(drgn_test_percpu_structs, cpu) =
+			(struct drgn_test_percpu_struct){
+				.cpu = cpu,
+			};
 
 		for (i = 0; i < 3; i++) {
 			per_cpu(drgn_test_percpu_arrays, cpu)[i] =
