@@ -1,15 +1,12 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from pathlib import Path
 import re
 
 from drgn import offsetof, reinterpret
 from drgn.commands import CommandError, CommandNotFoundError
-from tests.linux_kernel import parse_range_list, skip_unless_have_test_kmod
+from tests.linux_kernel import possible_cpus, skip_unless_have_test_kmod
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
-
-POSSIBLE_CPUS_PATH = Path("/sys/devices/system/cpu/possible")
 
 
 class TestStruct(CrashCommandTestCase):
@@ -297,7 +294,7 @@ class TestStruct(CrashCommandTestCase):
         cmd = self.check_crash_command(
             "struct drgn_test_percpu_struct drgn_test_percpu_structs:a"
         )
-        cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
+        cpus = sorted(possible_cpus())
         matches = re.findall(
             r"^\[([0-9]+)\]: [0-9a-f]+\n\(struct drgn_test_percpu_struct\)\{",
             cmd.stdout,
@@ -312,7 +309,7 @@ class TestStruct(CrashCommandTestCase):
         cmd = self.check_crash_command(
             "struct drgn_test_percpu_struct.cpu drgn_test_percpu_structs:a"
         )
-        cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
+        cpus = sorted(possible_cpus())
         matches = re.findall(r"cpu = \([^)]*\)([0-9]+)", cmd.stdout, flags=re.MULTILINE)
         self.assertEqual([int(match) for match in matches], cpus)
         self.assertIn("per_cpu(", cmd.drgn_option.stdout)
@@ -324,7 +321,7 @@ class TestStruct(CrashCommandTestCase):
         cmd = self.check_crash_command(
             "struct drgn_test_percpu_struct drgn_test_percpu_arrays:a 3"
         )
-        cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
+        cpus = sorted(possible_cpus())
         matches = re.findall(
             r"(cpu|i) = \([^)]*\)([0-9]+)", cmd.stdout, flags=re.MULTILINE
         )
@@ -342,7 +339,7 @@ class TestStruct(CrashCommandTestCase):
         cmd = self.check_crash_command(
             "struct drgn_test_percpu_struct.cpu,i drgn_test_percpu_arrays:a 3"
         )
-        cpus = sorted(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
+        cpus = sorted(possible_cpus())
         matches = re.findall(
             r"^(cpu|i) = \([^)]*\)([0-9]+)", cmd.stdout, flags=re.MULTILINE
         )

@@ -2,16 +2,13 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 
-from pathlib import Path
 import unittest.mock
 
 from drgn.commands.crash import Cpuspec, parse_cpuspec
 from drgn.helpers.linux.sched import idle_task
 from tests import TestCase
-from tests.linux_kernel import parse_range_list
+from tests.linux_kernel import possible_cpus
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
-
-POSSIBLE_CPUS_PATH = Path("/sys/devices/system/cpu/possible")
 
 
 class TestParseCpuspec(TestCase):
@@ -71,7 +68,7 @@ class TestCpuspecCpus(CrashCommandTestCase):
         self.addCleanup(patcher.stop)
 
     def test_current(self):
-        cpu = max(parse_range_list(POSSIBLE_CPUS_PATH.read_text()))
+        cpu = max(possible_cpus())
         task = idle_task(self.prog, cpu)
         self.run_crash_command(f"set {hex(task)}")
         self.assertEqual(Cpuspec(current=True).cpus(self.prog), [cpu])

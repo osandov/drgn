@@ -226,6 +226,10 @@ def parse_range_list(s):
     return values
 
 
+def possible_cpus():
+    return parse_range_list(Path("/sys/devices/system/cpu/possible").read_text())
+
+
 _c = ctypes.CDLL(None, use_errno=True)
 
 _mount = _c.mount
