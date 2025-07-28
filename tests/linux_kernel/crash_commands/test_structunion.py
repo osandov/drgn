@@ -367,11 +367,21 @@ class TestStruct(CrashCommandTestCase):
         )
         self.assertRegex(cmd.stdout, r"value = \([^)]+\)0x0")
 
+        cmd = self.run_crash_command(
+            "struct drgn_test_list_entry drgn_test_singular_list_entry -d"
+        )
+        self.assertRegex(cmd.stdout, r"value = \([^)]+\)0\b")
+
         self.run_crash_command("set radix 10")
         cmd = self.run_crash_command(
             "struct drgn_test_list_entry drgn_test_singular_list_entry"
         )
         self.assertRegex(cmd.stdout, r"value = \([^)]+\)0\b")
+
+        cmd = self.run_crash_command(
+            "struct drgn_test_list_entry drgn_test_singular_list_entry -x"
+        )
+        self.assertRegex(cmd.stdout, r"value = \([^)]+\)0x0")
 
     def test_type_with_count(self):
         self.assertRaisesRegex(

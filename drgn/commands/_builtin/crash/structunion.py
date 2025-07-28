@@ -259,6 +259,20 @@ address = prog.symbol({address_or_symbol!r}).address{subtract_offset}
             "given address or symbol, either as a number of bytes or a "
             "struct_name.member",
         ),
+        argument(
+            "-x",
+            dest="integer_base",
+            action="store_const",
+            const=16,
+            help="output integers in hexadecimal format regardless of the default",
+        ),
+        argument(
+            "-d",
+            dest="integer_base",
+            action="store_const",
+            const=10,
+            help="output integers in decimal format regardless of the default",
+        ),
         argument("-c", dest="count", type=int, help="number of consecutive structures"),
         argument(
             "count",
@@ -380,7 +394,7 @@ def _crash_cmd_struct(
     format_options = {
         "columns": shutil.get_terminal_size().columns,
         "dereference": False,
-        "integer_base": prog.config.get("crash_radix", 10),
+        "integer_base": args.integer_base or prog.config.get("crash_radix", 10),
     }
     for arr in arrays():
         for i, obj in enumerate(arr):
@@ -426,6 +440,20 @@ def _crash_cmd_struct(
             "given address or symbol, either as a number of bytes or a "
             "union_name.member",
         ),
+        argument(
+            "-x",
+            dest="integer_base",
+            action="store_const",
+            const=16,
+            help="output integers in hexadecimal format regardless of the default",
+        ),
+        argument(
+            "-d",
+            dest="integer_base",
+            action="store_const",
+            const=10,
+            help="output integers in decimal format regardless of the default",
+        ),
         argument("-c", dest="count", type=int, help="number of consecutive unions"),
         argument(
             "count",
@@ -464,6 +492,20 @@ def _crash_cmd_union(
         ),
         argument("-l", dest="offset", help=argparse.SUPPRESS),
         argument("-c", dest="count", type=int, help=argparse.SUPPRESS),
+        argument(
+            "-x",
+            dest="integer_base",
+            action="store_const",
+            const=16,
+            help=argparse.SUPPRESS,
+        ),
+        argument(
+            "-d",
+            dest="integer_base",
+            action="store_const",
+            const=10,
+            help=argparse.SUPPRESS,
+        ),
         argument(
             "count",
             type=_int_or_suppress,
