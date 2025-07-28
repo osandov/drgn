@@ -1106,16 +1106,26 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_format_object(const struct drgn_object *obj, size_t columns,
-		   enum drgn_format_object_flags flags, char **ret)
+drgn_format_object(const struct drgn_object *obj,
+		   const struct drgn_format_object_options *options,
+		   char **ret)
 {
+
 	const struct drgn_language *lang = drgn_object_language(obj);
 
-	if (flags & ~DRGN_FORMAT_OBJECT_VALID_FLAGS) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "invalid format object flags");
+	if (options) {
+		if (options->flags & ~DRGN_FORMAT_OBJECT_VALID_FLAGS) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "invalid format object flags");
+		}
+	} else {
+		static const struct drgn_format_object_options default_options = {
+			.columns = SIZE_MAX,
+			.flags = DRGN_FORMAT_OBJECT_PRETTY,
+		};
+		options = &default_options;
 	}
-	return lang->format_object(obj, columns, flags, ret);
+	return lang->format_object(obj, options, ret);
 }
 
 static struct drgn_error *

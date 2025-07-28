@@ -909,10 +909,8 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 
 static PyObject *DrgnObject_str(DrgnObject *self)
 {
-	struct drgn_error *err;
 	_cleanup_free_ char *str = NULL;
-	err = drgn_format_object(&self->obj, SIZE_MAX,
-				 DRGN_FORMAT_OBJECT_PRETTY, &str);
+	struct drgn_error *err = drgn_format_object(&self->obj, NULL, &str);
 	if (err)
 		return set_drgn_error(err);
 	return PyUnicode_FromString(str);
@@ -967,10 +965,12 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 	};
 	struct drgn_error *err;
 	PyObject *columns_obj = Py_None;
-	size_t columns = SIZE_MAX;
-	enum drgn_format_object_flags flags = DRGN_FORMAT_OBJECT_PRETTY;
+	struct drgn_format_object_options options = {
+		.columns = SIZE_MAX,
+		.flags = DRGN_FORMAT_OBJECT_PRETTY,
+	};
 #define X(name, value)	\
-	struct format_object_flag_arg name##_arg = { &flags, value };
+	struct format_object_flag_arg name##_arg = { &options.flags, value };
 	FLAGS
 #undef X
 
@@ -989,14 +989,14 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 		columns_obj = PyNumber_Index(columns_obj);
 		if (!columns_obj)
 			return NULL;
-		columns = PyLong_AsSize_t(columns_obj);
+		options.columns = PyLong_AsSize_t(columns_obj);
 		Py_DECREF(columns_obj);
-		if (columns == (size_t)-1 && PyErr_Occurred())
+		if (options.columns == (size_t)-1 && PyErr_Occurred())
 			return NULL;
 	}
 
 	_cleanup_free_ char *str = NULL;
-	err = drgn_format_object(&self->obj, columns, flags, &str);
+	err = drgn_format_object(&self->obj, &options, &str);
 	if (err)
 		return set_drgn_error(err);
 	return PyUnicode_FromString(str);

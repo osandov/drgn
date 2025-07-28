@@ -2802,6 +2802,20 @@ enum drgn_format_object_flags {
 	DRGN_FORMAT_OBJECT_VALID_FLAGS = (1 << 13) - 1,
 };
 
+/** Formatting options for @ref drgn_format_object(). */
+struct drgn_format_object_options {
+	/**
+	 * Number of columns to limit output to when the expression can be
+	 * reasonably wrapped. The default is @c SIZE_MAX.
+	 */
+	size_t columns;
+	/**
+	 * Flags to control formatting. The default is @ref
+	 * DRGN_FORMAT_OBJECT_PRETTY.
+	 */
+	enum drgn_format_object_flags flags;
+};
+
 /**
  * Format a @ref drgn_object as a string.
  *
@@ -2809,17 +2823,15 @@ enum drgn_format_object_flags {
  * language.
  *
  * @param[in] obj Object to format.
- * @param[in] columns Number of columns to limit output to when the expression
- * can be reasonably wrapped.
- * param[in] flags Flags to change output.
+ * @param[in] options Formatting options, or @c NULL to use the default options.
  * @param[out] ret Returned string. On success, it must be freed with @c free().
  * On error, it is not modified.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_format_object(const struct drgn_object *obj,
-				      size_t columns,
-				      enum drgn_format_object_flags flags,
-				      char **ret);
+struct drgn_error *
+drgn_format_object(const struct drgn_object *obj,
+		   const struct drgn_format_object_options *options,
+		   char **ret);
 
 /** @} */
 

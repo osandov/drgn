@@ -51,10 +51,10 @@ typedef struct drgn_error *drgn_format_type_fn(struct drgn_qualified_type,
 typedef struct drgn_error *
 drgn_format_variable_declaration_fn(struct drgn_qualified_type, const char *,
 				    char **);
-typedef struct drgn_error *drgn_format_object_fn(const struct drgn_object *,
-						 size_t,
-						 enum drgn_format_object_flags,
-						 char **);
+typedef struct drgn_error *
+drgn_format_object_fn(const struct drgn_object *,
+		      const struct drgn_format_object_options *,
+		      char **);
 typedef struct drgn_error *drgn_find_type_fn(const struct drgn_language *lang,
 					     struct drgn_program *prog,
 					     const char *name,
