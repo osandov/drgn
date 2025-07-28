@@ -2529,6 +2529,79 @@ class TestPrettyPrintObject(MockProgramTestCase):
             str(Object(self.prog, "const int", value=-99)), "(const int)-99"
         )
 
+    def test_int_decimal(self):
+        self.assertEqual(
+            Object(self.prog, "int", 0).format_(type_name=False, integer_base=10), "0"
+        )
+        self.assertEqual(
+            Object(self.prog, "unsigned int", 0).format_(
+                type_name=False, integer_base=10
+            ),
+            "0",
+        )
+        self.assertEqual(
+            Object(self.prog, "int", 13).format_(type_name=False, integer_base=10), "13"
+        )
+        self.assertEqual(
+            Object(self.prog, "unsigned int", 13).format_(
+                type_name=False, integer_base=10
+            ),
+            "13",
+        )
+        self.assertEqual(
+            Object(self.prog, "int", -13).format_(type_name=False, integer_base=10),
+            "-13",
+        )
+
+    def test_int_hex(self):
+        self.assertEqual(
+            Object(self.prog, "int", 0).format_(type_name=False, integer_base=16), "0x0"
+        )
+        self.assertEqual(
+            Object(self.prog, "unsigned int", 0).format_(
+                type_name=False, integer_base=16
+            ),
+            "0x0",
+        )
+        self.assertEqual(
+            Object(self.prog, "int", 13).format_(type_name=False, integer_base=16),
+            "0xd",
+        )
+        self.assertEqual(
+            Object(self.prog, "unsigned int", 13).format_(
+                type_name=False, integer_base=16
+            ),
+            "0xd",
+        )
+        self.assertEqual(
+            Object(self.prog, "int", -13).format_(type_name=False, integer_base=16),
+            "-0xd",
+        )
+
+    def test_int_oct(self):
+        self.assertEqual(
+            Object(self.prog, "int", 0).format_(type_name=False, integer_base=8), "0"
+        )
+        self.assertEqual(
+            Object(self.prog, "unsigned int", 0).format_(
+                type_name=False, integer_base=8
+            ),
+            "0",
+        )
+        self.assertEqual(
+            Object(self.prog, "int", 13).format_(type_name=False, integer_base=8), "015"
+        )
+        self.assertEqual(
+            Object(self.prog, "unsigned int", 13).format_(
+                type_name=False, integer_base=8
+            ),
+            "015",
+        )
+        self.assertEqual(
+            Object(self.prog, "int", -13).format_(type_name=False, integer_base=8),
+            "-015",
+        )
+
     def test_char(self):
         obj = Object(self.prog, "char", value=65)
         self.assertEqual(str(obj), "(char)65")
@@ -3292,3 +3365,26 @@ class TestPrettyPrintObject(MockProgramTestCase):
 	.a = (__uint128_t)0xdeadbeef,
 }""",
         )
+
+    def test_integer_base_struct(self):
+        self.assertEqual(
+            Object(self.prog, self.point_type, {"x": 0, "y": 13}).format_(
+                integer_base=16
+            ),
+            """\
+(struct point){
+	.x = (int)0x0,
+	.y = (int)0xd,
+}""",
+        )
+
+    def test_integer_base_array(self):
+        self.assertEqual(
+            Object(self.prog, "int [2]", [0, 13]).format_(integer_base=16),
+            "(int [2]){ 0x0, 0xd }",
+        )
+
+    def test_integer_base_dereference(self):
+        self.add_memory_segment((13).to_bytes(4, "little"), virt_addr=0xFFFF0000)
+        obj = Object(self.prog, "int *", value=0xFFFF0000)
+        self.assertEqual(obj.format_(integer_base=8), "*(int *)0xffff0000 = 015")

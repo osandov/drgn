@@ -2611,6 +2611,7 @@ class Object:
         self,
         *,
         columns: Optional[IntegerLike] = None,
+        integer_base: Optional[IntegerLike] = None,
         dereference: Optional[bool] = None,
         symbolize: Optional[bool] = None,
         string: Optional[bool] = None,
@@ -2647,6 +2648,8 @@ class Object:
 
         :param columns: Number of columns to limit output to when the
             expression can be reasonably wrapped. Defaults to no limit.
+        :param integer_base: Base to format integers in (8, 10, or 16).
+            Defaults to 10.
         :param dereference: If this object is a pointer, include the
             dereferenced value. This does not apply to structure, union, or
             class members, or array elements, as dereferencing those could lead

@@ -726,17 +726,64 @@ c_format_int_object(const struct drgn_object *obj,
 		return err;
 	switch (obj->encoding) {
 	case DRGN_OBJECT_ENCODING_SIGNED:
-		if (!string_builder_appendf(sb, "%" PRId64, value->svalue)) {
+		switch (options->integer_base) {
+		case 10:
+			if (!string_builder_appendf(sb, "%" PRId64,
+						    value->svalue)) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			break;
+		case 16:
+			if (!string_builder_appendf(sb, "%s0x%" PRIx64,
+						    value->svalue < 0
+						    ? "-" : "",
+						    value->svalue < 0
+						    // Casting before negating
+						    // is necessary to handle
+						    // INT64_MIN.
+						    ? -(uint64_t)value->svalue
+						    : (uint64_t)value->svalue)) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			break;
+		case 8:
+			if (!string_builder_appendf(sb, "%s%#" PRIo64,
+						    value->svalue < 0
+						    ? "-" : "",
+						    value->svalue < 0
+						    ? -(uint64_t)value->svalue
+						    : (uint64_t)value->svalue)) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			break;
+		default:
+			UNREACHABLE();
+		}
+		break;
+	case DRGN_OBJECT_ENCODING_UNSIGNED: {
+		const char *format;
+		switch (options->integer_base) {
+		case 10:
+			format = "%" PRIu64;
+			break;
+		case 16:
+			format = "0x%" PRIx64;
+			break;
+		case 8:
+			format = "%#" PRIo64;
+			break;
+		default:
+			UNREACHABLE();
+		}
+		if (!string_builder_appendf(sb, format, value->uvalue)) {
 			err = &drgn_enomem;
 			goto out;
 		}
 		break;
-	case DRGN_OBJECT_ENCODING_UNSIGNED:
-		if (!string_builder_appendf(sb, "%" PRIu64, value->uvalue)) {
-			err = &drgn_enomem;
-			goto out;
-		}
-		break;
+	}
 	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
 	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG: {
 		if (!string_builder_append(sb, "0x")) {

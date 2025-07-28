@@ -1118,10 +1118,17 @@ drgn_format_object(const struct drgn_object *obj,
 			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "invalid format object flags");
 		}
+		if (options->integer_base != 8
+		    && options->integer_base != 10
+		    && options->integer_base != 16) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "invalid integer base");
+		}
 	} else {
 		static const struct drgn_format_object_options default_options = {
 			.columns = SIZE_MAX,
 			.flags = DRGN_FORMAT_OBJECT_PRETTY,
+			.integer_base = 10,
 		};
 		options = &default_options;
 	}

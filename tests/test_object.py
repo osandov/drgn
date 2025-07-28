@@ -2316,6 +2316,27 @@ class TestGenericOperators(MockProgramTestCase):
             Object(self.prog, "int", value=1).string_,
         )
 
+    def test_format_invalid_integer_base(self):
+        obj = Object(self.prog, "int", 1)
+        for integer_base in (
+            0,
+            1,
+            -(2**31),
+            2**31 - 1,
+            -(2**32),
+            2**32,
+            2**128,
+            -(2**128),
+        ):
+            with self.subTest(integer_base=integer_base):
+                self.assertRaisesRegex(
+                    ValueError,
+                    "invalid integer base",
+                    obj.format_,
+                    integer_base=integer_base,
+                )
+        self.assertRaises(TypeError, obj.format_, integer_base="hex")
+
 
 class TestSpecialMethods(MockProgramTestCase):
     def test_dir(self):

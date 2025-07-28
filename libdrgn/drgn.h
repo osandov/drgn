@@ -2814,6 +2814,8 @@ struct drgn_format_object_options {
 	 * DRGN_FORMAT_OBJECT_PRETTY.
 	 */
 	enum drgn_format_object_flags flags;
+	/** Base to format integers in (8, 10, or 16). The default is 10. */
+	int integer_base;
 };
 
 /**

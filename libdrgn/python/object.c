@@ -961,13 +961,16 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 		FLAGS
 #undef X
 		"columns",
+		"integer_base",
 		NULL,
 	};
 	struct drgn_error *err;
 	PyObject *columns_obj = Py_None;
+	PyObject *integer_base_obj = Py_None;
 	struct drgn_format_object_options options = {
 		.columns = SIZE_MAX,
 		.flags = DRGN_FORMAT_OBJECT_PRETTY,
+		.integer_base = 10,
 	};
 #define X(name, value)	\
 	struct format_object_flag_arg name##_arg = { &options.flags, value };
@@ -978,11 +981,11 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 #define X(name, value) "O&"
 					 FLAGS
 #undef X
-					 "O:format_", keywords,
+					 "OO:format_", keywords,
 #define X(name, value) format_object_flag_converter, &name##_arg,
 					 FLAGS
 #undef X
-					 &columns_obj))
+					 &columns_obj, &integer_base_obj))
 		return NULL;
 
 	if (columns_obj != Py_None) {
@@ -993,6 +996,21 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 		Py_DECREF(columns_obj);
 		if (options.columns == (size_t)-1 && PyErr_Occurred())
 			return NULL;
+	}
+
+	if (integer_base_obj != Py_None) {
+		int overflow;
+		long integer_base = PyLong_AsLongAndOverflow(integer_base_obj,
+							     &overflow);
+		if (integer_base == -1 && PyErr_Occurred())
+			return NULL;
+		if (overflow
+		    || integer_base < INT_MIN || integer_base > INT_MAX) {
+			PyErr_SetString(PyExc_ValueError,
+					"invalid integer base");
+			return NULL;
+		}
+		options.integer_base = integer_base;
 	}
 
 	_cleanup_free_ char *str = NULL;
