@@ -56,6 +56,36 @@ def _set_scroll_option(prog: Program, value: str) -> None:
         prog.config["crash_pager"] = pager
 
 
+def _show_radix_option(prog: Program) -> None:
+    radix = prog.config.get("crash_radix", 10)
+    print(f"output radix: {radix} ({'hex' if radix == 16 else 'decimal'})")
+
+
+_RADICES = {
+    # Crash allows anything starting with "dec", "ten", "hex", or "six". We are
+    # stricter.
+    "10": 10,
+    "dec": 10,
+    "decimal": 10,
+    "ten": 10,
+    "16": 16,
+    "hex": 16,
+    "hexadecimal": 16,
+    "sixteen": 16,
+}
+
+
+def _validate_radix_option(value: str) -> None:
+    if value not in _RADICES:
+        raise CommandArgumentError(
+            f"set: error: invalid value for radix: {value!r} (must be 10 or 16)"
+        )
+
+
+def _set_radix_option(prog: Program, value: str) -> None:
+    prog.config["crash_radix"] = _RADICES[value]
+
+
 class _CrashOption(NamedTuple):
     show: Callable[[Program], None]
     validate: Callable[[str], None]
@@ -65,6 +95,9 @@ class _CrashOption(NamedTuple):
 _OPTIONS = {
     "scroll": _CrashOption(
         _show_scroll_option, _validate_scroll_option, _set_scroll_option
+    ),
+    "radix": _CrashOption(
+        _show_radix_option, _validate_radix_option, _set_radix_option
     ),
 }
 
@@ -84,6 +117,8 @@ _OPTIONS = {
     * ``scroll on | off``: enable (the default) or disable scrolling of long output.
 
     * ``scroll less | more``: set the pager program. The default is ``less``.
+
+    * ``radix 10 | 16``: set the default integer output base. The default is 10.
     """,
     usage=r"**set** [*pid* | *task* | **-p** | **-c** *CPU* | *option* [*value*]] [**\-\-drgn**]",
     arguments=(

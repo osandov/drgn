@@ -5,7 +5,7 @@ import os
 import shutil
 import unittest.mock
 
-from drgn.commands import CommandError
+from drgn.commands import CommandArgumentError, CommandError
 from drgn.commands.crash import crash_get_context
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
@@ -145,3 +145,30 @@ class TestSet(CrashCommandTestCase):
                 self.run_crash_command("set scroll less")
             with self.assertRaisesRegex(CommandError, "pager not found"):
                 self.run_crash_command("set scroll more")
+
+    def test_radix(self):
+        self.addCleanup(self.prog.config.pop, "crash_radix", None)
+
+        cmd = self.run_crash_command("set radix 10")
+        self.assertIn("output radix: 10 (decimal)", cmd.stdout)
+        cmd = self.run_crash_command("set radix")
+        self.assertIn("output radix: 10 (decimal)", cmd.stdout)
+
+        cmd = self.run_crash_command("set radix 16")
+        self.assertIn("output radix: 16 (hex)", cmd.stdout)
+        cmd = self.run_crash_command("set radix")
+        self.assertIn("output radix: 16 (hex)", cmd.stdout)
+
+    def test_radix_invalid(self):
+        self.assertRaisesRegex(
+            CommandArgumentError,
+            "invalid value for radix",
+            self.run_crash_command,
+            "set radix 0",
+        )
+        self.assertRaisesRegex(
+            CommandArgumentError,
+            "invalid value for radix",
+            self.run_crash_command,
+            "set radix sixty",
+        )
