@@ -377,7 +377,11 @@ def _crash_cmd_struct(
                 print(f"[{cpu}]: {pcpu_ptr.value_():x}")
                 yield pcpu_ptr[sl]
 
-    columns = shutil.get_terminal_size().columns
+    format_options = {
+        "columns": shutil.get_terminal_size().columns,
+        "dereference": False,
+        "integer_base": prog.config.get("crash_radix", 10),
+    }
     for arr in arrays():
         for i, obj in enumerate(arr):
             if i != 0:
@@ -386,10 +390,10 @@ def _crash_cmd_struct(
             if members:
                 for member in members:
                     print(
-                        f"{member} = {obj.subobject_(member).format_(columns=columns, dereference=False)}"
+                        f"{member} = {obj.subobject_(member).format_(**format_options)}"
                     )
             else:
-                print(obj.format_(columns=columns))
+                print(obj.format_(**format_options))
 
 
 @crash_command(

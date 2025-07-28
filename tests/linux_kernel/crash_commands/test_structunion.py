@@ -357,6 +357,22 @@ class TestStruct(CrashCommandTestCase):
         self.assertEqual(cmd.drgn_option.globals["cpu"], max(cpus))
         self.assertEqual(cmd.drgn_option.globals["i"], 2)
 
+    @skip_unless_have_test_kmod
+    def test_radix(self):
+        self.addCleanup(self.prog.config.pop, "crash_radix", None)
+
+        self.run_crash_command("set radix 16")
+        cmd = self.run_crash_command(
+            "struct drgn_test_list_entry drgn_test_singular_list_entry"
+        )
+        self.assertRegex(cmd.stdout, r"value = \([^)]+\)0x0")
+
+        self.run_crash_command("set radix 10")
+        cmd = self.run_crash_command(
+            "struct drgn_test_list_entry drgn_test_singular_list_entry"
+        )
+        self.assertRegex(cmd.stdout, r"value = \([^)]+\)0\b")
+
     def test_type_with_count(self):
         self.assertRaisesRegex(
             CommandError,
