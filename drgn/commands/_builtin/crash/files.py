@@ -6,7 +6,7 @@
 import argparse
 from typing import Any, Optional
 
-from drgn import Object, Program
+from drgn import NULL, Object, Program
 from drgn.commands import argument, drgn_argument
 from drgn.commands.crash import crash_command, crash_get_context
 from drgn.helpers.common.format import escape_ascii_string
@@ -34,7 +34,7 @@ def pretty_print_header(task: Object) -> None:
         f'PID: {task.pid.value_():<8} TASK: {task.value_():#018x}  CPU: {task.cpu.value_():<3}  COMMAND: "{task.comm.string_().decode()}"'
     )
     print(
-        f"ROOT: {root_path.decode(errors='replace'):6} CWD: {cwd_path.decode(errors='replace')}"
+        f"ROOT: {root_path.decode(errors='replace'):<6} CWD: {cwd_path.decode(errors='replace')}"
     )
     print(f"{'FD':>3} {'FILE':<16} {'DENTRY':<16} {'INODE':<16} {'TYPE':<4} PATH")
 
@@ -84,16 +84,10 @@ def print_task_files(task: Object) -> None:
             help="search for references to this file descriptor number, filename, dentry, inode, address_space, or file structure address.",
         ),
         argument(
-            "pid",
-            nargs="?",
-            type=int,
-            help="a process PID.",
-        ),
-        argument(
-            "taskp",
+            "target",
             nargs="?",
             type=str,
-            help="a hexadecimal task_struct pointer.",
+            help="a process PID (decimal) or a hexadecimal task_struct pointer.",
         ),
         drgn_argument,
     ),
@@ -101,8 +95,37 @@ def print_task_files(task: Object) -> None:
 def _crash_cmd_files(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
-    if args.pid:
-        task = find_task(args.pid)
+    if args.dentry:
+        dentry_addr = int(args.dentry, 16)
+        dentry = Object(prog, "struct dentry *", value=dentry_addr).read_()
+        inode = dentry.d_inode
+        sb = inode.i_sb
+        ftype = mode_to_type(inode.i_mode.value_())
+        path = d_path(dentry)
+        print(f"{'DENTRY':<16} {'INODE':<16} {'SUPERBLK':<16} {'TYPE':<4} PATH")
+        print(
+            f"{dentry.value_():016x} {inode.value_():016x} {sb.value_():016x} {ftype:4} {path.decode(errors='replace')}"
+        )
+        return
+    if args.inode:
+        inode_addr = int(args.inode, 16)
+        inode = Object(prog, "struct inode *", value=inode_addr).read_()
+        nrpages = inode.i_mapping.nrpages.value_()
+        print(f"{'INODE':<16} {'NRPAGES'}")
+        print(f"{inode.value_():016x} {nrpages}")
+        return
+    if args.target:
+        try:
+            pid = int(args.target, 10)
+            task = find_task(pid)
+            if task == NULL(prog, "struct task_struct *"):
+                raise RuntimeError(f"Invalid PID or task_struct pointer: {args.target}")
+        except ValueError:
+            try:
+                task_addr = int(args.target, 16)
+                task = Object(prog, "struct task_struct *", value=task_addr).read_()
+            except Exception:
+                raise RuntimeError(f"Invalid PID or task_struct pointer: {args.target}")
     else:
         task = crash_get_context(prog)
     pretty_print_header(task)
