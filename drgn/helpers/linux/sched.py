@@ -187,22 +187,18 @@ def task_rq(task: Object) -> Object:
     return cpu_rq(task.prog_, task_cpu(task))
 
 
-def task_lastrun2now(task: Object) -> int:
+def task_since_last_arrival_ns(task: Object) -> int:
     """
     Get the number of nanoseconds since a task last started running.
 
-    The return duration will cover task's last run time on cpu and also
-    the time staying in current status, usually the time slice for task
-    on cpu will be short, so this can roughly tell how long this task
-    has been staying in current status.
-    For task status in "R" status, if it's still on cpu, then this return
-    the duration time this task has been running, otherwise it roughly tell
-    how long this task has been staying in runqueue.
+    Assuming that time slices are short, this is approximately the time that
+    the task has been in its current status (running, queued, or blocked).
 
-    Note that task.sched_info only exists if CONFIG_SCHED_INFO=y, enabled by CONFIG_SCHEDSTATS or CONFIG_TASK_DELAY_ACCT.
+    This is only supported if the kernel was compiled with
+    ``CONFIG_SCHEDSTATS`` or ``CONFIG_TASK_DELAY_ACCT``.
 
     :param task: ``struct task_struct *``
-    :returns: duration in ns granularity
+    :returns: Duration in nanoseconds.
     """
     arrival_time = task.sched_info.last_arrival.value_()
     rq_clock = task_rq(task).clock.value_()
