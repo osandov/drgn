@@ -15,6 +15,12 @@ from drgn.helpers.linux.pid import find_task
 
 
 def mode_to_type(mode: int) -> Optional[str]:
+    """
+    Convert a file mode to a human-readable file type string.
+
+    :param mode: File mode (from inode.i_mode)
+    :return: File type as a string (e.g., "REG", "DIR", "CHR", etc.), or None if unknown.
+    """
     type_bits = mode & 0xF000
     return {
         0x2000: "CHR",
@@ -28,6 +34,13 @@ def mode_to_type(mode: int) -> Optional[str]:
 
 
 def pretty_print_header(task: Object) -> None:
+    """
+    Print a summary header for a given task, including PID, task address, CPU, command,
+    root directory, and current working directory.
+
+    :param task: struct task_struct *
+    """
+
     root_path = d_path(task.fs.root)
     cwd_path = d_path(task.fs.pwd)
     print(
@@ -36,19 +49,90 @@ def pretty_print_header(task: Object) -> None:
     print(
         f"ROOT: {root_path.decode(errors='replace'):<6} CWD: {cwd_path.decode(errors='replace')}"
     )
-    print(f"{'FD':>3} {'FILE':<16} {'DENTRY':<16} {'INODE':<16} {'TYPE':<4} PATH")
 
 
-def print_task_files(task: Object) -> None:
+def print_task_files(task: Object, arg: bool) -> None:
+    """
+    Print open file descriptors for a given task.
+
+    :param task: struct task_struct *
+    :param arg: If True, print inode, i_mapping, nrpages, type, and path.
+                If False, print file, dentry, inode, type, and path.
+    """
+
+    if not arg:
+        print(f"{'FD':>3} {'FILE':<16} {'DENTRY':<16} {'INODE':<16} {'TYPE':<4} PATH")
+    else:
+        print(
+            f"{'FD':>3} {'INODE':<16} {'I_MAPPING':<16} {'NRPAGES':>7} {'TYPE':<4} PATH"
+        )
+
     for fd, file in for_each_file(task):
         dentry = file.f_path.dentry
         inode = dentry.d_inode
+        i_mapping = inode.i_mapping
+        nrpages = inode.i_mapping.nrpages.value_()
         path = d_path(file.f_path)
         f_type = mode_to_type(inode.i_mode.value_())
         escaped_path = escape_ascii_string(path, escape_backslash=True)
-        print(
-            f"{fd:>3} {file.value_():016x} {dentry.value_():016x} {inode.value_():016x} {f_type:4} {escaped_path:16}"
-        )
+        if not arg:
+            print(
+                f"{fd:>3} {file.value_():016x} {dentry.value_():016x} {inode.value_():016x} {f_type:4} {escaped_path:16}"
+            )
+        else:
+            print(
+                f"{fd:>3} {inode.value_():016x} {i_mapping.value_():016x} {nrpages:7} {f_type:4} {escaped_path:16}"
+            )
+
+
+def print_task_file_refs(task: Object, reference: str) -> None:
+    """
+    Print open files of a task that match the given reference.
+    Reference can be a file descriptor number, filename, dentry, inode,
+    address_space, or file structure address.
+
+    :param task: struct task_struct *
+    :param reference: Reference to search for (fd number, filename, or address as hex string)
+    """
+
+    try:
+        ref_addr = int(reference, 16)
+    except ValueError:
+        ref_addr = None
+
+    matches = []
+    for fd, file in for_each_file(task):
+        dentry = file.f_path.dentry
+        inode = dentry.d_inode
+        i_mapping = inode.i_mapping
+        path = d_path(file.f_path).decode(errors="replace")
+        if (
+            (
+                ref_addr is not None
+                and (
+                    file.value_() == ref_addr
+                    or dentry.value_() == ref_addr
+                    or inode.value_() == ref_addr
+                    or i_mapping.value_() == ref_addr
+                )
+            )
+            or reference == str(fd)
+            or reference in path
+        ):
+            f_type = mode_to_type(inode.i_mode.value_())
+            matches.append(
+                (fd, file.value_(), dentry.value_(), inode.value_(), f_type, path)
+            )
+
+    if matches:
+        pretty_print_header(task)
+        print(f"{'FD':>3} {'FILE':<16} {'DENTRY':<16} {'INODE':<16} {'TYPE':<4} PATH")
+        for fd, file_v, dentry_v, inode_v, f_type, path in matches:
+            print(
+                f"{fd:>3} {file_v:016x} {dentry_v:016x} {inode_v:016x} {f_type:4} {path:16}"
+            )
+    else:
+        print("No references found.")
 
 
 @crash_command(
@@ -128,5 +212,8 @@ def _crash_cmd_files(
                 raise RuntimeError(f"Invalid PID or task_struct pointer: {args.target}")
     else:
         task = crash_get_context(prog)
+    if args.reference:
+        print_task_file_refs(task, args.reference)
+        return
     pretty_print_header(task)
-    print_task_files(task)
+    print_task_files(task, args.cache)
