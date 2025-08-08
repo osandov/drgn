@@ -123,3 +123,10 @@ def for_each_task_in_group(
     ):
         if other != task or include_self:
             yield other
+
+
+def is_group_leader(t: Object) -> bool:
+    """
+    Check if a task is thread group leader.
+    """
+    return t.exit_signal >= 0
