@@ -21,7 +21,7 @@ import logging
 import re
 from typing import Optional
 
-from drgn import Object, Program, ProgramFlags, cast, sizeof
+from drgn import Object, ObjectNotFoundError, Program, ProgramFlags, cast, sizeof
 from drgn.helpers.common.prog import takes_program_or_default
 
 logger = logging.getLogger("drgn")
@@ -40,6 +40,21 @@ __all__ = (
 )
 
 
+def _tk_core(prog: Program) -> Object:
+    try:
+        return prog.cache["tk_core"]
+    except KeyError:
+        pass
+    # Since Linux kernel commit 22c62b9a84b8 ("timekeeping: Introduce auxiliary
+    # timekeepers") (in v6.17), tk_core is a macro for an array element.
+    try:
+        tk_core = prog["timekeeper_data"][prog["TIMEKEEPER_CORE"]]
+    except ObjectNotFoundError:
+        tk_core = prog["tk_core"]
+    prog.cache["tk_core"] = tk_core
+    return tk_core
+
+
 @takes_program_or_default
 def ktime_get_seconds(prog: Program) -> Object:
     """
@@ -48,7 +63,7 @@ def ktime_get_seconds(prog: Program) -> Object:
 
     :return: ``time64_t``
     """
-    return cast("time64_t", prog["tk_core"].timekeeper.ktime_sec)
+    return cast("time64_t", _tk_core(prog).timekeeper.ktime_sec)
 
 
 def _ktime_get_coarse_ns(prog: Program, offs_name: Optional[str]) -> Object:
@@ -68,7 +83,7 @@ def _ktime_get_coarse_ns(prog: Program, offs_name: Optional[str]) -> Object:
     try:
         address, size, from_snapshot = prog.cache["timekeeper_snapshot"]
     except KeyError:
-        tk_core = prog["tk_core"]
+        tk_core = _tk_core(prog)
         tk = tk_core.timekeeper
         members = {
             "base": tk.tkr_mono.base,
@@ -182,7 +197,7 @@ def ktime_get_real_seconds(prog: Program) -> Object:
             # fall back to long long.
             time_type = prog.type("long long")
         return Object(prog, time_type, int(match.group(1)))
-    return cast("time64_t", prog["tk_core"].timekeeper.xtime_sec)
+    return cast("time64_t", _tk_core(prog).timekeeper.xtime_sec)
 
 
 @takes_program_or_default
