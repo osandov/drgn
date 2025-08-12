@@ -563,8 +563,6 @@ class CommandFormatter:
             long_description = _get_string_or_none_kwarg(
                 command.decorator, "long_description"
             )
-            if long_description is None:
-                long_description = _get_string_kwarg(command.decorator, "help")
         except UnrecognizedInputError as e:
             _log_unrecognized_input(e)
         else:

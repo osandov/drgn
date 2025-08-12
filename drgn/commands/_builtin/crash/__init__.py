@@ -19,7 +19,7 @@ def _crash_interactive_onerror(e: Exception) -> None:
 @linux_kernel_custom_command(
     description="run a crash command",
     usage="**crash** [*command*]",
-    help="""
+    long_description="""
     This provides a compatibility mode emulating the `crash utility
     <https://crash-utility.github.io/>`_.
 

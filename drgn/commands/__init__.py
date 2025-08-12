@@ -14,7 +14,6 @@ import argparse
 import collections
 import contextlib
 import re
-import shutil
 import subprocess
 import sys
 import textwrap
@@ -46,7 +45,6 @@ if TYPE_CHECKING:
     from _typeshed import SupportsWrite
 
 import _drgn_util.argparseformatter
-from _drgn_util.multilinewrap import multiline_fill
 from _drgn_util.typingutils import copy_method_params
 from drgn import Program
 
@@ -559,6 +557,33 @@ def _decimal_or_hexadecimal(s: str) -> int:
         return int(s, 16)
 
 
+def _create_parser(
+    *,
+    name: str,
+    usage: Optional[str],
+    description: Optional[str],
+    epilog: Optional[str],
+    arguments: Sequence[Union[argument, argument_group, mutually_exclusive_group]],
+    types: Sequence[Tuple[str, Callable[[str], Any]]],
+) -> argparse.ArgumentParser:
+    parser = _DrgnCommandArgumentParser(
+        prog=name,
+        description=description,
+        usage=_sanitize_rst(usage),
+        epilog=epilog,
+        formatter_class=_drgn_util.argparseformatter.MultilineHelpFormatter,
+        add_help=False,
+        allow_abbrev=False,
+    )
+    parser.register("type", "hexadecimal", lambda s: int(s, 16))
+    parser.register("type", "decimal_or_hexadecimal", _decimal_or_hexadecimal)
+    for type_name, type_func in types:
+        parser.register("type", type_name, type_func)
+    for arg in arguments:
+        _add_argument(parser, arg)
+    return parser
+
+
 def command(
     *,
     name: Optional[str] = None,
@@ -608,7 +633,7 @@ def command(
         with that prefix removed.
     :param description: Mandatory one-line description of the command.
     :param usage: Usage string in reStructuredText format. Generated from
-        arguments automatically if not given.
+        *arguments* automatically if not given.
     :param long_description: Optional longer description of the command.
     :param epilog: Optional additional information to show at the end of help
         output.
@@ -622,21 +647,14 @@ def command(
     def decorator(func: CommandFunc) -> CommandFunc:
         command_name = _command_name(name, func, namespace)
 
-        parser = _DrgnCommandArgumentParser(
-            prog=command_name,
+        parser = _create_parser(
+            name=command_name,
+            usage=usage,
             description=long_description,
-            usage=_sanitize_rst(usage),
             epilog=epilog,
-            formatter_class=_drgn_util.argparseformatter.MultilineHelpFormatter,
-            add_help=False,
-            allow_abbrev=False,
+            arguments=arguments,
+            types=namespace._argparse_types,
         )
-        parser.register("type", "hexadecimal", lambda s: int(s, 16))
-        parser.register("type", "decimal_or_hexadecimal", _decimal_or_hexadecimal)
-        for type_name, type_func in namespace._argparse_types:
-            parser.register("type", type_name, type_func)
-        for arg in arguments:
-            _add_argument(parser, arg)
 
         namespace.register(
             command_name,
@@ -885,8 +903,12 @@ def custom_command(
     *,
     name: Optional[str] = None,
     description: str,
-    usage: str,
-    help: str,
+    usage: Optional[str] = None,
+    long_description: Optional[str] = None,
+    epilog: Optional[str] = None,
+    arguments: Optional[
+        Sequence[Union[argument, argument_group, mutually_exclusive_group]]
+    ] = None,
     enabled: Optional[Callable[[Program], bool]] = None,
     namespace: CommandNamespace = DEFAULT_COMMAND_NAMESPACE,
 ) -> CustomCommandFuncDecorator:
@@ -908,7 +930,7 @@ def custom_command(
         @custom_command(
             description="evaluate a Python literal",
             usage="**literal_eval** *EXPR*",
-            help="This evaluates and returns a Python literal"
+            long_description="This evaluates and returns a Python literal"
             " (for example, a string, integer, list, etc.).",
         )
         def _cmd_literal_eval(
@@ -920,22 +942,43 @@ def custom_command(
         must begin with ``_cmd_``, and the command name is the function name
         with that prefix removed.
     :param description: Mandatory one-line description of the command.
-    :param usage: Mandatory usage string in reStructuredText format.
-    :param help: Mandatory help string.
+    :param usage: Usage string in reStructuredText format. Mandatory if
+        *arguments* not given, otherwise generated from *arguments*
+        automatically if not given.
+    :param long_description: Longer description of the command. Mandatory if
+        *arguments* not given, optional otherwise.
+    :param epilog: Optional additional information to show at the end of help
+        output.
+    :param arguments: Arguments, argument groups, and mutually exclusive groups
+        accepted by the command. Used **only** for generating help output.
     :param enabled: Callback returning whether the command should be enabled
         for a given program. Defaults to always enabled.
     :param namespace: Namespace to register command to.
     """
 
+    if arguments is None:
+        if usage is None:
+            raise TypeError("usage is mandatory if arguments not given")
+        if long_description is None:
+            raise TypeError("long_description is mandatory if arguments not given")
+        arguments = ()
+
     def decorator(func: CustomCommandFunc) -> CustomCommandFunc:
+        command_name = _command_name(name, func, namespace)
+
+        parser = _create_parser(
+            name=command_name,
+            usage=usage,
+            description=long_description,
+            epilog=epilog,
+            arguments=arguments,
+            types=namespace._argparse_types,
+        )
+
         namespace.register(
-            _command_name(name, func, namespace),
+            command_name,
             _CustomCommand(
-                func=func,
-                description=description,
-                help=help,
-                usage=_sanitize_rst(usage),
-                enabled=enabled,
+                func=func, parser=parser, description=description, enabled=enabled
             ),
         )
 
@@ -971,15 +1014,13 @@ class CustomCommandFunc(Protocol):
 CustomCommandFuncDecorator = Callable[[CustomCommandFunc], CustomCommandFunc]
 
 
-class _ArgparseCommand:
+class _ArgparseCommandMixin:
     def __init__(
         self,
-        func: CommandFunc,
         parser: argparse.ArgumentParser,
         description: str,
         enabled: Optional[Callable[[Program], bool]] = None,
     ) -> None:
-        self._func = func
         self._parser = parser
         self._description = description
         self.enabled = (lambda prog: True) if enabled is None else enabled
@@ -1000,40 +1041,34 @@ class _ArgparseCommand:
             help = help[len(usage) :].lstrip()
         return textwrap.indent(help, indent).rstrip()
 
+
+class _ArgparseCommand(_ArgparseCommandMixin):
+    def __init__(
+        self,
+        func: CommandFunc,
+        parser: argparse.ArgumentParser,
+        description: str,
+        enabled: Optional[Callable[[Program], bool]] = None,
+    ) -> None:
+        super().__init__(parser, description, enabled)
+        self._func = func
+
     def run(self, prog: Program, name: str, args: str, **kwargs: Any) -> Any:
         with _shell_command(args) as parsed:
             parsed_args = self._parser.parse_args(parsed.args)
             return self._func(prog, name, parsed_args, **kwargs)
 
 
-class _CustomCommand:
+class _CustomCommand(_ArgparseCommandMixin):
     def __init__(
         self,
         func: CustomCommandFunc,
+        parser: argparse.ArgumentParser,
         description: str,
-        help: str,
-        usage: str,
         enabled: Optional[Callable[[Program], bool]] = None,
     ) -> None:
-        self._func = func
-        self._description = description
-        self._help = help
-        self._usage = usage
-        self.enabled = (lambda prog: True) if enabled is None else enabled
+        super().__init__(parser, description, enabled)
         self.run = func
-
-    def description(self) -> str:
-        return self._description
-
-    def format_usage(self) -> str:
-        return self._usage
-
-    def format_help(self, *, indent: str = "") -> str:
-        return multiline_fill(
-            self._help,
-            width=shutil.get_terminal_size().columns,
-            indent=indent,
-        )
 
 
 class DrgnCodeBuilder:

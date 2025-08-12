@@ -320,7 +320,7 @@ def _cmd_tac(prog, name, args, **kwargs):
 @custom_command(
     description="call ast.literal_eval()",
     usage="literal expr",
-    help="",
+    long_description="",
     namespace=_COMMANDS,
 )
 def _cmd_literal(prog, name, args, **kwargs):

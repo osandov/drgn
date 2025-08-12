@@ -23,7 +23,7 @@ for _module_info in pkgutil.walk_packages(__path__, __name__ + "."):
 @custom_command(
     description="execute a shell command",
     usage="**sh** [*command*]",
-    help="""
+    long_description="""
     If *command* is given, run it with ``sh -c --``. Otherwise, run an
     interactive shell with ``sh -i``.
 
