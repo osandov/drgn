@@ -170,38 +170,17 @@ class BtrfsSubvolumeVisitor:
 def super_block_on_bdev(bdev: Object) -> Optional[Object]:
     prog = bdev.prog_
 
-    # Btrfs is a special case.
     try:
-        btrfs_fs_type = prog["btrfs_fs_type"]
-    except KeyError:
-        btrfs_fs_type = None
-    else:
-        holder = bdev.bd_holder.read_()
-        if holder != btrfs_fs_type.address_of_():  # type: ignore[union-attr]  # mypy thinks btrfs_fs_type can be None here
-            # Between Linux kernel commits 3bb17a25bcb0 ("btrfs: add get_tree
-            # callback for new mount API") (in v6.8) and 72fa39f5c7a1 ("btrfs:
-            # add btrfs_mount_root() and new file_system_type") (in v4.16), a
-            # different file_system_type is used for the bdev and super blocks.
-            try:
-                btrfs_fs_type = prog["btrfs_root_fs_type"]
-            except KeyError:
-                btrfs_fs_type = None
-            else:
-                if holder != btrfs_fs_type.address_of_():
-                    btrfs_fs_type = None
+        btrfs_fs_info_type = prog.type("struct btrfs_fs_info *")
+    except LookupError:
+        btrfs_fs_info_type = None
 
-    if btrfs_fs_type is None:
-        for sb in list_for_each_entry(
-            "struct super_block", prog["super_blocks"].address_of_(), "s_list"
-        ):
-            if sb.s_bdev == bdev:
-                return sb
-    else:
-        fs_info_type = prog.type("struct btrfs_fs_info *")
-        for sb in hlist_for_each_entry(
-            "struct super_block", btrfs_fs_type.fs_supers.address_of_(), "s_instances"
-        ):
-            fs_info = cast(fs_info_type, sb.s_fs_info)
+    for sb in list_for_each_entry(
+        "struct super_block", prog["super_blocks"].address_of_(), "s_list"
+    ):
+        if btrfs_fs_info_type is not None and sb.s_type.name.string_() == b"btrfs":
+            # Btrfs is a special case because of its multi-device support.
+            fs_info = cast(btrfs_fs_info_type, sb.s_fs_info)
             for device in list_for_each_entry(
                 "struct btrfs_device",
                 fs_info.fs_devices.devices.address_of_(),
@@ -209,6 +188,9 @@ def super_block_on_bdev(bdev: Object) -> Optional[Object]:
             ):
                 if device.bdev == bdev:
                     return sb
+        elif sb.s_bdev == bdev:
+            return sb
+
     return None
 
 
