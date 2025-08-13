@@ -520,7 +520,11 @@ def _add_argument(
     parser: Any, arg: Union[argument, argument_group, mutually_exclusive_group]
 ) -> None:
     if isinstance(arg, argument):
-        parser.add_argument(*arg.args, **arg.kwargs)
+        kwargs = arg.kwargs
+        # argparse needs % to be escaped in help strings.
+        if "%" in (help := kwargs.get("help", "")):
+            kwargs = dict(kwargs, help=help.replace("%", "%%"))
+        parser.add_argument(*arg.args, **kwargs)
     elif isinstance(arg, argument_group):
         group = parser.add_argument_group(title=arg.title, description=arg.description)
         for arg in arg.arguments:
