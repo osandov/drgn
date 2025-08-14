@@ -187,7 +187,7 @@ address = prog.symbol({address_or_symbol!r}).address{subtract_offset}
         else:
             code.add_from_import("drgn", "reinterpret")
             try:
-                offset_type_name = _guess_type(prog, "*", offset_name).type_name()
+                offset_type_name = _guess_type(prog, offset_name).type_name()
             except LookupError:
                 offset_type_name = "struct " + offset_name
             if object_or_pointer == "object":
@@ -312,7 +312,7 @@ def _crash_cmd_struct(
         try:
             type = kwargs["type"]
         except KeyError:
-            type = _guess_type(prog, kind, name)
+            type = _guess_type(prog, name, kind)
     except LookupError:
         if not args.drgn:
             raise
@@ -362,7 +362,7 @@ def _crash_cmd_struct(
         if offset_name == name:
             offset_type = type
         else:
-            offset_type = _guess_type(prog, "*", offset_name)
+            offset_type = _guess_type(prog, offset_name)
         offset = offsetof(offset_type, offset_member)
 
     try:

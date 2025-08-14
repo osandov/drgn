@@ -38,7 +38,7 @@ def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
         return "task", int(s, 16)
 
 
-def _guess_type(prog: Program, kind: str, name: str) -> Type:
+def _guess_type(prog: Program, name: str, kind: str = "*") -> Type:
     if kind != "union":
         try:
             return prog.type("struct " + name)
@@ -122,9 +122,7 @@ class _CrashCommandNamespace(CommandNamespace):
             except CommandNotFoundError as e:
                 try:
                     # Smuggle the type into the command function.
-                    kwargs["type"] = _guess_type(
-                        prog, "*", command_name.partition(".")[0]
-                    )
+                    kwargs["type"] = _guess_type(prog, command_name.partition(".")[0])
                 except LookupError:
                     raise e
                 else:
