@@ -665,6 +665,11 @@ struct drgn_test_rb_entry drgn_test_rb_entries[4];
 
 struct rb_node drgn_test_empty_rb_node;
 
+struct drgn_test_rbtree_container_struct {
+	struct drgn_test_rb_entry entries[2];
+	struct rb_root root;
+} drgn_test_rbtree_container;
+
 struct rb_root drgn_test_rbtree_with_equal = RB_ROOT;
 struct drgn_test_rb_entry drgn_test_rb_entries_with_equal[4];
 
@@ -717,6 +722,12 @@ static void drgn_test_rbtree_init(void)
 					&drgn_test_rb_entries[i]);
 	}
 	RB_CLEAR_NODE(&drgn_test_empty_rb_node);
+
+	for (i = 0; i < ARRAY_SIZE(drgn_test_rbtree_container.entries); i++) {
+		drgn_test_rbtree_container.entries[i].value = i;
+		drgn_test_rbtree_insert(&drgn_test_rbtree_container.root,
+					&drgn_test_rbtree_container.entries[i]);
+	}
 
 	// Red-black tree with entries that compare equal to each other.
 	for (i = 0; i < ARRAY_SIZE(drgn_test_rb_entries_with_equal); i++) {
@@ -1207,7 +1218,14 @@ DEFINE_XARRAY(drgn_test_xarray_multi_index);
 DEFINE_XARRAY(drgn_test_xarray_zero_entry);
 DEFINE_XARRAY(drgn_test_xarray_zero_entry_at_zero);
 DEFINE_XARRAY(drgn_test_xarray_value);
+DEFINE_XARRAY(drgn_test_xarray_pointers);
 void *drgn_test_xa_zero_entry;
+
+struct drgn_test_xarray_entry {
+	int value;
+};
+
+struct drgn_test_xarray_entry drgn_test_xarray_entries[4];
 
 static int drgn_test_xa_store_order(struct xarray *xa, unsigned long index,
 				    unsigned order, void *entry, gfp_t gfp)
@@ -1228,6 +1246,7 @@ static int drgn_test_xarray_init(void)
 #if HAVE_XARRAY
 	void *entry;
 	int ret;
+	size_t i;
 
 	drgn_test_xa_zero_entry = XA_ZERO_ENTRY;
 
@@ -1272,6 +1291,14 @@ static int drgn_test_xarray_init(void)
 			 GFP_KERNEL);
 	if (xa_is_err(entry))
 		return xa_err(entry);
+
+	for (i = 0; i < ARRAY_SIZE(drgn_test_xarray_entries); i++) {
+		drgn_test_xarray_entries[i].value = i;
+		entry = xa_store(&drgn_test_xarray_pointers, i,
+				 &drgn_test_xarray_entries[i], GFP_KERNEL);
+		if (xa_is_err(entry))
+			return xa_err(entry);
+	}
 
 #endif
 
