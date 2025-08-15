@@ -3,7 +3,7 @@
 
 import collections
 
-from drgn import NULL
+from drgn import NULL, container_of
 from drgn.helpers import ValidationError
 from drgn.helpers.linux.rbtree import (
     RB_EMPTY_NODE,
@@ -16,6 +16,8 @@ from drgn.helpers.linux.rbtree import (
     rb_prev,
     rbtree_inorder_for_each,
     rbtree_inorder_for_each_entry,
+    rbtree_preorder_for_each,
+    rbtree_preorder_for_each_entry,
     validate_rbtree,
     validate_rbtree_inorder_for_each_entry,
 )
@@ -87,6 +89,25 @@ class TestRbtree(LinuxKernelTestCase):
                 )
             ),
             [self.entry(i) for i in range(self.num_entries)],
+        )
+
+    def test_rbtree_preorder_for_each(self):
+        preorder = list(rbtree_preorder_for_each(self.root))
+        self.assertCountEqual(preorder, [self.node(i) for i in range(self.num_entries)])
+        self.assertEqual(preorder[0], self.root.rb_node)
+
+    def test_rbtree_preorder_for_each_entry(self):
+        preorder = list(
+            rbtree_preorder_for_each_entry(
+                "struct drgn_test_rb_entry", self.root, "node"
+            )
+        )
+        self.assertCountEqual(
+            preorder, [self.entry(i) for i in range(self.num_entries)]
+        )
+        self.assertEqual(
+            preorder[0],
+            container_of(self.root.rb_node, "struct drgn_test_rb_entry", "node"),
         )
 
     def test_rb_find(self):

@@ -25,6 +25,8 @@ __all__ = (
     "rb_prev",
     "rbtree_inorder_for_each",
     "rbtree_inorder_for_each_entry",
+    "rbtree_preorder_for_each",
+    "rbtree_preorder_for_each_entry",
     "validate_rbtree",
     "validate_rbtree_inorder_for_each_entry",
 )
@@ -189,6 +191,41 @@ def rbtree_inorder_for_each_entry(
     """
     type = root.prog_.type(type)
     for node in rbtree_inorder_for_each(root):
+        yield container_of(node, type, member)
+
+
+def rbtree_preorder_for_each(root: Object) -> Iterator[Object]:
+    """
+    Iterate over all of the nodes in a red-black tree, visiting each node
+    before its children.
+
+    :param root: ``struct rb_root *``
+    :return: Iterator of ``struct rb_node *`` objects.
+    """
+
+    def aux(node: Object) -> Iterator[Object]:
+        if node:
+            yield node
+            yield from aux(node.rb_left.read_())
+            yield from aux(node.rb_right.read_())
+
+    yield from aux(root.rb_node.read_())
+
+
+def rbtree_preorder_for_each_entry(
+    type: Union[str, Type], root: Object, member: str
+) -> Iterator[Object]:
+    """
+    Iterate over all of the entries in a red-black tree, visiting each node
+    before its children.
+
+    :param type: Entry type.
+    :param root: ``struct rb_root *``
+    :param member: Name of ``struct rb_node`` member in entry type.
+    :return: Iterator of ``type *`` objects.
+    """
+    type = root.prog_.type(type)
+    for node in rbtree_preorder_for_each(root):
         yield container_of(node, type, member)
 
 
