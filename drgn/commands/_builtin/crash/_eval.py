@@ -12,8 +12,9 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from drgn import Object, Program, Type
 from drgn.commands import CommandArgumentError, _shell_command, argument, drgn_argument
-from drgn.commands._builtin.crash.structunion import _MEMBER_PATTERN, _NAME_PATTERN
 from drgn.commands.crash import (
+    _MEMBER_PATTERN,
+    _TYPE_NAME_PATTERN,
     CrashDrgnCodeBuilder,
     crash_command,
     crash_custom_command,
@@ -336,7 +337,7 @@ hexadecimal: {value:x}{with_units}
 
 def _parse_name_and_optional_member(s: str) -> Tuple[str, str]:
     name, sep, member = s.partition(".")
-    if not re.fullmatch(_NAME_PATTERN, name) or not re.fullmatch(
+    if not re.fullmatch(_TYPE_NAME_PATTERN, name) or not re.fullmatch(
         _MEMBER_PATTERN, member
     ):
         return s, ""

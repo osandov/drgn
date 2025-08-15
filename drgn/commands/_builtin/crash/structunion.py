@@ -5,7 +5,6 @@
 
 import argparse
 import functools
-import re
 import shutil
 import sys
 from typing import Any, Iterable, List, Optional, Tuple, Union
@@ -16,6 +15,10 @@ from drgn.commands.crash import (
     Cpuspec,
     CrashDrgnCodeBuilder,
     _guess_type,
+    _parse_type_name_and_members,
+    _parse_type_offset_arg,
+    _prefer_object_lookup,
+    _sanitize_member_name,
     crash_command,
     parse_cpuspec,
 )
@@ -27,59 +30,6 @@ from drgn.helpers.linux.percpu import per_cpu_ptr
 @functools.wraps(int)
 def _int_or_suppress(s: str) -> Union[int, str]:
     return s if s is argparse.SUPPRESS else int(s)
-
-
-_NAME_PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]*"
-_MEMBER_PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*|\[[0-9]+\])*"
-
-
-def _parse_name_and_members(s: str) -> Tuple[str, List[str]]:
-    name, sep, members_str = s.partition(".")
-    if not re.fullmatch(_NAME_PATTERN, name):
-        raise ValueError(f"invalid structure name: {name}")
-    if not sep:
-        return name, []
-    members = members_str.split(",")
-    for member in members:
-        if not re.fullmatch(_MEMBER_PATTERN, member):
-            raise ValueError(f"invalid member name: {member}")
-    return name, members
-
-
-def _parse_offset_arg(s: str) -> Union[int, Tuple[str, str]]:
-    if "." not in s:
-        try:
-            return int(s, 0)
-        except ValueError:
-            raise ValueError(f"invalid -l option: {s}") from None
-    name, sep, member = s.partition(".")
-    if not re.fullmatch(_NAME_PATTERN, name):
-        raise ValueError(f"invalid structure name: {name}")
-    if not re.fullmatch(_MEMBER_PATTERN, member):
-        raise ValueError(f"invalid member name: {member}")
-    return name, member
-
-
-def _prefer_object_lookup(prog: Program, type_name: str, symbol: str) -> bool:
-    try:
-        symbol_address = prog.symbol(symbol).address
-    except LookupError:
-        # If a symbol isn't found, prefer an object lookup.
-        return True
-
-    try:
-        object = prog[symbol]
-    except KeyError:
-        # If an object isn't found but a symbol is, prefer a symbol lookup.
-        return False
-
-    # If both a symbol and an object are found, prefer an object lookup iff the
-    # addresses are the same and the object has the desired type.
-    return object.type_.type_name() == type_name and object.address_ == symbol_address
-
-
-def _sanitize_member(member: str) -> str:
-    return re.sub(r"\.|\[([^]]+)\]", r"_\1", member)
 
 
 def _struct_drgn_option(
@@ -107,8 +57,8 @@ type = prog.type("{type_name}")
             for member in members:
                 sys.stdout.write(
                     f"""
-{_sanitize_member(member)}_type = typeof_member(type, "{member}")
-{_sanitize_member(member)}_offset = offsetof(type, "{member}")
+{_sanitize_member_name(member)}_type = typeof_member(type, "{member}")
+{_sanitize_member_name(member)}_offset = offsetof(type, "{member}")
 """
                 )
         else:
@@ -211,7 +161,7 @@ address = prog.symbol({address_or_symbol!r}).address{subtract_offset}
 
     object_loop += "".join(
         [
-            f"{members_indent}{_sanitize_member(member)} = " f"object.{member}\n"
+            f"{members_indent}{_sanitize_member_name(member)} = " f"object.{member}\n"
             for member in members
         ]
     )
@@ -287,8 +237,8 @@ address = prog.symbol({address_or_symbol!r}).address{subtract_offset}
 def _crash_cmd_struct(
     prog: Program, kind: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
-    name, members = _parse_name_and_members(args.name)
-    offset_arg = None if args.offset is None else _parse_offset_arg(args.offset)
+    name, members = _parse_type_name_and_members(args.name)
+    offset_arg = None if args.offset is None else _parse_type_offset_arg(args.offset)
 
     if args.address_or_symbol is None:
         if args.count is not None:
@@ -341,7 +291,7 @@ def _crash_cmd_struct(
             # name and adding a comment with the original name.
             for i, member in enumerate(members):
                 obj = Object(prog, type, address=0).subobject_(member)
-                sanitized = _sanitize_member(member)
+                sanitized = _sanitize_member_name(member)
                 if sanitized == member:
                     sanitized_comment = ""
                 else:

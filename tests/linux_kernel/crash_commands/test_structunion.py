@@ -399,7 +399,7 @@ class TestStruct(CrashCommandTestCase):
     def test_invalid_structure_name(self):
         self.assertRaisesRegex(
             ValueError,
-            "invalid structure name",
+            "invalid type name",
             self.check_crash_command,
             "struct 1234",
         )

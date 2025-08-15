@@ -11,10 +11,10 @@ import shutil
 import subprocess
 import sys
 import textwrap
-from typing import Any, FrozenSet, List, Literal, Optional, Set, Tuple
+from typing import Any, FrozenSet, List, Literal, Optional, Set, Tuple, Union
 
 from _drgn_util.typingutils import copy_func_params
-from drgn import Object, Program, ProgramFlags, Type, TypeKind
+from drgn import Object, Program, ProgramFlags, Type, TypeKind, offsetof
 from drgn.commands import (
     _SHELL_TOKEN_REGEX,
     CommandFuncDecorator,
@@ -293,6 +293,93 @@ def parse_cpuspec(spec: str) -> Cpuspec:
         else:
             cpus.add(int(match.group(1)))
     return Cpuspec(explicit_cpus=frozenset(cpus))
+
+
+_TYPE_NAME_PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]*"
+_MEMBER_PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*|\[[0-9]+\])*"
+
+
+# Parse a type name optionally followed by a "." and one or more
+# comma-separated members.
+def _parse_type_name_and_members(arg: str) -> Tuple[str, List[str]]:
+    name, sep, members_str = arg.partition(".")
+    if not re.fullmatch(_TYPE_NAME_PATTERN, name):
+        raise ValueError(f"invalid type name: {name}")
+    if not sep:
+        return name, []
+    members = members_str.split(",")
+    for member in members:
+        if not re.fullmatch(_MEMBER_PATTERN, member):
+            raise ValueError(f"invalid member name: {member}")
+    return name, members
+
+
+# Sanitize a member name, which can contain "." and "[]" operators, to a name
+# suitable for a variable.
+def _sanitize_member_name(name: str) -> str:
+    return re.sub(r"\.|\[([^]]+)\]", r"_\1", name)
+
+
+# Parse a type offset, either as a number of bytes or a type name followed by a
+# "." and a member.
+def _parse_type_offset_arg(arg: str) -> Union[int, Tuple[str, str]]:
+    if "." not in arg:
+        try:
+            return int(arg, 0)
+        except ValueError:
+            raise ValueError(f"invalid offset: {arg}") from None
+    name, sep, member = arg.partition(".")
+    if not re.fullmatch(_TYPE_NAME_PATTERN, name):
+        raise ValueError(f"invalid type name: {name}")
+    if not re.fullmatch(_MEMBER_PATTERN, member):
+        raise ValueError(f"invalid member name: {member}")
+    return name, member
+
+
+# Resolve a type offset parsed with _parse_type_offset_arg() to a number of
+# bytes. If match_type is given and it matches the type name, it will be used
+# instead of guessing the type.
+def _resolve_type_offset_arg(
+    prog: Program,
+    arg: Union[int, Tuple[str, str], None],
+    match_type: Optional[Type] = None,
+) -> int:
+    if arg is None:
+        return 0
+    elif isinstance(arg, int):
+        return arg
+    else:
+        name, member = arg
+
+        if match_type is not None:
+            try:
+                match_name = match_type.tag
+            except AttributeError:
+                match_name = getattr(match_type, "name", None)
+            if name == match_name:
+                return offsetof(match_type, member)
+
+        return offsetof(_guess_type(prog, name), member)
+
+
+# For commands that do a symbol lookup, return whether an object lookup would
+# be preferred for the sake of making --drgn output more idiomatic.
+def _prefer_object_lookup(prog: Program, type_name: str, symbol_name: str) -> bool:
+    try:
+        symbol_address = prog.symbol(symbol_name).address
+    except LookupError:
+        # If a symbol isn't found, prefer an object lookup.
+        return True
+
+    try:
+        object = prog[symbol_name]
+    except KeyError:
+        # If an object isn't found but a symbol is, prefer a symbol lookup.
+        return False
+
+    # If both a symbol and an object are found, prefer an object lookup iff the
+    # addresses are the same and the object has the desired type.
+    return object.type_.type_name() == type_name and object.address_ == symbol_address
 
 
 class CrashDrgnCodeBuilder(DrgnCodeBuilder):
