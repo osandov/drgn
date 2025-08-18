@@ -96,6 +96,21 @@ def _get_bool_kwarg(node: ast.Call, name: str) -> Optional[bool]:
     return arg.value
 
 
+def _parse_metavar(node: ast.expr) -> Sequence[str]:
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, str):
+            return (node.value,)
+    elif isinstance(node, ast.Tuple):
+        values = []
+        for elt in node.elts:
+            if not isinstance(elt, ast.Constant) or not isinstance(elt.value, str):
+                break
+            values.append(elt.value)
+        else:
+            return values
+    raise UnrecognizedInputError(f"unrecognized value for metavar: {ast.dump(node)}")
+
+
 def _is_argparse_constant(node: Optional[ast.expr], name: str) -> bool:
     # Technically we should resolve "argparse" to make sure it's actually the
     # module with that name, but it's very unlikely to matter. We could also
@@ -377,7 +392,7 @@ class CommandFormatter:
             dest_node = _get_kwarg(node, "dest")
             if dest_node is None:
                 if positional:
-                    arg_name = option_names[0]
+                    arg_names = (option_names[0],)
                 else:
                     for option_name in option_names:
                         if option_name.startswith("--"):
@@ -385,28 +400,22 @@ class CommandFormatter:
                             break
                         else:
                             arg_name = option_name[1:]
-                    arg_name = arg_name.replace("-", "_").upper()
+                    arg_names = (arg_name.replace("-", "_").upper(),)
             elif isinstance(dest_node, ast.Constant) and isinstance(
                 dest_node.value, str
             ):
-                arg_name = dest_node.value.upper()
+                arg_names = (dest_node.value.upper(),)
             else:
                 raise UnrecognizedInputError(
                     f"unrecognized value for dest: {ast.dump(dest_node)}"
                 )
-        elif isinstance(metavar_node, ast.Constant) and isinstance(
-            metavar_node.value, str
-        ):
-            arg_name = metavar_node.value
         else:
-            raise UnrecognizedInputError(
-                f"unrecognized value for metavar: {ast.dump(metavar_node)}"
-            )
+            arg_names = _parse_metavar(metavar_node)
 
         if positional and not usage:
-            return arg_name
+            return arg_names[0]
 
-        arg_str = format_arg_name(arg_name)
+        arg_strs = [format_arg_name(arg_name) for arg_name in arg_names]
 
         if positional and in_mutually_exclusive_group:
             # A positional argument in a mutually exclusive group must be
@@ -421,15 +430,19 @@ class CommandFormatter:
                     f"unrecognized nargs for positional argument in mutually exclusive group: {nargs!r}"
                 )
 
-        if nargs != 1:
+        # We don't check the length of the metavar tuple; argparse will check
+        # that at runtime.
+        if nargs == 1:
+            arg_str = arg_strs[0]
+        else:
             if isinstance(nargs, int):
-                arg_str = " ".join([arg_str] * nargs)
+                arg_str = " ".join([arg_strs[i % len(arg_strs)] for i in range(nargs)])
             elif nargs == "?":
-                arg_str = f"[{arg_str}]"
+                arg_str = f"[{arg_strs[0]}]"
             elif nargs == "*":
-                arg_str = f"[{arg_str} ...]"
+                arg_str = f"[{arg_strs[0]} ...]"
             elif nargs == "+":
-                arg_str = f"{arg_str} [{arg_str} ...]"
+                arg_str = f"{arg_strs[0]} [{arg_strs[1 % len(arg_strs)]} ...]"
             else:
                 raise UnrecognizedInputError(f"unrecognized nargs: {nargs!r}")
 
