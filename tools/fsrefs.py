@@ -507,6 +507,7 @@ def visit_uprobes(prog: Program, visitor: "Visitor") -> None:
                         print(
                             f"unknown uprobe consumer {consumer.format_(**format_args)}"
                         )
+                    found_consumer = True
             if not found_consumer:
                 print(f"unknown uprobe {uprobe.format_(**format_args)} {match}")
 
