@@ -1,8 +1,9 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from drgn.helpers.linux.panic import _panic_message
+from drgn.helpers.linux.panic import _panic_message, tainted
 from tests import TestCase
+from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 
 class TestPanicMessage(TestCase):
@@ -39,3 +40,9 @@ Oops: Oops: 0002 [#1] SMP NOPTI
             ),
             b"BUG: kernel NULL pointer dereference, address: 000000000000071c",
         )
+
+
+class TestTainted(LinuxKernelTestCase):
+    @skip_unless_have_test_kmod
+    def test_tainted(self):
+        self.assertIn("O", tainted(self.prog))

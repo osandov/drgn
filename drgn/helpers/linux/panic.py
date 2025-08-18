@@ -12,13 +12,14 @@ panic information.
 import re
 from typing import Optional
 
-from drgn import NULL, Object, Program
+from drgn import NULL, Object, ObjectNotFoundError, Program
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.printk import get_dmesg
 
 __all__ = (
     "panic_message",
     "panic_task",
+    "tainted",
 )
 
 
@@ -91,3 +92,41 @@ def panic_message(prog: Program) -> Optional[bytes]:
         was found
     """
     return _panic_message(get_dmesg(prog, timestamps=False))
+
+
+@takes_program_or_default
+def tainted(prog: Program) -> str:
+    """
+    Get the kernel's tainted flags as a string.
+
+    If the kernel is not tainted, then this returns an empty string:
+
+    >>> tainted()
+    ''
+
+    Otherwise, it returns the flags as letters:
+
+    >>> tainted()
+    'G           O       '
+
+    See the `kernel documentation
+    <https://docs.kernel.org/admin-guide/tainted-kernels.html>`_ for an
+    explanation of the flags.
+    """
+    mask = prog["tainted_mask"].value_()
+    if not mask:
+        return ""
+
+    parts = []
+    try:
+        taint_flags = prog["taint_flags"]
+    except ObjectNotFoundError:
+        # Before Linux kernel commit 7fd8329ba502 ("taint/module: Clean up
+        # global and module taint flags handling") (in v4.10), the array and
+        # members had different names and the bit number was a member.
+        for t in prog["tnts"]:
+            parts.append(chr(t.true if (mask & (1 << t.bit.value_())) else t.false))  # type: ignore[arg-type]  # python/typeshed#13494
+    else:
+        for i, t in enumerate(taint_flags):
+            parts.append(chr(t.c_true if (mask & (1 << i)) else t.c_false))  # type: ignore[arg-type]  # python/typeshed#13494
+    return "".join(parts)
