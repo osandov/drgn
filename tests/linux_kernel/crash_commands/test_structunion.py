@@ -83,7 +83,7 @@ class TestStruct(CrashCommandTestCase):
         cmd = self.check_crash_command("struct list_head drgn_test_singular_list")
         self.assertIn("(struct list_head){", cmd.stdout)
         self.assertIn(
-            "object = prog['drgn_test_singular_list']", cmd.drgn_option.stdout
+            'object = prog["drgn_test_singular_list"]', cmd.drgn_option.stdout
         )
         self.assertIdentical(
             cmd.drgn_option.globals["object"], self.prog["drgn_test_singular_list"]

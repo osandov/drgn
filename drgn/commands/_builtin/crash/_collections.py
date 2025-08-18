@@ -16,7 +16,7 @@ if typing.TYPE_CHECKING:
         from typing import assert_never  # novermin
 
 from drgn import Object, Program
-from drgn.commands import CommandArgumentError, argument, drgn_argument
+from drgn.commands import CommandArgumentError, _repr_black, argument, drgn_argument
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
     _guess_type,
@@ -109,7 +109,7 @@ def _tree_drgn_option(
         if root_offset_arg is None and _prefer_object_lookup(
             prog, root_type_name, args.start
         ):
-            code.append(f"root = prog[{args.start!r}].address_of_()\n")
+            code.append(f"root = prog[{_repr_black(args.start)}].address_of_()\n")
         elif (
             isinstance(root_offset_arg, tuple)
             and start_type is not None
@@ -118,10 +118,10 @@ def _tree_drgn_option(
             == root_type_name
         ):
             code.append(
-                f"root = prog[{args.start!r}].{root_offset_arg[1]}.address_of_()\n"
+                f"root = prog[{_repr_black(args.start)}].{root_offset_arg[1]}.address_of_()\n"
             )
         else:
-            code.append(f"address = prog.symbol({args.start!r}).address")
+            code.append(f"address = prog.symbol({_repr_black(args.start)}).address")
 
             if isinstance(root_offset_arg, int):
                 code.append(f" + {root_offset_arg}\n")

@@ -17,6 +17,7 @@ from drgn.commands import (
     DrgnCodeBuilder,
     _parse_shell_command,
     _ParsedShellCommand,
+    _repr_black,
     _sanitize_rst,
     argument,
     command,
@@ -514,6 +515,17 @@ class TestSanitizeRst(TestCase):
 
     def test_bold_and_escaped_dash(self):
         self.assertEqual(_sanitize_rst(r"**\-\-drgn**"), "--drgn")
+
+
+class TestReprBlack(TestCase):
+    def test_simple(self):
+        self.assertEqual(_repr_black("foo"), '"foo"')
+
+    def test_single_quote(self):
+        self.assertEqual(_repr_black("ne'er"), '"ne\'er"')
+
+    def test_double_quote(self):
+        self.assertEqual(_repr_black('l"oL'), "'l\"oL'")
 
 
 class TestDrgnCodeBuilder(TestCase):

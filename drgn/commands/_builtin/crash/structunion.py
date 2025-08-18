@@ -10,7 +10,7 @@ import sys
 from typing import Any, Iterable, List, Optional, Tuple, Union
 
 from drgn import Object, Program, offsetof, sizeof
-from drgn.commands import CommandError, argument, drgn_argument
+from drgn.commands import CommandError, _repr_black, argument, drgn_argument
 from drgn.commands.crash import (
     Cpuspec,
     CrashDrgnCodeBuilder,
@@ -110,7 +110,7 @@ size = sizeof(type)
             prog, type_name, address_or_symbol
         ):
             code.append(
-                f"{pcpu_prefix}{object_or_pointer} = prog[{address_or_symbol!r}]"
+                f"{pcpu_prefix}{object_or_pointer} = prog[{_repr_black(address_or_symbol)}]"
             )
             if object_or_pointer == "pointer":
                 code.append(".address_of_()")
@@ -119,7 +119,7 @@ size = sizeof(type)
             code.add_from_import("drgn", "Object")
             code.append(
                 f"""\
-address = prog.symbol({address_or_symbol!r}).address{subtract_offset}
+address = prog.symbol({_repr_black(address_or_symbol)}).address{subtract_offset}
 {initial_object("address")}
 """
             )

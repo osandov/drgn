@@ -1075,6 +1075,18 @@ class _CustomCommand(_ArgparseCommandMixin):
         self.run = func
 
 
+# Variant of repr() that prefers double-quoted strings (like Black).
+def _repr_black(obj: Any) -> str:
+    if not isinstance(obj, str):
+        return repr(obj)
+    r = repr(obj + "'")
+    if r.endswith("'\""):
+        return r[:-2] + '"'
+    else:
+        assert r.endswith(r"\''")
+        return r[:-3] + "'"
+
+
 class DrgnCodeBuilder:
     """
     Helper class for generating code for :func:`drgn_argument`.

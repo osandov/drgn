@@ -11,7 +11,13 @@ import sys
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from drgn import Object, Program, Type
-from drgn.commands import CommandArgumentError, _shell_command, argument, drgn_argument
+from drgn.commands import (
+    CommandArgumentError,
+    _repr_black,
+    _shell_command,
+    argument,
+    drgn_argument,
+)
 from drgn.commands.crash import (
     _MEMBER_PATTERN,
     _TYPE_NAME_PATTERN,
@@ -388,10 +394,10 @@ def _crash_cmd_p(
         if member:
             member = "." + member
         if cpuspec is None:
-            print(f"object = prog[{name!r}]{member}")
+            print(f"object = prog[{_repr_black(name)}]{member}")
         else:
             code = CrashDrgnCodeBuilder(prog)
-            code.append(f"pcpu_object = prog[{name!r}]{member}\n")
+            code.append(f"pcpu_object = prog[{_repr_black(name)}]{member}\n")
             code.add_from_import("drgn.helpers.linux.percpu", "per_cpu")
             code.append_cpuspec(cpuspec, "object = per_cpu(pcpu_object, cpu)\n")
             code.print()
