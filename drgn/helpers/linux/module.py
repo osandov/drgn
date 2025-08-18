@@ -10,7 +10,7 @@ loaded kernel modules.
 import operator
 from typing import Iterable, List, Tuple, Union
 
-from drgn import NULL, IntegerLike, Object, Program
+from drgn import NULL, IntegerLike, Object, ObjectNotFoundError, Program
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.rbtree import rb_find
@@ -21,6 +21,7 @@ __all__ = (
     "for_each_module",
     "module_address_regions",
     "module_percpu_region",
+    "module_taints",
 )
 
 
@@ -221,3 +222,55 @@ def address_to_module(prog: Program, addr: IntegerLike) -> Object:
                 return module
 
     return NULL(prog, "struct module *")
+
+
+def module_taints(module: Object) -> str:
+    """
+    Get a kernel module's taint flags as a string.
+
+    If the module did not taint the kernel, then this returns an empty string:
+
+    >>> module_taints(module)
+    ''
+
+    Otherwise, it returns the flags as letters (without spaces):
+
+    >>> module_taints(module)
+    'O'
+
+    See the `kernel documentation
+    <https://docs.kernel.org/admin-guide/tainted-kernels.html>`_ for an
+    explanation of the flags.
+
+    :param module: ``struct module *``
+    """
+    mask = module.taints.value_()
+    if not mask:
+        return ""
+
+    parts = []
+    try:
+        taint_flags = module.prog_["taint_flags"]
+    except ObjectNotFoundError:
+        # Before Linux kernel commit 7fd8329ba502 ("taint/module: Clean up
+        # global and module taint flags handling") (in v4.10), the array had a
+        # different name and didn't include which flags apply to modules. The
+        # flags are also macros, so we have to hard-code them
+        if mask & 1:
+            parts.append("P")
+        if mask & 4096:
+            parts.append("O")
+        if mask & 2:
+            parts.append("F")
+        if mask & 1024:
+            parts.append("C")
+        if mask & 8192:
+            parts.append("E")
+        if mask & 32768:
+            parts.append("K")
+    else:
+        for i, t in enumerate(taint_flags):
+            if t.module and (mask & (1 << i)):
+                parts.append(chr(t.c_true))  # type: ignore[arg-type]  # python/typeshed#13494
+
+    return "".join(parts)

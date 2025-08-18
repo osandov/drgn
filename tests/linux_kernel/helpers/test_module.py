@@ -6,6 +6,7 @@ from drgn.helpers.linux.module import (
     for_each_module,
     module_address_regions,
     module_percpu_region,
+    module_taints,
 )
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
@@ -53,3 +54,6 @@ class TestModules(LinuxKernelTestCase):
         assertInRegions(self.prog.symbol("drgn_test_empty_list").address)
         # constant variable (should be in .rodata)
         assertInRegions(self.prog.symbol("drgn_test_have_maple_tree").address)
+
+    def test_module_taints(self):
+        self.assertIn("O", module_taints(self.mod))
