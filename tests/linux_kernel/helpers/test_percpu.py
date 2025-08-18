@@ -3,26 +3,22 @@
 
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.percpu import per_cpu, per_cpu_ptr, percpu_counter_sum
-from tests.linux_kernel import (
-    LinuxKernelTestCase,
-    prng32,
-    skip_unless_have_test_kmod,
-    smp_enabled,
-)
+from tests.linux_kernel import LinuxKernelTestCase, prng32, skip_unless_have_test_kmod
 
 
 class TestPerCpu(LinuxKernelTestCase):
     def test_per_cpu(self):
-        smp = smp_enabled()
         for cpu in for_each_possible_cpu(self.prog):
-            if smp:
-                self.assertEqual(per_cpu(self.prog["runqueues"], cpu).cpu, cpu)
+            rq = per_cpu(self.prog["runqueues"], cpu)
+            try:
+                rq_cpu = rq.cpu
+            except AttributeError:
+                # Before Linux kernel commit cac5cefbade9 ("sched/smp: Make SMP
+                # unconditional") (in v6.17), struct rq::cpu only exists if
+                # CONFIG_SMP=y, so check this instead.
+                self.assertEqual(rq.idle, self.prog["init_task"].address_of_())
             else:
-                # struct rq::cpu only exists if CONFIG_SMP=y, so just check
-                # that we get something valid.
-                self.assertEqual(
-                    per_cpu(self.prog["runqueues"], cpu).idle.comm.string_(), b"swapper"
-                )
+                self.assertEqual(rq_cpu, cpu)
 
     @skip_unless_have_test_kmod
     def test_per_cpu_module_static(self):

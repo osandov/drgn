@@ -23,7 +23,6 @@ from tests.linux_kernel import (
     fork_and_stop,
     proc_state,
     skip_unless_have_test_kmod,
-    smp_enabled,
     wait_until,
 )
 
@@ -91,13 +90,12 @@ class TestSched(LinuxKernelTestCase):
             os.sched_setaffinity(0, old_affinity)
 
     def test_idle_task(self):
-        if smp_enabled():
-            for cpu in for_each_possible_cpu(self.prog):
-                self.assertEqual(
-                    idle_task(self.prog, cpu).comm.string_(), f"swapper/{cpu}".encode()
-                )
-        else:
-            self.assertEqual(idle_task(self.prog, 0).comm.string_(), b"swapper")
+        for cpu in for_each_possible_cpu(self.prog):
+            task = idle_task(self.prog, cpu)
+            if cpu == 0:
+                self.assertEqual(task, self.prog["init_task"].address_of_())
+            else:
+                self.assertEqual(task.comm.string_(), f"swapper/{cpu}".encode())
 
     def test_loadavg(self):
         values = loadavg(self.prog)

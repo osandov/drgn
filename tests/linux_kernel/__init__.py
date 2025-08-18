@@ -209,10 +209,6 @@ def fork_and_stop(fn=None, *args, **kwds):
             os.waitpid(pid, 0)
 
 
-def smp_enabled():
-    return bool(re.search(r"\bSMP\b", os.uname().version))
-
-
 def parse_range_list(s):
     values = set()
     s = s.strip()
