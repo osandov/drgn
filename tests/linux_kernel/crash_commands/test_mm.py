@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import mmap
+import re
 
+from tests.linux_kernel import skip_unless_have_test_disk
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
+from tests.linux_kernel.helpers.test_swap import tmp_swaps
 
 
 class TestBtop(CrashCommandTestCase):
@@ -40,3 +43,20 @@ class TestPtob(CrashCommandTestCase):
         self.assertRegex(cmd.drgn_option.stdout, r"\bfor\b.*\bin\b")
         self.assertEqual(cmd.drgn_option.globals["pfn"], 10)
         self.assertEqual(cmd.drgn_option.globals["phys_addr"], addr2)
+
+
+class TestSwap(CrashCommandTestCase):
+    @skip_unless_have_test_disk
+    def test_swap(self):
+        with tmp_swaps() as swaps:
+            cmd = self.check_crash_command("swap")
+            for path, is_file in swaps:
+                type = "FILE" if is_file else "PARTITION"
+                self.assertRegex(cmd.stdout, f"{type} .* {re.escape(str(path))}")
+        self.assertEqual(
+            cmd.drgn_option.globals["si"].type_.type_name(), "struct swap_info_struct *"
+        )
+        self.assertIn("pages", cmd.drgn_option.globals)
+        self.assertIn("used_pages", cmd.drgn_option.globals)
+        self.assertIn("priority", cmd.drgn_option.globals)
+        self.assertIsInstance(cmd.drgn_option.globals["path"], bytes)
