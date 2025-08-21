@@ -205,3 +205,84 @@ SYS = {
         "perf_event_open": 327,
     },
 }.get(NORMALIZED_MACHINE_NAME, {})
+
+_IOC_NONE = {
+    "alpha": 1,
+    "mips": 1,
+    "mips64": 1,
+    "ppc": 1,
+    "ppc64": 1,
+    "sparc": 1,
+    "sparc64": 1,
+}.get(NORMALIZED_MACHINE_NAME, 0)
+
+_IOC_READ = {
+    "parisc": 1,
+    "parisc64": 1,
+}.get(NORMALIZED_MACHINE_NAME, 2)
+
+_IOC_WRITE = {
+    "alpha": 4,
+    "mips": 4,
+    "mips64": 4,
+    "parisc": 2,
+    "parisc64": 2,
+    "ppc": 4,
+    "ppc64": 4,
+    "sparc": 4,
+    "sparc64": 4,
+}.get(NORMALIZED_MACHINE_NAME, 1)
+
+_IOC_NRBITS = 8
+
+_IOC_TYPEBITS = 8
+
+_IOC_SIZEBITS = {
+    "alpha": 13,
+    "mips": 13,
+    "mips64": 13,
+    "ppc": 13,
+    "ppc64": 13,
+    "sparc": 13,
+    "sparc64": 13,
+}.get(NORMALIZED_MACHINE_NAME, 14)
+
+_IOC_DIRBITS = {
+    "alpha": 3,
+    "mips": 3,
+    "mips64": 3,
+    "ppc": 3,
+    "ppc64": 3,
+    "sparc": 3,
+    "sparc64": 3,
+}.get(NORMALIZED_MACHINE_NAME, 2)
+
+_IOC_NRSHIFT = 0
+_IOC_TYPESHIFT = _IOC_NRSHIFT + _IOC_NRBITS
+_IOC_SIZESHIFT = _IOC_TYPESHIFT + _IOC_TYPEBITS
+_IOC_DIRSHIFT = _IOC_SIZESHIFT + _IOC_SIZEBITS
+
+
+def _IOC(dir: int, type: int, nr: int, size: int) -> int:
+    return (
+        (dir << _IOC_DIRSHIFT)
+        | (type << _IOC_TYPESHIFT)
+        | (nr << _IOC_NRSHIFT)
+        | (size << _IOC_SIZESHIFT)
+    )
+
+
+def _IO(type: int, nr: int) -> int:
+    return _IOC(_IOC_NONE, type, nr, 0)
+
+
+def _IOR(type: int, nr: int, size: int) -> int:
+    return _IOC(_IOC_READ, type, nr, size)
+
+
+def _IOW(type: int, nr: int, size: int) -> int:
+    return _IOC(_IOC_WRITE, type, nr, size)
+
+
+def _IOWR(type: int, nr: int, size: int) -> int:
+    return _IOC(_IOC_READ | _IOC_WRITE, type, nr, size)
