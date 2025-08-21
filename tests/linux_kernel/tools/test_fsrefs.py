@@ -26,6 +26,7 @@ from tests.linux_kernel import (
     MS_NOEXEC,
     MS_NOSUID,
     LinuxKernelTestCase,
+    fallocate,
     fork_and_stop,
     iter_mounts,
     losetup,
@@ -375,7 +376,8 @@ class TestFsRefs(LinuxKernelTestCase):
             exit_stack.callback(umount, self._tmp)
 
             path = self._tmp / "swap_file"
-            mkswap(path, 1024 * 1024)
+            fallocate(path, 0, 1024 * 1024)
+            mkswap(path)
             swapon(path)
             exit_stack.callback(swapoff, path)
 

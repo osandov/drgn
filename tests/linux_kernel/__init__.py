@@ -13,6 +13,7 @@ import pickle
 import re
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -20,7 +21,7 @@ import traceback
 from typing import NamedTuple
 import unittest
 
-from _drgn_util.platform import NORMALIZED_MACHINE_NAME, SYS
+from _drgn_util.platform import _IOR, NORMALIZED_MACHINE_NAME, SYS
 import drgn
 from tests import TestCase
 
@@ -463,6 +464,14 @@ def losetup(fd):
                     loop.close()
 
 
+def fallocate(path, offset, len):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT, 0o666)
+    try:
+        os.posix_fallocate(fd, offset, len)
+    finally:
+        os.close(fd)
+
+
 _swapon = _c.swapon
 _swapon.argtypes = [ctypes.c_char_p, ctypes.c_int]
 _swapon.restype = ctypes.c_int
@@ -480,19 +489,35 @@ def swapoff(path):
     _check_ctypes_syscall(_swapoff(os.fsencode(path)), path)
 
 
-def mkswap(path, size):
-    header = bytearray(mmap.PAGESIZE)
-    header[1024:1028] = (1).to_bytes(4, sys.byteorder)  # version
-    header[1028:1032] = (size // mmap.PAGESIZE - 1).to_bytes(
-        4, sys.byteorder
-    )  # last_page
-    header[1036:1052] = os.urandom(16)  # sws_uuid
-    magic = b"SWAPSPACE2"
-    header[-len(magic) :] = magic
+_BLKGETSIZE64 = _IOR(0x12, 114, ctypes.sizeof(ctypes.c_size_t))
 
-    with open(path, "wb") as f:
-        os.posix_fallocate(f.fileno(), 0, size)
-        f.write(header)
+
+def mkswap(path, size=None):
+    fd = os.open(path, os.O_WRONLY)
+    try:
+        if size is None:
+            st = os.stat(fd)
+            if stat.S_ISBLK(st.st_mode):
+                size = ctypes.c_uint64()
+                ioctl(fd, _BLKGETSIZE64, size)
+                size = size.value
+            else:
+                size = st.st_size
+
+        header = bytearray(mmap.PAGESIZE)
+        header[1024:1028] = (1).to_bytes(4, sys.byteorder)  # version
+        header[1028:1032] = (size // mmap.PAGESIZE - 1).to_bytes(
+            4, sys.byteorder
+        )  # last_page
+        header[1036:1052] = os.urandom(16)  # sws_uuid
+        magic = b"SWAPSPACE2"
+        header[-len(magic) :] = magic
+
+        n = os.write(fd, header)
+        while n < len(header):
+            n += os.write(fd, header[n:])
+    finally:
+        os.close(fd)
 
 
 class _perf_event_attr_sample_period_or_freq(ctypes.Union):
