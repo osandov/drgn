@@ -3,6 +3,7 @@
 
 import contextlib
 import ctypes
+import enum
 import errno
 from fcntl import ioctl
 import functools
@@ -14,6 +15,7 @@ import re
 import signal
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import time
@@ -21,7 +23,7 @@ import traceback
 from typing import NamedTuple
 import unittest
 
-from _drgn_util.platform import _IOR, NORMALIZED_MACHINE_NAME, SYS
+from _drgn_util.platform import _IO, _IOR, NORMALIZED_MACHINE_NAME, SYS
 import drgn
 from tests import TestCase
 
@@ -489,6 +491,8 @@ def swapoff(path):
     _check_ctypes_syscall(_swapoff(os.fsencode(path)), path)
 
 
+_BLKRRPART = _IO(0x12, 95)
+_BLKSSZGET = _IO(0x12, 104)
 _BLKGETSIZE64 = _IOR(0x12, 114, ctypes.sizeof(ctypes.c_size_t))
 
 
@@ -516,6 +520,68 @@ def mkswap(path, size=None):
         n = os.write(fd, header)
         while n < len(header):
             n += os.write(fd, header[n:])
+    finally:
+        os.close(fd)
+
+
+class MbrPartitionType(enum.IntEnum):
+    LINUX_SWAP = 0x82
+    LINUX = 0x83
+
+
+class MbrPartition(NamedTuple):
+    type: int
+    start: int
+    size: int
+    bootable: bool = False
+
+
+_MBR_PARTITION_STRUCT = struct.Struct("<8BII")
+
+
+def write_mbr(path, partitions, sector_size=None):
+    fd = os.open(path, os.O_WRONLY)
+    try:
+        if sector_size is None:
+            sector_size = ctypes.c_int()
+            ioctl(fd, _BLKSSZGET, sector_size)
+            sector_size = sector_size.value
+
+        buf = bytearray(sector_size)
+
+        buf[0x1B8:0x1BC] = os.urandom(4)  # Disk ID.
+
+        offset = 0x01BE
+        for partition in partitions:
+            if partition.start % sector_size != 0:
+                raise ValueError("partition start is not sector-aligned")
+            if partition.size % sector_size != 0:
+                raise ValueError("partition size is not sector-aligned")
+            _MBR_PARTITION_STRUCT.pack_into(
+                buf,
+                offset,
+                0x80 if partition.bootable else 0x0,
+                # Placeholder first CHS.
+                0xFE,
+                0xFF,
+                0xFF,
+                partition.type,
+                # Placeholder last CHS.
+                0xFE,
+                0xFF,
+                0xFF,
+                partition.start // sector_size,
+                partition.size // sector_size,
+            )
+            offset += _MBR_PARTITION_STRUCT.size
+
+        buf[0x1FE] = 0x55
+        buf[0x1FF] = 0xAA
+
+        n = os.write(fd, buf)
+        while n < len(buf):
+            n += os.write(fd, buf[n:])
+        ioctl(fd, _BLKRRPART)
     finally:
         os.close(fd)
 
