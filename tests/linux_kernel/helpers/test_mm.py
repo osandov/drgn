@@ -37,6 +37,8 @@ from drgn.helpers.linux.mm import (
     for_each_vma,
     for_each_vmap_area,
     get_task_rss_info,
+    nr_blockdev_pages,
+    nr_free_pages,
     page_size,
     page_to_pfn,
     page_to_phys,
@@ -49,6 +51,8 @@ from drgn.helpers.linux.mm import (
     virt_to_page,
     virt_to_pfn,
     virt_to_phys,
+    vm_commit_limit,
+    vm_memory_committed,
     vma_find,
     vmalloc_to_page,
     vmalloc_to_pfn,
@@ -58,6 +62,7 @@ from tests.linux_kernel import (
     LinuxKernelTestCase,
     fork_and_stop,
     iter_maps,
+    meminfo_field_in_pages,
     mlock,
     prng32,
     skip_if_highmem,
@@ -446,15 +451,45 @@ class TestMm(LinuxKernelTestCase):
             )
 
     def test_totalram_pages(self):
-        with open("/proc/meminfo") as f:
-            lines = f.read().splitlines()
-            line = [line for line in lines if line.startswith("MemTotal:")][0]
-            parts = line.split()
-            self.assertEqual(parts[2], "kB")
+        self.assertEqual(totalram_pages(self.prog), meminfo_field_in_pages("MemTotal"))
 
-            proc_totalram = 1024 * int(parts[1])
-            page_size = self.prog["PAGE_SIZE"].value_()
-            self.assertEqual(totalram_pages(self.prog) * page_size, proc_totalram)
+    def test_nr_free_pages(self):
+        self.assertAlmostEqual(
+            nr_free_pages(self.prog),
+            meminfo_field_in_pages("MemFree"),
+            delta=1024 * 1024 * 1024,
+        )
+
+    def test_nr_blockdev_pages(self):
+        self.assertAlmostEqual(
+            nr_blockdev_pages(self.prog),
+            meminfo_field_in_pages("Buffers"),
+            delta=1024 * 1024 * 1024,
+        )
+
+    def test_vm_commit_limit(self):
+        overcommit_kbytes_path = Path("/proc/sys/vm/overcommit_kbytes")
+        orig_overcommit_kbytes = int(overcommit_kbytes_path.read_text())
+        try:
+            for i in range(2):
+                if i == 1:
+                    if orig_overcommit_kbytes == 0:
+                        overcommit_kbytes = 1024 * 1024 * 1024
+                    else:
+                        overcommit_kbytes = 0
+                    overcommit_kbytes_path.write_text(str(overcommit_kbytes))
+                self.assertEqual(
+                    vm_commit_limit(self.prog), meminfo_field_in_pages("CommitLimit")
+                )
+        finally:
+            overcommit_kbytes_path.write_text(str(orig_overcommit_kbytes))
+
+    def test_vm_memory_committed(self):
+        self.assertAlmostEqual(
+            vm_memory_committed(self.prog),
+            meminfo_field_in_pages("Committed_AS"),
+            delta=1024 * 1024 * 1024,
+        )
 
     def test_get_task_rss_info(self):
         with fork_and_stop() as pid:

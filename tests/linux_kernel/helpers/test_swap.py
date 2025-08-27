@@ -17,12 +17,14 @@ from drgn.helpers.linux.swap import (
     swap_is_file,
     swap_total_usage,
     swap_usage_in_pages,
+    total_swapcache_pages,
 )
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     MbrPartition,
     MbrPartitionType,
     fallocate,
+    meminfo_field_in_pages,
     mkswap,
     mount,
     skip_unless_have_test_disk,
@@ -164,4 +166,11 @@ class TestSwap(LinuxKernelTestCase):
         # test is running.
         self.assertAlmostEqual(
             swap_usage.free_pages, free_pages, delta=1024 * 1024 * 1024
+        )
+
+    def test_total_swapcache_pages(self):
+        self.assertAlmostEqual(
+            total_swapcache_pages(self.prog),
+            meminfo_field_in_pages("SwapCached"),
+            delta=1024 * 1024 * 1024,
         )

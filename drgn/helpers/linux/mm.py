@@ -38,7 +38,7 @@ from drgn.helpers.common.format import decode_enum_type_flags
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.mapletree import mt_for_each, mtree_load
-from drgn.helpers.linux.percpu import percpu_counter_sum
+from drgn.helpers.linux.percpu import percpu_counter_sum, percpu_counter_sum_positive
 from drgn.helpers.linux.pid import for_each_task_in_group
 from drgn.helpers.linux.rbtree import rb_find
 
@@ -64,6 +64,10 @@ __all__ = (
     "for_each_page",
     "for_each_vma",
     "for_each_vmap_area",
+    "global_node_page_state",
+    "global_zone_page_state",
+    "nr_blockdev_pages",
+    "nr_free_pages",
     "page_size",
     "page_to_pfn",
     "page_to_phys",
@@ -1425,6 +1429,75 @@ def totalram_pages(prog: Program) -> int:
         return prog["_totalram_pages"].counter.value_()
     except KeyError:
         return prog["totalram_pages"].value_()
+
+
+@takes_program_or_default
+def global_node_page_state(prog: Program, item: IntegerLike) -> int:
+    """
+    Get the value of a node VM statistic.
+
+    >>> global_node_page_state(prog["NR_FILE_PAGES"])
+    2257904
+
+    :param item: ``enum node_stat_item``
+    """
+    return max(prog["vm_node_stat"][item].counter.value_(), 0)
+
+
+@takes_program_or_default
+def global_zone_page_state(prog: Program, item: IntegerLike) -> int:
+    """
+    Get the value of a zone VM statistic.
+
+    >>> global_zone_page_state(prog["NR_MLOCK"])
+    1562
+
+    :param item: ``enum zone_stat_item``
+    """
+    return max(prog["vm_zone_stat"][item].counter.value_(), 0)
+
+
+@takes_program_or_default
+def nr_free_pages(prog: Program) -> int:
+    """Get the number of free memory pages."""
+    return global_zone_page_state(prog["NR_FREE_PAGES"])
+
+
+@takes_program_or_default
+def nr_blockdev_pages(prog: Program) -> int:
+    """Get the number of pages used for block device buffers."""
+    return sum(
+        inode.i_mapping.nrpages.value_()
+        for inode in list_for_each_entry(
+            "struct inode",
+            prog["blockdev_superblock"].s_inodes.address_of_(),
+            "i_sb_list",
+        )
+    )
+
+
+@takes_program_or_default
+def vm_commit_limit(prog: Program) -> int:
+    """Get the limit on committed virtual address space in pages."""
+    sysctl_overcommit_kbytes = prog["sysctl_overcommit_kbytes"].value_()
+    if sysctl_overcommit_kbytes:
+        allowed = sysctl_overcommit_kbytes >> (prog["PAGE_SHIFT"].value_() - 10)
+    else:
+        # Avoid circular import.
+        from drgn.helpers.linux.hugetlb import hugetlb_total_pages
+
+        allowed = (
+            (totalram_pages(prog) - hugetlb_total_pages(prog))
+            * prog["sysctl_overcommit_ratio"].value_()
+            // 100
+        )
+    return allowed + prog["total_swap_pages"].value_()
+
+
+@takes_program_or_default
+def vm_memory_committed(prog: Program) -> int:
+    """Get the number of pages of committed virtual address space."""
+    return percpu_counter_sum_positive(prog["vm_committed_as"].address_of_())
 
 
 class PageUsage(NamedTuple):

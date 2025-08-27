@@ -25,6 +25,7 @@ from drgn import (
     FaultError,
     IntegerLike,
     Object,
+    ObjectNotFoundError,
     Program,
     Type,
     cast,
@@ -41,6 +42,7 @@ from drgn.helpers.linux.mm import (
     _get_PageSlab_impl,
     compound_head,
     for_each_page,
+    global_node_page_state,
     in_direct_map,
     page_to_virt,
     virt_to_page,
@@ -62,6 +64,7 @@ __all__ = (
     "slab_cache_pages_per_slab",
     "slab_cache_usage",
     "slab_object_info",
+    "slab_total_usage",
 )
 
 
@@ -871,3 +874,35 @@ def find_containing_slab_cache(prog: Program, addr: IntegerLike) -> Object:
     if result is None:
         return NULL(prog, "struct kmem_cache *")
     return result[0].read_()
+
+
+@takes_program_or_default
+def slab_total_usage(prog: Program) -> "SlabTotalUsage":
+    """Get the total number of reclaimable and unreclaimable slab pages."""
+    # The items were renamed in Linux kernel commit d42f3245c7e2 ("mm: memcg:
+    # convert vmstat slab counters to bytes") (in v5.9).
+    try:
+        return SlabTotalUsage(
+            reclaimable_pages=global_node_page_state(prog["NR_SLAB_RECLAIMABLE_B"]),
+            unreclaimable_pages=global_node_page_state(prog["NR_SLAB_UNRECLAIMABLE_B"]),
+        )
+    except ObjectNotFoundError:
+        return SlabTotalUsage(
+            reclaimable_pages=global_node_page_state(prog["NR_SLAB_RECLAIMABLE"]),
+            unreclaimable_pages=global_node_page_state(prog["NR_SLAB_UNRECLAIMABLE"]),
+        )
+
+
+class SlabTotalUsage(NamedTuple):
+    """Slab memory usage returned by :func:`slab_total_usage()`."""
+
+    reclaimable_pages: int
+    """Number of reclaimable slab pages."""
+
+    unreclaimable_pages: int
+    """Number of unreclaimable slab pages."""
+
+    @property
+    def total_pages(self) -> int:
+        """Total number of slab pages."""
+        return self.reclaimable_pages + self.unreclaimable_pages

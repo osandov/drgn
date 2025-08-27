@@ -18,9 +18,11 @@ from drgn.helpers.linux.slab import (
     slab_cache_pages_per_slab,
     slab_cache_usage,
     slab_object_info,
+    slab_total_usage,
 )
 from tests.linux_kernel import (
     LinuxKernelTestCase,
+    meminfo_field_in_pages,
     skip_unless_have_full_mm_support,
     skip_unless_have_test_kmod,
 )
@@ -341,4 +343,17 @@ class TestSlab(LinuxKernelTestCase):
         self.assertEqual(
             find_containing_slab_cache(self.prog, self.prog["drgn_test_va"]),
             NULL(self.prog, "struct kmem_cache *"),
+        )
+
+    def test_slab_total_usage(self):
+        slab_usage = slab_total_usage(self.prog)
+        self.assertAlmostEqual(
+            slab_usage.reclaimable_pages,
+            meminfo_field_in_pages("SReclaimable"),
+            delta=1024 * 1024 * 1024,
+        )
+        self.assertAlmostEqual(
+            slab_usage.unreclaimable_pages,
+            meminfo_field_in_pages("SUnreclaim"),
+            delta=1024 * 1024 * 1024,
         )

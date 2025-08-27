@@ -249,6 +249,20 @@ def possible_cpus():
     return parse_range_list(Path("/sys/devices/system/cpu/possible").read_text())
 
 
+def meminfo_field_in_pages(name: str) -> int:
+    return (
+        int(
+            re.search(
+                rf"^{name}:\s*([0-9]+)\s*kB",
+                Path("/proc/meminfo").read_text(),
+                flags=re.M,
+            ).group(1)
+        )
+        * 1024
+        // mmap.PAGESIZE
+    )
+
+
 _c = ctypes.CDLL(None, use_errno=True)
 
 _mount = _c.mount
