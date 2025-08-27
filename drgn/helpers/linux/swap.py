@@ -9,11 +9,12 @@ The ``drgn.helpers.linux.swap`` module provides helpers for inspecting swap
 partitions and swap files.
 """
 
-from typing import Iterator, NamedTuple
+from typing import Iterator
 
 from drgn import Object, PlatformFlags, Program
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.fs import d_path
+from drgn.helpers.linux.mm import PageUsage
 
 __all__ = (
     "for_each_swap_info",
@@ -86,30 +87,15 @@ def swap_usage_in_pages(si: Object) -> int:
         return counter.value_() & SWAP_USAGE_COUNTER_MASK
 
 
-class SwapUsage(NamedTuple):
-    """Swap usage information returned from :func:`swap_total_usage()`."""
-
-    pages: int
-    """Number of swap pages."""
-
-    free_pages: int
-    """Number of free swap pages."""
-
-    @property
-    def used_pages(self) -> int:
-        """Number of used swaap pages."""
-        return self.pages - self.free_pages
-
-
 @takes_program_or_default
-def swap_total_usage(prog: Program) -> SwapUsage:
+def swap_total_usage(prog: Program) -> PageUsage:
     """
     Get the total number of swap pages and the number of free swap pages on all
     swap devices.
 
     >>> usage = swap_total_usage()
     >>> usage
-    SwapUsage(pages=2097151, free_pages=1704798)
+    PageUsage(pages=2097151, free_pages=1704798)
     >>> usage.used_pages
     392353
     """
@@ -120,7 +106,7 @@ def swap_total_usage(prog: Program) -> SwapUsage:
         if si.flags & mask == SWP_USED:
             nr_to_be_unused += swap_usage_in_pages(si)
 
-    return SwapUsage(
+    return PageUsage(
         pages=prog["total_swap_pages"].value_() + nr_to_be_unused,
         free_pages=prog["nr_swap_pages"].counter.value_() + nr_to_be_unused,
     )

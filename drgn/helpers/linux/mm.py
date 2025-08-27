@@ -1427,6 +1427,21 @@ def totalram_pages(prog: Program) -> int:
         return prog["totalram_pages"].value_()
 
 
+class PageUsage(NamedTuple):
+    """Memory usage statistic in page units."""
+
+    pages: int
+    """Total number of pages."""
+
+    free_pages: int
+    """Number of free pages."""
+
+    @property
+    def used_pages(self) -> int:
+        """Number of used pages."""
+        return self.pages - self.free_pages
+
+
 @takes_program_or_default
 def in_direct_map(prog: Program, addr: IntegerLike) -> bool:
     """
