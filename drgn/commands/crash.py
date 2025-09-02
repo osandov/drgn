@@ -259,7 +259,9 @@ class Cpuspec:
         elif self.explicit_cpus:
             possible = set(for_each_possible_cpu(prog))
             if not self.explicit_cpus.issubset(possible):
-                raise ValueError(f"invalid CPUs: {self.explicit_cpus - possible}")
+                raise ValueError(
+                    f"invalid CPUs: {','.join([str(cpu) for cpu in self.explicit_cpus - possible])}"
+                )
             return sorted(self.explicit_cpus)
         else:
             return []
