@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Mapping, NamedTuple, Sequence
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
+from util import KernelVersion
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
@@ -216,6 +217,10 @@ KERNEL_FLAVORS = OrderedDict(
                 # CONFIG_SLAB to CONFIG_SLAB_DEPRECATED") (in v6.5) renamed the
                 # option for SLAB.
                 CONFIG_SLAB_DEPRECATED=y
+                # Linux kernel commit 16a1d968358a ("mm/slab: remove mm/slab.c
+                # and slab_def.h") (in v6.8) removed SLAB. Test this
+                # non-default SLUB option instead.
+                CONFIG_SLUB_CPU_PARTIAL=n
                 CONFIG_MODVERSIONS=y
                 CONFIG_RANDOMIZE_BASE=n
             """,
@@ -443,6 +448,8 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     patch_level = 0
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
+    if flavor.name == "alternative" and KernelVersion(version) >= KernelVersion("6.8"):
+        patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 
