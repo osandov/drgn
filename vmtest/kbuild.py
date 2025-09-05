@@ -209,6 +209,7 @@ async def apply_patches(kernel_dir: Path) -> None:
             cwd=kernel_dir,
             stderr=asyncio.subprocess.PIPE,
         )
+        assert proc.stderr is not None  # for mypy
         stderr = await proc.stderr.read()
         if await proc.wait() != 0:
             try:
@@ -514,9 +515,15 @@ MODULE_LICENSE("GPL");
                 stderr=asyncio.subprocess.PIPE,
                 env=self._env,
             )
+            assert proc.stdout is not None  # for mypy
+            assert proc.stderr is not None  # for mypy
             try:
-                stdout_task = asyncio.create_task(proc.stdout.readline())
-                stderr_task = asyncio.create_task(proc.stderr.readline())
+                stdout_task: Optional[asyncio.Task[bytes]] = asyncio.create_task(
+                    proc.stdout.readline()
+                )
+                stderr_task: Optional[asyncio.Task[bytes]] = asyncio.create_task(
+                    proc.stderr.readline()
+                )
                 error = False
                 while stdout_task is not None or stderr_task is not None:
                     aws = []
