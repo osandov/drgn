@@ -55,7 +55,7 @@ class _GitHubApiBase:
             return None
         try:
             with open(cache, "r") as f:
-                return json.load(f)  # type: ignore[no-any-return]
+                return json.load(f)
         except FileNotFoundError:
             return None
 
@@ -68,15 +68,6 @@ class _GitHubApiBase:
             elif "last_modified" in cached:
                 return {**self._headers, "If-Modified-Since": cached["last_modified"]}
         return self._headers
-
-    @staticmethod
-    def _trust_cache(cached: Any) -> bool:
-        # If the request was cached and the VMTEST_TRUST_CACHE environment
-        # variable is non-zero, assume the cache is still valid.
-        try:
-            return cached is not None and int(os.getenv("VMTEST_TRUST_CACHE", "0")) != 0
-        except ValueError:
-            return False
 
     def _write_cache(
         self, cache: _CACHE, body: Any, headers: Mapping[str, str]
@@ -128,23 +119,25 @@ class GitHubApi(_GitHubApiBase):
             method=method,
         )
         # Work around python/cpython#77842.
-        if req.has_header("Authorization"):
-            authorization = req.get_header("Authorization")
+        authorization = req.get_header("Authorization")
+        if authorization is not None:
             req.remove_header("Authorization")
             req.add_unredirected_header("Authorization", authorization)
         return urllib.request.urlopen(req)
 
     def _cached_get_json(self, endpoint: str, cache: _CACHE) -> Any:
         cached = self._read_cache(cache)
-        if self._trust_cache(cached):
+        # If the request was cached and the VMTEST_TRUST_CACHE environment
+        # variable is set, assume the cache is still valid.
+        if cached is not None and "VMTEST_TRUST_CACHE" in os.environ:
             return cached["body"]
         req = urllib.request.Request(
             self._HOST + "/" + endpoint,
             headers=self._cached_get_headers(cached),
         )
         # Work around python/cpython#77842.
-        if req.has_header("Authorization"):
-            authorization = req.get_header("Authorization")
+        authorization = req.get_header("Authorization")
+        if authorization is not None:
             req.remove_header("Authorization")
             req.add_unredirected_header("Authorization", authorization)
         try:
@@ -184,7 +177,7 @@ class AioGitHubApi(_GitHubApiBase):
 
     async def _cached_get_json(self, endpoint: str, cache: _CACHE) -> Any:
         cached = self._read_cache(cache)
-        if self._trust_cache(cached):
+        if cached is not None and "VMTEST_TRUST_CACHE" in os.environ:
             return cached["body"]
         async with self._session.get(
             self._HOST + "/" + endpoint,

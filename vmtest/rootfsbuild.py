@@ -59,7 +59,7 @@ def build_rootfs(
 
         if btrfs != "never":
             try:
-                import btrfsutil
+                import btrfsutil  # type: ignore  # No type hints available.
 
                 btrfsutil.create_subvolume(tmp_dir / path.name)
                 snapshot = True
