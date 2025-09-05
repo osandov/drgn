@@ -527,10 +527,13 @@ if __name__ == "__main__":
     if not hasattr(args, "test_kmod"):
         args.test_kmod = TestKmodMode.NONE
 
+    downloader = Downloader(args.directory)
+    if args.test_kmod != TestKmodMode.NONE:
+        downloader.download_compiler(downloader.resolve_compiler(args.kernel.arch))
+
     if args.kernel.pattern.startswith(".") or args.kernel.pattern.startswith("/"):
         kernel = local_kernel(args.kernel.arch, Path(args.kernel.pattern))
     else:
-        downloader = Downloader(args.directory)
         kernel = downloader.download_kernel(
             downloader.resolve_kernel(args.kernel.arch, args.kernel.pattern)
         )
