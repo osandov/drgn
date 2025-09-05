@@ -19,7 +19,6 @@ from typing import (
     Sequence,
     Tuple,
     Union,
-    cast,
 )
 
 import aiohttp
@@ -35,12 +34,7 @@ from vmtest.config import (
     KernelFlavor,
     kconfig_localversion,
 )
-from vmtest.download import (
-    VMTEST_GITHUB_RELEASE,
-    DownloadCompiler,
-    available_kernel_releases,
-    download,
-)
+from vmtest.download import VMTEST_GITHUB_RELEASE, Downloader, available_kernel_releases
 from vmtest.githubapi import AioGitHubApi
 from vmtest.kbuild import KBuild, apply_patches
 
@@ -366,16 +360,16 @@ async def main() -> None:
                 )
 
             if args.build:
+                downloader = Downloader(args.download_directory)
                 compilers = {
-                    cast(Compiler, downloaded).target.name: cast(Compiler, downloaded)
-                    for downloaded in download(
-                        args.download_directory,
-                        {
-                            arch.name: DownloadCompiler(arch)
-                            for _, tag_arches_to_build in to_build
-                            for arch, _ in tag_arches_to_build
-                        }.values(),
+                    arch.name: downloader.download_compiler(
+                        downloader.resolve_compiler(arch)
                     )
+                    for arch in {
+                        arch.name: arch
+                        for _, tag_arches_to_build in to_build
+                        for arch, _ in tag_arches_to_build
+                    }.values()
                 }
 
                 if args.upload:

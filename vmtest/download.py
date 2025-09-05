@@ -263,35 +263,31 @@ class Downloader:
         return compiler
 
 
-def download(download_dir: Path, downloads: Iterable[Download]) -> Iterator[Downloaded]:
-    downloader = Downloader(download_dir)
-    download_calls: List[Callable[[], Downloaded]] = []
-
-    for download in downloads:
-        if isinstance(download, DownloadKernel):
-            kernel = downloader.resolve_kernel(download.arch, download.pattern)
-            download_calls.append(functools.partial(downloader.download_kernel, kernel))
-        elif isinstance(download, DownloadCompiler):
-            compiler = downloader.resolve_compiler(download.target)
-            download_calls.append(
-                functools.partial(downloader.download_compiler, compiler)
-            )
-        else:
-            assert False
-
-    for call in download_calls:
-        yield call()
-
-
 def _download_thread(
     download_dir: Path,
     downloads: Iterable[Download],
     q: "queue.Queue[Union[Downloaded, Exception]]",
 ) -> None:
     try:
-        it = download(download_dir, downloads)
-        while True:
-            q.put(next(it))
+        downloader = Downloader(download_dir)
+        download_calls: List[Callable[[], Downloaded]] = []
+
+        for download in downloads:
+            if isinstance(download, DownloadKernel):
+                kernel = downloader.resolve_kernel(download.arch, download.pattern)
+                download_calls.append(
+                    functools.partial(downloader.download_kernel, kernel)
+                )
+            elif isinstance(download, DownloadCompiler):
+                compiler = downloader.resolve_compiler(download.target)
+                download_calls.append(
+                    functools.partial(downloader.download_compiler, compiler)
+                )
+            else:
+                assert False
+
+        for call in download_calls:
+            q.put(call())
     except Exception as e:
         q.put(e)
 
@@ -403,14 +399,21 @@ def main() -> None:
             assert HOST_ARCHITECTURE is not None
             args.downloads[i] = DownloadCompiler(HOST_ARCHITECTURE)
 
-    for downloaded in download(args.download_directory, args.downloads):
-        if isinstance(downloaded, Kernel):
-            print(
-                f"kernel: arch={downloaded.arch.name} release={downloaded.release} path={downloaded.path}"
+    downloader = Downloader(args.download_directory)
+    for download in args.downloads:
+        if isinstance(download, DownloadKernel):
+            kernel = downloader.download_kernel(
+                downloader.resolve_kernel(download.arch, download.pattern)
             )
-        elif isinstance(downloaded, Compiler):
             print(
-                f"compiler: target={downloaded.target.name} bin={downloaded.bin} prefix={downloaded.prefix}"
+                f"kernel: arch={kernel.arch.name} release={kernel.release} path={kernel.path}"
+            )
+        elif isinstance(download, DownloadCompiler):
+            compiler = downloader.download_compiler(
+                downloader.resolve_compiler(download.target)
+            )
+            print(
+                f"compiler: target={compiler.target.name} bin={compiler.bin} prefix={compiler.prefix}"
             )
         else:
             assert False

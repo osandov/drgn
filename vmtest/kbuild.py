@@ -26,12 +26,11 @@ from vmtest.config import (
     HOST_ARCHITECTURE,
     KERNEL_FLAVORS,
     Architecture,
-    Compiler,
     KernelFlavor,
     kconfig,
     kconfig_localversion,
 )
-from vmtest.download import COMPILER_URL, DownloadCompiler, download
+from vmtest.download import COMPILER_URL, Downloader
 
 logger = logging.getLogger(__name__)
 
@@ -778,8 +777,8 @@ async def main() -> None:
     if hasattr(args, "download_compiler"):
         if args.download_compiler is None:
             args.download_compiler = default_download_compiler_directory
-        downloaded = next(download(args.download_compiler, [DownloadCompiler(arch)]))
-        assert isinstance(downloaded, Compiler)
+        downloader = Downloader(args.download_compiler)
+        downloaded = downloader.download_compiler(downloader.resolve_compiler(arch))
         env = {**os.environ, **downloaded.env()}
     else:
         env = None

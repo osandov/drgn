@@ -18,8 +18,8 @@ from util import nproc, out_of_date
 from vmtest.config import HOST_ARCHITECTURE, Kernel, local_kernel
 from vmtest.download import (
     DOWNLOAD_KERNEL_ARGPARSE_METAVAR,
+    Downloader,
     DownloadKernel,
-    download,
     download_kernel_argparse_type,
 )
 from vmtest.kmod import build_kmod
@@ -530,7 +530,10 @@ if __name__ == "__main__":
     if args.kernel.pattern.startswith(".") or args.kernel.pattern.startswith("/"):
         kernel = local_kernel(args.kernel.arch, Path(args.kernel.pattern))
     else:
-        kernel = next(download(args.directory, [args.kernel]))  # type: ignore[assignment]
+        downloader = Downloader(args.directory)
+        kernel = downloader.download_kernel(
+            downloader.resolve_kernel(args.kernel.arch, args.kernel.pattern)
+        )
 
     try:
         command = (
