@@ -79,23 +79,106 @@ Download = Union[DownloadKernel, DownloadCompiler]
 Downloaded = Union[Kernel, Compiler]
 
 
-def _download_kernel(
-    gh: GitHubApi, arch: Architecture, release: str, url: Optional[str], dir: Path
-) -> Kernel:
-    if url is None:
-        logger.info(
-            "kernel release %s for %s already downloaded to %s", release, arch.name, dir
+class DownloadNotFoundError(Exception):
+    pass
+
+
+_KERNEL_ORG_COMPILER_HOST_NAME = {
+    "aarch64": "arm64",
+    "ppc64": "ppc64le",
+    "x86_64": "x86_64",
+}.get(NORMALIZED_MACHINE_NAME)
+
+
+def downloaded_compiler(download_dir: Path, target: Architecture) -> Compiler:
+    if _KERNEL_ORG_COMPILER_HOST_NAME is None:
+        raise DownloadNotFoundError(
+            f"kernel.org compilers are not available for {NORMALIZED_MACHINE_NAME} hosts"
         )
-    else:
+    return Compiler(
+        target=target,
+        bin=download_dir
+        / f"{_KERNEL_ORG_COMPILER_HOST_NAME}-gcc-{KERNEL_ORG_COMPILER_VERSION}-nolibc-{target.kernel_org_compiler_name}"
+        / "bin",
+        prefix=target.kernel_org_compiler_name + "-",
+    )
+
+
+class Downloader:
+    def __init__(self, directory: Path) -> None:
+        self._directory = directory
+        self._gh = GitHubApi(os.getenv("GITHUB_TOKEN"))
+        self._cached_kernel_releases: Optional[Dict[str, Dict[str, GitHubAsset]]] = None
+
+    def _available_kernel_releases(self) -> Dict[str, Dict[str, GitHubAsset]]:
+        if self._cached_kernel_releases is None:
+            logger.info("getting available kernel releases")
+            self._directory.mkdir(parents=True, exist_ok=True)
+            self._cached_kernel_releases = available_kernel_releases(
+                self._gh.get_release_by_tag(
+                    *VMTEST_GITHUB_RELEASE,
+                    cache=self._directory / "github_release.json",
+                ),
+            )
+        return self._cached_kernel_releases
+
+    def resolve_kernel(self, arch: Architecture, pattern: str) -> Kernel:
+        if pattern == glob.escape(pattern):
+            release = pattern
+        else:
+            try:
+                release = max(
+                    (
+                        available
+                        for available in self._available_kernel_releases()[arch.name]
+                        if fnmatch.fnmatch(available, pattern)
+                    ),
+                    key=KernelVersion,
+                )
+            except ValueError:
+                raise DownloadNotFoundError(
+                    f"no available kernel release matches {pattern!r} on {arch.name}"
+                )
+            else:
+                logger.info(
+                    "kernel release pattern %s matches %s on %s",
+                    pattern,
+                    release,
+                    arch.name,
+                )
+        kernel_dir = self._directory / arch.name / ("kernel-" + release)
+        if (
+            not kernel_dir.exists()
+            and release not in self._available_kernel_releases()[arch.name]
+        ):
+            raise DownloadNotFoundError(
+                f"kernel release {release} not found on {arch.name}"
+            )
+        return Kernel(arch, release, kernel_dir)
+
+    def download_kernel(self, kernel: Kernel) -> Kernel:
+        if kernel.path.exists():
+            # As a policy, vmtest assets will never be updated with the same
+            # name. Therefore, if the kernel was previously downloaded, we
+            # don't need to download it again.
+            logger.info(
+                "kernel release %s for %s already downloaded to %s",
+                kernel.release,
+                kernel.arch.name,
+                kernel.path,
+            )
+            return kernel
+
+        url = self._available_kernel_releases()[kernel.arch.name][kernel.release]["url"]
         logger.info(
             "downloading kernel release %s for %s to %s from %s",
-            release,
-            arch.name,
-            dir,
+            kernel.release,
+            kernel.arch.name,
+            kernel.path,
             url,
         )
-        dir.parent.mkdir(parents=True, exist_ok=True)
-        tmp_dir = Path(tempfile.mkdtemp(dir=dir.parent))
+        kernel.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_dir = Path(tempfile.mkdtemp(dir=kernel.path.parent))
         try:
             # Don't assume that the available version of tar has zstd support or
             # the non-standard -I/--use-compress-program option.
@@ -109,7 +192,7 @@ def _download_kernel(
             ) as tar_proc:
                 assert zstd_proc.stdin is not None
                 try:
-                    with gh.download(url) as resp:
+                    with self._gh.download(url) as resp:
                         shutil.copyfileobj(resp, zstd_proc.stdin)
                 finally:
                     zstd_proc.stdin.close()
@@ -123,145 +206,75 @@ def _download_kernel(
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
         else:
-            tmp_dir.rename(dir)
-    return Kernel(arch, release, dir)
+            tmp_dir.rename(kernel.path)
+        return kernel
 
+    def resolve_compiler(self, target: Architecture) -> Compiler:
+        return downloaded_compiler(self._directory, target)
 
-_KERNEL_ORG_COMPILER_HOST_NAME = {
-    "aarch64": "arm64",
-    "ppc64": "ppc64le",
-    "x86_64": "x86_64",
-}.get(NORMALIZED_MACHINE_NAME)
-
-
-def downloaded_compiler(download_dir: Path, target: Architecture) -> Compiler:
-    if _KERNEL_ORG_COMPILER_HOST_NAME is None:
-        raise FileNotFoundError(
-            f"kernel.org compilers are not available for {NORMALIZED_MACHINE_NAME} hosts"
-        )
-    return Compiler(
-        target=target,
-        bin=download_dir
-        / f"{_KERNEL_ORG_COMPILER_HOST_NAME}-gcc-{KERNEL_ORG_COMPILER_VERSION}-nolibc-{target.kernel_org_compiler_name}"
-        / "bin",
-        prefix=target.kernel_org_compiler_name + "-",
-    )
-
-
-def _download_compiler(compiler: Compiler) -> Compiler:
-    dir = compiler.bin.parent
-    if dir.exists():
-        logger.info(
-            "compiler for %s already downloaded to %s", compiler.target.name, dir
-        )
-    else:
-        url = f"{COMPILER_URL}files/bin/{_KERNEL_ORG_COMPILER_HOST_NAME}/{KERNEL_ORG_COMPILER_VERSION}/{dir.name}.tar.xz"
-        logger.info(
-            "downloading compiler for %s from %s to %s", compiler.target.name, url, dir
-        )
-        dir.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=dir.parent) as tmp_name:
-            tmp_dir = Path(tmp_name)
-            with subprocess.Popen(
-                ["xz", "--decompress"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-            ) as xz_proc, subprocess.Popen(
-                ["tar", "-C", str(tmp_dir), "-x"],
-                stdin=xz_proc.stdout,
-            ) as tar_proc:
-                assert xz_proc.stdin is not None
-                try:
-                    with urllib.request.urlopen(url) as resp:
-                        shutil.copyfileobj(resp, xz_proc.stdin)
-                finally:
-                    xz_proc.stdin.close()
-            if xz_proc.returncode != 0:
-                raise subprocess.CalledProcessError(xz_proc.returncode, xz_proc.args)
-            if tar_proc.returncode != 0:
-                raise subprocess.CalledProcessError(tar_proc.returncode, tar_proc.args)
-            archive_subdir = Path(
-                f"gcc-{KERNEL_ORG_COMPILER_VERSION}-nolibc/{compiler.target.kernel_org_compiler_name}"
+    def download_compiler(self, compiler: Compiler) -> Compiler:
+        dir = compiler.bin.parent
+        if dir.exists():
+            logger.info(
+                "compiler for %s already downloaded to %s", compiler.target.name, dir
             )
-            archive_bin_subdir = archive_subdir / "bin"
-            if not (tmp_dir / archive_bin_subdir).exists():
-                raise FileNotFoundError(
-                    f"downloaded archive does not contain {archive_bin_subdir}"
+        else:
+            url = f"{COMPILER_URL}files/bin/{_KERNEL_ORG_COMPILER_HOST_NAME}/{KERNEL_ORG_COMPILER_VERSION}/{dir.name}.tar.xz"
+            logger.info(
+                "downloading compiler for %s from %s to %s",
+                compiler.target.name,
+                url,
+                dir,
+            )
+            dir.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=dir.parent) as tmp_name:
+                tmp_dir = Path(tmp_name)
+                with subprocess.Popen(
+                    ["xz", "--decompress"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                ) as xz_proc, subprocess.Popen(
+                    ["tar", "-C", str(tmp_dir), "-x"],
+                    stdin=xz_proc.stdout,
+                ) as tar_proc:
+                    assert xz_proc.stdin is not None
+                    try:
+                        with urllib.request.urlopen(url) as resp:
+                            shutil.copyfileobj(resp, xz_proc.stdin)
+                    finally:
+                        xz_proc.stdin.close()
+                if xz_proc.returncode != 0:
+                    raise subprocess.CalledProcessError(
+                        xz_proc.returncode, xz_proc.args
+                    )
+                if tar_proc.returncode != 0:
+                    raise subprocess.CalledProcessError(
+                        tar_proc.returncode, tar_proc.args
+                    )
+                archive_subdir = Path(
+                    f"gcc-{KERNEL_ORG_COMPILER_VERSION}-nolibc/{compiler.target.kernel_org_compiler_name}"
                 )
-            (tmp_dir / archive_subdir).rename(dir)
-    return compiler
+                archive_bin_subdir = archive_subdir / "bin"
+                if not (tmp_dir / archive_bin_subdir).exists():
+                    raise FileNotFoundError(
+                        f"downloaded archive does not contain {archive_bin_subdir}"
+                    )
+                (tmp_dir / archive_subdir).rename(dir)
+        return compiler
 
 
 def download(download_dir: Path, downloads: Iterable[Download]) -> Iterator[Downloaded]:
-    gh = GitHubApi(os.getenv("GITHUB_TOKEN"))
-
-    # We don't want to make any API requests if we don't have to, so we don't
-    # fetch this until we need it.
-    cached_kernel_releases = None
-
-    def get_available_kernel_releases() -> Dict[str, Dict[str, GitHubAsset]]:
-        nonlocal cached_kernel_releases
-        if cached_kernel_releases is None:
-            logger.info("getting available kernel releases")
-            download_dir.mkdir(parents=True, exist_ok=True)
-            cached_kernel_releases = available_kernel_releases(
-                gh.get_release_by_tag(
-                    *VMTEST_GITHUB_RELEASE, cache=download_dir / "github_release.json"
-                ),
-            )
-        return cached_kernel_releases
-
+    downloader = Downloader(download_dir)
     download_calls: List[Callable[[], Downloaded]] = []
+
     for download in downloads:
         if isinstance(download, DownloadKernel):
-            if download.pattern == glob.escape(download.pattern):
-                release = download.pattern
-            else:
-                try:
-                    release = max(
-                        (
-                            available
-                            for available in get_available_kernel_releases()[
-                                download.arch.name
-                            ]
-                            if fnmatch.fnmatch(available, download.pattern)
-                        ),
-                        key=KernelVersion,
-                    )
-                except ValueError:
-                    raise Exception(
-                        f"no available kernel release matches {download.pattern!r} on {download.arch.name}"
-                    )
-                else:
-                    logger.info(
-                        "kernel release pattern %s matches %s on %s",
-                        download.pattern,
-                        release,
-                        download.arch.name,
-                    )
-            kernel_dir = download_dir / download.arch.name / ("kernel-" + release)
-            if kernel_dir.exists():
-                # As a policy, vmtest assets will never be updated with the
-                # same name. Therefore, if the kernel was previously
-                # downloaded, we don't need to download it again.
-                url = None
-            else:
-                try:
-                    asset = get_available_kernel_releases()[download.arch.name][release]
-                except KeyError:
-                    raise Exception(f"kernel release {release} not found")
-                url = asset["url"]
-            download_calls.append(
-                functools.partial(
-                    _download_kernel, gh, download.arch, release, url, kernel_dir
-                )
-            )
+            kernel = downloader.resolve_kernel(download.arch, download.pattern)
+            download_calls.append(functools.partial(downloader.download_kernel, kernel))
         elif isinstance(download, DownloadCompiler):
+            compiler = downloader.resolve_compiler(download.target)
             download_calls.append(
-                functools.partial(
-                    _download_compiler,
-                    downloaded_compiler(download_dir, download.target),
-                )
+                functools.partial(downloader.download_compiler, compiler)
             )
         else:
             assert False
