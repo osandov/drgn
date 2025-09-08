@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 
-from collections import OrderedDict
 import dataclasses
 import inspect
 import os
@@ -195,8 +194,8 @@ class KernelFlavor:
     config: str
 
 
-KERNEL_FLAVORS = OrderedDict(
-    (flavor.name, flavor)
+KERNEL_FLAVORS = {
+    flavor.name: flavor
     for flavor in (
         KernelFlavor(
             name="default",
@@ -248,7 +247,7 @@ KERNEL_FLAVORS = OrderedDict(
             """,
         ),
     )
-)
+}
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
