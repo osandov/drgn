@@ -3,6 +3,7 @@
 
 
 from collections import OrderedDict
+import dataclasses
 import inspect
 import os
 from pathlib import Path
@@ -187,7 +188,8 @@ CONFIG_USER_NS=y
 """
 
 
-class KernelFlavor(NamedTuple):
+@dataclasses.dataclass(frozen=True, eq=False)
+class KernelFlavor:
     name: str
     description: str
     config: str
@@ -249,7 +251,8 @@ KERNEL_FLAVORS = OrderedDict(
 )
 
 
-class Architecture(NamedTuple):
+@dataclasses.dataclass(frozen=True, eq=False)
+class Architecture:
     # Architecture name. This matches the names used by
     # _drgn_util.platform.NORMALIZED_MACHINE_NAME and qemu-system-$arch_name.
     name: str
