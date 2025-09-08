@@ -1055,11 +1055,11 @@ static inline void drgn_test_get_pt_regs(struct pt_regs *regs)
 #endif
 }
 
- __attribute__((__optimize__("O0")))
+__attribute__((__noipa__))
 static void drgn_test_kthread_fn3(void)
 {
 	// Create some local variables for the test cases to use. Use volatile
-	// to make doubly sure that they aren't optimized out.
+	// to prevent them from being optimized out.
 	volatile int a, b, c;
 	volatile struct drgn_test_small_slab_object *slab_object;
 
@@ -1105,14 +1105,15 @@ static void drgn_test_kthread_fn3(void)
 	__asm__ __volatile__ ("" : : "r" (&slab_object) : "memory");
 }
 
- __attribute__((__optimize__("O0")))
+__attribute__((__noipa__))
 static void drgn_test_kthread_fn2(void)
 {
 	drgn_test_kthread_fn3();
+	barrier(); // Prevent tail call.
 }
 
- __attribute__((__optimize__("O0")))
-static int drgn_test_kthread_fn(void *arg)
+__attribute__((__noipa__))
+static noinline int drgn_test_kthread_fn(void *arg)
 {
 	drgn_test_kthread_fn2();
 	return 0;
