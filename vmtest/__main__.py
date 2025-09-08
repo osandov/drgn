@@ -16,6 +16,7 @@ import traceback
 from typing import (
     TYPE_CHECKING,
     Callable,
+    Deque,
     Dict,
     List,
     Optional,
@@ -129,9 +130,9 @@ class _TestRunner:
         self._futures: Set["concurrent.futures.Future[Callable[[], bool]]"] = set()
 
         self._downloader = Downloader(directory)
-        self._download_queue: "deque[Union[Compiler, Kernel]]" = deque()
+        self._download_queue: Deque[Union[Compiler, Kernel]] = deque()
 
-        self._test_queue: "deque[Tuple[str, str, _TestFunction]]" = deque()
+        self._test_queue: Deque[Tuple[str, str, _TestFunction]] = deque()
         self._tests_running: Dict[Tuple[str, str], float] = {}
         self._tests_passed: Dict[str, List[str]] = {}
         self._tests_failed: Dict[str, List[str]] = {}
