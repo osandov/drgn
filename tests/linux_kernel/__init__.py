@@ -171,7 +171,7 @@ def proc_state(pid):
 # Context manager that:
 # 1. Forks a process which optionally calls a function and then stops with
 #    SIGSTOP.
-# 2. Waits for the child process to stop.
+# 2. Waits for the child process to stop and unschedule.
 # 3. Returns the PID of the child process, and return value of the function if
 #    provided, from __enter__().
 # 4. Kills the child process in __exit__().
@@ -197,12 +197,32 @@ def fork_and_stop(fn=None, *args, **kwds):
                     traceback.print_exc()
                     sys.stderr.flush()
                     os._exit(1)
+
             if fn:
                 pipe_w.close()
                 ret = pickle.load(pipe_r)
+
             _, status = os.waitpid(pid, os.WUNTRACED)
             if not os.WIFSTOPPED(status):
                 raise Exception("child process exited")
+            # waitpid() can return as soon as the stopped flag is set on the
+            # process; see wait_task_stopped() in the Linux kernel source code:
+            # https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/exit.c?h=v6.17-rc5#n1313
+            # However, the process may still be on the CPU for a short window;
+            # see do_signal_stop():
+            # https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/signal.c?h=v6.17-rc5#n2617
+            # So, we need to wait for it to fully unschedule. /proc/pid/syscall
+            # contains "running" unless the process is unscheduled; see
+            # proc_pid_syscall():
+            # https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/proc/base.c?h=v6.17-rc5#n675
+            # task_current_syscall():
+            # https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/lib/syscall.c?h=v6.17-rc5#n69
+            # and wait_task_inactive():
+            # https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/sched/core.c?h=v6.17-rc5#n2257
+            syscall_path = Path(f"/proc/{pid}/syscall")
+            while syscall_path.read_text() == "running\n":
+                os.sched_yield()
+
             if fn:
                 yield pid, ret
             else:
