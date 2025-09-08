@@ -472,14 +472,32 @@ class TestMm(LinuxKernelTestCase):
                 )
             }
 
-            # The kernel code uses percpu_counter_read_positive(), but the
-            # helper uses percpu_counter_sum() for better accuracy. We need to
-            # account for the deviation.
-            try:
-                percpu_counter_batch = self.prog["percpu_counter_batch"].value_()
-            except ObjectNotFoundError:
-                percpu_counter_batch = 32
-            delta = percpu_counter_batch * os.cpu_count()
+            # Before Linux kernel commit 82241a83cd15 ("mm: fix the inaccurate
+            # memory statistics issue for users") (in v6.16), the RSS counters
+            # in /proc/pid/meminfo are approximate due to batching, but the
+            # helpers are exact.
+            if hasattr(task, "rss_stat"):
+                # Before Linux kernel commit f1a7941243c10 ("mm: convert mm's
+                # rss stats into percpu_counter") (in v6.2), there is a
+                # per-thread counter that only gets synced to the main counter
+                # every TASK_RSS_EVENTS_THRESH (64) page faults. Each fault can
+                # map in multiple pages based on fault_around_bytes. So, the
+                # maximum error is nr_threads * 64 * (fault_around_bytes / PAGE_SIZE).
+                delta = (
+                    len(os.listdir(f"/proc/{pid}/task"))
+                    * 64
+                    * (self.prog["fault_around_bytes"].value_() // page_size)
+                )
+            else:
+                # Between that and Linux kernel commit 82241a83cd15 ("mm: fix
+                # the inaccurate memory statistics issue for users") (in
+                # v6.16), the kernel code uses percpu_counter_read_positive(),
+                # so the maximum error is nr_cpus * percpu_counter_batch.
+                try:
+                    percpu_counter_batch = self.prog["percpu_counter_batch"].value_()
+                except ObjectNotFoundError:
+                    percpu_counter_batch = 32
+                delta = percpu_counter_batch * os.cpu_count()
 
             self.assertAlmostEqual(rss_info.file, stats["RssFile"], delta=delta)
             self.assertAlmostEqual(rss_info.anon, stats["RssAnon"], delta=delta)
@@ -487,4 +505,6 @@ class TestMm(LinuxKernelTestCase):
                 rss_info.shmem, stats.get("RssShmem", 0), delta=delta
             )
             self.assertAlmostEqual(rss_info.swap, stats["VmSwap"], delta=delta)
-            self.assertAlmostEqual(rss_info.total, stats["VmRSS"], delta=delta)
+            # VmRSS is the sum of three counters, so it has triple the error
+            # margin.
+            self.assertAlmostEqual(rss_info.total, stats["VmRSS"], delta=delta * 3)
