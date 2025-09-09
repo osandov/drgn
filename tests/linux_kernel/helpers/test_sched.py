@@ -105,5 +105,12 @@ class TestSched(LinuxKernelTestCase):
     def test_task_since_last_arrival_ns(self):
         with fork_and_stop() as pid:
             time.sleep(0.01)
+            # Forcing the process to migrate also forces the rq clock to update
+            # so we can get a reliable reading.
+            affinity = os.sched_getaffinity(pid)
+            if len(affinity) > 1:
+                other_affinity = {affinity.pop()}
+                os.sched_setaffinity(pid, affinity)
+                os.sched_setaffinity(pid, other_affinity)
             task = find_task(self.prog, pid)
             self.assertGreaterEqual(task_since_last_arrival_ns(task), 10000000)
