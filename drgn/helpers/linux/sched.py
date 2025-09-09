@@ -189,10 +189,12 @@ def task_rq(task: Object) -> Object:
 
 def task_since_last_arrival_ns(task: Object) -> int:
     """
-    Get the number of nanoseconds since a task last started running.
+    Get the difference between the runqueue timestamp when a task last started
+    running and the current runqueue timestamp.
 
-    Assuming that time slices are short, this is approximately the time that
-    the task has been in its current status (running, queued, or blocked).
+    This is approximately the time that the task has been in its current status
+    (running, queued, or blocked). However, if a CPU is either idle or running
+    the same task for a long time, then the timestamps will not be accurate.
 
     This is only supported if the kernel was compiled with
     ``CONFIG_SCHEDSTATS`` or ``CONFIG_TASK_DELAY_ACCT``.
