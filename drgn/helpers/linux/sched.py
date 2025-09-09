@@ -24,11 +24,14 @@ from drgn.helpers.linux.percpu import per_cpu
 
 __all__ = (
     "cpu_curr",
+    "cpu_rq",
     "get_task_state",
     "idle_task",
     "loadavg",
     "task_cpu",
     "task_on_cpu",
+    "task_rq",
+    "task_since_last_arrival_ns",
     "task_state_to_char",
     "task_thread_info",
 )
