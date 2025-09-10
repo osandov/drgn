@@ -452,6 +452,8 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     # rebuilt, conditionally increment the patch level here.
     if flavor.name == "alternative" and KernelVersion(version) >= KernelVersion("6.8"):
         patch_level += 1
+    if KernelVersion(version) < KernelVersion("5.10"):
+        patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 

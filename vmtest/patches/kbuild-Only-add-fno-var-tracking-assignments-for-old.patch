@@ -1,0 +1,42 @@
+From 121c5d08d53cb1f95d9881838523b0305c3f3bef Mon Sep 17 00:00:00 2001
+Message-ID: <121c5d08d53cb1f95d9881838523b0305c3f3bef.1757526866.git.osandov@osandov.com>
+From: Mark Wielaard <mark@klomp.org>
+Date: Sat, 17 Oct 2020 14:01:35 +0200
+Subject: [PATCH] kbuild: Only add -fno-var-tracking-assignments for old GCC
+ versions
+
+Some old GCC versions between 4.5.0 and 4.9.1 might miscompile code
+with -fvar-tracking-assingments (which is enabled by default with -g -O2).
+Commit 2062afb4f804 ("Fix gcc-4.9.0 miscompilation of load_balance()
+in scheduler") added -fno-var-tracking-assignments unconditionally to
+work around this. But newer versions of GCC no longer have this bug, so
+only add it for versions of GCC before 5.0. This allows various tools
+such as a perf probe or gdb debuggers or systemtap to resolve variable
+locations using dwarf locations in more code.
+
+Signed-off-by: Mark Wielaard <mark@klomp.org>
+Acked-by: Ian Rogers <irogers@google.com>
+Reviewed-by: Andi Kleen <andi@firstfloor.org>
+Signed-off-by: Masahiro Yamada <masahiroy@kernel.org>
+---
+ Makefile | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index b76c4122c967..17a62e365a38 100644
+--- a/Makefile
++++ b/Makefile
+@@ -815,5 +815,9 @@ KBUILD_CFLAGS	+= -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-f
+ endif
+ 
+-DEBUG_CFLAGS	:= $(call cc-option, -fno-var-tracking-assignments)
++# Workaround for GCC versions < 5.0
++# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61801
++ifdef CONFIG_CC_IS_GCC
++DEBUG_CFLAGS	:= $(call cc-ifversion, -lt, 0500, $(call cc-option, -fno-var-tracking-assignments))
++endif
+ 
+ ifdef CONFIG_DEBUG_INFO
+-- 
+2.51.0
+

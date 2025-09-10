@@ -179,6 +179,14 @@ _PATCHES = (
             (None, KernelVersion("5.4.262")),
         ),
     ),
+    _Patch(
+        name="kbuild-Only-add-fno-var-tracking-assignments-for-old.patch",
+        versions=((KernelVersion("5.1"), KernelVersion("5.10")),),
+    ),
+    _Patch(
+        name="4.19-kbuild-Only-add-fno-var-tracking-assignments-for-old.patch",
+        versions=((None, KernelVersion("5.1")),),
+    ),
 )
 
 
