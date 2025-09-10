@@ -1,6 +1,8 @@
 # Copyright (c) 2025, Kylin Software, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import os
+
 from drgn import Object
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.mm import phys_to_virt
@@ -48,7 +50,7 @@ class TestPtov(CrashCommandTestCase):
     def test_per_cpu_offset_cpu_list(self):
         """Test per-CPU offset conversion for a CPU list."""
         offset = 0x300
-        cpus = [0, 1, 2]
+        cpus = sorted(os.sched_getaffinity(0))
         cmd = self.check_crash_command(f"ptov {hex(offset)}:{','.join(map(str, cpus))}")
 
         self.assertRegex(cmd.stdout, rf"(?m)^\s*PER-CPU OFFSET:\s+{offset:x}")
