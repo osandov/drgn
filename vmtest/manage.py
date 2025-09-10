@@ -47,7 +47,7 @@ IGNORE_KERNEL_RANGES = (
     (KernelVersion("4.10~"), KernelVersion("4.14")),
     (KernelVersion("4.15~"), KernelVersion("4.19")),
     (KernelVersion("4.20~"), KernelVersion("5.4")),
-    (KernelVersion("5.5~"), KernelVersion("5.10")),
+    (KernelVersion("5.5~"), KernelVersion("6.18")),
 )
 
 # Use the GitHub mirrors rather than the official kernel.org repositories since

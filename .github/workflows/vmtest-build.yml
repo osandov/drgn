@@ -9,8 +9,8 @@ jobs:
   build:
     strategy:
       matrix:
+        arch: [arm, x86_64, aarch64, ppc64, s390x]
         flavor: [default, alternative, tiny]
-        arch: [x86_64, aarch64, ppc64, s390x, arm]
       fail-fast: false
       max-parallel: 5
     runs-on: ubuntu-22.04
