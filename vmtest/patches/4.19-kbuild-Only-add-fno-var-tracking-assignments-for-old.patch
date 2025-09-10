@@ -1,5 +1,5 @@
-From cdd7d12068aa3d2da81f88e80825e83660c12844 Mon Sep 17 00:00:00 2001
-Message-ID: <cdd7d12068aa3d2da81f88e80825e83660c12844.1757527403.git.osandov@osandov.com>
+From 41f159de9ca697880f9dc84b7f4e1bc87043a774 Mon Sep 17 00:00:00 2001
+Message-ID: <41f159de9ca697880f9dc84b7f4e1bc87043a774.1757532466.git.osandov@osandov.com>
 From: Mark Wielaard <mark@klomp.org>
 Date: Sat, 17 Oct 2020 14:01:35 +0200
 Subject: [PATCH] kbuild: Only add -fno-var-tracking-assignments for old GCC
@@ -25,7 +25,7 @@ Signed-off-by: Omar Sandoval <osandov@osandov.com>
  1 file changed, 5 insertions(+), 1 deletion(-)
 
 diff --git a/Makefile b/Makefile
-index 8df76f9b0712..614f809732a6 100644
+index 8df76f9b0712..06ae74da97fc 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -748,5 +748,9 @@ endif
@@ -35,7 +35,7 @@ index 8df76f9b0712..614f809732a6 100644
 +# Workaround for GCC versions < 5.0
 +# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61801
 +ifdef CONFIG_CC_IS_GCC
-+KBUILD_CFLAGS	:= $(call cc-ifversion, -lt, 0500, $(call cc-option, -fno-var-tracking-assignments))
++KBUILD_CFLAGS	+= $(call cc-ifversion, -lt, 0500, $(call cc-option, -fno-var-tracking-assignments))
 +endif
  
  ifdef CONFIG_DEBUG_INFO
