@@ -31,8 +31,9 @@ from drgn import (
 from drgn.helpers.linux.module import for_each_module
 
 __all__ = (
-    "load_vmlinux_kallsyms",
     "load_module_kallsyms",
+    "load_vmlinux_kallsyms",
+    "module_kallsyms",
 )
 
 
@@ -158,7 +159,32 @@ def _elf_sym_to_symbol(name: str, obj: Object, has_typetab: bool) -> Symbol:
     )
 
 
-def _module_kallsyms(module: Object) -> List[Symbol]:
+def load_module_kallsyms(prog: Program) -> SymbolIndex:
+    """
+    Return a symbol index containing all module symbols from kallsyms
+
+    For kernels built with ``CONFIG_KALLSYMS``, loaded kernel modules contain
+    an ELF symbol table in kernel memory. This function can parse those data
+    structures and create a symbol index usable by drgn. However, it requires
+    that you already have debuginfo for the vmlinux image.
+
+    :returns: a symbol index containing all symbols from module kallsyms
+    """
+    all_symbols = []
+    for module in for_each_module(prog):
+        all_symbols.extend(module_kallsyms(module))
+    return SymbolIndex(all_symbols)
+
+
+def module_kallsyms(module: Object) -> List[Symbol]:
+    """
+    Get the list of symbols from a kernel module's kallsyms data.
+
+    The kernel must be configured with ``CONFIG_KALLSYMS``, and debugging
+    symbols for the main kernel image must already be loaded.
+
+    :param module: ``struct module *``
+    """
     try:
         ks = module.kallsyms
     except AttributeError:
@@ -206,20 +232,3 @@ def _module_kallsyms(module: Object) -> List[Symbol]:
         name = strtab[str_index:nul_byte].decode("ascii")
         syms.append(_elf_sym_to_symbol(name, elfsym, has_typetab))
     return syms
-
-
-def load_module_kallsyms(prog: Program) -> SymbolIndex:
-    """
-    Return a symbol index containing all module symbols from kallsyms
-
-    For kernels built with ``CONFIG_KALLSYMS``, loaded kernel modules contain
-    an ELF symbol table in kernel memory. This function can parse those data
-    structures and create a symbol index usable by drgn. However, it requires
-    that you already have debuginfo for the vmlinux image.
-
-    :returns: a symbol index containing all symbols from module kallsyms
-    """
-    all_symbols = []
-    for module in for_each_module(prog):
-        all_symbols.extend(_module_kallsyms(module))
-    return SymbolIndex(all_symbols)
