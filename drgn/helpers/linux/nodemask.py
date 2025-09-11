@@ -21,7 +21,19 @@ __all__ = (
     "for_each_node_state",
     "for_each_online_node",
     "node_state",
+    "nr_node_ids",
 )
+
+
+@takes_program_or_default
+def nr_node_ids(prog: Program) -> int:
+    """Get the upper bound on the number of NUMA node IDs."""
+    try:
+        return prog["nr_node_ids"].value_()
+    except KeyError:
+        # If the kernel configuration doesn't support NUMA, then nr_node_ids is
+        # a macro expanding to 1.
+        return 1
 
 
 def for_each_node_mask(mask: Object) -> Iterator[int]:
@@ -30,11 +42,7 @@ def for_each_node_mask(mask: Object) -> Iterator[int]:
 
     :param mask: ``nodemask_t``
     """
-    try:
-        nr_node_ids = mask.prog_["nr_node_ids"].value_()
-    except KeyError:
-        nr_node_ids = 1
-    return for_each_set_bit(mask.bits, nr_node_ids)
+    return for_each_set_bit(mask.bits, nr_node_ids(mask.prog_))
 
 
 @takes_program_or_default
