@@ -44,6 +44,7 @@ from drgn.helpers.linux.mm import (
     page_to_virt,
     virt_to_page,
 )
+from drgn.helpers.linux.nodemask import for_each_online_node
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
@@ -417,13 +418,29 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
 
         self._slab_cache_num = slab_cache.num.value_()
 
+        array_caches: Set[int] = set()
+
         cpu_cache = slab_cache.cpu_cache.read_()
-        cpu_caches_avail: Set[int] = set()
         for cpu in for_each_online_cpu(self._prog):
-            ac = per_cpu_ptr(cpu_cache, cpu)
-            for i in range(ac.avail):
-                cpu_caches_avail.add(ac.entry[i].value_())
-        self._cpu_caches_avail = cpu_caches_avail
+            self._slab_add_array_cache(array_caches, per_cpu_ptr(cpu_cache, cpu))
+
+        nodes = slab_cache.node
+        for nid in for_each_online_node(self._prog):
+            n = nodes[nid].read_()
+            shared = n.shared.read_()
+            if shared:
+                self._slab_add_array_cache(array_caches, shared)
+            alien = n.alien.read_()
+            if alien:
+                for nid2 in for_each_online_node(self._prog):
+                    self._slab_add_array_cache(array_caches, alien[nid2])
+
+        self._array_caches = array_caches
+
+    @staticmethod
+    def _slab_add_array_cache(array_caches: Set[int], ac: Object) -> None:
+        for i in range(ac.avail):
+            array_caches.add(ac.entry[i].value_())
 
     def _slab_freelist(self, slab: Object) -> Set[int]:
         # In SLAB, the freelist is an array of free object indices.
@@ -439,7 +456,7 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
             if i in freelist:
                 continue
             addr = s_mem + i * self._slab_cache_size + self._obj_offset
-            if addr in self._cpu_caches_avail:
+            if addr in self._array_caches:
                 continue
             yield Object(self._prog, pointer_type, value=addr)
 
@@ -451,7 +468,7 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
             self._slab_cache,
             slab,
             object_address,
-            allocated=object_address not in self._cpu_caches_avail
+            allocated=object_address not in self._array_caches
             and object_index not in self._slab_freelist(slab),
         )
 
