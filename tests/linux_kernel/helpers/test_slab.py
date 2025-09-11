@@ -13,6 +13,8 @@ from drgn.helpers.linux.slab import (
     get_slab_cache_aliases,
     slab_cache_for_each_allocated_object,
     slab_cache_is_merged,
+    slab_cache_objects_per_slab,
+    slab_cache_pages_per_slab,
     slab_object_info,
 )
 from tests.linux_kernel import (
@@ -47,6 +49,66 @@ def fallback_slab_cache_names(prog):
 
 
 class TestSlab(LinuxKernelTestCase):
+    def test_slab_cache_objects_per_slab(self):
+        if self.prog["drgn_test_slob"]:
+            self.assertRaisesRegex(
+                ValueError,
+                "SLOB is not supported",
+                slab_cache_objects_per_slab,
+                self.prog["dentry_cache"],
+            )
+            return
+
+        try:
+            f = open("/proc/slabinfo", "r")
+        except FileNotFoundError:
+            self.skipTest("/proc/slabinfo does not exist")
+        with f:
+            # Skip the version and header.
+            f.readline()
+            f.readline()
+            for line in f:
+                tokens = line.split()
+                name = tokens[0]
+                objperslab = int(tokens[4])
+                if objperslab > 1:
+                    # Prefer testing a slab cache with more than one object per
+                    # slab.
+                    break
+        self.assertEqual(
+            slab_cache_objects_per_slab(find_slab_cache(self.prog, name)), objperslab
+        )
+
+    def test_slab_cache_pages_per_slab(self):
+        if self.prog["drgn_test_slob"]:
+            self.assertRaisesRegex(
+                ValueError,
+                "SLOB is not supported",
+                slab_cache_pages_per_slab,
+                self.prog["dentry_cache"],
+            )
+            return
+
+        try:
+            f = open("/proc/slabinfo", "r")
+        except FileNotFoundError:
+            self.skipTest("/proc/slabinfo does not exist")
+        with f:
+            # Skip the version and header.
+            f.readline()
+            f.readline()
+            for line in f:
+                tokens = line.split()
+                name = tokens[0]
+                pagesperslab = int(tokens[5])
+                if pagesperslab > 1:
+                    # Prefer testing a slab cache with more than one page per
+                    # slab.
+                    break
+        self.assertEqual(
+            slab_cache_pages_per_slab(find_slab_cache(self.prog, name)), pagesperslab
+        )
+
     def _slab_cache_aliases(self):
         if not SLAB_SYSFS_PATH.exists():
             self.skipTest(f"{str(SLAB_SYSFS_PATH)} does not exist")

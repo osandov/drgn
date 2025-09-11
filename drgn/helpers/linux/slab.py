@@ -56,6 +56,9 @@ __all__ = (
     "print_slab_caches",
     "slab_cache_for_each_allocated_object",
     "slab_cache_is_merged",
+    "slab_cache_objects_per_slab",
+    "slab_cache_order",
+    "slab_cache_pages_per_slab",
     "slab_object_info",
 )
 
@@ -70,6 +73,66 @@ def _get_slab_type(prog: Program) -> Type:
         return prog.type("struct slab *")
     except LookupError:
         return prog.type("struct page *")
+
+
+_OO_SHIFT = 16
+_OO_MASK = (1 << _OO_SHIFT) - 1
+
+
+def slab_cache_objects_per_slab(slab_cache: Object) -> int:
+    """
+    Get the number of objects in each slab of the given slab cache.
+
+    This is only applicable to the SLUB and SLAB allocators; SLOB is not
+    supported.
+
+    :param slab_cache: ``struct kmem_cache *``
+    """
+    try:
+        oo = slab_cache.oo
+    except AttributeError:
+        try:
+            return slab_cache.num.value_()  # SLAB
+        except AttributeError:
+            raise ValueError("SLOB is not supported") from None
+    else:
+        return oo.x.value_() & _OO_MASK  # SLUB
+
+
+def slab_cache_pages_per_slab(slab_cache: Object) -> int:
+    """
+    Get the number of pages allocated for each slab of the given slab cache.
+
+    This is only applicable to the SLUB and SLAB allocators; SLOB is not
+    supported.
+
+    :param slab_cache: ``struct kmem_cache *``
+    """
+    return 1 << slab_cache_order(slab_cache)
+
+
+def slab_cache_order(slab_cache: Object) -> int:
+    """
+    Get the allocation order (i.e., base 2 logarithm of the number of pages)
+    for each slab of the given slab cache.
+
+    This is only applicable to the SLUB and SLAB allocators; SLOB is not
+    supported.
+
+    >>> 1 << slab_cache_order(slab_cache) == slab_cache_pages_per_slab(slab_cache)
+    True
+
+    :param slab_cache: ``struct kmem_cache *``
+    """
+    try:
+        oo = slab_cache.oo
+    except AttributeError:
+        try:
+            return slab_cache.gfporder.value_()  # SLAB
+        except AttributeError:
+            raise ValueError("SLOB is not supported") from None
+    else:
+        return oo.x.value_() >> _OO_SHIFT  # SLUB
 
 
 def slab_cache_is_merged(slab_cache: Object) -> bool:
