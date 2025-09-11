@@ -838,7 +838,14 @@ static void drgn_test_slab_ctor(void *arg)
 
 static int drgn_test_slab_init(void)
 {
-	size_t i;
+	size_t num_tmp_objs;
+	size_t i, j;
+
+	// We want objects in the drgn_test_small cache to be spread out over
+	// multiple slabs. To accomplish that, we allocate a bunch of temporary
+	// objects in the middle of the allocations we intend to keep, then free
+	// the temporary objects.
+	num_tmp_objs = PAGE_SIZE / sizeof(struct drgn_test_small_slab_object);
 
 	drgn_test_small_kmem_cache =
 		kmem_cache_create("drgn_test_small",
@@ -848,11 +855,42 @@ static int drgn_test_slab_init(void)
 	if (!drgn_test_small_kmem_cache)
 		return -ENOMEM;
 	for (i = 0; i < ARRAY_SIZE(drgn_test_small_slab_objects); i++) {
+		const bool alloc_tmp_objs =
+			i == ARRAY_SIZE(drgn_test_small_slab_objects) / 2;
+		void **tmp_objs;
+		int error = 0;
+
+		if (alloc_tmp_objs) {
+			tmp_objs = kmalloc_array(num_tmp_objs,
+						 sizeof(*tmp_objs), GFP_KERNEL);
+			if (!tmp_objs)
+				return -ENOMEM;
+			for (j = 0; j < num_tmp_objs; j++) {
+				tmp_objs[j] = kmem_cache_alloc(drgn_test_small_kmem_cache,
+							       GFP_KERNEL);
+				// We check for allocation failures below to
+				// avoid duplicating cleanup code.
+			}
+		}
+
 		drgn_test_small_slab_objects[i] =
 			kmem_cache_alloc(drgn_test_small_kmem_cache,
 					 GFP_KERNEL);
 		if (!drgn_test_small_slab_objects[i])
+			error = -ENOMEM;
+
+		if (alloc_tmp_objs) {
+			for (j = 0; j < num_tmp_objs; j++) {
+				if (!tmp_objs[j])
+					error = -ENOMEM;
+				kmem_cache_free(drgn_test_small_kmem_cache,
+						tmp_objs[j]);
+			}
+			kfree(tmp_objs);
+		}
+		if (error)
 			return -ENOMEM;
+
 		drgn_test_small_slab_objects[i]->value = i;
 	}
 	drgn_test_big_kmem_cache =
