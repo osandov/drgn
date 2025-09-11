@@ -18,6 +18,7 @@ __all__ = (
     "per_cpu",
     "per_cpu_ptr",
     "percpu_counter_sum",
+    "percpu_counter_sum_positive",
 )
 
 
@@ -54,3 +55,12 @@ def percpu_counter_sum(fbc: Object) -> int:
         for cpu in for_each_online_cpu(fbc.prog_):
             ret += per_cpu_ptr(ptr, cpu)[0].value_()
     return ret
+
+
+def percpu_counter_sum_positive(fbc: Object) -> int:
+    """
+    Return the sum of a per-CPU counter, or 0 if it is negative.
+
+    :param fbc: ``struct percpu_counter *``
+    """
+    return max(percpu_counter_sum(fbc), 0)
