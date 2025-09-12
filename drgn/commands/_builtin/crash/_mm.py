@@ -4,10 +4,11 @@
 """Memory management-related crash commands."""
 
 import argparse
+import sys
 from typing import Any, List, Sequence
 
 from drgn import Program
-from drgn.commands import argument, drgn_argument
+from drgn.commands import argument, drgn_argument, mutually_exclusive_group
 from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command
 from drgn.helpers.common.format import (
     CellFormat,
@@ -17,6 +18,7 @@ from drgn.helpers.common.format import (
 )
 from drgn.helpers.linux.hugetlb import hugetlb_total_usage
 from drgn.helpers.linux.mm import (
+    for_each_vmap_area,
     global_node_page_state,
     nr_blockdev_pages,
     nr_free_pages,
@@ -279,17 +281,67 @@ committed = vm_memory_committed()
     print_table(rows)
 
 
+def _kmem_vmalloc(
+    prog: Program,
+    drgn_arg: bool,
+) -> None:
+    if drgn_arg:
+        sys.stdout.write(
+            """\
+from drgn.helpers.linux.mm import for_each_vmap_area
+
+
+for va in for_each_vmap_area():
+    vm = va.vm
+    start = va.va_start
+    end = va.va_end
+    size = end - start
+"""
+        )
+        return
+
+    rows: List[Sequence[Any]] = [
+        (
+            CellFormat("VMAP_AREA", "^"),
+            CellFormat("VM_STRUCT", "^"),
+            CellFormat("ADDRESS RANGE", "^"),
+            CellFormat("SIZE", ">"),
+        )
+    ]
+    for va in for_each_vmap_area(prog):
+        start = va.va_start.value_()
+        end = va.va_end.value_()
+        rows.append(
+            (
+                CellFormat(va.value_(), "^x"),
+                CellFormat(va.vm.value_(), "^x"),
+                CellFormat(f"{start:x} - {end:x}", "^"),
+                end - start,
+            )
+        )
+
+    print_table(rows)
+
+
 @crash_command(
     description="kernel memory",
     long_description="""
     Display information about various parts of the memory management subsystem.
     """,
     arguments=(
-        argument(
-            "-i",
-            dest="info",
-            action="store_true",
-            help="display general memory usage information",
+        mutually_exclusive_group(
+            argument(
+                "-i",
+                dest="info",
+                action="store_true",
+                help="display general memory usage information",
+            ),
+            argument(
+                "-v",
+                dest="vmalloc",
+                action="store_true",
+                help="display memory regions allocated with vmalloc()/vmap()",
+            ),
             required=True,
         ),
         drgn_argument,
@@ -300,6 +352,8 @@ def _crash_cmd_kmem(
 ) -> None:
     if args.info:
         return _kmem_info(prog, args.drgn)
+    if args.vmalloc:
+        return _kmem_vmalloc(prog, args.drgn)
 
 
 @crash_command(

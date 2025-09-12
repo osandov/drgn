@@ -6,7 +6,7 @@ import re
 
 from drgn.helpers.linux.mm import PageUsage
 from drgn.helpers.linux.slab import SlabTotalUsage
-from tests.linux_kernel import skip_unless_have_test_disk
+from tests.linux_kernel import skip_unless_have_test_disk, skip_unless_have_test_kmod
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 from tests.linux_kernel.helpers.test_swap import tmp_swaps
 
@@ -82,6 +82,20 @@ class TestKmem(CrashCommandTestCase):
             "swap_usage",
         ):
             self.assertIsInstance(cmd.drgn_option.globals[variable], PageUsage)
+
+    @skip_unless_have_test_kmod
+    def test_v(self):
+        cmd = self.check_crash_command("kmem -v")
+        self.assertIn(f"{self.prog['drgn_test_vmalloc_va'].value_():x}", cmd.stdout)
+        self.assertIn("for_each_vmap_area(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["va"].type_.type_name(), "struct vmap_area *"
+        )
+        self.assertEqual(
+            cmd.drgn_option.globals["vm"].type_.type_name(), "struct vm_struct *"
+        )
+        for variable in ("start", "end", "size"):
+            self.assertIn(variable, cmd.drgn_option.globals)
 
 
 class TestSwap(CrashCommandTestCase):
