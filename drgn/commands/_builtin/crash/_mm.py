@@ -7,7 +7,7 @@ import argparse
 import sys
 from typing import AbstractSet, Any, List, Optional, Sequence
 
-from drgn import FaultError, Program, ProgramFlags
+from drgn import NULL, FaultError, Program, ProgramFlags
 from drgn.commands import (
     CommandArgumentError,
     _repr_black,
@@ -22,6 +22,7 @@ from drgn.helpers.common.format import (
     number_in_binary_units,
     print_table,
 )
+from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.hugetlb import (
     for_each_hstate,
     huge_page_size,
@@ -36,6 +37,7 @@ from drgn.helpers.linux.mm import (
     vm_commit_limit,
     vm_memory_committed,
 )
+from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.slab import (
     SlabCorruptionError,
     find_slab_cache,
@@ -340,6 +342,31 @@ for va in for_each_vmap_area():
     print_table(rows)
 
 
+def _kmem_per_cpu_offset(
+    prog: Program,
+    drgn_arg: bool,
+) -> None:
+    if drgn_arg:
+        sys.stdout.write(
+            """\
+from drgn import NULL
+from drgn.helpers.linux.cpumask import for_each_possible_cpu
+from drgn.helpers.linux.percpu import per_cpu_ptr
+
+
+for cpu in for_each_possible_cpu():
+    offset = per_cpu_ptr(NULL(prog, "void *"), cpu)
+"""
+        )
+        return
+
+    print("PER-CPU OFFSET VALUES:")
+    nullptr = NULL(prog, "void *")
+    for cpu in for_each_possible_cpu(prog):
+        cpu_field = f"CPU {cpu}"
+        print(f"{cpu_field:>7}: {per_cpu_ptr(nullptr, cpu).value_():x}")
+
+
 def _kmem_hstate(
     prog: Program,
     drgn_arg: bool,
@@ -529,6 +556,15 @@ if cache:
                 help="display memory regions allocated with vmalloc()/vmap()",
             ),
             argument(
+                "-o",
+                dest="per_cpu_offset",
+                action="store_true",
+                help="""
+                display each CPU's per-CPU offset (the value added to convert a
+                per-CPU symbol to a virtual address)
+                """,
+            ),
+            argument(
                 "-h",
                 dest="hstate",
                 action="store_true",
@@ -584,6 +620,8 @@ def _crash_cmd_kmem(
         return _kmem_info(prog, args.drgn)
     if args.vmalloc:
         return _kmem_vmalloc(prog, args.drgn)
+    if args.per_cpu_offset:
+        return _kmem_per_cpu_offset(prog, args.drgn)
     if args.hstate:
         return _kmem_hstate(prog, args.drgn)
     if args.slab:

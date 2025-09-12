@@ -9,7 +9,11 @@ import unittest
 
 from drgn.helpers.linux.mm import PageUsage
 from drgn.helpers.linux.slab import SlabTotalUsage
-from tests.linux_kernel import skip_unless_have_test_disk, skip_unless_have_test_kmod
+from tests.linux_kernel import (
+    possible_cpus,
+    skip_unless_have_test_disk,
+    skip_unless_have_test_kmod,
+)
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 from tests.linux_kernel.helpers.test_slab import fallback_slab_cache_names
 from tests.linux_kernel.helpers.test_swap import tmp_swaps
@@ -107,6 +111,14 @@ class TestKmem(CrashCommandTestCase):
         )
         for variable in ("start", "end", "size"):
             self.assertIn(variable, cmd.drgn_option.globals)
+
+    def test_o(self):
+        cmd = self.check_crash_command("kmem -o")
+        for cpu in possible_cpus():
+            self.assertRegex(cmd.stdout, rf"CPU {cpu}:\s*[0-9a-f]+")
+        self.assertIn("for_each_possible_cpu(", cmd.drgn_option.stdout)
+        self.assertIn("per_cpu_ptr(", cmd.drgn_option.stdout)
+        self.assertIn("offset", cmd.drgn_option.globals)
 
     def test_h(self):
         cmd = self.check_crash_command("kmem -h")
