@@ -3,6 +3,7 @@
 
 from collections import defaultdict
 from pathlib import Path
+from typing import NamedTuple
 
 from drgn import NULL
 from drgn.helpers.linux.mm import pfn_to_virt
@@ -24,6 +25,49 @@ from tests.linux_kernel import (
 )
 
 SLAB_SYSFS_PATH = Path("/sys/kernel/slab")
+
+
+class Slabinfo(NamedTuple):
+    name: str
+    active_objs: int
+    num_objs: int
+    objsize: int
+    objperslab: int
+    pagesperslab: int
+    limit: int
+    batchcount: int
+    sharedfactor: int
+    active_slabs: int
+    num_slabs: int
+    sharedavail: int
+
+
+def iter_slabinfo():
+    with open("/proc/slabinfo", "r") as f:
+        # Skip the version and header.
+        f.readline()
+        f.readline()
+        for line in f:
+            components = line.split(":")
+            statistics = components[0].split()
+            tunables = components[1].split()
+            assert tunables[0] == "tunables"
+            slabdata = components[2].split()
+            assert slabdata[0] == "slabdata"
+            yield Slabinfo(
+                name=statistics[0],
+                active_objs=int(statistics[1]),
+                num_objs=int(statistics[2]),
+                objsize=int(statistics[3]),
+                objperslab=int(statistics[4]),
+                pagesperslab=int(statistics[5]),
+                limit=int(tunables[1]),
+                batchcount=int(tunables[2]),
+                sharedfactor=int(tunables[3]),
+                active_slabs=int(slabdata[1]),
+                num_slabs=int(slabdata[2]),
+                sharedavail=int(slabdata[3]),
+            )
 
 
 def get_proc_slabinfo_names():
@@ -60,23 +104,16 @@ class TestSlab(LinuxKernelTestCase):
             return
 
         try:
-            f = open("/proc/slabinfo", "r")
-        except FileNotFoundError:
-            self.skipTest("/proc/slabinfo does not exist")
-        with f:
-            # Skip the version and header.
-            f.readline()
-            f.readline()
-            for line in f:
-                tokens = line.split()
-                name = tokens[0]
-                objperslab = int(tokens[4])
-                if objperslab > 1:
+            for slabinfo in iter_slabinfo():
+                if slabinfo.objperslab > 1:
                     # Prefer testing a slab cache with more than one object per
                     # slab.
                     break
+        except FileNotFoundError:
+            self.skipTest("/proc/slabinfo does not exist")
         self.assertEqual(
-            slab_cache_objects_per_slab(find_slab_cache(self.prog, name)), objperslab
+            slab_cache_objects_per_slab(find_slab_cache(self.prog, slabinfo.name)),
+            slabinfo.objperslab,
         )
 
     def test_slab_cache_pages_per_slab(self):
@@ -90,23 +127,16 @@ class TestSlab(LinuxKernelTestCase):
             return
 
         try:
-            f = open("/proc/slabinfo", "r")
-        except FileNotFoundError:
-            self.skipTest("/proc/slabinfo does not exist")
-        with f:
-            # Skip the version and header.
-            f.readline()
-            f.readline()
-            for line in f:
-                tokens = line.split()
-                name = tokens[0]
-                pagesperslab = int(tokens[5])
-                if pagesperslab > 1:
+            for slabinfo in iter_slabinfo():
+                if slabinfo.pagesperslab > 1:
                     # Prefer testing a slab cache with more than one page per
                     # slab.
                     break
+        except FileNotFoundError:
+            self.skipTest("/proc/slabinfo does not exist")
         self.assertEqual(
-            slab_cache_pages_per_slab(find_slab_cache(self.prog, name)), pagesperslab
+            slab_cache_pages_per_slab(find_slab_cache(self.prog, slabinfo.name)),
+            slabinfo.pagesperslab,
         )
 
     def _slab_cache_aliases(self):
