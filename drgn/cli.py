@@ -16,14 +16,14 @@ import pkgutil
 import runpy
 import shutil
 import sys
-from typing import IO, Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import IO, Any, Callable, Dict, Iterator, Optional, Tuple, Type, TypeVar
 
 import drgn
 from drgn.internal.repl import interact, readline
 from drgn.internal.rlcompleter import Completer
 from drgn.internal.sudohelper import open_via_sudo
 
-__all__ = ("default_globals", "run_interactive", "version_header")
+__all__ = ("default_globals", "display_str", "run_interactive", "version_header")
 
 logger = logging.getLogger("drgn")
 
@@ -203,6 +203,52 @@ def _identify_script(path: str) -> str:
     return "core" if e_type == ET_CORE else "elf"
 
 
+_DISPLAY_STR_TYPES: Tuple[Type[Any], ...] = (
+    drgn.SourceLocation,
+    drgn.SourceLocationList,
+    drgn.StackFrame,
+    drgn.StackTrace,
+    drgn.Type,
+)
+
+T = TypeVar("T")
+
+
+def display_str(tp: Type[T]) -> Type[T]:
+    """
+    Decorator for types which should be displayed in the cli using
+    :py:class:`str()<str>`
+
+    Many types, like :py:class:`drgn.StackTrace`, are formatted in the CLI using
+    :py:class:`str()<str>` rather than :py:func:`repr()`. This activates their
+    :py:meth:`__str__()<object.__str__>` method rather than the more verbose
+    :py:meth:`__repr__()<object.__repr__>`, which results in a more
+    user-friendly output. To achieve this behavior with your own types, apply
+    this decorator::
+
+        >>> @drgn.cli.display_str
+        ... class Task(NamedTuple):
+        ...     pid: int
+        ...     comm: str
+        ...     def __str__(self):
+        ...         return f"PID: {self.pid:6d}  COMM: {self.comm}"
+        ...
+        >>> print(repr(Task(1, "init")))
+        Task(pid=1, comm='init')
+        >>> print(str(Task(1, "init")))
+        PID:      1  COMM: init
+        >>> Task(1, "init")
+        PID:      1  COMM: init
+
+
+    :param tp: type to register for display with :py:class:`str`
+    :returns: the same type
+    """
+    global _DISPLAY_STR_TYPES
+    _DISPLAY_STR_TYPES = _DISPLAY_STR_TYPES + (tp,)
+    return tp
+
+
 def _displayhook(value: Any) -> None:
     if value is None:
         return
@@ -213,16 +259,7 @@ def _displayhook(value: Any) -> None:
         except drgn.FaultError as e:
             logger.warning("can't print value: %s", e)
             text = repr(value)
-    elif isinstance(
-        value,
-        (
-            drgn.SourceLocation,
-            drgn.SourceLocationList,
-            drgn.StackFrame,
-            drgn.StackTrace,
-            drgn.Type,
-        ),
-    ):
+    elif isinstance(value, _DISPLAY_STR_TYPES):
         text = str(value)
     else:
         text = repr(value)
