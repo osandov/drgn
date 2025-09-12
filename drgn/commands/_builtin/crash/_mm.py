@@ -5,10 +5,16 @@
 
 import argparse
 import sys
-from typing import Any, List, Sequence
+from typing import AbstractSet, Any, List, Optional, Sequence
 
-from drgn import Program
-from drgn.commands import argument, drgn_argument, mutually_exclusive_group
+from drgn import FaultError, Program, ProgramFlags
+from drgn.commands import (
+    CommandArgumentError,
+    _repr_black,
+    argument,
+    drgn_argument,
+    mutually_exclusive_group,
+)
 from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command
 from drgn.helpers.common.format import (
     CellFormat,
@@ -30,7 +36,14 @@ from drgn.helpers.linux.mm import (
     vm_commit_limit,
     vm_memory_committed,
 )
-from drgn.helpers.linux.slab import slab_total_usage
+from drgn.helpers.linux.slab import (
+    SlabCorruptionError,
+    find_slab_cache,
+    for_each_slab_cache,
+    slab_cache_order,
+    slab_cache_usage,
+    slab_total_usage,
+)
 from drgn.helpers.linux.swap import (
     for_each_swap_info,
     swap_file_path,
@@ -369,6 +382,133 @@ for hstate in for_each_hstate(prog):
     print_table(rows)
 
 
+def _kmem_slab(
+    prog: Program,
+    drgn_arg: bool,
+    *,
+    ignore: AbstractSet[bytes],
+    names: Optional[List[str]],
+) -> None:
+    if drgn_arg:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import(
+            "drgn.helpers.linux.slab", "slab_cache_pages_per_slab", "slab_cache_usage"
+        )
+
+        if len(ignore) > 1:
+            code.append("ignore = {")
+            code.append(", ".join([repr(name) for name in sorted(ignore)]))
+            code.append("}\n\n")
+
+        if names:
+            code.add_from_import("drgn.helpers.linux.slab", "find_slab_cache")
+            # If we're only matching one name, use an if statement instead of a
+            # loop. However, ignore is handled with a continue statement, so
+            # always use a loop if there are names to ignore.
+            if len(names) == 1 and not ignore:
+                code.append(
+                    f"""\
+cache = find_slab_cache({_repr_black(names[0])})
+if cache:
+"""
+                )
+            else:
+                code.append("for search_name in (\n")
+                for search_name in names:
+                    code.append(f"    {_repr_black(search_name)},\n")
+                code.append(
+                    """):
+    cache = find_slab_cache(search_name)
+    if not cache:
+        continue
+"""
+                )
+        else:
+            code.add_from_import("drgn.helpers.linux.slab", "for_each_slab_cache")
+            code.append("for cache in for_each_slab_cache():\n")
+
+        code.append("    name = cache.name\n")
+
+        if ignore:
+            if len(ignore) == 1:
+                code.append(f"    if name.string_() == {next(iter(ignore))!r}:\n")
+            else:
+                code.append("    if name.string_() in ignore:\n")
+            code.append("        continue\n")
+
+        code.append(
+            """\
+    objsize = cache.object_size
+    usage = slab_cache_usage(cache)
+    allocated = usage.active_objs
+    total = usage.num_objs
+    slabs = usage.num_slabs
+    ssize = prog["PAGE_SIZE"] * slab_cache_pages_per_slab(cache)
+"""
+        )
+        code.print()
+        return
+
+    rows: List[Sequence[Any]] = [
+        (
+            "CACHE",
+            CellFormat("OBJSIZE", ">"),
+            CellFormat("ALLOCATED", ">"),
+            CellFormat("TOTAL", ">"),
+            CellFormat("SLABS", ">"),
+            CellFormat("SSIZE", ">"),
+            "NAME",
+        )
+    ]
+
+    if names is None:
+        caches = for_each_slab_cache(prog)
+    else:
+        caches = iter(
+            [cache for name in names if (cache := find_slab_cache(prog, name))]
+        )
+
+    for cache in caches:
+        name = cache.name.string_()
+        if name in ignore:
+            objsize: Any = "[IGNORED]"
+            allocated: Any = ""
+            total: Any = ""
+            slabs: Any = ""
+            ssize_cell: Any = ""
+        else:
+            objsize = cache.object_size.value_()
+            allocated = "[CORRUPTED]"
+            total = slabs = ""
+            # Walking slab lists is racy. Retry a limited number of times on
+            # live kernels.
+            for i in range(10):
+                try:
+                    usage = slab_cache_usage(cache)
+                except (FaultError, SlabCorruptionError):
+                    if not (prog.flags & ProgramFlags.IS_LIVE):
+                        break
+                else:
+                    allocated = usage.active_objs
+                    total = usage.num_objs
+                    slabs = usage.num_slabs
+                    break
+            ssize = prog["PAGE_SIZE"].value_() << slab_cache_order(cache)
+            ssize_cell = CellFormat(f"{ssize // 1024}k", ">")
+        rows.append(
+            (
+                CellFormat(cache.value_(), "<x"),
+                objsize,
+                allocated,
+                total,
+                slabs,
+                ssize_cell,
+                escape_ascii_string(cache.name.string_(), escape_backslash=True),
+            )
+        )
+    print_table(rows)
+
+
 @crash_command(
     description="kernel memory",
     long_description="""
@@ -394,7 +534,29 @@ for hstate in for_each_hstate(prog):
                 action="store_true",
                 help="display HugeTLB state",
             ),
+            argument(
+                "-s",
+                dest="slab",
+                action="store_true",
+                help="display an overview of slab caches",
+            ),
             required=True,
+        ),
+        argument(
+            "-I",
+            dest="ignore_slab_caches",
+            metavar="NAME[,NAME...]",
+            help="""
+            when used with -s, comma-separated list of names of slab caches to
+            ignore
+            """,
+        ),
+        argument(
+            "name",
+            nargs="*",
+            help="""
+            when used with -s, only display the slab caches with the given names
+            """,
         ),
         drgn_argument,
     ),
@@ -402,12 +564,32 @@ for hstate in for_each_hstate(prog):
 def _crash_cmd_kmem(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
+    if args.ignore_slab_caches is None:
+        ignore_slab_caches: AbstractSet[bytes] = frozenset()
+    else:
+        if not args.slab:
+            raise CommandArgumentError("-I can only be used with -s")
+        ignore_slab_caches = {
+            name.encode() for name in args.ignore_slab_caches.split(",")
+        }
+
+    if args.name:
+        if not args.slab:
+            raise CommandArgumentError("name can only be used with -s")
+        slab_cache_names: Optional[List[str]] = args.name
+    else:
+        slab_cache_names = None
+
     if args.info:
         return _kmem_info(prog, args.drgn)
     if args.vmalloc:
         return _kmem_vmalloc(prog, args.drgn)
     if args.hstate:
         return _kmem_hstate(prog, args.drgn)
+    if args.slab:
+        return _kmem_slab(
+            prog, args.drgn, ignore=ignore_slab_caches, names=slab_cache_names
+        )
 
 
 @crash_command(
