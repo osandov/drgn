@@ -12,7 +12,8 @@ from tests import with_default_prog
 from tests.linux_kernel import LinuxKernelTestCase
 
 
-class CrashCommandTestCase(LinuxKernelTestCase):
+class CrashCommandTestCaseBase:
+    """A mix-in to add to a general test case class for testing crash commands"""
 
     # Run a crash command and capture its stdout and stderr.
     @classmethod
@@ -83,3 +84,7 @@ class CrashCommandTestCase(LinuxKernelTestCase):
 
         ret.drgn_option = drgn_option
         return ret
+
+
+class CrashCommandTestCase(CrashCommandTestCaseBase, LinuxKernelTestCase):
+    pass
