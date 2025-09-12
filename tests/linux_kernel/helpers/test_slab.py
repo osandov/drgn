@@ -16,6 +16,7 @@ from drgn.helpers.linux.slab import (
     slab_cache_is_merged,
     slab_cache_objects_per_slab,
     slab_cache_pages_per_slab,
+    slab_cache_usage,
     slab_object_info,
 )
 from tests.linux_kernel import (
@@ -226,6 +227,36 @@ class TestSlab(LinuxKernelTestCase):
         for name in slab_cache_names:
             slab = find_slab_cache(self.prog, name)
             self.assertEqual(name, slab.name.string_())
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_slab_cache_usage(self):
+        for size in ("small", "big"):
+            with self.subTest(size=size):
+                cache = self.prog[f"drgn_test_{size}_kmem_cache"]
+                if self.prog["drgn_test_slob"]:
+                    self.assertRaisesRegex(
+                        ValueError, "SLOB is not supported", slab_cache_usage, cache
+                    )
+                    return
+
+                name = f"drgn_test_{size}"
+                try:
+                    for slabinfo in iter_slabinfo():
+                        if slabinfo.name == name:
+                            break
+                    else:
+                        self.fail(f"couldn't find {name} in slabinfo")
+                except FileNotFoundError:
+                    self.skipTest("/proc/slabinfo does not exist")
+
+                usage = slab_cache_usage(cache)
+                self.assertEqual(
+                    usage.active_objs,
+                    len(self.prog[f"drgn_test_{size}_slab_objects"]),
+                )
+                self.assertEqual(usage.num_objs, slabinfo.num_objs)
+                self.assertEqual(usage.num_slabs, slabinfo.num_slabs)
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
