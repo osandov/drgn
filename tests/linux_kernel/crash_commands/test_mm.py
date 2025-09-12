@@ -4,6 +4,8 @@
 import mmap
 import re
 
+from drgn.helpers.linux.mm import PageUsage
+from drgn.helpers.linux.slab import SlabTotalUsage
 from tests.linux_kernel import skip_unless_have_test_disk
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 from tests.linux_kernel.helpers.test_swap import tmp_swaps
@@ -43,6 +45,43 @@ class TestPtob(CrashCommandTestCase):
         self.assertRegex(cmd.drgn_option.stdout, r"\bfor\b.*\bin\b")
         self.assertEqual(cmd.drgn_option.globals["pfn"], 10)
         self.assertEqual(cmd.drgn_option.globals["phys_addr"], addr2)
+
+
+class TestKmem(CrashCommandTestCase):
+    def test_i(self):
+        cmd = self.check_crash_command("kmem -i")
+        for label in (
+            "TOTAL MEM",
+            "FREE",
+            "USED",
+            "BUFFERS",
+            "CACHED",
+            "SLAB",
+            "TOTAL HUGE",
+            "HUGE FREE",
+            "TOTAL SWAP",
+            "SWAP USED",
+            "SWAP FREE",
+            "COMMIT LIMIT",
+            "COMMITTED",
+        ):
+            self.assertRegex(label, rf"(?m)^{label}\b")
+        for variable in (
+            "total_mem",
+            "free",
+            "used",
+            "buffers",
+            "cached",
+            "commit_limit",
+            "committed",
+        ):
+            self.assertIsInstance(cmd.drgn_option.globals[variable], int)
+        self.assertIsInstance(cmd.drgn_option.globals["slab_usage"], SlabTotalUsage)
+        for variable in (
+            "hugetlb_usage",
+            "swap_usage",
+        ):
+            self.assertIsInstance(cmd.drgn_option.globals[variable], PageUsage)
 
 
 class TestSwap(CrashCommandTestCase):
