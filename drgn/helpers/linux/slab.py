@@ -15,6 +15,7 @@ Linux slab allocator.
     <drgn.helpers.linux.slab.slab_cache_is_merged>`.
 """
 
+import functools
 import operator
 from os import fsdecode
 from typing import Callable, Dict, Iterator, Optional, Set, Tuple, Union
@@ -292,7 +293,11 @@ class _SlabCacheHelper:
     def __init__(self, slab_cache: Object) -> None:
         self._prog = slab_cache.prog_
         self._slab_cache = slab_cache.read_()
-        self._freelist_error: Optional[Exception] = None
+
+    # Not all of the methods need this, so cache it lazily.
+    @functools.cached_property
+    def _slab_cache_size(self) -> int:
+        return self._slab_cache.size.value_()
 
     def _page_objects(
         self, page: Object, slab: Object, pointer_type: Type
@@ -300,9 +305,6 @@ class _SlabCacheHelper:
         raise NotImplementedError()
 
     def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
-        if self._freelist_error:
-            raise self._freelist_error
-
         pointer_type = self._prog.pointer_type(self._prog.type(type))
         slab_type = _get_slab_type(self._prog)
         # Get the underlying implementation directly to avoid overhead on each
@@ -324,89 +326,97 @@ class _SlabCacheHelper:
         raise NotImplementedError()
 
 
+class _SlubPerCpuInfo(NamedTuple):
+    freelists: Set[int]
+    error: Optional[Exception]
+
+
 class _SlabCacheHelperSlub(_SlabCacheHelper):
-    def __init__(self, slab_cache: Object) -> None:
-        super().__init__(slab_cache)
-
-        self._slab_cache_size = slab_cache.size.value_()
-
+    @functools.cached_property
+    def _red_left_pad(self) -> int:
         try:
-            self._red_left_pad = slab_cache.red_left_pad.value_()
+            return self._slab_cache.red_left_pad.value_()
         except AttributeError:
-            self._red_left_pad = 0
+            return 0
 
+    def _slub_get_freelist(
+        self, freelist_name: Callable[[], str], freelist: Object, freelist_set: Set[int]
+    ) -> None:
         # In SLUB, the freelist is a linked list with the next pointer located
         # at ptr + slab_cache->offset.
-        freelist_offset = slab_cache.offset.value_()
+        ptr = freelist.value_()
+        while ptr:
+            if ptr in freelist_set:
+                raise SlabFreelistCycleError(
+                    f"{fsdecode(self._slab_cache.name.string_())} {freelist_name()} "
+                    "freelist contains cycle; "
+                    "may be corrupted or in the middle of update"
+                )
+            freelist_set.add(ptr)
+            ptr = self._freelist_dereference(ptr + self._freelist_offset)
 
+    @functools.cached_property
+    def _freelist_offset(self) -> int:
+        return self._slab_cache.offset.value_()
+
+    @functools.cached_property
+    def _freelist_dereference(self) -> Callable[[int], int]:
         # If CONFIG_SLAB_FREELIST_HARDENED is enabled, then the next pointer is
         # obfuscated using slab_cache->random.
         try:
-            freelist_random = slab_cache.random.value_()
+            freelist_random = self._slab_cache.random.value_()
         except AttributeError:
-            self._freelist_dereference: Callable[[int], int] = self._prog.read_word
-        else:
-            ulong_size = sizeof(self._prog.type("unsigned long"))
+            return self._prog.read_word
 
-            # Since Linux kernel commit 1ad53d9fa3f6 ("slub: improve bit
-            # diffusion for freelist ptr obfuscation") in v5.7, a swab() was
-            # added to the freelist dereferencing calculation. This commit was
-            # backported to all stable branches which have
-            # CONFIG_SLAB_FREELIST_HARDENED, but you can still encounter some
-            # older stable kernels which don't have it. Unfortunately, there's
-            # no easy way to detect whether it is in effect, since the commit
-            # adds no struct field or other detectable difference.
-            #
-            # To handle this, we implement both methods, and we start out with a
-            # "trial" function. On the first time we encounter a non-NULL
-            # freelist, we try using the method with the swab(), and test
-            # whether the resulting pointer may be dereferenced. If it can, we
-            # commit to using that method forever. If it cannot, we switch to
-            # the version without swab() and commit to using that.
+        ulong_size = sizeof(self._prog.type("unsigned long"))
 
-            def _freelist_dereference_swab(ptr_addr: int) -> int:
-                # *ptr_addr ^ slab_cache->random ^ byteswap(ptr_addr)
-                return (
-                    self._prog.read_word(ptr_addr)
-                    ^ freelist_random
-                    ^ int.from_bytes(ptr_addr.to_bytes(ulong_size, "little"), "big")
-                )
+        # Since Linux kernel commit 1ad53d9fa3f6 ("slub: improve bit diffusion
+        # for freelist ptr obfuscation") in v5.7, a swab() was added to the
+        # freelist dereferencing calculation. This commit was backported to all
+        # stable branches which have CONFIG_SLAB_FREELIST_HARDENED, but you can
+        # still encounter some older stable kernels which don't have it.
+        # Unfortunately, there's no easy way to detect whether it is in effect,
+        # since the commit adds no struct field or other detectable difference.
+        #
+        # To handle this, we implement both methods, and we start out with a
+        # "trial" function. On the first time we encounter a non-NULL freelist,
+        # we try using the method with the swab(), and test whether the
+        # resulting pointer may be dereferenced. If it can, we commit to using
+        # that method forever. If it cannot, we switch to the version without
+        # swab() and commit to using that.
 
-            def _freelist_dereference_no_swab(ptr_addr: int) -> int:
-                # *ptr_addr ^ slab_cache->random ^ ptr_addr
-                return self._prog.read_word(ptr_addr) ^ freelist_random ^ ptr_addr
+        def _freelist_dereference_swab(ptr_addr: int) -> int:
+            # *ptr_addr ^ slab_cache->random ^ byteswap(ptr_addr)
+            return (
+                self._prog.read_word(ptr_addr)
+                ^ freelist_random
+                ^ int.from_bytes(ptr_addr.to_bytes(ulong_size, "little"), "big")
+            )
 
-            def _try_hardened_freelist_dereference(ptr_addr: int) -> int:
-                result = _freelist_dereference_swab(ptr_addr)
-                if result:
-                    try:
-                        self._prog.read_word(result)
-                        self._freelist_dereference = _freelist_dereference_swab
-                    except FaultError:
-                        result = _freelist_dereference_no_swab(ptr_addr)
-                        self._freelist_dereference = _freelist_dereference_no_swab
-                return result
+        def _freelist_dereference_no_swab(ptr_addr: int) -> int:
+            # *ptr_addr ^ slab_cache->random ^ ptr_addr
+            return self._prog.read_word(ptr_addr) ^ freelist_random ^ ptr_addr
 
-            self._freelist_dereference = _try_hardened_freelist_dereference
+        def _try_hardened_freelist_dereference(ptr_addr: int) -> int:
+            result = _freelist_dereference_swab(ptr_addr)
+            if result:
+                try:
+                    self._prog.read_word(result)
+                    self._freelist_dereference = _freelist_dereference_swab
+                except FaultError:
+                    result = _freelist_dereference_no_swab(ptr_addr)
+                    self._freelist_dereference = _freelist_dereference_no_swab
+            return result
 
-        def _slub_get_freelist(
-            freelist_name: Callable[[], str], freelist: Object, freelist_set: Set[int]
-        ) -> None:
-            ptr = freelist.value_()
-            while ptr:
-                if ptr in freelist_set:
-                    raise SlabFreelistCycleError(
-                        f"{fsdecode(slab_cache.name.string_())} {freelist_name()} "
-                        "freelist contains cycle; "
-                        "may be corrupted or in the middle of update"
-                    )
-                freelist_set.add(ptr)
-                ptr = self._freelist_dereference(ptr + freelist_offset)
+        return _try_hardened_freelist_dereference
 
-        cpu_freelists: Set[int] = set()
+    def _per_cpu_info(self, *, catch_errors: bool = False) -> _SlubPerCpuInfo:
+        freelists: Set[int] = set()
+        error = None
+
         try:
             # cpu_slab doesn't exist for CONFIG_SLUB_TINY.
-            cpu_slab = slab_cache.cpu_slab.read_()
+            cpu_slab = self._slab_cache.cpu_slab.read_()
         except AttributeError:
             pass
         else:
@@ -419,15 +429,16 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                 for cpu in for_each_online_cpu(self._prog):
                     this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
                     slab = getattr(this_cpu_slab, cpu_slab_attr).read_()
-                    if slab and slab.slab_cache == slab_cache:
-                        _slub_get_freelist(
-                            lambda: f"cpu {cpu}", this_cpu_slab.freelist, cpu_freelists
+                    if slab and slab.slab_cache == self._slab_cache:
+                        self._slub_get_freelist(
+                            lambda: f"cpu {cpu}", this_cpu_slab.freelist, freelists
                         )
             except (SlabCorruptionError, FaultError) as e:
-                self._freelist_error = e
+                if not catch_errors:
+                    raise
+                error = e
 
-        self._slub_get_freelist = _slub_get_freelist
-        self._cpu_freelists = cpu_freelists
+        return _SlubPerCpuInfo(freelists=freelists, error=error)
 
     def _page_objects(
         self, page: Object, slab: Object, pointer_type: Type
@@ -441,13 +452,18 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                 yield Object(self._prog, pointer_type, value=addr)
             addr += self._slab_cache_size
 
+    def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        self._cpu_freelists = self._per_cpu_info().freelists
+        return super().for_each_allocated_object(type)
+
     def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
         first_addr = page_to_virt(page).value_() + self._red_left_pad
         address = (
             first_addr
             + (addr - first_addr) // self._slab_cache_size * self._slab_cache_size
         )
-        if address in self._cpu_freelists:
+        per_cpu = self._per_cpu_info(catch_errors=True)
+        if address in per_cpu.freelists:
             allocated: Optional[bool] = False
         else:
             freelist: Set[int] = set()
@@ -460,7 +476,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             else:
                 if address in freelist:
                     allocated = False
-                elif self._freelist_error:
+                elif per_cpu.error:
                     allocated = None
                 else:
                     allocated = True
@@ -470,24 +486,33 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
 class _SlabCacheHelperSlab(_SlabCacheHelper):
     def __init__(self, slab_cache: Object) -> None:
         super().__init__(slab_cache)
-
-        self._slab_cache_size = slab_cache.size.value_()
-
         self._freelist_type = self._prog.type("freelist_idx_t *")
+
+    @functools.cached_property
+    def _obj_offset(self) -> int:
         try:
-            self._obj_offset = slab_cache.obj_offset.value_()
+            return self._slab_cache.obj_offset.value_()
         except AttributeError:
-            self._obj_offset = 0
+            return 0
 
-        self._slab_cache_num = slab_cache.num.value_()
+    @functools.cached_property
+    def _slab_cache_num(self) -> int:
+        return self._slab_cache.num.value_()
 
+    @staticmethod
+    def _slab_add_array_cache(array_caches: Set[int], ac: Object) -> None:
+        for i in range(ac.avail):
+            array_caches.add(ac.entry[i].value_())
+
+    @functools.cached_property
+    def _array_caches(self) -> Set[int]:
         array_caches: Set[int] = set()
 
-        cpu_cache = slab_cache.cpu_cache.read_()
+        cpu_cache = self._slab_cache.cpu_cache.read_()
         for cpu in for_each_online_cpu(self._prog):
             self._slab_add_array_cache(array_caches, per_cpu_ptr(cpu_cache, cpu))
 
-        nodes = slab_cache.node
+        nodes = self._slab_cache.node
         for nid in for_each_online_node(self._prog):
             n = nodes[nid].read_()
             shared = n.shared.read_()
@@ -498,12 +523,7 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
                 for nid2 in for_each_online_node(self._prog):
                     self._slab_add_array_cache(array_caches, alien[nid2])
 
-        self._array_caches = array_caches
-
-    @staticmethod
-    def _slab_add_array_cache(array_caches: Set[int], ac: Object) -> None:
-        for i in range(ac.avail):
-            array_caches.add(ac.entry[i].value_())
+        return array_caches
 
     def _slab_freelist(self, slab: Object) -> Set[int]:
         # In SLAB, the freelist is an array of free object indices.
