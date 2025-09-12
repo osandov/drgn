@@ -12,7 +12,7 @@ from drgn.helpers.common.memory import (
     identify_address_all,
     print_annotated_memory,
 )
-from drgn.helpers.common.stack import print_annotated_stack
+from drgn.helpers.common.stack import print_annotated_stack, print_registers
 from drgn.helpers.linux.common import (
     IdentifiedSlabObject,
     IdentifiedTaskStack,
@@ -269,3 +269,18 @@ class TestPrintAnnotatedStack(LinuxKernelTestCase):
             self.assertIn("slab object: drgn_test_small", printed_trace)
         self.assertIn("[function symbol: schedule", printed_trace)
         self.assertIn("schedule at ", printed_trace)
+
+
+class TestPrintRegisters(LinuxKernelTestCase):
+    @skip_unless_have_stack_tracing
+    @skip_unless_have_test_kmod
+    def test_print_registers(self):
+        trace = self.prog.stack_trace(self.prog["drgn_test_kthread_pt_regs"])
+        # This is mostly a smoke test: we don't have any well-known registers,
+        # and we don't have any specific guarantees about the availability of
+        # registers. We can't even assert that all registers are present as hex
+        # strings in the output, because some may be printed in decimal, and
+        # others may be broken down into smaller fields.
+        f = io.StringIO()
+        with redirect_stdout(f):
+            print_registers(self.prog, trace[0].registers())
