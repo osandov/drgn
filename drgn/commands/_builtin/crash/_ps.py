@@ -872,9 +872,9 @@ def _crash_cmd_ps(
         argument(
             "command",
             help="""
-            run this command on the selected tasks. Currently, **files**,
-            **ps**, **set**, **sig**, **task**, **vm**, and **vtop** are
-            supported
+            run this command on the selected tasks. Currently, **bt**,
+            **files**, **ps**, **set**, **sig**, **task**, **vm**, and **vtop**
+            are supported
             """,
         ),
         argument(
