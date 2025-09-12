@@ -1,15 +1,18 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import os
 import unittest
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn import Object, Program, ProgramFlags
 from drgn.helpers.linux.pid import find_task
+from drgn.helpers.linux.stack import StackKind, kernel_stack_trace
 from drgn.helpers.linux.timekeeping import ktime_get_real_seconds
 from tests import TestCase
 from tests.linux_kernel import skip_unless_have_stack_tracing
 from tests.linux_kernel.vmcore import VMCORE_PATH, LinuxVMCoreTestCase
+from util import KernelVersion
 
 
 class TestVMCore(LinuxVMCoreTestCase):
@@ -95,6 +98,35 @@ class TestVMCore(LinuxVMCoreTestCase):
         self._test_crashed_thread_stack_trace(
             self.prog.stack_trace(self.prog.crashed_thread().object)
         )
+
+    @skip_unless_have_stack_tracing
+    def test_kernel_stack_trace(self):
+        self._skip_if_cpu0_on_s390x()
+        trace = kernel_stack_trace(self.prog.crashed_thread().object)
+        self.assertEqual(trace.prog, self.prog)
+        if NORMALIZED_MACHINE_NAME == "x86_64":
+            # Since v5.1 we can identify NMI. Older kernels we just classify as
+            # "exception".
+            self.assertIn(trace.segments[0].kind, (StackKind.NMI, StackKind.EXCEPTION))
+            # Prior to commit 946c191161cef ("x86/entry/unwind: Create stack
+            # frames for saved interrupt registers"), and without ORC, drgn
+            # cannot find the saved pt_regs, so the interrupted frame is not
+            # marked interrupted. The full stack is still unwound, but without
+            # the interrupted frame, we can't split it into multiple segments.
+            if KernelVersion(os.uname().release) >= KernelVersion("4.14"):
+                self.assertEqual(trace.segments[1].kind, StackKind.IRQ)
+                self.assertEqual(trace.segments[2].kind, StackKind.TASK)
+        elif NORMALIZED_MACHINE_NAME in ("aarch64", "arm"):
+            # arm and aarch64 can unwind through IRQ stacks and correctly
+            # identify them
+            self.assertEqual(trace.segments[0].kind, StackKind.IRQ)
+            self.assertEqual(trace.segments[1].kind, StackKind.TASK)
+        else:
+            # On ppc64 drgn can unwind through IRQ stacks, but there is no
+            # separate IRQ stack, nor does drgn see an interrupted stack frame.
+            # drgn cannot yet unwind through s390x exceptions, so we don't crash
+            # from IRQ there.
+            self.assertEqual(trace.segments[0].kind, StackKind.TASK)
 
 
 @unittest.skipUnless(VMCORE_PATH.exists(), "not running in kdump")
