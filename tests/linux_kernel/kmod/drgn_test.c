@@ -65,6 +65,12 @@
 #define HAVE_PAGE_POOL 0
 #endif
 
+// Architecture-specific includes for triggering NMIs for stack traces
+#ifdef __x86_64__
+#include <asm/apic.h>
+#include <asm/nmi.h>
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 18, 0)
 // These were added in b9ff604cff11 ("timekeeping: Add
 // ktime_get_coarse_with_offset") (in v4.18-rc1).
@@ -1662,19 +1668,51 @@ DEFINE_KMODIFY_TEST_ARGS(
 
 #ifdef CONFIG_SYSFS
 
-// Crash from an IRQ handler on architectures where drgn supports unwinding
-// through IRQ handlers.
+// Crash from an NMI + IRQ handler on architectures where drgn supports
+// unwinding through them.
 #ifdef __x86_64__
+#define DRGN_TEST_NMI_CRASH
+#endif
+
+
+// NMI test depends on IRQ
+#ifdef DRGN_TEST_NMI_CRASH
 #define DRGN_TEST_IRQ_CRASH
 #endif
 
-static __noreturn noinline_for_stack void drgn_test_crash_func(struct irq_work *work)
+static __noreturn noinline_for_stack void drgn_test_crash_func(void)
 {
 	panic("drgn_test\n");
 }
 
+
+#ifdef DRGN_TEST_NMI_CRASH
+static bool drgn_panic = false;
+
+static noinline_for_stack int drgn_test_nmi_handler(unsigned int cmd, struct pt_regs *regs)
+{
+	if (drgn_panic) {
+		drgn_test_crash_func();
+		return NMI_HANDLED; /* lol */
+	}
+
+	return NMI_DONE;
+}
+
+static noinline_for_stack void drgn_test_crash_irq_work_fn(struct irq_work *work)
+{
+	drgn_panic = true;
+	apic->send_IPI_mask(cpumask_of(smp_processor_id()), NMI_VECTOR);
+}
+#elif defined(DRGN_TEST_IRQ_CRASH)
+static noinline_for_stack void drgn_test_crash_irq_work_fn(struct irq_work *work)
+{
+	drgn_test_crash_func();
+}
+#endif
+
 #ifdef DRGN_TEST_IRQ_CRASH
-static DEFINE_IRQ_WORK(drgn_test_crash_irq_work, drgn_test_crash_func);
+static DEFINE_IRQ_WORK(drgn_test_crash_irq_work, drgn_test_crash_irq_work_fn);
 #endif
 
 static ssize_t drgn_test_crash_store(struct kobject *kobj,
@@ -1695,7 +1733,17 @@ static ssize_t drgn_test_crash_store(struct kobject *kobj,
 	// Spin until we get interrupted and crash.
 	while (1);
 #else
-	drgn_test_crash_func(NULL);
+	drgn_test_crash_func();
+#endif
+}
+
+static int drgn_test_crash_init(void)
+{
+#ifdef DRGN_TEST_NMI_CRASH
+	return register_nmi_handler(NMI_LOCAL, drgn_test_nmi_handler,
+	                            0, "drgn_panic");
+#else
+	return 0;
 #endif
 }
 
@@ -1850,6 +1898,9 @@ static int __init drgn_test_init(void)
 	if (ret)
 		goto out;
 	ret = drgn_test_sysfs_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_crash_init();
 out:
 	if (ret)
 		drgn_test_exit();
