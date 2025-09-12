@@ -16,7 +16,11 @@ from drgn.helpers.common.format import (
     number_in_binary_units,
     print_table,
 )
-from drgn.helpers.linux.hugetlb import hugetlb_total_usage
+from drgn.helpers.linux.hugetlb import (
+    for_each_hstate,
+    huge_page_size,
+    hugetlb_total_usage,
+)
 from drgn.helpers.linux.mm import (
     for_each_vmap_area,
     global_node_page_state,
@@ -323,6 +327,48 @@ for va in for_each_vmap_area():
     print_table(rows)
 
 
+def _kmem_hstate(
+    prog: Program,
+    drgn_arg: bool,
+) -> None:
+    if drgn_arg:
+        sys.stdout.write(
+            """\
+from drgn.helpers.linux.hugetlb import for_each_hstate, huge_page_size
+
+
+for hstate in for_each_hstate(prog):
+    size = huge_page_size(hstate)
+    free = hstate.free_huge_pages
+    total = hstate.nr_huge_pages
+    name = hstate.name
+"""
+        )
+        return
+
+    rows: List[Sequence[Any]] = [
+        (
+            CellFormat("HSTATE", "^"),
+            CellFormat("SIZE", ">"),
+            CellFormat("FREE", ">"),
+            CellFormat("TOTAL", ">"),
+            "NAME",
+        )
+    ]
+    for hstate in for_each_hstate(prog):
+        rows.append(
+            (
+                CellFormat(hstate.value_(), "^x"),
+                CellFormat(number_in_binary_units(huge_page_size(hstate)) + "B", ">"),
+                hstate.free_huge_pages.value_(),
+                hstate.nr_huge_pages.value_(),
+                escape_ascii_string(hstate.name.string_(), escape_backslash=True),
+            )
+        )
+
+    print_table(rows)
+
+
 @crash_command(
     description="kernel memory",
     long_description="""
@@ -342,6 +388,12 @@ for va in for_each_vmap_area():
                 action="store_true",
                 help="display memory regions allocated with vmalloc()/vmap()",
             ),
+            argument(
+                "-h",
+                dest="hstate",
+                action="store_true",
+                help="display HugeTLB state",
+            ),
             required=True,
         ),
         drgn_argument,
@@ -354,6 +406,8 @@ def _crash_cmd_kmem(
         return _kmem_info(prog, args.drgn)
     if args.vmalloc:
         return _kmem_vmalloc(prog, args.drgn)
+    if args.hstate:
+        return _kmem_hstate(prog, args.drgn)
 
 
 @crash_command(

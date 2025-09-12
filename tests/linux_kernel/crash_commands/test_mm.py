@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import mmap
+import os
 import re
 
 from drgn.helpers.linux.mm import PageUsage
@@ -96,6 +97,22 @@ class TestKmem(CrashCommandTestCase):
         )
         for variable in ("start", "end", "size"):
             self.assertIn(variable, cmd.drgn_option.globals)
+
+    def test_h(self):
+        cmd = self.check_crash_command("kmem -h")
+        try:
+            names = os.listdir("/sys/kernel/mm/hugepages")
+        except FileNotFoundError:
+            names = []
+        for name in names:
+            self.assertIn(name, cmd.stdout)
+        self.assertIn("for_each_hstate(", cmd.drgn_option.stdout)
+        if names:
+            self.assertEqual(
+                cmd.drgn_option.globals["hstate"].type_.type_name(), "struct hstate *"
+            )
+            for variable in ("size", "free", "total", "name"):
+                self.assertIn(variable, cmd.drgn_option.globals)
 
 
 class TestSwap(CrashCommandTestCase):
