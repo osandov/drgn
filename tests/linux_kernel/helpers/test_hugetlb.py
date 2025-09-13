@@ -16,9 +16,13 @@ from tests.linux_kernel import LinuxKernelTestCase
 
 class TestHugetlb(LinuxKernelTestCase):
     def test_for_each_hstate(self):
+        try:
+            expected = os.listdir(b"/sys/kernel/mm/hugepages")
+        except FileNotFoundError:
+            expected = []
         self.assertCountEqual(
             [h.name.string_() for h in for_each_hstate(self.prog)],
-            os.listdir(b"/sys/kernel/mm/hugepages"),
+            expected,
         )
 
     def test_huge_page_size(self):
@@ -34,7 +38,10 @@ class TestHugetlb(LinuxKernelTestCase):
     # Also tests hugetlb_total_pages().
     def test_hugetlb_total_usage(self):
         nr_hugepages_path = Path("/proc/sys/vm/nr_hugepages")
-        old_nr_hugepages = int(nr_hugepages_path.read_text())
+        try:
+            old_nr_hugepages = int(nr_hugepages_path.read_text())
+        except FileNotFoundError:
+            old_nr_hugepages = None
         try:
             if old_nr_hugepages == 0:
                 nr_hugepages_path.write_text("1")

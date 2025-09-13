@@ -12,7 +12,7 @@ HugeTLB pages.
 
 from typing import Iterator
 
-from drgn import Object, Program
+from drgn import Object, ObjectNotFoundError, Program
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.mm import PageUsage
 
@@ -34,7 +34,12 @@ def for_each_hstate(prog: Program) -> Iterator[Object]:
 
     :return: Iterator of ``struct hstate *`` objects.
     """
-    return (h.address_of_() for h in prog["hstates"][: prog["hugetlb_max_hstate"]])
+    try:
+        hstates = prog["hstates"]
+    except ObjectNotFoundError:
+        # CONFIG_HUGETLBFS=n.
+        return iter(())
+    return (h.address_of_() for h in hstates[: prog["hugetlb_max_hstate"]])
 
 
 def huge_page_size(hstate: Object) -> Object:
