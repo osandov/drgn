@@ -31,8 +31,6 @@ from drgn.helpers.linux.hugetlb import (
 )
 from drgn.helpers.linux.mm import (
     for_each_vmap_area,
-    global_node_page_state,
-    nr_free_pages,
     totalram_pages,
     vm_commit_limit,
     vm_memory_committed,
@@ -54,6 +52,7 @@ from drgn.helpers.linux.swap import (
     swap_usage_in_pages,
     total_swapcache_pages,
 )
+from drgn.helpers.linux.vmstat import global_node_page_state, nr_free_pages
 
 
 @crash_command(
@@ -141,13 +140,14 @@ def _kmem_info(
         code.add_from_import("drgn.helpers.linux.hugetlb", "hugetlb_total_usage")
         code.add_from_import(
             "drgn.helpers.linux.mm",
-            "global_node_page_state",
-            "nr_free_pages",
             "totalram_pages",
             "vm_commit_limit",
             "vm_memory_committed",
         )
         code.add_from_import("drgn.helpers.linux.slab", "slab_total_usage")
+        code.add_from_import(
+            "drgn.helpers.linux.vmstat", "global_node_page_state", "nr_free_pages"
+        )
         code.add_from_import(
             "drgn.helpers.linux.swap", "swap_total_usage", "total_swapcache_pages"
         )

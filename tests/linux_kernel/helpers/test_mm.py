@@ -37,7 +37,6 @@ from drgn.helpers.linux.mm import (
     for_each_vma,
     for_each_vmap_area,
     get_task_rss_info,
-    nr_free_pages,
     page_size,
     page_to_pfn,
     page_to_phys,
@@ -451,13 +450,6 @@ class TestMm(LinuxKernelTestCase):
 
     def test_totalram_pages(self):
         self.assertEqual(totalram_pages(self.prog), meminfo_field_in_pages("MemTotal"))
-
-    def test_nr_free_pages(self):
-        self.assertAlmostEqual(
-            nr_free_pages(self.prog),
-            meminfo_field_in_pages("MemFree"),
-            delta=1024 * 1024 * 1024,
-        )
 
     def test_vm_commit_limit(self):
         overcommit_kbytes_path = Path("/proc/sys/vm/overcommit_kbytes")

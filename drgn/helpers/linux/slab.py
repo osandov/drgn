@@ -42,7 +42,6 @@ from drgn.helpers.linux.mm import (
     _get_PageSlab_impl,
     compound_head,
     for_each_page,
-    global_node_page_state,
     in_direct_map,
     page_to_virt,
     virt_to_page,
@@ -50,6 +49,7 @@ from drgn.helpers.linux.mm import (
 from drgn.helpers.linux.nodemask import for_each_online_node, nr_node_ids
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
+from drgn.helpers.linux.vmstat import global_node_page_state
 
 __all__ = (
     "find_containing_slab_cache",

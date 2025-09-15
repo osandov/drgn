@@ -14,7 +14,8 @@ from typing import Iterator
 from drgn import Object, ObjectNotFoundError, PlatformFlags, Program
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.fs import d_path
-from drgn.helpers.linux.mm import PageUsage, global_node_page_state
+from drgn.helpers.linux.mm import PageUsage
+from drgn.helpers.linux.vmstat import global_node_page_state
 
 __all__ = (
     "for_each_swap_info",
