@@ -66,7 +66,6 @@ __all__ = (
     "for_each_vmap_area",
     "global_node_page_state",
     "global_zone_page_state",
-    "nr_blockdev_pages",
     "nr_free_pages",
     "page_size",
     "page_to_pfn",
@@ -1461,19 +1460,6 @@ def global_zone_page_state(prog: Program, item: IntegerLike) -> int:
 def nr_free_pages(prog: Program) -> int:
     """Get the number of free memory pages."""
     return global_zone_page_state(prog["NR_FREE_PAGES"])
-
-
-@takes_program_or_default
-def nr_blockdev_pages(prog: Program) -> int:
-    """Get the number of pages used for block device buffers."""
-    return sum(
-        inode.i_mapping.nrpages.value_()
-        for inode in list_for_each_entry(
-            "struct inode",
-            prog["blockdev_superblock"].s_inodes.address_of_(),
-            "i_sb_list",
-        )
-    )
 
 
 @takes_program_or_default

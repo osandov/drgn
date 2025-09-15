@@ -26,6 +26,7 @@ __all__ = (
     "disk_name",
     "for_each_disk",
     "for_each_partition",
+    "nr_blockdev_pages",
     "part_devt",
     "part_name",
     "print_disks",
@@ -217,3 +218,16 @@ def print_partitions(prog: Program) -> None:
         print(
             f"{MAJOR(devt)}:{MINOR(devt)} {name} ({part.type_.type_name()})0x{part.value_():x}"
         )
+
+
+@takes_program_or_default
+def nr_blockdev_pages(prog: Program) -> int:
+    """Get the number of memory pages used for block device buffers."""
+    return sum(
+        inode.i_mapping.nrpages.value_()
+        for inode in list_for_each_entry(
+            "struct inode",
+            prog["blockdev_superblock"].s_inodes.address_of_(),
+            "i_sb_list",
+        )
+    )

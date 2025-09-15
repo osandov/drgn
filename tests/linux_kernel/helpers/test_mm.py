@@ -37,7 +37,6 @@ from drgn.helpers.linux.mm import (
     for_each_vma,
     for_each_vmap_area,
     get_task_rss_info,
-    nr_blockdev_pages,
     nr_free_pages,
     page_size,
     page_to_pfn,
@@ -457,13 +456,6 @@ class TestMm(LinuxKernelTestCase):
         self.assertAlmostEqual(
             nr_free_pages(self.prog),
             meminfo_field_in_pages("MemFree"),
-            delta=1024 * 1024 * 1024,
-        )
-
-    def test_nr_blockdev_pages(self):
-        self.assertAlmostEqual(
-            nr_blockdev_pages(self.prog),
-            meminfo_field_in_pages("Buffers"),
             delta=1024 * 1024 * 1024,
         )
 

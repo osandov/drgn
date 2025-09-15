@@ -22,6 +22,7 @@ from drgn.helpers.common.format import (
     number_in_binary_units,
     print_table,
 )
+from drgn.helpers.linux.block import nr_blockdev_pages
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.hugetlb import (
     for_each_hstate,
@@ -31,7 +32,6 @@ from drgn.helpers.linux.hugetlb import (
 from drgn.helpers.linux.mm import (
     for_each_vmap_area,
     global_node_page_state,
-    nr_blockdev_pages,
     nr_free_pages,
     totalram_pages,
     vm_commit_limit,
@@ -137,11 +137,11 @@ def _kmem_info(
 ) -> None:
     if drgn_arg:
         code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import("drgn.helpers.linux.block", "nr_blockdev_pages")
         code.add_from_import("drgn.helpers.linux.hugetlb", "hugetlb_total_usage")
         code.add_from_import(
             "drgn.helpers.linux.mm",
             "global_node_page_state",
-            "nr_blockdev_pages",
             "nr_free_pages",
             "totalram_pages",
             "vm_commit_limit",

@@ -11,11 +11,12 @@ from drgn.helpers.linux.block import (
     disk_name,
     for_each_disk,
     for_each_partition,
+    nr_blockdev_pages,
     part_devt,
     part_name,
 )
 from drgn.helpers.linux.device import MAJOR, MINOR
-from tests.linux_kernel import LinuxKernelTestCase
+from tests.linux_kernel import LinuxKernelTestCase, meminfo_field_in_pages
 
 
 class TestBlock(LinuxKernelTestCase):
@@ -60,3 +61,10 @@ class TestBlock(LinuxKernelTestCase):
             if part.type_.type.tag == "hd_struct":
                 self.skipTest("can't get bdev easily on old kernels")
             self.assertIdentical(bdev_partno(part), Object(self.prog, "u8", partition))
+
+    def test_nr_blockdev_pages(self):
+        self.assertAlmostEqual(
+            nr_blockdev_pages(self.prog),
+            meminfo_field_in_pages("Buffers"),
+            delta=1024 * 1024 * 1024,
+        )
