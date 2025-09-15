@@ -16,8 +16,10 @@ from drgn.commands import (
     mutually_exclusive_group,
 )
 from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command
+from drgn.helpers import ValidationError
 from drgn.helpers.common.format import (
     CellFormat,
+    RowOptions,
     escape_ascii_string,
     number_in_binary_units,
     print_table,
@@ -29,12 +31,16 @@ from drgn.helpers.linux.hugetlb import (
     huge_page_size,
     hugetlb_total_usage,
 )
+from drgn.helpers.linux.list import validate_list_count_nodes
 from drgn.helpers.linux.mm import (
+    PFN_PHYS,
     for_each_vmap_area,
+    pfn_to_page,
     totalram_pages,
     vm_commit_limit,
     vm_memory_committed,
 )
+from drgn.helpers.linux.mmzone import for_each_online_pgdat
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.slab import (
     SlabCorruptionError,
@@ -52,7 +58,11 @@ from drgn.helpers.linux.swap import (
     swap_usage_in_pages,
     total_swapcache_pages,
 )
-from drgn.helpers.linux.vmstat import global_node_page_state, nr_free_pages
+from drgn.helpers.linux.vmstat import (
+    global_node_page_state,
+    nr_free_pages,
+    zone_page_state,
+)
 
 
 @crash_command(
@@ -128,6 +138,189 @@ def _crash_cmd_ptob(
     PAGE_SHIFT = prog["PAGE_SHIFT"].value_()
     for pfn in args.pfn:
         print(f"{pfn:x}: {pfn << PAGE_SHIFT:x}")
+
+
+def _kmem_free(prog: Program, drgn_arg: bool) -> None:
+    if drgn_arg:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import("drgn.helpers.linux.list", "validate_list_count_nodes")
+        code.add_from_import("drgn.helpers.linux.mm", "PFN_PHYS", "pfn_to_page")
+        code.add_from_import("drgn.helpers.linux.mmzone", "for_each_online_pgdat")
+        code.add_from_import(
+            "drgn.helpers.linux.vmstat", "nr_free_pages", "zone_page_state"
+        )
+        code.append(
+            """\
+actual_free_pages = 0
+for pgdat in for_each_online_pgdat():
+    for zone in pgdat.node_zones:
+        name = zone.name
+        size = zone.spanned_pages
+        if size == 0:
+            continue
+        free = zone_page_state(zone, prog["NR_FREE_PAGES"])
+        start_pfn = zone.zone_start_pfn.read_()
+        mem_map = pfn_to_page(start_pfn)
+        start_paddr = PFN_PHYS(start_pfn)
+
+        for order, free_area in enumerate(zone.free_area):
+            block_size = prog["PAGE_SIZE"] << order
+            for migrate_type, free_list in enumerate(free_area.free_list):
+"""
+        )
+        if prog.flags & ProgramFlags.IS_LIVE:
+            code.add_from_import("drgn", "FaultError")
+            code.add_from_import("drgn.helpers", "ValidationError")
+            code.append(
+                """\
+                # This is racy. Retry a few times if needed.
+                num_attempts = 10
+                for attempt in range(num_attempts):
+                    try:
+        """
+            )
+        code.append(
+            """\
+                blocks = validate_list_count_nodes(free_list.address_of_())
+"""
+        )
+        if prog.flags & ProgramFlags.IS_LIVE:
+            code.append(
+                """\
+                    except (FaultError, ValidationError):
+                        if attempt == num_attempts - 1:
+                            raise
+"""
+            )
+        code.append(
+            """\
+                pages = blocks << order
+                actual_free_pages += pages
+
+expected_free_pages = nr_free_pages()
+"""
+        )
+        code.print()
+        return
+
+    migrate_types = {
+        enumerator.value: enumerator.name[len("MIGRATE_") :]
+        # enum migratetype was anonymous until Linux kernel commit a6ffdc07847e
+        # ("mm: use is_migrate_highatomic() to simplify the code") (in v4.12).
+        for enumerator in prog["MIGRATE_UNMOVABLE"].type_.enumerators  # type: ignore[union-attr]
+        if enumerator.name.startswith("MIGRATE_")
+    }
+
+    pgdats = list(for_each_online_pgdat(prog))
+    if len(pgdats) > 1:
+        node_header: Sequence[Any] = (CellFormat("NODE", ">"),)
+    else:
+        node_header = ()
+
+    rows: List[Sequence[Any]] = []
+    first = True
+    total_free_pages = 0
+    for pgdat in pgdats:
+        for i, zone in enumerate(pgdat.node_zones):
+            if len(pgdats) > 1:
+                node_row: Sequence[Any] = (pgdat.node_id.value_(),)
+            else:
+                node_row = ()
+            size = zone.spanned_pages.value_()
+
+            if first:
+                first = False
+            else:
+                rows.append(())
+            rows.append(
+                RowOptions(
+                    (
+                        *node_header,
+                        CellFormat("ZONE", "^"),
+                        "NAME",
+                        CellFormat("SIZE", ">"),
+                        CellFormat("FREE", ">"),
+                        CellFormat("MEM_MAP", "^"),
+                        "START_PADDR",
+                        "START_PFN",
+                    ),
+                    group=1,
+                )
+            )
+
+            if size == 0:
+                free = 0
+                mem_map_cell = start_paddr_cell = start_pfn_cell = CellFormat(0, "^")
+            else:
+                free = zone_page_state(zone, prog["NR_FREE_PAGES"])
+                start_pfn = zone.zone_start_pfn.read_()
+                mem_map_cell = CellFormat(pfn_to_page(start_pfn).value_(), "^x")
+                start_paddr_cell = CellFormat(PFN_PHYS(start_pfn).value_(), "^x")
+                start_pfn_cell = CellFormat(start_pfn.value_(), "^")
+            rows.append(
+                RowOptions(
+                    (
+                        *node_row,
+                        CellFormat(i, "^"),
+                        escape_ascii_string(zone.name.string_(), escape_backslash=True),
+                        size,
+                        free,
+                        mem_map_cell,
+                        start_paddr_cell,
+                        start_pfn_cell,
+                    ),
+                    group=1,
+                )
+            )
+
+            if size == 0:
+                continue
+
+            rows.append(
+                (
+                    CellFormat("ORDER", "^"),
+                    CellFormat("SIZE", ">"),
+                    "MIGRATE",
+                    CellFormat("FREE_LIST", "^"),
+                    CellFormat("BLOCKS", ">"),
+                    CellFormat("PAGES", ">"),
+                )
+            )
+            for order, free_area in enumerate(zone.free_area):
+                size = (prog["PAGE_SIZE"].value_() << order) // 1024
+                size_cell = CellFormat(f"{size}k", ">")
+                for migrate_type, free_list in enumerate(free_area.free_list):
+                    blocks: Any = "[CORRUPTED]"
+                    pages: Any = ""
+                    # Walking free lists is racy. Retry a limited number of
+                    # times on live kernels.
+                    for _ in range(10):
+                        try:
+                            blocks = validate_list_count_nodes(free_list.address_of_())
+                        except (FaultError, ValidationError):
+                            if not (prog.flags & ProgramFlags.IS_LIVE):
+                                break
+                        else:
+                            pages = blocks << order
+                            total_free_pages += pages
+                    rows.append(
+                        (
+                            CellFormat(order, "^"),
+                            size_cell,
+                            migrate_types[migrate_type],
+                            CellFormat(free_list.address_, "^x"),
+                            blocks,
+                            pages,
+                        ),
+                    )
+    print_table(rows)
+
+    free_pages = nr_free_pages(prog)
+    if free_pages == total_free_pages:
+        verified = "verified"
+    else:
+        verified = f"found {total_free_pages}"
+    print(f"\nnr_free_pages: {free_pages}  ({verified})")
 
 
 def _kmem_info(
@@ -544,6 +737,12 @@ if cache:
     arguments=(
         mutually_exclusive_group(
             argument(
+                "-f",
+                dest="free",
+                action="store_true",
+                help="display and verify page allocator free lists",
+            ),
+            argument(
                 "-i",
                 dest="info",
                 action="store_true",
@@ -616,6 +815,8 @@ def _crash_cmd_kmem(
     else:
         slab_cache_names = None
 
+    if args.free:
+        return _kmem_free(prog, args.drgn)
     if args.info:
         return _kmem_info(prog, args.drgn)
     if args.vmalloc:

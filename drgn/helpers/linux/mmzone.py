@@ -15,7 +15,6 @@ from drgn import IntegerLike, Object, ObjectNotFoundError, Program
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.nodemask import for_each_online_node
 
-
 __all__ = (
     "NODE_DATA",
     "for_each_online_pgdat",

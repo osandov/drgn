@@ -63,6 +63,56 @@ skip_unless_kmem_s_supported = unittest.skipUnless(
 
 
 class TestKmem(CrashCommandTestCase):
+    def test_f(self):
+        cmd = self.check_crash_command("kmem -f")
+
+        expected = set(
+            re.findall(
+                r"^Node\s+([0-9]+)\s*,\s*zone\s+(\w+)",
+                Path("/proc/zoneinfo").read_text(),
+                flags=re.MULTILINE,
+            )
+        )
+        actual = set()
+        header = 0
+        for line in cmd.stdout.splitlines():
+            if header == 0:
+                match = re.match(r"(NODE\s+)?ZONE", line)
+                if match:
+                    header = 2 if match.group(1) else 1
+            else:
+                if header == 1:
+                    actual.add(("0", re.match(r"\s*[0-9]+\s+(\w+)", line).group(1)))
+                else:
+                    actual.add(re.match(r"\s*([0-9]+)\s+[0-9]+\s+(\w+)", line).groups())
+                header = 0
+        # Since Linux kernel commit b2bd8598195f ("mm, vmstat: print
+        # non-populated zones in zoneinfo") (in v4.12), these should be equal,
+        # but before that, /proc/zoneinfo doesn't include all zones.
+        self.assertGreaterEqual(actual, expected)
+        self.assertRegex(cmd.stdout, r"nr_free_pages: [0-9]+")
+
+        for variable in (
+            "zone",
+            "name",
+            "size",
+            "free",
+            "mem_map",
+            "start_paddr",
+            "start_pfn",
+            "order",
+            "block_size",
+            "migrate_type",
+            "blocks",
+            "pages",
+        ):
+            self.assertIn(variable, cmd.drgn_option.globals)
+        for variable in (
+            "expected_free_pages",
+            "actual_free_pages",
+        ):
+            self.assertIsInstance(cmd.drgn_option.globals[variable], int)
+
     def test_i(self):
         cmd = self.check_crash_command("kmem -i")
         for label in (
