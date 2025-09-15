@@ -9,16 +9,23 @@ The ``drgn.helpers.common.format`` module provides generic helpers for
 formatting different things as text.
 """
 
+import collections
 import re
 from typing import (
     TYPE_CHECKING,
     Any,
+    Dict,
+    Hashable,
     Iterable,
+    Iterator,
     List,
     Optional,
     Sequence,
     SupportsFloat,
     Tuple,
+    TypeVar,
+    Union,
+    overload,
 )
 
 from drgn import IntegerLike, Type
@@ -28,6 +35,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     "CellFormat",
+    "RowOptions",
     "decode_enum_type_flags",
     "decode_flags",
     "double_quote_ascii_string",
@@ -36,6 +44,8 @@ __all__ = (
     "number_in_binary_units",
     "print_table",
 )
+
+_T_co = TypeVar("_T_co", covariant=True)
 
 
 def escape_ascii_character(
@@ -306,12 +316,38 @@ def print_table(
     DECIMAL  HEXADECIMAL
     10       a
 
+    Rows can also be aligned in separate groups by wrapping them in a
+    :class:`RowOptions`. The default group is 0.
+
+    >>> print_table(
+    ...     [
+    ...         ["LETTER", "INDEX"],
+    ...         ["A", 1],
+    ...         RowOptions(["WORD", "LENGTH"], group=1),
+    ...         RowOptions(["angstrom", 8], group=1),
+    ...         ["LETTER", "INDEX"],
+    ...         ["B", 2],
+    ...         RowOptions(["WORD", "LENGTH"], group=1),
+    ...         RowOptions(["banana", 6], group=1),
+    ...     ]
+    ... )
+    ...
+    LETTER  INDEX
+    A           1
+    WORD      LENGTH
+    angstrom       8
+    LETTER  INDEX
+    B           2
+    WORD      LENGTH
+    banana         6
+
     :param rows: Sequence of rows, where each row is a sequence of cells.
     :param sep: Column separator.
     :param file: File to write to (defaults to ``sys.stdout``).
     """
-    width: List[int] = []
+    width_by_group: Dict[Any, List[int]] = collections.defaultdict(list)
     for row in rows:
+        width = width_by_group[row._group if isinstance(row, RowOptions) else 0]
         for i, value in enumerate(row):
             cell_width = len(str(value))
             if i < len(width):
@@ -320,6 +356,7 @@ def print_table(
                 width.append(cell_width)
 
     for row in rows:
+        width = width_by_group[row._group if isinstance(row, RowOptions) else 0]
         print(
             *(
                 f"{value:{width[i]}}".rstrip(" " if i == len(row) - 1 else "")
@@ -376,3 +413,42 @@ class CellFormat:
 
     def __format__(self, format_spec: str) -> str:
         return f"{self._value:{self._options}{format_spec}{self._rest}}"
+
+
+class RowOptions(Sequence[_T_co]):
+    def __init__(self, row: Sequence[_T_co], *, group: Hashable = 0) -> None:
+        """
+        Wrap a row with additional options to apply when it is formatted by
+        :func:`print_table()`.
+
+        :param row: Row to wrap.
+        :param group: Align this row only with other rows in this group.
+        """
+        self._seq = row
+        self._group = group
+
+    def __iter__(self) -> Iterator[_T_co]:
+        return iter(self._seq)
+
+    def __contains__(self, x: object, /) -> bool:
+        return x in self._seq
+
+    def __len__(self) -> int:
+        return len(self._seq)
+
+    def __reversed__(self) -> Iterator[_T_co]:
+        return reversed(self._seq)
+
+    @overload
+    def __getitem__(self, index: int) -> _T_co: ...
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[_T_co]: ...
+
+    def __getitem__(self, index: Union[int, slice]) -> Union[_T_co, Sequence[_T_co]]:
+        return self._seq[index]
+
+    def index(self, *args: Any) -> int:
+        return self._seq.index(*args)
+
+    def count(self, value: Any) -> int:
+        return self._seq.count(value)

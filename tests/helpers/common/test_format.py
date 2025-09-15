@@ -6,6 +6,7 @@ import io
 from drgn import Program, TypeEnumerator
 from drgn.helpers.common.format import (
     CellFormat,
+    RowOptions,
     decode_enum_type_flags,
     decode_flags,
     number_in_binary_units,
@@ -169,5 +170,29 @@ class TestPrintTable(TestCase):
             """\
 DECIMAL  HEXADECIMAL
 10       a
+""",
+        )
+
+    def test_row_options(self):
+        self.assert_print_table(
+            [
+                ["LETTER", "INDEX"],
+                ["A", 1],
+                RowOptions(["WORD", "LENGTH"], group=1),
+                RowOptions(["angstrom", 8], group=1),
+                ["LETTER", "INDEX"],
+                ["B", 2],
+                RowOptions(["WORD", "LENGTH"], group=1),
+                RowOptions(["banana", 6], group=1),
+            ],
+            """\
+LETTER  INDEX
+A           1
+WORD      LENGTH
+angstrom       8
+LETTER  INDEX
+B           2
+WORD      LENGTH
+banana         6
 """,
         )
