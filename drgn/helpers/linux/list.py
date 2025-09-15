@@ -32,6 +32,7 @@ __all__ = (
     "list_next_entry",
     "list_prev_entry",
     "validate_list",
+    "validate_list_count_nodes",
     "validate_list_for_each",
     "validate_list_for_each_entry",
 )
@@ -212,6 +213,16 @@ def validate_list(head: Object) -> None:
     """
     for _ in validate_list_for_each(head):
         pass
+
+
+def validate_list_count_nodes(head: Object) -> int:
+    """
+    Like :func:`list_count_nodes()`, but validates the list like
+    :func:`validate_list()` while iterating.
+
+    :param head: ``struct list_head *``
+    """
+    return sum(1 for _ in validate_list_for_each(head))
 
 
 def validate_list_for_each(head: Object) -> Iterator[Object]:

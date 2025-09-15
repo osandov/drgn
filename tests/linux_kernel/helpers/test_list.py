@@ -22,6 +22,7 @@ from drgn.helpers.linux.list import (
     list_next_entry,
     list_prev_entry,
     validate_list,
+    validate_list_count_nodes,
     validate_list_for_each,
     validate_list_for_each_entry,
 )
@@ -175,6 +176,12 @@ class TestList(LinuxKernelTestCase):
         for head in (self.empty, self.full, self.singular):
             validate_list(head)
         self.assertRaises(ValidationError, validate_list, self.corrupted)
+
+    def test_validate_list_count_nodes(self):
+        self.assertEqual(validate_list_count_nodes(self.empty), 0)
+        self.assertEqual(validate_list_count_nodes(self.full), self.num_entries)
+        self.assertEqual(validate_list_count_nodes(self.singular), 1)
+        self.assertRaises(ValidationError, validate_list_count_nodes, self.corrupted)
 
     def test_validate_list_for_each(self):
         for head in (self.empty, self.full, self.singular):
