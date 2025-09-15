@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import errno
 import mmap
 import os
 from pathlib import Path
@@ -40,7 +41,9 @@ class TestHugetlb(LinuxKernelTestCase):
         nr_hugepages_path = Path("/proc/sys/vm/nr_hugepages")
         try:
             old_nr_hugepages = int(nr_hugepages_path.read_text())
-        except FileNotFoundError:
+        except OSError as e:
+            if e.errno not in (errno.ENOENT, errno.EOPNOTSUPP):
+                raise
             old_nr_hugepages = None
         try:
             if old_nr_hugepages == 0:
