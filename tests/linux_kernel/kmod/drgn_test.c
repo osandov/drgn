@@ -25,8 +25,10 @@
 #define HAVE_MAPLE_TREE 0
 #endif
 #include <linux/mm.h>
+#include <linux/mmzone.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
+#include <linux/nodemask.h>
 #include <linux/plist.h>
 #include <linux/radix-tree.h>
 #include <linux/rbtree.h>
@@ -506,6 +508,17 @@ static void drgn_test_mm_exit(void)
 		__free_pages(drgn_test_compound_page, 1);
 	if (drgn_test_page)
 		__free_pages(drgn_test_page, 0);
+}
+
+// mmzone
+
+int drgn_test_nid;
+struct pglist_data *drgn_test_pgdat;
+
+static void drgn_test_mmzone_init(void)
+{
+	drgn_test_nid = first_online_node;
+	drgn_test_pgdat = NODE_DATA(drgn_test_nid);
 }
 
 // net
@@ -1770,6 +1783,7 @@ static int __init drgn_test_init(void)
 	ret = drgn_test_mm_init();
 	if (ret)
 		goto out;
+	drgn_test_mmzone_init();
 	ret = drgn_test_net_init();
 	if (ret)
 		goto out;
