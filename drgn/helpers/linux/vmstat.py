@@ -9,7 +9,7 @@ The ``drgn.helpers.linux.vmstat`` module provides helpers for reading virtual
 memory statistics.
 """
 
-from drgn import IntegerLike, Program
+from drgn import IntegerLike, Object, Program
 from drgn.helpers.common.prog import takes_program_or_default
 
 __all__ = (
@@ -22,7 +22,7 @@ __all__ = (
 @takes_program_or_default
 def global_node_page_state(prog: Program, item: IntegerLike) -> int:
     """
-    Get the value of a node VM statistic.
+    Get the global value of a node VM statistic.
 
     >>> global_node_page_state(prog["NR_FILE_PAGES"])
     2257904
@@ -32,10 +32,17 @@ def global_node_page_state(prog: Program, item: IntegerLike) -> int:
     return max(prog["vm_node_stat"][item].counter.value_(), 0)
 
 
+def zone_page_state(zone: Object, item: IntegerLike) -> int:
+    """
+    Get the value of a zone VM statistic in a single zone.
+    """
+    return max(zone.vm_stat[item].counter.value_(), 0)
+
+
 @takes_program_or_default
 def global_zone_page_state(prog: Program, item: IntegerLike) -> int:
     """
-    Get the value of a zone VM statistic.
+    Get the global value of a zone VM statistic.
 
     >>> global_zone_page_state(prog["NR_MLOCK"])
     1562
