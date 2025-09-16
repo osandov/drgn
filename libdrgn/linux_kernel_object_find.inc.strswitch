@@ -22,6 +22,10 @@ linux_kernel_object_find(const char *name, size_t name_len,
 			if (flags & DRGN_FIND_OBJECT_CONSTANT)
 				return linux_kernel_get_page_mask(prog, ret);
 			break;
+		@case "THREAD_SIZE"@
+			if (flags & DRGN_FIND_OBJECT_CONSTANT)
+				return linux_kernel_get_thread_size(prog, ret);
+			break;
 		@case "UTS_RELEASE"@
 			if (flags & DRGN_FIND_OBJECT_CONSTANT)
 				return linux_kernel_get_uts_release(prog, ret);

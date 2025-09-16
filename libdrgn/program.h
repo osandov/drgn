@@ -239,6 +239,9 @@ struct drgn_program {
 			 * Whether @ref drgn_program::mod_text has been cached.
 			 */
 			bool mod_text_cached;
+			/**
+			 * Cached value of `THREAD_SIZE` in the kernel. */
+			uint64_t thread_size_cached;
 			/*
 			 * Whether we are currently in address translation. Used
 			 * to prevent address translation from recursing.
