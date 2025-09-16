@@ -117,7 +117,25 @@ __all__ = (
     "PageWriteback",
     "PageXenRemapped",
     "PageYoung",
+    "get_page_flags",
 )
+
+
+def get_page_flags(page: Object) -> int:
+    """
+    Return the integer representation of a page's flags.
+    Handles both legacy unsigned long flags and memdesc_flags_t (flags.f).
+
+    :param page: ``struct page *``
+    """
+
+    # Since Linux kernel 6.18 (linux-next，"mm: introduce memdesc_flags_t")
+    # struct page->flags is no longer an unsigned long, but a memdesc_flags_t
+    # containing the actual flags in '.f'.
+    try:
+        return int(page.flags.f)
+    except AttributeError:
+        return int(page.flags)
 
 
 def PageActive(page: Object) -> bool:
@@ -130,7 +148,7 @@ def PageActive(page: Object) -> bool:
         flag = page.prog_["PG_active"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageChecked(page: Object) -> bool:
@@ -143,7 +161,7 @@ def PageChecked(page: Object) -> bool:
         flag = page.prog_["PG_checked"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageDirty(page: Object) -> bool:
@@ -156,7 +174,7 @@ def PageDirty(page: Object) -> bool:
         flag = page.prog_["PG_dirty"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageDoubleMap(page: Object) -> bool:
@@ -169,7 +187,7 @@ def PageDoubleMap(page: Object) -> bool:
         flag = page.prog_["PG_double_map"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageError(page: Object) -> bool:
@@ -182,7 +200,7 @@ def PageError(page: Object) -> bool:
         flag = page.prog_["PG_error"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageForeign(page: Object) -> bool:
@@ -195,7 +213,7 @@ def PageForeign(page: Object) -> bool:
         flag = page.prog_["PG_foreign"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageHWPoison(page: Object) -> bool:
@@ -208,7 +226,7 @@ def PageHWPoison(page: Object) -> bool:
         flag = page.prog_["PG_hwpoison"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageHasHWPoisoned(page: Object) -> bool:
@@ -221,7 +239,7 @@ def PageHasHWPoisoned(page: Object) -> bool:
         flag = page.prog_["PG_has_hwpoisoned"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageIdle(page: Object) -> bool:
@@ -234,7 +252,7 @@ def PageIdle(page: Object) -> bool:
         flag = page.prog_["PG_idle"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageIsolated(page: Object) -> bool:
@@ -247,7 +265,7 @@ def PageIsolated(page: Object) -> bool:
         flag = page.prog_["PG_isolated"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageLRU(page: Object) -> bool:
@@ -260,7 +278,7 @@ def PageLRU(page: Object) -> bool:
         flag = page.prog_["PG_lru"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageLocked(page: Object) -> bool:
@@ -273,7 +291,7 @@ def PageLocked(page: Object) -> bool:
         flag = page.prog_["PG_locked"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageMappedToDisk(page: Object) -> bool:
@@ -286,7 +304,7 @@ def PageMappedToDisk(page: Object) -> bool:
         flag = page.prog_["PG_mappedtodisk"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageMlocked(page: Object) -> bool:
@@ -299,7 +317,7 @@ def PageMlocked(page: Object) -> bool:
         flag = page.prog_["PG_mlocked"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageOwnerPriv1(page: Object) -> bool:
@@ -312,7 +330,7 @@ def PageOwnerPriv1(page: Object) -> bool:
         flag = page.prog_["PG_owner_priv_1"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PagePinned(page: Object) -> bool:
@@ -325,7 +343,7 @@ def PagePinned(page: Object) -> bool:
         flag = page.prog_["PG_pinned"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PagePrivate(page: Object) -> bool:
@@ -338,7 +356,7 @@ def PagePrivate(page: Object) -> bool:
         flag = page.prog_["PG_private"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PagePrivate2(page: Object) -> bool:
@@ -351,7 +369,7 @@ def PagePrivate2(page: Object) -> bool:
         flag = page.prog_["PG_private_2"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageReadahead(page: Object) -> bool:
@@ -364,7 +382,7 @@ def PageReadahead(page: Object) -> bool:
         flag = page.prog_["PG_readahead"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageReclaim(page: Object) -> bool:
@@ -377,7 +395,7 @@ def PageReclaim(page: Object) -> bool:
         flag = page.prog_["PG_reclaim"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageReferenced(page: Object) -> bool:
@@ -390,7 +408,7 @@ def PageReferenced(page: Object) -> bool:
         flag = page.prog_["PG_referenced"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageReported(page: Object) -> bool:
@@ -403,7 +421,7 @@ def PageReported(page: Object) -> bool:
         flag = page.prog_["PG_reported"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageReserved(page: Object) -> bool:
@@ -416,7 +434,7 @@ def PageReserved(page: Object) -> bool:
         flag = page.prog_["PG_reserved"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageSavePinned(page: Object) -> bool:
@@ -429,7 +447,7 @@ def PageSavePinned(page: Object) -> bool:
         flag = page.prog_["PG_savepinned"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageSkipKASanPoison(page: Object) -> bool:
@@ -442,7 +460,7 @@ def PageSkipKASanPoison(page: Object) -> bool:
         flag = page.prog_["PG_skip_kasan_poison"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageSlobFree(page: Object) -> bool:
@@ -455,7 +473,7 @@ def PageSlobFree(page: Object) -> bool:
         flag = page.prog_["PG_slob_free"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageSwapBacked(page: Object) -> bool:
@@ -468,7 +486,7 @@ def PageSwapBacked(page: Object) -> bool:
         flag = page.prog_["PG_swapbacked"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageUncached(page: Object) -> bool:
@@ -481,7 +499,7 @@ def PageUncached(page: Object) -> bool:
         flag = page.prog_["PG_uncached"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageUnevictable(page: Object) -> bool:
@@ -494,7 +512,7 @@ def PageUnevictable(page: Object) -> bool:
         flag = page.prog_["PG_unevictable"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageUptodate(page: Object) -> bool:
@@ -507,7 +525,7 @@ def PageUptodate(page: Object) -> bool:
         flag = page.prog_["PG_uptodate"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageVmemmapSelfHosted(page: Object) -> bool:
@@ -520,7 +538,7 @@ def PageVmemmapSelfHosted(page: Object) -> bool:
         flag = page.prog_["PG_vmemmap_self_hosted"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageWaiters(page: Object) -> bool:
@@ -533,7 +551,7 @@ def PageWaiters(page: Object) -> bool:
         flag = page.prog_["PG_waiters"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageWorkingset(page: Object) -> bool:
@@ -546,7 +564,7 @@ def PageWorkingset(page: Object) -> bool:
         flag = page.prog_["PG_workingset"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageWriteback(page: Object) -> bool:
@@ -559,7 +577,7 @@ def PageWriteback(page: Object) -> bool:
         flag = page.prog_["PG_writeback"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageXenRemapped(page: Object) -> bool:
@@ -572,7 +590,7 @@ def PageXenRemapped(page: Object) -> bool:
         flag = page.prog_["PG_xen_remapped"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 def PageYoung(page: Object) -> bool:
@@ -585,7 +603,7 @@ def PageYoung(page: Object) -> bool:
         flag = page.prog_["PG_young"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 
 
 # End generated by scripts/generate_page_flag_getters.py.
@@ -614,7 +632,7 @@ def _get_PageSlab_impl(prog: Program) -> Callable[[Object], bool]:
         mask = 1 << prog["PG_slab"]
 
         def PageSlab(page: Object) -> bool:
-            return bool(page.flags & mask)
+            return bool(get_page_flags(page) & mask)
 
     prog.cache["PageSlab"] = PageSlab
     return PageSlab
@@ -647,9 +665,9 @@ def PageCompound(page: Object) -> bool:
     try:
         PG_head = page.prog_["PG_head"]
     except KeyError:
-        return bool(page.flags & (1 << page.prog_["PG_compound"]))
+        return bool(get_page_flags(page) & (1 << page.prog_["PG_compound"]))
     else:
-        flags = page.flags.read_()
+        flags = get_page_flags(page)
         if flags & (1 << PG_head):
             return True
         try:
@@ -682,9 +700,9 @@ def PageHead(page: Object) -> bool:
         PG_compound = page.prog_["PG_compound"]
         PG_head_mask = 1 << PG_compound
         PG_head_tail_mask = PG_head_mask | (1 << page.prog_["PG_reclaim"])
-        return (page.flags & PG_head_tail_mask) == PG_head_mask
+        return (get_page_flags(page) & PG_head_tail_mask) == PG_head_mask
     else:
-        if not (page.flags & (1 << PG_head)):
+        if not (get_page_flags(page) & (1 << PG_head)):
             return False
         try:
             return not _page_is_fake_head(page)
@@ -711,10 +729,10 @@ def PageTail(page: Object) -> bool:
             PG_head_tail_mask = (1 << page.prog_["PG_compound"]) | (
                 1 << page.prog_["PG_reclaim"]
             )
-            return (page.flags & PG_head_tail_mask) == PG_head_tail_mask
+            return (get_page_flags(page) & PG_head_tail_mask) == PG_head_tail_mask
         else:
-            return bool(page.flags & (1 << PG_tail))
-    if page.flags & (1 << page.prog_["PG_head"]):
+            return bool(get_page_flags(page) & (1 << PG_tail))
+    if get_page_flags(page) & (1 << page.prog_["PG_head"]):
         return _page_is_fake_head(page)
     return False
 
@@ -740,7 +758,7 @@ def compound_head(page: Object) -> Object:
     if head & 1:
         return cast(page.type_, head - 1)
     # Handle fake head pages (see _page_is_fake_head()).
-    if page.flags & (1 << page.prog_["PG_head"]):
+    if get_page_flags(page) & (1 << page.prog_["PG_head"]):
         head = page[1].compound_head.read_()
         if head & 1:
             return cast(page.type_, head - 1)
@@ -822,7 +840,7 @@ def decode_page_flags(page: Object) -> str:
     NR_PAGEFLAGS = page.prog_["__NR_PAGEFLAGS"]
     PAGEFLAGS_MASK = (1 << NR_PAGEFLAGS.value_()) - 1
     return decode_enum_type_flags(
-        page.flags.value_() & PAGEFLAGS_MASK, NR_PAGEFLAGS.type_
+        get_page_flags(page) & PAGEFLAGS_MASK, NR_PAGEFLAGS.type_
     )
 
 

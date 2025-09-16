@@ -42,7 +42,7 @@ def Page{uname}(page: Object) -> bool:
         flag = page.prog_["PG_{lname}"]
     except KeyError:
         return False
-    return bool(page.flags & (1 << flag))
+    return bool(get_page_flags(page) & (1 << flag))
 '''
         )
     print()
