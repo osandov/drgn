@@ -323,15 +323,36 @@ fallback_unwind_x86_64(struct drgn_program *prog,
 	if (!rbp.has_value)
 		return &drgn_stop;
 
-	err = get_registers_from_frame_pointer(prog, rbp.value, ret);
-	if (err) {
-		if (err->code == DRGN_ERROR_FAULT) {
-			drgn_error_destroy(err);
-			err = &drgn_stop;
+	if ((prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) && (rbp.value & 1)) {
+		// A frame pointer value with the LSB set is unaligned, and so
+		// it would likely be garbage. The x86_64 Linux kernel uses this
+		// to signal an "encoded" pt_regs (see decode_frame_pointer()).
+		// Try to treat this as an encoded frame pointer. On failure,
+		// don't bother trying the frame pointer unwind due to the
+		// unaligned RBP.
+		uint64_t regs_addr = rbp.value & ~1UL;
+		char pt_regs[168];
+		err = drgn_program_read_memory(prog, &pt_regs, regs_addr,
+					       sizeof(pt_regs), false);
+		if (err) {
+			if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
+				err = &drgn_stop;
+			return err;
 		}
-		return err;
+		err = get_initial_registers_from_struct_x86_64(prog, &pt_regs,
+							       sizeof(pt_regs),
+							       false, ret);
+		if (err)
+			return err;
+	} else {
+		err = get_registers_from_frame_pointer(prog, rbp.value, ret);
+		if (err) {
+			if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
+				err = &drgn_stop;
+			return err;
+		}
+		drgn_register_state_set_cfa(prog, regs, rbp.value + 16);
 	}
-	drgn_register_state_set_cfa(prog, regs, rbp.value + 16);
 	return NULL;
 }
 
