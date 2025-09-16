@@ -154,47 +154,29 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_program *prog)
 	return drgn_program_parse_vmcoreinfo(prog, buf + 24, nhdr->n_descsz);
 }
 
-static struct drgn_error *linux_kernel_get_page_shift(struct drgn_program *prog,
-						      struct drgn_object *ret)
-{
-	struct drgn_error *err;
-	struct drgn_qualified_type qualified_type;
-	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_INT,
-					       &qualified_type.type);
-	if (err)
-		return err;
-	qualified_type.qualifiers = 0;
-	return drgn_object_set_signed(ret, qualified_type,
-				      prog->vmcoreinfo.page_shift, 0);
+#define LINUX_KERNEL_GET_PRIMITIVE(name, primitive_type, signed_unsigned, expr)	\
+static struct drgn_error *linux_kernel_get_##name(struct drgn_program *prog,	\
+						  struct drgn_object *ret)	\
+{										\
+	struct drgn_error *err;							\
+	struct drgn_qualified_type qualified_type;				\
+	err = drgn_program_find_primitive_type(prog, (primitive_type),		\
+					       &qualified_type.type);		\
+	if (err)								\
+		return err;							\
+	qualified_type.qualifiers = 0;						\
+	return drgn_object_set_##signed_unsigned(ret, qualified_type, (expr),	\
+						 0);				\
 }
 
-static struct drgn_error *linux_kernel_get_page_size(struct drgn_program *prog,
-						     struct drgn_object *ret)
-{
-	struct drgn_error *err;
-	struct drgn_qualified_type qualified_type;
-	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_UNSIGNED_LONG,
-					       &qualified_type.type);
-	if (err)
-		return err;
-	qualified_type.qualifiers = 0;
-	return drgn_object_set_unsigned(ret, qualified_type,
-					prog->vmcoreinfo.page_size, 0);
-}
+LINUX_KERNEL_GET_PRIMITIVE(page_shift, DRGN_C_TYPE_INT, signed,
+			   prog->vmcoreinfo.page_shift)
 
-static struct drgn_error *linux_kernel_get_page_mask(struct drgn_program *prog,
-						     struct drgn_object *ret)
-{
-	struct drgn_error *err;
-	struct drgn_qualified_type qualified_type;
-	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_UNSIGNED_LONG,
-					       &qualified_type.type);
-	if (err)
-		return err;
-	qualified_type.qualifiers = 0;
-	return drgn_object_set_unsigned(ret, qualified_type,
-					~(prog->vmcoreinfo.page_size - 1), 0);
-}
+LINUX_KERNEL_GET_PRIMITIVE(page_size, DRGN_C_TYPE_UNSIGNED_LONG, unsigned,
+			   prog->vmcoreinfo.page_size)
+
+LINUX_KERNEL_GET_PRIMITIVE(page_mask, DRGN_C_TYPE_UNSIGNED_LONG, unsigned,
+			   ~(prog->vmcoreinfo.page_size - 1))
 
 static struct drgn_error *linux_kernel_get_thread_size(struct drgn_program *prog,
 						       struct drgn_object *ret)
