@@ -223,6 +223,11 @@ struct drgn_program {
 				char *raw;
 				size_t raw_size;
 			} vmcoreinfo;
+			/**
+			 * Value of `THREAD_SIZE` in the kernel, or 0 if not
+			 * cached yet.
+			 */
+			uint64_t thread_size_cached;
 			/*
 			 * Difference between a virtual address in the direct
 			 * mapping and the physical address it maps to.
@@ -239,9 +244,6 @@ struct drgn_program {
 			 * Whether @ref drgn_program::mod_text has been cached.
 			 */
 			bool mod_text_cached;
-			/**
-			 * Cached value of `THREAD_SIZE` in the kernel. */
-			uint64_t thread_size_cached;
 			/*
 			 * Whether we are currently in address translation. Used
 			 * to prevent address translation from recursing.
