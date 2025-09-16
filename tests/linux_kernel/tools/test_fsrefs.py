@@ -213,7 +213,7 @@ class TestFsRefs(LinuxKernelTestCase):
         disk = os.environ["DRGN_TEST_DISK"]
         for fstype, mkfs in (
             ("ext2", ("mke2fs", "-qF")),
-            ("btrfs", ("mkfs.btrfs", "-qf")),
+            ("btrfs", ("mkfs.btrfs", "-qf", "-s", str(mmap.PAGESIZE))),
         ):
             with self.subTest(fstype=fstype):
                 subprocess.check_call([*mkfs, disk])
@@ -237,7 +237,7 @@ class TestFsRefs(LinuxKernelTestCase):
     def test_btrfs_subvolume(self):
         disk = os.environ["DRGN_TEST_DISK"]
         with contextlib.ExitStack() as exit_stack:
-            subprocess.check_call(["mkfs.btrfs", "-qf", disk])
+            subprocess.check_call(["mkfs.btrfs", "-qf", "-s", str(mmap.PAGESIZE), disk])
 
             mount(disk, self._tmp, "btrfs")
             exit_stack.callback(umount, self._tmp)
