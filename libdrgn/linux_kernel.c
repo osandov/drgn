@@ -169,6 +169,32 @@ static struct drgn_error *linux_kernel_get_##name(struct drgn_program *prog,	\
 						 0);				\
 }
 
+#define LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(name, primitive_type)		\
+static struct drgn_error *linux_kernel_get_##name(struct drgn_program *prog,	\
+						  struct drgn_object *ret)	\
+{										\
+	struct drgn_error *err;							\
+	typeof(_Generic(&linux_kernel_get_##name##_impl,			\
+			struct drgn_error *(*)(struct drgn_program *,		\
+					       uint64_t *): (uint64_t)0,	\
+			struct drgn_error *(*)(struct drgn_program *,		\
+					       int64_t *): (int64_t)0))		\
+	value;									\
+	err = linux_kernel_get_##name##_impl(prog, &value);			\
+	if (err)								\
+		return err;							\
+	struct drgn_qualified_type qualified_type;				\
+	err = drgn_program_find_primitive_type(prog, (primitive_type),		\
+					       &qualified_type.type);		\
+	if (err)								\
+		return err;							\
+	qualified_type.qualifiers = 0;						\
+	return _Generic(value,							\
+			uint64_t: drgn_object_set_unsigned,			\
+			int64_t: drgn_object_set_signed)			\
+		       (ret, qualified_type, value, 0);				\
+}
+
 LINUX_KERNEL_GET_PRIMITIVE(page_shift, DRGN_C_TYPE_INT, signed,
 			   prog->vmcoreinfo.page_shift)
 
@@ -453,6 +479,16 @@ static struct drgn_error *linux_kernel_get_vmemmap(struct drgn_program *prog,
 	}
 	return drgn_object_copy(ret, &prog->vmemmap);
 }
+
+static struct drgn_error *
+linux_kernel_get_nr_section_roots_impl(struct drgn_program *prog, uint64_t *ret)
+{
+	if (prog->vmcoreinfo.mem_section_length == 0)
+		return &drgn_not_found;
+	*ret = prog->vmcoreinfo.mem_section_length;
+	return NULL;
+}
+LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(nr_section_roots, DRGN_C_TYPE_UNSIGNED_LONG)
 
 #include "linux_kernel_object_find.inc" // IWYU pragma: keep
 

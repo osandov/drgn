@@ -437,3 +437,13 @@ core dumps. These special objects include:
     distinguish it from the kernel variable ``vmcoreinfo_data``.
 
     This is available without debugging information.
+
+``NR_SECTION_ROOTS``
+    Object type: ``unsigned long``
+
+    These correspond to the macros of the same name in the Linux kernel source
+    code. They describe the layout of `SPARSEMEM
+    <https://docs.kernel.org/mm/memory-model.html#sparsemem>`_ sections in the
+    kernel.
+
+    These are *not* always available without debugging information.

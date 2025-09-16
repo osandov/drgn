@@ -114,10 +114,3 @@ class TestSched(LinuxKernelTestCase):
                 os.sched_setaffinity(pid, other_affinity)
             task = find_task(self.prog, pid)
             self.assertGreaterEqual(task_since_last_arrival_ns(task), 10000000)
-
-    @skip_unless_have_test_kmod
-    def test_thread_size(self):
-        self.assertEqual(
-            self.prog["THREAD_SIZE"].value_(),
-            self.prog["drgn_test_thread_size"].value_(),
-        )

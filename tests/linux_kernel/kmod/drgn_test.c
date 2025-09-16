@@ -127,6 +127,23 @@ static u32 drgn_test_prng32(u32 x)
 	return x;
 }
 
+// constants
+
+unsigned long drgn_test_THREAD_SIZE;
+#ifdef NR_SECTION_ROOTS
+unsigned long drgn_test_NR_SECTION_ROOTS;
+#endif
+
+static void drgn_test_constants_init(void)
+{
+	// Some of these aren't actually compile-time constants, so we
+	// initialize all of them at runtime.
+	drgn_test_THREAD_SIZE = THREAD_SIZE;
+#ifdef NR_SECTION_ROOTS
+	drgn_test_NR_SECTION_ROOTS = NR_SECTION_ROOTS;
+#endif
+}
+
 // list
 
 LIST_HEAD(drgn_test_empty_list);
@@ -1754,11 +1771,6 @@ typedef union {
 } drgn_test_anonymous_union;
 drgn_test_anonymous_union drgn_test_anonymous_union_var;
 
-// thread size
-
-__attribute__((used))
-static unsigned long drgn_test_thread_size = THREAD_SIZE;
-
 static void drgn_test_exit(void)
 {
 	drgn_test_sysfs_exit();
@@ -1779,6 +1791,7 @@ static int __init drgn_test_init(void)
 {
 	int ret;
 
+	drgn_test_constants_init();
 	drgn_test_list_init();
 	drgn_test_llist_init();
 	drgn_test_plist_init();

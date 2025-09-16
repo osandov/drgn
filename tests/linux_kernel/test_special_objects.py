@@ -3,8 +3,8 @@
 
 import os
 
-from drgn import Object, Program
-from tests.linux_kernel import LinuxKernelTestCase
+from drgn import Object, ObjectNotFoundError, Program
+from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 
 class TestJiffies(LinuxKernelTestCase):
@@ -53,3 +53,18 @@ class TestVmcoreinfo(LinuxKernelTestCase):
             vmcoreinfo_data["OSRELEASE"],
             os.uname().release,
         )
+
+    @skip_unless_have_test_kmod
+    def test_constants(self):
+        for constant in (
+            "THREAD_SIZE",
+            "NR_SECTION_ROOTS",
+        ):
+            with self.subTest(constant=constant):
+                try:
+                    expected = self.prog["drgn_test_" + constant].read_()
+                except ObjectNotFoundError:
+                    with self.assertRaises(ObjectNotFoundError):
+                        self.prog[constant]
+                else:
+                    self.assertEqual(self.prog[constant], expected)
