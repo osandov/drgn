@@ -1741,6 +1741,11 @@ typedef union {
 } drgn_test_anonymous_union;
 drgn_test_anonymous_union drgn_test_anonymous_union_var;
 
+// thread size
+
+__attribute__((used))
+static unsigned long drgn_test_thread_size = THREAD_SIZE;
+
 static void drgn_test_exit(void)
 {
 	drgn_test_sysfs_exit();

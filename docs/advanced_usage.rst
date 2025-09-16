@@ -394,6 +394,18 @@ core dumps. These special objects include:
 
     This is *not* available without debugging information.
 
+``THREAD_SIZE``
+    Object type: ``unsigned long``
+
+    This corresponds to the macro of the same name in the Linux kernel source
+    code. The thread size is the number of bytes used for kernel stacks. It's
+    important to note that for many architectures, there may be additional
+    stacks used when handling interrupts, excetpions, or faults. These may have
+    a different, architecture-dependent size. ``THREAD_SIZE`` refers only to the
+    kernel stacks associated with each task.
+
+    This is *not* available without debugging information.
+
 ``vmemmap``
     Object type: ``struct page *``
 

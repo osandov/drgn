@@ -34,6 +34,7 @@
 #include "log.h"
 #include "platform.h"
 #include "program.h"
+#include "symbol.h"
 #include "type.h"
 #include "util.h"
 
@@ -193,6 +194,92 @@ static struct drgn_error *linux_kernel_get_page_mask(struct drgn_program *prog,
 	qualified_type.qualifiers = 0;
 	return drgn_object_set_unsigned(ret, qualified_type,
 					~(prog->vmcoreinfo.page_size - 1), 0);
+}
+
+static struct drgn_error *linux_kernel_get_thread_size(struct drgn_program *prog,
+						       struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type, thread_union;
+	qualified_type.qualifiers = 0;
+	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_UNSIGNED_LONG,
+					       &qualified_type.type);
+	if (err)
+		return err;
+
+	if (prog->thread_size_cached)
+		return drgn_object_set_unsigned(ret, qualified_type,
+						prog->thread_size_cached, 0);
+
+	/* Prior to 0500871f21b23 ("Construct init thread stack in the linker
+	 * script rather than by union") in v4.16, the file init/init_task.c
+	 * defined a variable of type "union thread_union" which contains a
+	 * member "stack" whose size is THREAD_SIZE. After that commit, it is
+	 * defined via the linker script, and so the variable disappears from
+	 * debuginfo, along with its type. Thankfully, the linker script defines
+	 * symbols that can also be used to infer THREAD_SIZE.
+	 *
+	 * Normally, we optimize for recent kernels by putting their cases first
+	 * in the code. But in this case, the "__{start,end}_init_task" symbols
+	 * do exist on some architectures (e.g. ppc64) prior to v4.16. However,
+	 * prior to v4.16, they aren't guaranteed to have the correct value of
+	 * THREAD_SIZE. So, we need to check for "union thread_union" first, to
+	 * get the most accurate value for those architectures prior to v4.16.
+	 */
+	err = drgn_program_find_type(prog, "union thread_union", NULL,
+					&thread_union);
+	if (!err) {
+		struct drgn_type_member *stack_member;
+		uint64_t bit_offset_unused;
+		err = drgn_type_find_member(thread_union.type, "stack",
+					    &stack_member, &bit_offset_unused);
+		if (err)
+			return err;
+
+		struct drgn_qualified_type stack_type;
+		err = drgn_member_type(stack_member, &stack_type, NULL);
+		if (err)
+			return err;
+
+		err = drgn_type_sizeof(stack_type.type, &prog->thread_size_cached);
+		if (err)
+			return err;
+
+		return drgn_object_set_unsigned(ret, qualified_type,
+						prog->thread_size_cached, 0);
+	} else if (!drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+		return err;
+	}
+
+#define SYMBOL_START_END(symname_start, symname_end) do { \
+		struct drgn_symbol _cleanup_symbol_ *sym_start = NULL; \
+		struct drgn_symbol _cleanup_symbol_ *sym_end = NULL; \
+		err = drgn_program_find_symbol_by_name(prog, symname_start, &sym_start); \
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) \
+			break; \
+		else if (err) \
+			return err; \
+		err = drgn_program_find_symbol_by_name(prog, symname_end, &sym_end); \
+		if (err) \
+			return err; \
+		prog->thread_size_cached = sym_end->address - sym_start->address; \
+		return drgn_object_set_unsigned(ret, qualified_type, \
+						prog->thread_size_cached, 0); \
+	} while (0)
+
+	/* From Linux 4.16 up to 6.10's commit 8f69cba096b5c ("x86: Rename
+	 * __{start,end}_init_task to __{start,end}_init_stack"), the symbols
+	 * were named __{start,end}_init_task. Though the commit message
+	 * indicates that the init_task is only used on x86, the symbols are
+	 * present and accurate on other architectures regardless. */
+	SYMBOL_START_END("__start_init_task", "__end_init_task");
+
+	/* For Linux v6.10 and later, we can observe the stack size by the
+	 * __{start,end}_init_stack symbols. */
+	SYMBOL_START_END("__start_init_stack", "__end_init_stack");
+#undef SYMBOL_START_END
+
+	return &drgn_not_found;
 }
 
 static struct drgn_error *
