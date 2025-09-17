@@ -1670,8 +1670,14 @@ DEFINE_KMODIFY_TEST_ARGS(
 
 // Crash from an NMI + IRQ handler on architectures where drgn supports
 // unwinding through them.
-#ifdef __x86_64__
+#if defined(__x86_64__)
 #define DRGN_TEST_NMI_CRASH
+#elif defined(__aarch64__) || defined(__PPC64__) || defined (__arm__)
+#define DRGN_TEST_IRQ_CRASH
+#elif defined(__s390x__)
+// Drgn cannot unwind through IRQ frames on s390x yet.
+#else
+#error "Architecture not recognized"
 #endif
 
 
