@@ -107,7 +107,12 @@ def _default_parallelism(mem_gb: float = 2, cpu: float = 1.75) -> int:
 
 class _TestRunner:
     def __init__(
-        self, *, directory: Path, jobs: Optional[int], use_host_rootfs: bool
+        self,
+        *,
+        directory: Path,
+        jobs: Optional[int] = None,
+        use_host_rootfs: bool = True,
+        skip_build: bool = False,
     ) -> None:
         self._directory = directory
         if jobs is None:
@@ -120,6 +125,7 @@ class _TestRunner:
             logger.info("using parallelism %d", self._jobs)
         self._foreground = jobs is None
         self._use_host_rootfs = use_host_rootfs
+        self._skip_build = skip_build
 
         self._compilers_to_resolve: Dict[Architecture, None] = {}
         self._kernels_to_resolve: Dict[Tuple[Architecture, str], None] = {}
@@ -145,10 +151,12 @@ class _TestRunner:
     def add_kernel(self, arch: Architecture, pattern: str) -> None:
         self._compilers_to_resolve[arch] = None
         self._kernels_to_resolve[(arch, pattern)] = None
-        self._drgn_builds[arch] = None
+        if not self._skip_build:
+            self._drgn_builds[arch] = None
 
     def add_local(self, arch: Architecture) -> None:
-        self._drgn_builds[arch] = None
+        if not self._skip_build:
+            self._drgn_builds[arch] = None
         self._queue_local_test(arch)
 
     def _submit(
@@ -566,6 +574,11 @@ if __name__ == "__main__":
         help='if "never", use $directory/$arch/rootfs even for host architecture; '
         'if "auto", use / for host architecture',
     )
+    parser.add_argument(
+        "--skip-build",
+        action="store_true",
+        help="don't rebuild drgn even if it's out of date",
+    )
     args = parser.parse_args()
 
     if not hasattr(args, "kernels") and not args.local:
@@ -618,6 +631,7 @@ if __name__ == "__main__":
         directory=args.directory,
         jobs=args.jobs,
         use_host_rootfs=args.use_host_rootfs == "auto",
+        skip_build=args.skip_build,
     )
 
     if hasattr(args, "kernels"):
