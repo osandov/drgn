@@ -187,6 +187,7 @@ for pgdat in for_each_online_pgdat():
         if prog.flags & ProgramFlags.IS_LIVE:
             code.append(
                 """\
+                        break
                     except (FaultError, ValidationError):
                         if attempt == num_attempts - 1:
                             raise
