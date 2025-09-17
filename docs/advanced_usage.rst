@@ -438,7 +438,7 @@ core dumps. These special objects include:
 
     This is available without debugging information.
 
-``NR_SECTION_ROOTS``
+``NR_SECTION_ROOTS``, ``SECTIONS_PER_ROOT``
     Object type: ``unsigned long``
 
     These correspond to the macros of the same name in the Linux kernel source

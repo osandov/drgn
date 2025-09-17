@@ -133,6 +133,9 @@ unsigned long drgn_test_THREAD_SIZE;
 #ifdef NR_SECTION_ROOTS
 unsigned long drgn_test_NR_SECTION_ROOTS;
 #endif
+#ifdef SECTIONS_PER_ROOT
+unsigned long drgn_test_SECTIONS_PER_ROOT;
+#endif
 
 static void drgn_test_constants_init(void)
 {
@@ -141,6 +144,9 @@ static void drgn_test_constants_init(void)
 	drgn_test_THREAD_SIZE = THREAD_SIZE;
 #ifdef NR_SECTION_ROOTS
 	drgn_test_NR_SECTION_ROOTS = NR_SECTION_ROOTS;
+#endif
+#ifdef SECTIONS_PER_ROOT
+	drgn_test_SECTIONS_PER_ROOT = SECTIONS_PER_ROOT;
 #endif
 }
 

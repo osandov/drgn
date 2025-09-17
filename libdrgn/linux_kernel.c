@@ -20,6 +20,7 @@
 
 #include "array.h"
 #include "binary_buffer.h"
+#include "bitops.h"
 #include "cleanup.h"
 #include "debug_info.h"
 #include "drgn_internal.h"
@@ -489,6 +490,68 @@ linux_kernel_get_nr_section_roots_impl(struct drgn_program *prog, uint64_t *ret)
 	return NULL;
 }
 LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(nr_section_roots, DRGN_C_TYPE_UNSIGNED_LONG)
+
+static struct drgn_error *
+linux_kernel_get_sections_per_root_impl(struct drgn_program *prog, uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	if (prog->cached_sections_per_root) {
+		*ret = prog->cached_sections_per_root;
+		return NULL;
+	}
+
+	if (!prog->vmcoreinfo.mem_section_length) // !SPARSEMEM
+		return &drgn_not_found;
+
+	DRGN_OBJECT(mem_section, prog);
+	err = drgn_program_find_object(prog, "mem_section", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &mem_section);
+	if (err)
+		return err;
+
+	// For SPARSEMEM_STATIC, mem_section is always an array of arrays. For
+	// SPARSEMEM_EXTREME, since Linux kernel commit 83e3c48729d9
+	// ("mm/sparsemem: Allocate mem_section at runtime for
+	// CONFIG_SPARSEMEM_EXTREME=y") (in v4.15), it is a pointer to a pointer
+	// to struct mem_section. Before that, it is an array of pointers to
+	// struct mem_section.
+
+	struct drgn_type *outer_type = drgn_underlying_type(mem_section.type);
+	enum drgn_type_kind outer_kind = drgn_type_kind(outer_type);
+	if (outer_kind != DRGN_TYPE_POINTER && outer_kind != DRGN_TYPE_ARRAY) {
+		return drgn_type_error("mem_section has unrecognized type: %s",
+				       outer_type);
+	}
+
+	struct drgn_type *inner_type =
+		drgn_underlying_type(drgn_type_type(outer_type).type);
+	enum drgn_type_kind inner_kind = drgn_type_kind(inner_type);
+	if (outer_kind == DRGN_TYPE_ARRAY && inner_kind == DRGN_TYPE_ARRAY) {
+		// SPARSEMEM_STATIC: SECTIONS_PER_ROOT = 1
+		*ret = 1;
+		return NULL;
+	}
+	if (inner_kind != DRGN_TYPE_POINTER) {
+		return drgn_type_error("mem_section[0] has unrecognized type: %s",
+				       inner_type);
+	}
+
+	// SPARSEMEM_EXTREME: SECTIONS_PER_ROOT = PAGE_SIZE / sizeof(struct mem_section)
+	uint64_t sizeof_mem_section;
+	err = drgn_type_sizeof(drgn_underlying_type(drgn_type_type(inner_type).type),
+			       &sizeof_mem_section);
+	if (err)
+		return err;
+	if (!is_power_of_two(sizeof_mem_section)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "struct mem_section has invalid size");
+	}
+	*ret = prog->cached_sections_per_root =
+		prog->vmcoreinfo.page_size / sizeof_mem_section;
+	return err;
+}
+LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(sections_per_root, DRGN_C_TYPE_UNSIGNED_LONG)
 
 #include "linux_kernel_object_find.inc" // IWYU pragma: keep
 

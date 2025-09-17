@@ -228,6 +228,11 @@ struct drgn_program {
 			 * cached yet.
 			 */
 			uint64_t thread_size_cached;
+			/**
+			 * Value of `SECTIONS_PER_ROOT` in the kernel, or 0 if
+			 * not cached yet.
+			 */
+			uint64_t cached_sections_per_root;
 			/*
 			 * Difference between a virtual address in the direct
 			 * mapping and the physical address it maps to.
