@@ -441,7 +441,7 @@ core dumps. These special objects include:
 ``NR_SECTION_ROOTS``, ``SECTIONS_PER_ROOT``
     Object type: ``unsigned long``
 
-``SECTION_SIZE_BITS``
+``SECTION_SIZE_BITS``, ``MAX_PHYSMEM_BITS``
     Object type: ``int``
 
     These correspond to the macros of the same name in the Linux kernel source

@@ -54,6 +54,10 @@ linux_kernel_object_find(const char *name, size_t name_len,
 			if (flags & DRGN_FIND_OBJECT_CONSTANT)
 				return linux_kernel_get_section_size_bits(prog, ret);
 			break;
+		@case "MAX_PHYSMEM_BITS"@
+			if (flags & DRGN_FIND_OBJECT_CONSTANT)
+				return linux_kernel_get_max_physmem_bits(prog, ret);
+			break;
 		@endswitch@
 	}
 	return &drgn_not_found;

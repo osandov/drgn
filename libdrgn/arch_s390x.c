@@ -500,6 +500,8 @@ const struct drgn_architecture_info arch_info_s390x = {
 		linux_kernel_pgtable_iterator_next_s390x,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_s390x,
+	// MAX_PHYSMEM_BITS depends on CONFIG_MAX_PHYSMEM_BITS. Use the default
+	// fallback.
 };
 
 const struct drgn_architecture_info arch_info_s390 = {

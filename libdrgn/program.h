@@ -201,6 +201,12 @@ struct drgn_program {
 				 * determined by other means and cached later.
 				 */
 				int section_size_bits;
+				/**
+				 * `MAX_PHYSMEM_BITS` of the kernel. Initially 0
+				 * if not found in VMCOREINFO, but may be
+				 * determined by other means and cached later.
+				 */
+				int max_physmem_bits;
 				/** `VA_BITS` on AArch64. */
 				uint64_t va_bits;
 				/** `TCR_EL1_T1SZ` on AArch64. */

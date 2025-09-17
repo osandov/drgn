@@ -483,4 +483,7 @@ const struct drgn_architecture_info arch_info_ppc64 = {
 		linux_kernel_pgtable_iterator_next_ppc64,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_ppc64,
+	// MAX_PHYSMEM_BITS depends on CONFIG_SPARSEMEM_VMEMMAP,
+	// CONFIG_SPARSEMEM_EXTREME, and CONFIG_PPC_64K_PAGES. Use the default
+	// fallback.
 };

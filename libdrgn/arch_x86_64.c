@@ -660,6 +660,16 @@ linux_kernel_section_size_bits_fallback_x86_64(struct drgn_program *prog)
 	return 27;
 }
 
+static int
+linux_kernel_max_physmem_bits_fallback_x86_64(struct drgn_program *prog)
+{
+	// This hasn't changed since Linux kernel commits 4c7c44837be7 ("x86/mm:
+	// Define virtual memory map for 5-level paging") (in v4.12) and
+	// c898faf91b3e ("x86: 46 bit physical address support on 64 bits") (in
+	// v2.6.31).
+	return prog->vmcoreinfo.pgtable_l5_enabled ? 52 : 46;
+}
+
 const struct drgn_architecture_info arch_info_x86_64 = {
 	.name = "x86-64",
 	.arch = DRGN_ARCH_X86_64,
@@ -687,4 +697,6 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 		linux_kernel_pgtable_iterator_next_x86_64,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_x86_64,
+	.linux_kernel_max_physmem_bits_fallback =
+		linux_kernel_max_physmem_bits_fallback_x86_64,
 };

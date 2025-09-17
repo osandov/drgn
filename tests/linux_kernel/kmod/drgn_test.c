@@ -139,6 +139,9 @@ unsigned long drgn_test_SECTIONS_PER_ROOT;
 #ifdef SECTION_SIZE_BITS
 unsigned long drgn_test_SECTION_SIZE_BITS;
 #endif
+#ifdef MAX_PHYSMEM_BITS
+unsigned long drgn_test_MAX_PHYSMEM_BITS;
+#endif
 
 static void drgn_test_constants_init(void)
 {
@@ -153,6 +156,9 @@ static void drgn_test_constants_init(void)
 #endif
 #ifdef SECTION_SIZE_BITS
 	drgn_test_SECTION_SIZE_BITS = SECTION_SIZE_BITS;
+#endif
+#ifdef MAX_PHYSMEM_BITS
+	drgn_test_MAX_PHYSMEM_BITS = MAX_PHYSMEM_BITS;
 #endif
 }
 

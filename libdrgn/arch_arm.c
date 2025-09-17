@@ -333,6 +333,11 @@ linux_kernel_section_size_bits_fallback_arm(struct drgn_program *prog)
 	return 28;
 }
 
+static int linux_kernel_max_physmem_bits_fallback_arm(struct drgn_program *prog)
+{
+	return 36;
+}
+
 const struct drgn_architecture_info arch_info_arm = {
 	.name = "Arm",
 	.arch = DRGN_ARCH_ARM,
@@ -356,4 +361,6 @@ const struct drgn_architecture_info arch_info_arm = {
 		linux_kernel_pgtable_iterator_next_arm,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_arm,
+	.linux_kernel_max_physmem_bits_fallback =
+		linux_kernel_max_physmem_bits_fallback_arm,
 };

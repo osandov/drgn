@@ -574,6 +574,72 @@ linux_kernel_get_section_size_bits_impl(struct drgn_program *prog, int64_t *ret)
 }
 LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(section_size_bits, DRGN_C_TYPE_INT)
 
+static struct drgn_error *
+linux_kernel_get_max_physmem_bits_impl(struct drgn_program *prog, int64_t *ret)
+{
+	struct drgn_error *err;
+	if (prog->vmcoreinfo.max_physmem_bits) {
+		*ret = prog->vmcoreinfo.max_physmem_bits;
+		return NULL;
+	}
+
+	if (!prog->vmcoreinfo.mem_section_length) // !SPARSEMEM
+		return &drgn_not_found;
+
+	// Before Linux kernel commit 1d50e5d0c505 ("crash_core, vmcoreinfo:
+	// Append 'MAX_PHYSMEM_BITS' to vmcoreinfo") (in v5.9), we can compute
+	// MAX_PHYSMEM_BITS from NR_SECTION_ROOTS and SECTION_SIZE_BITS. On
+	// architectures where's it's straightforward to figure out
+	// MAX_PHYSMEM_BITS, we can get it that way, too.
+	if (prog->has_platform
+	    && prog->platform.arch->linux_kernel_max_physmem_bits_fallback) {
+		prog->vmcoreinfo.max_physmem_bits =
+			prog->platform.arch->linux_kernel_max_physmem_bits_fallback(prog);
+	} else {
+		// Given:
+		// NR_SECTION_ROOTS = NR_MEM_SECTIONS / SECTIONS_PER_ROOT
+		// NR_MEM_SECTIONS = 1 << SECTIONS_SHIFT
+		// SECTIONS_SHIFT = MAX_PHYSMEM_BITS - SECTION_SIZE_BITS
+		//
+		// Solve for MAX_PHYSMEM_BITS:
+		// => NR_SECTION_ROOTS = (1 << (MAX_PHYSMEM_BITS - SECTION_SIZE_BITS))
+		//                       / SECTIONS_PER_ROOT
+		//
+		// => NR_SECTION_ROOTS * SECTIONS_PER_ROOT
+		//    = (1 << (MAX_PHYSMEM_BITS - SECTION_SIZE_BITS))
+		//
+		// => log2(NR_SECTION_ROOTS * SECTIONS_PER_ROOT)
+		//    = MAX_PHYSMEM_BITS - SECTION_SIZE_BITS
+		//
+		// => MAX_PHYSMEM_BITS = log2(NR_SECTION_ROOTS * SECTIONS_PER_ROOT)
+		//                       + SECTION_SIZE_BITS
+		//
+		// (NR_SECTION_ROOTS and SECTIONS_PER_ROOT are always powers of
+		// two.)
+		//
+		// => MAX_PHYSMEM_BITS = log2(NR_SECTION_ROOTS)
+		//                       + log2(SECTIONS_PER_ROOT)
+		//                       + SECTION_SIZE_BITS
+		uint64_t sections_per_root;
+		err = linux_kernel_get_sections_per_root_impl(prog,
+							      &sections_per_root);
+		if (err)
+			return err;
+		int64_t section_size_bits;
+		err = linux_kernel_get_section_size_bits_impl(prog,
+							      &section_size_bits);
+		if (err)
+			return err;
+		prog->vmcoreinfo.max_physmem_bits =
+			ilog2(prog->vmcoreinfo.mem_section_length)
+			+ ilog2(sections_per_root)
+			+ section_size_bits;
+	}
+	*ret = prog->vmcoreinfo.max_physmem_bits;
+	return NULL;
+}
+LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(max_physmem_bits, DRGN_C_TYPE_INT)
+
 #include "linux_kernel_object_find.inc" // IWYU pragma: keep
 
 // Return whether the given kernel is from Fedora. We check whether the release

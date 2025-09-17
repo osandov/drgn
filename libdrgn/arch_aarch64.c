@@ -552,5 +552,7 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 		linux_kernel_pgtable_iterator_next_aarch64,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_aarch64,
+	// MAX_PHYSMEM_BITS depends on CONFIG_ARM64_PA_BITS. Use the default
+	// fallback.
 	.untagged_addr = untagged_addr_aarch64,
 };
