@@ -396,7 +396,15 @@ ARCHITECTURES = {
                 CONFIG_SERIAL_8250=y
                 CONFIG_SERIAL_8250_CONSOLE=y
             """,
-            kernel_flavor_configs={},
+            kernel_flavor_configs={
+                "alternative": """
+                    CONFIG_UNWINDER_FRAME_POINTER=y
+                    # Before Linux kernel commit 11af847446ed ("x86/unwind:
+                    # Rename unwinder config options to 'CONFIG_UNWINDER_*'")
+                    # (in v4.15).
+                    CONFIG_FRAME_POINTER_UNWINDER=y
+                """,
+            },
             kernel_org_compiler_name="x86_64-linux",
             qemu_options=("-nodefaults",),
             qemu_console="ttyS0",
@@ -453,6 +461,8 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     if flavor.name == "alternative" and KernelVersion(version) >= KernelVersion("6.8"):
         patch_level += 1
     if KernelVersion(version) < KernelVersion("5.10"):
+        patch_level += 1
+    if arch.name == "x86_64" and flavor.name == "alternative":
         patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
