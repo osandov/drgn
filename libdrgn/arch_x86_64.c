@@ -652,6 +652,14 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 	}
 }
 
+static int
+linux_kernel_section_size_bits_fallback_x86_64(struct drgn_program *prog)
+{
+	// This hasn't changed since Linux kernel commit bbfceef47fb9 ("[PATCH]
+	// add x86-64 specific support for sparsemem") (in v2.6.13).
+	return 27;
+}
+
 const struct drgn_architecture_info arch_info_x86_64 = {
 	.name = "x86-64",
 	.arch = DRGN_ARCH_X86_64,
@@ -677,4 +685,6 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 		linux_kernel_pgtable_iterator_init_x86_64,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_x86_64,
+	.linux_kernel_section_size_bits_fallback =
+		linux_kernel_section_size_bits_fallback_x86_64,
 };

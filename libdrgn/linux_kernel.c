@@ -553,6 +553,27 @@ linux_kernel_get_sections_per_root_impl(struct drgn_program *prog, uint64_t *ret
 }
 LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(sections_per_root, DRGN_C_TYPE_UNSIGNED_LONG)
 
+static struct drgn_error *
+linux_kernel_get_section_size_bits_impl(struct drgn_program *prog, int64_t *ret)
+{
+	if (prog->vmcoreinfo.section_size_bits) {
+		*ret = prog->vmcoreinfo.section_size_bits;
+		return NULL;
+	}
+	if (!prog->vmcoreinfo.mem_section_length // !SPARSEMEM
+	    || !prog->has_platform
+	    || !prog->platform.arch->linux_kernel_section_size_bits_fallback)
+		return &drgn_not_found;
+	// Before Linux kernel commit 4f5aecdff25f ("crash_core, vmcoreinfo:
+	// append 'SECTION_SIZE_BITS' to vmcoreinfo") (in v5.13), we need
+	// architecture- and version-specific logic to determine
+	// SECTION_SIZE_BITS.
+	*ret = prog->vmcoreinfo.section_size_bits =
+		prog->platform.arch->linux_kernel_section_size_bits_fallback(prog);
+	return NULL;
+}
+LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(section_size_bits, DRGN_C_TYPE_INT)
+
 #include "linux_kernel_object_find.inc" // IWYU pragma: keep
 
 // Return whether the given kernel is from Fedora. We check whether the release

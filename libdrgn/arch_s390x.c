@@ -467,6 +467,17 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 	return &drgn_enomem;
 }
 
+static int
+linux_kernel_section_size_bits_fallback_s390x(struct drgn_program *prog)
+{
+	// This changed in Linux kernel commit e3a6970b7daf ("s390/sparsemem:
+	// Reduce section size to 128 MiB") (in v6.13), but that was after
+	// SECTION_SIZE_BITS was added to VMCOREINFO. Before that, it didn't
+	// change since Linux kernel commit 421c175c4d60 ("[S390] Add support
+	// for memory hot-add.") (in v2.6.27).
+	return 28;
+}
+
 const struct drgn_architecture_info arch_info_s390x = {
 	.name = "s390x",
 	.arch = DRGN_ARCH_S390X,
@@ -487,6 +498,8 @@ const struct drgn_architecture_info arch_info_s390x = {
 		linux_kernel_pgtable_iterator_init_s390x,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_s390x,
+	.linux_kernel_section_size_bits_fallback =
+		linux_kernel_section_size_bits_fallback_s390x,
 };
 
 const struct drgn_architecture_info arch_info_s390 = {

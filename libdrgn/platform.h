@@ -213,6 +213,8 @@ typedef struct drgn_error *
  *   - @ref linux_kernel_pgtable_iterator_destroy
  *   - @ref linux_kernel_pgtable_iterator_init
  *   - @ref linux_kernel_pgtable_iterator_next
+ * - Define the SPARSEMEM constant fallback getters if applicable:
+ *   - @ref linux_kernel_section_size_bits_fallback
  * - Add the architecture name to `HAVE_FULL_MM_SUPPORT` in
  *   `tests/linux_kernel/__init__.py`.
  * - Update `docs/support_matrix.rst`.
@@ -463,6 +465,11 @@ struct drgn_architecture_info {
 	 * @see pgtable_iterator_next_fn
 	 */
 	pgtable_iterator_next_fn *linux_kernel_pgtable_iterator_next;
+	/**
+	 * Get the value of `SECTION_SIZE_BITS` for Linux kernel versions before
+	 * v5.13.
+	 */
+	int (*linux_kernel_section_size_bits_fallback)(struct drgn_program *);
 	/**
 	 * Return the canonical form of a virtual address, i.e. apply any
 	 * transformations that the CPU applies to the address before page

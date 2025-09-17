@@ -195,6 +195,12 @@ struct drgn_program {
 				 * `NR_SECTION_ROOTS`).
 				 */
 				uint64_t mem_section_length;
+				/**
+				 * `SECTION_SIZE_BITS` of the kernel. Initially
+				 * 0 if not found in VMCOREINFO, but may be
+				 * determined by other means and cached later.
+				 */
+				int section_size_bits;
 				/** `VA_BITS` on AArch64. */
 				uint64_t va_bits;
 				/** `TCR_EL1_T1SZ` on AArch64. */

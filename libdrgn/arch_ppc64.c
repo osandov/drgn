@@ -451,6 +451,14 @@ linux_kernel_pgtable_iterator_next_ppc64(struct drgn_program *prog,
 	}
 }
 
+static int
+linux_kernel_section_size_bits_fallback_ppc64(struct drgn_program *prog)
+{
+	// This hasn't changed since Linux kernel commit 145e66423164 ("[PATCH]
+	// ppc64: sparsemem memory model") (in v2.6.13).
+	return 24;
+}
+
 const struct drgn_architecture_info arch_info_ppc64 = {
 	.name = "ppc64",
 	.arch = DRGN_ARCH_PPC64,
@@ -473,4 +481,6 @@ const struct drgn_architecture_info arch_info_ppc64 = {
 		linux_kernel_pgtable_iterator_init_ppc64,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_ppc64,
+	.linux_kernel_section_size_bits_fallback =
+		linux_kernel_section_size_bits_fallback_ppc64,
 };

@@ -500,6 +500,26 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 	}
 }
 
+static int
+linux_kernel_section_size_bits_fallback_aarch64(struct drgn_program *prog)
+{
+	// Since Linux kernel commit f0b13ee23241 ("arm64/sparsemem: reduce
+	// SECTION_SIZE_BITS") (in v5.12), SECTION_SIZE_BITS is 29 with 64k
+	// pages and 27 otherwise. Linux kernel stable commit 70fd2a63fc1c
+	// ("crash_core, vmcoreinfo: append 'SECTION_SIZE_BITS' to vmcoreinfo")
+	// (in v5.12.13) addresses this, but before that there's no good way to
+	// detect it other than the kernel version.
+	char *p = (char *)prog->vmcoreinfo.osrelease;
+	long major = strtol(p, &p, 10), minor = 0;
+	if (*p == '.')
+		minor = strtol(p + 1, &p, 10);
+	if (major > 5 || (major == 5 && minor >= 12))
+		return prog->vmcoreinfo.page_shift == 16 ? 29 : 27;
+	// Before that, it didn't change since Linux kernel commit 4f04d8f00545
+	// ("arm64: MMU definitions") (in v3.7).
+	return 30;
+}
+
 static uint64_t untagged_addr_aarch64(uint64_t addr)
 {
 	/* Apply TBI by sign extending bit 55 into bits 56-63. */
@@ -530,5 +550,7 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 		linux_kernel_pgtable_iterator_init_aarch64,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_aarch64,
+	.linux_kernel_section_size_bits_fallback =
+		linux_kernel_section_size_bits_fallback_aarch64,
 	.untagged_addr = untagged_addr_aarch64,
 };

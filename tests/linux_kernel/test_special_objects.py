@@ -60,6 +60,7 @@ class TestVmcoreinfo(LinuxKernelTestCase):
             "THREAD_SIZE",
             "NR_SECTION_ROOTS",
             "SECTIONS_PER_ROOT",
+            "SECTION_SIZE_BITS",
         ):
             with self.subTest(constant=constant):
                 try:

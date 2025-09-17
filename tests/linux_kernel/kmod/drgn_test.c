@@ -136,6 +136,9 @@ unsigned long drgn_test_NR_SECTION_ROOTS;
 #ifdef SECTIONS_PER_ROOT
 unsigned long drgn_test_SECTIONS_PER_ROOT;
 #endif
+#ifdef SECTION_SIZE_BITS
+unsigned long drgn_test_SECTION_SIZE_BITS;
+#endif
 
 static void drgn_test_constants_init(void)
 {
@@ -147,6 +150,9 @@ static void drgn_test_constants_init(void)
 #endif
 #ifdef SECTIONS_PER_ROOT
 	drgn_test_SECTIONS_PER_ROOT = SECTIONS_PER_ROOT;
+#endif
+#ifdef SECTION_SIZE_BITS
+	drgn_test_SECTION_SIZE_BITS = SECTION_SIZE_BITS;
 #endif
 }
 

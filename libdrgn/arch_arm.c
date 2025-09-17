@@ -322,6 +322,17 @@ linux_kernel_pgtable_iterator_next_arm(struct drgn_program *prog,
 	return NULL;
 }
 
+// StrongARM 1100 and RiscPC technically use different values for
+// SECTION_SIZE_BITS and MAX_PHYSMEM_BITS, but it's vanishingly unlikely that
+// drgn will run on those platforms. Ignoring those, these haven't changed since
+// Linux kernel commit db57f88e4ccb ("ARM: 8411/1: Add default SPARSEMEM
+// settings") (in v4.6).
+static int
+linux_kernel_section_size_bits_fallback_arm(struct drgn_program *prog)
+{
+	return 28;
+}
+
 const struct drgn_architecture_info arch_info_arm = {
 	.name = "Arm",
 	.arch = DRGN_ARCH_ARM,
@@ -343,4 +354,6 @@ const struct drgn_architecture_info arch_info_arm = {
 		linux_kernel_pgtable_iterator_init_arm,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_arm,
+	.linux_kernel_section_size_bits_fallback =
+		linux_kernel_section_size_bits_fallback_arm,
 };
