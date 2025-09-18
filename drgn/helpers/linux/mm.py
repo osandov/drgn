@@ -121,21 +121,23 @@ __all__ = (
 )
 
 
-def get_page_flags(page: Object) -> int:
+def get_page_flags(page: Object) -> Object:
     """
-    Return the integer representation of a page's flags.
-    Handles both legacy unsigned long flags and memdesc_flags_t (flags.f).
+    Return a page's flags.
+
+    This handles kernel versions before and after the page flags were moved to
+    `memdesc_flags_t`.
 
     :param page: ``struct page *``
+    :return: ``unsigned long``
     """
-
-    # Since Linux kernel 6.18 (linux-next，"mm: introduce memdesc_flags_t")
-    # struct page->flags is no longer an unsigned long, but a memdesc_flags_t
-    # containing the actual flags in '.f'.
+    # Since Linux kernel patch "mm: introduce memdesc_flags_t" (currently in
+    # linux-next for 6.18), struct page->flags is no longer an unsigned long,
+    # but a memdesc_flags_t containing the actual flags in '.f'.
     try:
-        return int(page.flags.f)
+        return page.flags.f
     except AttributeError:
-        return int(page.flags)
+        return page.flags
 
 
 def PageActive(page: Object) -> bool:
