@@ -68,6 +68,100 @@ static void demangle_cfi_registers_aarch64(struct drgn_program *prog,
 	drgn_register_state_set_from_u64(prog, regs, x30, ra.value);
 }
 
+static struct drgn_error *
+get_initial_registers_from_struct_aarch64(struct drgn_program *prog,
+					  const void *buf, size_t size,
+					  struct drgn_register_state **ret);
+
+static struct drgn_error *
+get_stackframe_offset(struct drgn_program *prog, uint64_t *ret)
+{
+	if (!prog->aarch64_stackframe_offset_cached) {
+		struct drgn_error *err;
+		struct drgn_qualified_type pt_regs_type;
+
+		err = drgn_program_find_type(prog, "struct pt_regs", NULL, &pt_regs_type);
+		if (err)
+			return err;
+
+		struct drgn_type_member *stackframe_member;
+		uint64_t bit_offset;
+		err = drgn_type_find_member(pt_regs_type.type, "stackframe",
+					    &stackframe_member, &bit_offset);
+		if (err)
+			return err;
+
+		prog->aarch64_stackframe_offset_cached = bit_offset / 8;
+	}
+
+	*ret = prog->aarch64_stackframe_offset_cached;
+	return NULL;
+}
+
+
+static struct drgn_error *
+fallback_unwind_try_pt_regs(struct drgn_program *prog, uint64_t fp,
+			    uint64_t frame[2],
+			    struct drgn_register_state *regs,
+			    struct drgn_register_state **ret)
+{
+	struct drgn_error *err;
+	uint64_t stackframe_offset;
+
+	err = get_stackframe_offset(prog, &stackframe_offset);
+	if (err)
+		return err;
+
+	uint64_t pt_regs_addr = fp - stackframe_offset;
+
+	if (!frame[0] && !frame[1]) {
+		// Since c2c6b27b5aa14 ("arm64: stacktrace: unwind exception
+		// boundaries") - v6.13, a signal frame with both values zero
+		// indicates that we can read the next word on the stack for
+		// "metadata" which tells us whether a pt_regs is pushed to the
+		// stack.
+		uint64_t frame_meta_type;
+		err = drgn_program_read_memory(prog, &frame_meta_type, fp + 16,
+					       sizeof(frame_meta_type), false);
+		if (err)
+			return err;
+
+		// Frame metadata code 2 indicates a pt_regs
+		frame_meta_type = drgn_platform_bswap(&prog->platform) ? bswap_64(frame_meta_type) : frame_meta_type;
+		if (frame_meta_type != 2)
+			return &drgn_not_found;
+	} else {
+		// Otherwise, this frame still could be within a pt_regs, but we
+		// don't have any signal information to guarantee it. Let's
+		// assume we are. We can check that by comparing the values from
+		// the synthetic frame record, to what would be the pc and sp
+		// registers inside the pt_regs.  If they're the same, chances
+		// are fairly good that we're inside pt_regs.
+		//
+		// Unlike the "stackframe" field of pt_regs, the SP and FP
+		// offsets are part of the user pt regs, and so we can hardcode
+		// their offsets (248 and 256).
+		uint64_t frame_from_regs[2];
+		err = drgn_program_read_memory(prog, &frame_from_regs, pt_regs_addr + 248,
+					sizeof(frame_from_regs), false);
+		if (err)
+			return err;
+
+		if (frame[0] != frame_from_regs[0] || frame[1] != frame_from_regs[1])
+			return &drgn_not_found;
+	}
+
+	// Now that we're reasonably confident that there's a pt_regs here, read
+	// it and use it.
+	char pt_regs[272];
+	err = drgn_program_read_memory(prog, &pt_regs, pt_regs_addr,
+				       sizeof(pt_regs), false);
+	if (err)
+		return err;
+	return get_initial_registers_from_struct_aarch64(prog, &pt_regs,
+							 sizeof(pt_regs), ret);
+}
+
 // Unwind using the frame pointer. Note that leaf functions may not allocate a
 // stack frame, so this may skip the caller of a leaf function. I don't know of
 // a good way around that.
@@ -96,6 +190,18 @@ fallback_unwind_aarch64(struct drgn_program *prog,
 			err = &drgn_stop;
 		}
 		return err;
+	}
+
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		err = fallback_unwind_try_pt_regs(prog, fp.value, frame, regs, ret);
+		if (err) {
+			// If we encounter any error trying the pt_regs
+			// approach, swallow it and continue.
+			drgn_error_destroy(err);
+			err = NULL;
+		} else {
+			return NULL;
+		}
 	}
 
 	uint64_t unwound_fp =
