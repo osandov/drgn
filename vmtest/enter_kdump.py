@@ -5,6 +5,7 @@ import ctypes
 import os
 import re
 import subprocess
+import sys
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME, SYS
 
@@ -78,4 +79,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if os.path.exists("/proc/vmcore") and len(sys.argv) > 1:
+        # We're in the kdump kernel already. Assume the user wanted to run
+        # a command within it.
+        os.execvp(sys.argv[1], sys.argv[1:])
     main()
