@@ -1167,6 +1167,15 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 							      ret_addr_regno,
 							      layout->offset,
 							      layout->size);
+	} else {
+		/* If we could not determine the return address despite having a
+		 * CFI rule for it, then we should try the fallback unwinder. */
+		struct drgn_cfi_rule rule;
+		drgn_cfi_row_get_register(*row, ret_addr_regno, &rule);
+		if (rule.kind != DRGN_CFI_RULE_UNDEFINED) {
+			drgn_register_state_destroy(unwound);
+			return &drgn_not_found;
+		}
 	}
 	*ret = unwound;
 	return NULL;
