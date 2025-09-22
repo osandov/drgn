@@ -464,6 +464,8 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
         patch_level += 1
     if arch.name == "x86_64" and flavor.name == "alternative":
         patch_level += 1
+    if arch.name == "aarch64":
+        patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 
