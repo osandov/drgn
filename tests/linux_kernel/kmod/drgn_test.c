@@ -1672,6 +1672,8 @@ DEFINE_KMODIFY_TEST_ARGS(
 // unwinding through them.
 #ifdef __x86_64__
 #define DRGN_TEST_NMI_CRASH
+#elif defined(__aarch64__)
+#define DRGN_TEST_IRQ_CRASH
 #endif
 
 
