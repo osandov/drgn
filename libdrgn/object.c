@@ -385,22 +385,24 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 				return &drgn_enomem;
 			value.bufp = dst;
 		}
-		int dst_bit_offset = 0;
-		if (type->encoding != DRGN_OBJECT_ENCODING_BUFFER
-		    && !type->little_endian)
-			dst_bit_offset = -type->bit_size % 8;
-		((uint8_t *)dst)[0] = 0;
-		((uint8_t *)dst)[size - 1] = 0;
-		copy_bits(dst, dst_bit_offset, p, bit_offset, type->bit_size,
-			  type->little_endian);
-		if (type->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
-		    && type->bit_size % 8 != 0) {
-			int8_t *dst_p;
-			if (type->little_endian)
-				dst_p = (int8_t *)dst + size - 1;
-			else
-				dst_p = (int8_t *)dst;
-			*dst_p = truncate_signed8(*dst_p, type->bit_size % 8);
+		if (size > 0) {
+			int dst_bit_offset = 0;
+			if (type->encoding != DRGN_OBJECT_ENCODING_BUFFER
+			    && !type->little_endian)
+				dst_bit_offset = -type->bit_size % 8;
+			((uint8_t *)dst)[0] = 0;
+			((uint8_t *)dst)[size - 1] = 0;
+			copy_bits(dst, dst_bit_offset, p, bit_offset,
+				  type->bit_size, type->little_endian);
+			if (type->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+			    && type->bit_size % 8 != 0) {
+				int8_t *dst_p;
+				if (type->little_endian)
+					dst_p = (int8_t *)dst + size - 1;
+				else
+					dst_p = (int8_t *)dst;
+				*dst_p = truncate_signed8(*dst_p, type->bit_size % 8);
+			}
 		}
 	} else if (drgn_object_encoding_is_complete(type->encoding)) {
 		if (type->encoding == DRGN_OBJECT_ENCODING_FLOAT
