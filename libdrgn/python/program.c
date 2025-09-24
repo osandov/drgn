@@ -309,9 +309,13 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 
 void *drgn_begin_blocking(void)
 {
-	PyThreadState *state = PyThreadState_GetUnchecked();
-	if (state)
-		PyEval_ReleaseThread(state);
+	PyThreadState *state = PyGILState_GetThisThreadState();
+	// If the current thread doesn't hold the GIL (because it's not in
+	// Python or because this blocking section is nested in another), don't
+	// do anything.
+	if (!state || state != PyThreadState_GetUnchecked())
+		return NULL;
+	PyEval_ReleaseThread(state);
 	return state;
 }
 
