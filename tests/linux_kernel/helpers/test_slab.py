@@ -96,6 +96,7 @@ def fallback_slab_cache_names(prog):
 
 
 class TestSlab(LinuxKernelTestCase):
+    @skip_unless_have_test_kmod
     def test_slab_cache_objects_per_slab(self):
         if self.prog["drgn_test_slob"]:
             self.assertRaisesRegex(
@@ -119,6 +120,7 @@ class TestSlab(LinuxKernelTestCase):
             slabinfo.objperslab,
         )
 
+    @skip_unless_have_test_kmod
     def test_slab_cache_pages_per_slab(self):
         if self.prog["drgn_test_slob"]:
             self.assertRaisesRegex(
