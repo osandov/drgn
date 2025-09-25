@@ -38,6 +38,17 @@ __all__ = (
     "print_files",
 )
 
+# File type constants from Linux <uapi/linux/stat.h>
+
+S_IFMT = 0o170000
+S_IFSOCK = 0o140000
+S_IFLNK = 0o120000
+S_IFREG = 0o100000
+S_IFBLK = 0o060000
+S_IFDIR = 0o040000
+S_IFCHR = 0o020000
+S_IFIFO = 0o010000
+
 
 def _follow_mount(mnt: Object, dentry: Object) -> Tuple[Object, Object]:
     prog = dentry.prog_
@@ -452,3 +463,29 @@ def print_files(task: Object) -> None:
         path = d_path(file.f_path)
         escaped_path = escape_ascii_string(path, escape_backslash=True)
         print(f"{fd} {escaped_path} ({file.type_.type_name()})0x{file.value_():x}")
+
+
+def mode_to_type(mode: int) -> Optional[str]:
+    """
+    Convert a file mode to a human-readable file type string.
+
+    :param mode: File mode (from inode.i_mode)
+    :return: File type as a string (e.g., "REG", "DIR", "CHR", etc.), or None if unknown.
+    """
+    type_bits = mode & S_IFMT
+    if type_bits == S_IFSOCK:
+        return "SOCK"
+    elif type_bits == S_IFLNK:
+        return "LNK"
+    elif type_bits == S_IFREG:
+        return "REG"
+    elif type_bits == S_IFBLK:
+        return "BLK"
+    elif type_bits == S_IFDIR:
+        return "DIR"
+    elif type_bits == S_IFCHR:
+        return "CHR"
+    elif type_bits == S_IFIFO:
+        return "FIFO"
+    else:
+        return "UNKNOWN"
