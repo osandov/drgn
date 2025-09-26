@@ -16,6 +16,18 @@
 #include "type.h"
 #include "util.h"
 
+LIBDRGN_PUBLIC struct drgn_qualified_type
+drgn_qualified_type_unaliased(struct drgn_qualified_type qualified_type)
+{
+	while (drgn_type_kind(qualified_type.type) == DRGN_TYPE_TYPEDEF) {
+		struct drgn_qualified_type tmp =
+			drgn_type_type(qualified_type.type);
+		qualified_type.qualifiers |= tmp.qualifiers;
+		qualified_type.type = tmp.type;
+	}
+	return qualified_type;
+}
+
 const char * const drgn_type_kind_spelling[] = {
 	[DRGN_TYPE_VOID] = "void",
 	[DRGN_TYPE_INT] = "int",

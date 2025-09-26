@@ -3346,6 +3346,43 @@ class Type:
         """Get a copy of this type with no qualifiers."""
         ...
 
+    def unaliased(self) -> Type:
+        """
+        Get a copy of this type with all top-level typedefs removed.
+
+        For example, given the following typedefs:
+
+        .. code-block:: c
+
+            typedef long long __kernel_loff_t;
+            typedef __kernel_loff_t loff_t;
+
+        Then:
+
+        >>> print(prog.type("loff_t").unaliased())
+        long long
+
+        But in this example:
+
+        .. code-block:: c
+
+            typedef loff_t *loffp_t;
+
+        Only ``loffp_t`` is at the top level, not ``loff_t``:
+
+        >>> print(prog.type("loffp_t").unaliased())
+        loff_t *
+        """
+        ...
+
+    def unaliased_kind(self) -> TypeKind:
+        """
+        Get the kind of this type with all typedefs removed.
+
+        This is a shortcut for :meth:`Type.unaliased().kind <unaliased>`.
+        """
+        ...
+
     def member(self, name: str) -> TypeMember:
         """
         Look up a member in this type by name.

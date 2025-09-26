@@ -1084,12 +1084,6 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
             raise ValueError("module init did not run")
 
 
-def _underlying_type(type: Type) -> Type:
-    while type.kind == TypeKind.TYPEDEF:
-        type = type.type
-    return type
-
-
 def write_object(
     object: Object, value: Any, *, dereference: Optional[bool] = None
 ) -> None:
@@ -1121,7 +1115,7 @@ def write_object(
         ``True``
     """
     type = object.type_
-    if _underlying_type(type).kind == TypeKind.POINTER:
+    if type.unaliased_kind() == TypeKind.POINTER:
         if dereference is None:
             raise TypeError(
                 "to write to pointed-to object (*ptr = value), use dereference=True; "
@@ -1143,7 +1137,7 @@ def write_object(
 
 
 def _default_argument_promotions(obj: Object) -> Object:
-    type = _underlying_type(obj.type_)
+    type = obj.type_.unaliased()
     if type.kind == TypeKind.INT:
         return +obj
     elif type.primitive == PrimitiveType.C_FLOAT:
@@ -1247,12 +1241,12 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
 
     kmodify = _Kmodify(prog)
 
-    func_type = _underlying_type(func.type_)
+    func_type = func.type_.unaliased()
     try:
         if func_type.kind == TypeKind.FUNCTION:
             func_pointer = func.address_of_()
         elif func_type.kind == TypeKind.POINTER:
-            func_type = _underlying_type(func_type.type)
+            func_type = func_type.type.unaliased()
             if func_type.kind != TypeKind.FUNCTION:
                 raise TypeError("func must be function or function pointer")
             func_pointer = func.read_()
@@ -1261,7 +1255,7 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
     except ObjectAbsentError:
         raise ObjectAbsentError("function is absent, likely inlined") from None
 
-    return_type = _underlying_type(func_type.type)
+    return_type = func_type.type.unaliased()
     if return_type.kind not in {
         TypeKind.VOID,
         TypeKind.INT,
@@ -1289,7 +1283,7 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
 
     for i, arg in enumerate(args):
         if i < len(func_type.parameters):
-            parameter_type = _underlying_type(func_type.parameters[i].type)
+            parameter_type = func_type.parameters[i].type.unaliased()
 
         if (
             (
@@ -1301,7 +1295,7 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
             )
             and i < len(func_type.parameters)
             and parameter_type.kind == TypeKind.POINTER
-            and _underlying_type(parameter_type.type).primitive
+            and parameter_type.type.unaliased().primitive
             in (
                 PrimitiveType.C_CHAR,
                 PrimitiveType.C_SIGNED_CHAR,
@@ -1322,10 +1316,7 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
                 ),
                 arg.object,
             )
-        elif (
-            isinstance(arg, Object)
-            and _underlying_type(arg.type_).kind == TypeKind.ARRAY
-        ):
+        elif isinstance(arg, Object) and arg.type_.unaliased_kind() == TypeKind.ARRAY:
             # Convert arrays to pointers.
             if arg.address_ is None:
                 arg = pass_pointer(arg)
@@ -1336,9 +1327,9 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
             if not isinstance(arg.object, Object):
                 arg.object = Object(prog, value=arg.object)
             type = arg.object.type_
-            underlying_type = _underlying_type(type)
-            if underlying_type.kind == TypeKind.ARRAY:
-                type = underlying_type.type
+            unaliased_type = type.unaliased()
+            if unaliased_type.kind == TypeKind.ARRAY:
+                type = unaliased_type.type
             if i < len(func_type.parameters):
                 # We don't need the result, just type checking.
                 implicit_convert(
@@ -1359,7 +1350,7 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
             else:
                 arg = _default_argument_promotions(arg)
 
-            type = _underlying_type(arg.type_)
+            type = arg.type_.unaliased()
             if type.kind not in {
                 TypeKind.INT,
                 TypeKind.BOOL,

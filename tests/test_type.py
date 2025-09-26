@@ -975,6 +975,54 @@ class TestType(MockProgramTestCase):
             TypeError, "expected Qualifiers", self.prog.void_type, qualifiers=1.5
         )
 
+    def test_unaliased(self):
+        self.assertIdentical(
+            self.prog.typedef_type(
+                "loff_t",
+                self.prog.typedef_type(
+                    "__kernel_loff_t",
+                    self.prog.int_type("long long", 8, True),
+                ),
+            ).unaliased(),
+            self.prog.int_type("long long", 8, True),
+        )
+
+    def test_unalias_not_typedef(self):
+        self.assertIdentical(
+            self.prog.int_type("long long", 8, True).unaliased(),
+            self.prog.int_type("long long", 8, True),
+        )
+
+    def test_unalias_qualifiers(self):
+        self.assertIdentical(
+            self.prog.typedef_type(
+                "CINT",
+                self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST),
+                qualifiers=Qualifiers.VOLATILE,
+            ).unaliased(),
+            self.prog.int_type(
+                "int", 4, True, qualifiers=Qualifiers.CONST | Qualifiers.VOLATILE
+            ),
+        )
+
+    def test_unaliased_kind(self):
+        self.assertEqual(
+            self.prog.typedef_type(
+                "loff_t",
+                self.prog.typedef_type(
+                    "__kernel_loff_t",
+                    self.prog.int_type("long long", 8, True),
+                ),
+            ).unaliased_kind(),
+            TypeKind.INT,
+        )
+
+    def test_unaliased_kind_not_typedef(self):
+        self.assertEqual(
+            self.prog.int_type("long long", 8, True).unaliased_kind(),
+            TypeKind.INT,
+        )
+
     def test_language(self):
         self.assertEqual(self.prog.void_type(language=None).language, DEFAULT_LANGUAGE)
         self.assertEqual(self.prog.void_type(language=Language.C).language, Language.C)

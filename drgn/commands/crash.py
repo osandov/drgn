@@ -55,11 +55,9 @@ def _guess_type(prog: Program, name: str, kind: str = "*") -> Type:
     type = prog.type(name)
 
     # Make sure it's a typedef of our desired type kind.
-    underlying_type = type
-    while underlying_type.kind == TypeKind.TYPEDEF:
-        underlying_type = underlying_type.type
-    if (kind != "union" and underlying_type.kind == TypeKind.STRUCT) or (
-        kind != "struct" and underlying_type.kind == TypeKind.UNION
+    unaliased_kind = type.unaliased_kind()
+    if (kind != "union" and unaliased_kind == TypeKind.STRUCT) or (
+        kind != "struct" and unaliased_kind == TypeKind.UNION
     ):
         return type
 

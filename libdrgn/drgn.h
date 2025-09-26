@@ -3610,6 +3610,10 @@ drgn_type_template_parameters(struct drgn_type *type);
 DRGN_ACCESSOR_LINKAGE
 size_t drgn_type_num_template_parameters(struct drgn_type *type);
 
+/** Remove all top-level typedefs from a @ref drgn_qualified_type. */
+struct drgn_qualified_type
+drgn_qualified_type_unaliased(struct drgn_qualified_type qualified_type);
+
 /**
  * Get the object corresponding to a @ref drgn_type_member.
  *

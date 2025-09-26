@@ -668,6 +668,17 @@ static PyObject *DrgnType_unqualified(DrgnType *self)
 	return DrgnType_wrap(qualified_type);
 }
 
+static PyObject *DrgnType_unaliased(DrgnType *self)
+{
+	return DrgnType_wrap(drgn_qualified_type_unaliased(DrgnType_unwrap(self)));
+}
+
+static PyObject *DrgnType_unaliased_kind(DrgnType *self)
+{
+	unsigned long kind = drgn_type_kind(drgn_underlying_type(self->type));
+	return PyObject_CallFunction(TypeKind_class, "k", kind);
+}
+
 static TypeMember *DrgnType_member(DrgnType *self, PyObject *args,
 				   PyObject *kwds)
 {
@@ -719,6 +730,10 @@ static PyMethodDef DrgnType_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Type_qualified_DOC},
 	{"unqualified", (PyCFunction)DrgnType_unqualified, METH_NOARGS,
 	 drgn_Type_unqualified_DOC},
+	{"unaliased", (PyCFunction)DrgnType_unaliased, METH_NOARGS,
+	 drgn_Type_unaliased_DOC},
+	{"unaliased_kind", (PyCFunction)DrgnType_unaliased_kind, METH_NOARGS,
+	 drgn_Type_unaliased_kind_DOC},
 	{"member", (PyCFunction)DrgnType_member, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Type_member_DOC},
 	{"has_member", (PyCFunction)DrgnType_has_member,
