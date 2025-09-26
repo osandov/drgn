@@ -224,6 +224,7 @@ def run_in_vm(
     build_dir: Path,
     *,
     extra_qemu_options: Sequence[str] = (),
+    extra_kernel_cmdline: Sequence[str] = (),
     test_kmod: TestKmodMode = TestKmodMode.NONE,
     interactive: bool = False,
     outfile: Optional[TextIO] = None,
@@ -353,6 +354,17 @@ def run_in_vm(
         with disk_path.open("wb") as f:
             os.ftruncate(f.fileno(), 1024 * 1024 * 1024)
 
+        kernel_cmdline = [
+            "rootfstype=9p",
+            f"rootflags={_9pfs_mount_options}",
+            "ro",
+            f"console={kernel.arch.qemu_console},115200",
+            "panic=-1",
+            "crashkernel=256M",
+            *extra_kernel_cmdline,
+            f"init={init}",
+        ]
+
         proc = subprocess.Popen(
             [
                 # fmt: off
@@ -387,8 +399,7 @@ def run_in_vm(
                 *kernel.arch.qemu_options,
 
                 "-kernel", str(kernel.path / "vmlinuz"),
-                "-append",
-                f"rootfstype=9p rootflags={_9pfs_mount_options} ro console={kernel.arch.qemu_console},115200 panic=-1 crashkernel=256M init={init}",
+                "-append", " ".join(kernel_cmdline),
 
                 *extra_qemu_options,
                 # fmt: on
@@ -498,6 +509,13 @@ if __name__ == "__main__":
         help="additional option to pass to QEMU (not split on spaces). May be given multiple times",
     )
     parser.add_argument(
+        "--kernel-cmdline",
+        metavar="PARAMETER",
+        action="append",
+        default=argparse.SUPPRESS,
+        help="additional parameters to pass on kernel command line. May be given multiple times",
+    )
+    parser.add_argument(
         "--build-test-kmod",
         dest="test_kmod",
         action="store_const",
@@ -528,6 +546,8 @@ if __name__ == "__main__":
         args.root_directory = None
     if not hasattr(args, "qemu_options"):
         args.qemu_options = []
+    if not hasattr(args, "kernel_cmdline"):
+        args.kernel_cmdline = []
     if not hasattr(args, "test_kmod"):
         args.test_kmod = TestKmodMode.NONE
 
@@ -555,6 +575,7 @@ if __name__ == "__main__":
                 args.root_directory,
                 args.directory,
                 extra_qemu_options=args.qemu_options,
+                extra_kernel_cmdline=args.kernel_cmdline,
                 test_kmod=args.test_kmod,
                 interactive=True,
             )
