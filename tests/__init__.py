@@ -9,6 +9,7 @@ import sys
 from typing import Any, Mapping, NamedTuple, Optional
 import unittest
 from unittest.mock import Mock
+import warnings
 
 from drgn import (
     AbsenceReason,
@@ -310,6 +311,19 @@ class TestCase(unittest.TestCase):
             result = cm.__enter__()
             cls.addClassCleanup(cm.__exit__, None, None, None)
             return result
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # We have a lot of tests that need to fork, and we are also
+        # multithreaded thanks to OpenMP. Ignore deprecation warnings about
+        # forking with multiple threads until we can figure out a different
+        # approach.
+        warnings.filterwarnings(
+            "ignore",
+            message=".*fork.*may lead to deadlocks in the child.*",
+            category=DeprecationWarning,
+        )
 
     def assertIdentical(self, a, b, msg=None):
         return self.assertEqual(IdenticalMatcher(a), IdenticalMatcher(b), msg)
