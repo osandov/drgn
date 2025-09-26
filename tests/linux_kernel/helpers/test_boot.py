@@ -3,23 +3,19 @@
 
 from ctypes import c_int, c_int64, c_size_t, c_void_p
 import mmap
-import re
 import unittest
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn.helpers.linux.boot import pgtable_l5_enabled
-from tests.linux_kernel import LinuxKernelTestCase, _c
+from tests.linux_kernel import LinuxKernelTestCase, _c, iter_maps
 
 
 def first_available_slot(size, min_addr):
-    for line in open("/proc/self/maps"):
-        start_str, end_str = re.match(r"([0-9a-f]+)-([0-9a-f]+).*", line).groups()
-        start = int(start_str, 16)
-        end = int(end_str, 16)
-        if start >= min_addr + size:
+    for map in iter_maps():
+        if map.start >= min_addr + size:
             break
-        elif end >= min_addr:
-            min_addr = end
+        elif map.end >= min_addr:
+            min_addr = map.end
     return min_addr
 
 
