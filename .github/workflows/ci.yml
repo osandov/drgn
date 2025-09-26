@@ -76,7 +76,10 @@ jobs:
       - name: Check with mypy
         run: pre-commit run --all-files mypy
       - name: Build and test with ${{ matrix.cc }}
-        run: CONFIGURE_FLAGS="--enable-compiler-warnings=error" python setup.py test -K ${{ inputs.test_all_kernel_flavors && '-F' || '' }}
+        # We link to libgcc_s on Python 3.8 to work around
+        # https://github.com/python/cpython/issues/88600 (which for us
+        # manifested as spurious crashes in test cases that fork).
+        run: CONFIGURE_FLAGS="--enable-compiler-warnings=error ${{ matrix.python-version == '3.8' && 'LIBS=-lgcc_s' || '' }}" python setup.py test -K ${{ inputs.test_all_kernel_flavors && '-F' || '' }}
 
   lint:
     runs-on: ubuntu-latest
