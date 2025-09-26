@@ -243,7 +243,7 @@ class TestFsRefs(LinuxKernelTestCase):
             exit_stack.callback(umount, self._tmp)
 
             subvol = self._tmp / "subvol"
-            subprocess.check_call(["btrfs", "subvolume", "create", subvol])
+            subprocess.check_call(["btrfs", "-q", "subvolume", "create", subvol])
 
             top_file = self._tmp / "file"
             top_fd = os.open(top_file, os.O_CREAT | os.O_WRONLY, 0o600)
