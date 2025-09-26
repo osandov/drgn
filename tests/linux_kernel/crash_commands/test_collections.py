@@ -446,6 +446,5 @@ b0ba004
 
     def test_wrong_type(self):
         cmd = self.run_crash_command("tree drgn_test_radix_tree_sparse --drgn")
-        print(cmd.stdout)
         self.assertIn("prog.symbol", cmd.stdout)
         self.assertIn("root = Object", cmd.stdout)
