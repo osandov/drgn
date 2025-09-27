@@ -1589,3 +1589,15 @@ def get_task_rss_info(prog: Program, task: Object) -> TaskRss:
                 shmemrss += rss_stat.count[MM_SHMEMPAGES].value_()
 
     return TaskRss(filerss, anonrss, shmemrss, swapents)
+
+
+def task_vsize(task: Object) -> float:
+    """
+    Return virtual memory size of the task
+    """
+    prog = task.prog_
+    page_size = prog["PAGE_SIZE"].value_()
+    vmem = 0
+    if task.mm:
+        vmem = task.mm.total_vm.value_() * page_size
+    return vmem
