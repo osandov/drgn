@@ -1,4 +1,6 @@
 *
+!/Makefile
+!/*.sh
 !/.gitignore
 !/__init__.py
 !/__main__.py
