@@ -16,6 +16,7 @@ __all__ = (
     "global_node_page_state",
     "global_zone_page_state",
     "nr_free_pages",
+    "zone_page_state",
 )
 
 
