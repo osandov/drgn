@@ -103,23 +103,21 @@ def css_next_child(pos: Object, parent: Object) -> Object:
     :return: ``struct cgroup_subsys_state *``
     """
     if not pos:
-        next_ = container_of(
-            parent.children.next, "struct cgroup_subsys_state", "sibling"
-        )
+        next_ = parent.children.next.read_()
     elif not (pos.flags & pos.prog_["CSS_RELEASED"]):
-        next_ = container_of(pos.sibling.next, "struct cgroup_subsys_state", "sibling")
+        next_ = pos.sibling.next.read_()
     else:
-        serial_nr = pos.serial_nr.value_()  # Read once and cache.
-        for next_ in list_for_each_entry(
+        serial_nr = pos.serial_nr.read_()  # Read once and cache.
+        for css in list_for_each_entry(
             "struct cgroup_subsys_state", parent.children.address_of_(), "sibling"
         ):
-            if next_.serial_nr > serial_nr:
-                break
-        else:
-            return NULL(pos.prog_, "struct cgroup_subsys_state *")
+            if css.serial_nr > serial_nr:
+                return css
+        return NULL(pos.prog_, "struct cgroup_subsys_state *")
 
-    if next_.sibling.address_of_() != parent.children.address_of_():
-        return next_
+    # If next_ doesn't point to the head, then it is the next sibling.
+    if next_ != parent.children.address_of_():
+        return container_of(next_, "struct cgroup_subsys_state", "sibling")
     return NULL(next_.prog_, "struct cgroup_subsys_state *")
 
 
