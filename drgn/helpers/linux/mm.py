@@ -66,6 +66,7 @@ __all__ = (
     "for_each_vmap_area",
     "get_page_flags",
     "get_task_rss_info",
+    "in_direct_map",
     "page_size",
     "page_to_pfn",
     "page_to_phys",
