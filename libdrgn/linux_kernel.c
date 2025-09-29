@@ -31,6 +31,7 @@
 #include "helpers.h"
 #include "hexlify.h"
 #include "io.h"
+#include "log.h"
 #include "linux_kernel.h"
 #include "log.h"
 #include "platform.h"
