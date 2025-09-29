@@ -115,6 +115,8 @@ def css_next_child(pos: Object, parent: Object) -> Object:
         ):
             if next_.serial_nr > serial_nr:
                 break
+        else:
+            return NULL(pos.prog_, "struct cgroup_subsys_state *")
 
     if next_.sibling.address_of_() != parent.children.address_of_():
         return next_
