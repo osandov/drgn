@@ -143,6 +143,12 @@ struct drgn_program {
 	struct drgn_thread *main_thread;
 	struct drgn_thread *crashed_thread;
 	/*
+	 * Cached offsetof(struct pt_regs, stackframe) for aarch64, or 0 if not
+	 * yet cached.
+	 */
+	uint64_t aarch64_stackframe_offset_cached;
+
+	/*
 	 * AArch64 instruction pointer authentication code mask, parsed either
 	 * from NT_ARM_PAC_MASK or VMCOREINFO.
 	 */
