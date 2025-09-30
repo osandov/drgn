@@ -68,6 +68,37 @@ static void demangle_cfi_registers_aarch64(struct drgn_program *prog,
 	drgn_register_state_set_from_u64(prog, regs, x30, ra.value);
 }
 
+// elf_gregset_t (in PRSTATUS) and struct user_pt_regs have the same layout.
+// This layout is a prefix of the in-kernel struct pt_regs (but we don't care
+// about any of the extra fields).
+static struct drgn_error *
+get_initial_registers_from_struct_aarch64(struct drgn_program *prog,
+					  const void *buf, size_t size,
+					  struct drgn_register_state **ret)
+{
+	if (size < 272) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "registers are truncated");
+	}
+
+	struct drgn_register_state *regs =
+		drgn_register_state_create(pstate, true);
+	if (!regs)
+		return &drgn_enomem;
+
+	drgn_register_state_set_from_buffer(regs, pc, (uint64_t *)buf + 32);
+	drgn_register_state_set_from_buffer(regs, sp, (uint64_t *)buf + 31);
+	drgn_register_state_set_range_from_buffer(regs, x19, x30,
+						  (uint64_t *)buf + 19);
+	drgn_register_state_set_range_from_buffer(regs, x0, x18, buf);
+	drgn_register_state_set_from_buffer(regs, pstate, (uint64_t *)buf + 33);
+	drgn_register_state_set_pc_from_register(prog, regs, pc);
+
+	*ret = regs;
+	return NULL;
+}
+
+
 // Unwind using the frame pointer. Note that leaf functions may not allocate a
 // stack frame, so this may skip the caller of a leaf function. I don't know of
 // a good way around that.
@@ -151,36 +182,6 @@ bad_call_unwind_aarch64(struct drgn_program *prog,
 	// The interrupted pc is no longer applicable.
 	drgn_register_state_unset_has_register(tmp, DRGN_REGISTER_NUMBER(pc));
 	*ret = tmp;
-	return NULL;
-}
-
-// elf_gregset_t (in PRSTATUS) and struct user_pt_regs have the same layout.
-// This layout is a prefix of the in-kernel struct pt_regs (but we don't care
-// about any of the extra fields).
-static struct drgn_error *
-get_initial_registers_from_struct_aarch64(struct drgn_program *prog,
-					  const void *buf, size_t size,
-					  struct drgn_register_state **ret)
-{
-	if (size < 272) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "registers are truncated");
-	}
-
-	struct drgn_register_state *regs =
-		drgn_register_state_create(pstate, true);
-	if (!regs)
-		return &drgn_enomem;
-
-	drgn_register_state_set_from_buffer(regs, pc, (uint64_t *)buf + 32);
-	drgn_register_state_set_from_buffer(regs, sp, (uint64_t *)buf + 31);
-	drgn_register_state_set_range_from_buffer(regs, x19, x30,
-						  (uint64_t *)buf + 19);
-	drgn_register_state_set_range_from_buffer(regs, x0, x18, buf);
-	drgn_register_state_set_from_buffer(regs, pstate, (uint64_t *)buf + 33);
-	drgn_register_state_set_pc_from_register(prog, regs, pc);
-
-	*ret = regs;
 	return NULL;
 }
 
