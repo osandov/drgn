@@ -2578,3 +2578,177 @@ linux_kernel_loaded_module_iterator_create(struct drgn_program *prog,
 	*ret = &it->it;
 	return NULL;
 }
+
+static struct drgn_error *
+linux_cpu_present_mask(struct drgn_program *prog, uint64_t **bitmap_ret,
+		       size_t *size_ret)
+{
+	// This C implementation is not exposed as a drgn helper because it doesn't
+	// really provide any benefit over the Python implementation. We would need
+	// to wrap this in another Python function in order to provide the existing
+	// "default program" behavior that cpu_present_mask() already provides.
+	// Rather than add the extra boilerplate and complexity, have this copy for
+	// internal use.
+	struct drgn_error *err;
+
+	DRGN_OBJECT(tmp, prog);
+	err = drgn_program_find_object(prog, "__cpu_present_mask", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &tmp);
+	if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+		err = drgn_program_find_object(prog, "cpu_present_mask", NULL,
+							DRGN_FIND_OBJECT_VARIABLE, &tmp);
+		if (err)
+			return err;
+		err = drgn_object_dereference(&tmp, &tmp);
+	}
+	if (err)
+		return err;
+
+	err = drgn_object_member(&tmp, &tmp, "bits");
+	if (err)
+		return err;
+
+	uint64_t bitmap_addr = tmp.address;
+	DRGN_OBJECT(nr_cpu_ids_obj, prog);
+	uint64_t nr_cpu_ids;
+	err = drgn_program_find_object(prog, "nr_cpu_ids", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &nr_cpu_ids_obj);
+	if (err) {
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
+			nr_cpu_ids = 1;
+		else
+			return err;
+	} else {
+		err = drgn_object_read_unsigned(&nr_cpu_ids_obj, &nr_cpu_ids);
+		if (err)
+			return err;
+	}
+	// A bogus value could overflow a 32-bit size_t, validate it here
+	if (nr_cpu_ids > SIZE_MAX)
+		return &drgn_enomem;
+
+	bool is_64_bit;
+	err = drgn_program_is_64_bit(prog, &is_64_bit);
+	if (err)
+		return err;
+
+	bool bswap;
+	err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+
+	size_t size = nr_cpu_ids / 64 + ((nr_cpu_ids % 64) ? 1 : 0);
+	_cleanup_free_ uint64_t *bitmap = calloc(size, sizeof(*bitmap));
+	if (!bitmap)
+		return &drgn_enomem;
+
+	if (is_64_bit) {
+		err = drgn_program_read_memory(prog, bitmap, bitmap_addr, size * 8, false);
+		if (err)
+			return err;
+
+		if (bswap)
+			for (size_t i = 0; i < size; i++)
+				bitmap[i] = bswap_64(bitmap[i]);
+	} else {
+		size_t nr_words = nr_cpu_ids / 32 + ((nr_cpu_ids % 32) ? 1 : 0);
+		_cleanup_free_ uint32_t *orig = malloc_array(nr_words, sizeof(*orig));
+		if (!bitmap)
+			return &drgn_enomem;
+
+		err = drgn_program_read_memory(prog, orig, bitmap_addr, nr_words * 4, false);
+		if (err)
+			return err;
+
+		for (size_t i = 0; i < nr_words; i++) {
+			uint32_t value = bswap ? bswap_32(orig[i]) : orig[i];
+			if (i & 1)
+				bitmap[i >> 1] |= (uint64_t) value << 32;
+			else
+				bitmap[i >> 1] |= value;
+		}
+	}
+
+	*bitmap_ret = no_cleanup_ptr(bitmap);
+	*size_ret = nr_cpu_ids;
+	return NULL;
+}
+
+DEFINE_VECTOR(uint64_vector, uint64_t);
+
+struct drgn_error *
+drgn_program_is_irq_regs(struct drgn_program *prog, uint64_t addr,
+                         bool *ret)
+{
+	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) ||
+	    (prog->flags & DRGN_PROGRAM_IS_LIVE)) {
+		*ret = false;
+		return NULL;
+	}
+
+	if (!prog->irq_regs_cached) {
+		struct drgn_error *err;
+		DRGN_OBJECT(irq_regs_obj, prog);
+
+		err = drgn_program_find_object(prog, "__irq_regs", NULL,
+					       DRGN_FIND_OBJECT_VARIABLE, &irq_regs_obj);
+		if (err)
+			return err;
+
+		err = drgn_object_address_of(&irq_regs_obj, &irq_regs_obj);
+		if (err)
+			return err;
+
+		_cleanup_free_ uint64_t *cpumask = NULL;
+		size_t nr_cpus;
+		err = linux_cpu_present_mask(prog, &cpumask, &nr_cpus);
+		if (err)
+			return err;
+
+		DRGN_OBJECT(percpu_regs, prog);
+		VECTOR(uint64_vector, addresses);
+		uint64_t regs_ptr;
+		for (size_t word_index = 0; word_index * 64 < nr_cpus; word_index++) {
+			uint64_t word = cpumask[word_index];
+			unsigned int i;
+			for_each_bit(i, word) {
+				size_t cpu = word_index * 64 + i;
+				err = linux_helper_per_cpu_ptr(&percpu_regs, &irq_regs_obj, cpu);
+				if (err)
+					return err;
+				err = drgn_object_dereference(&percpu_regs, &percpu_regs);
+				if (err)
+					return err;
+				err = drgn_object_read_unsigned(&percpu_regs, &regs_ptr);
+				if (err)
+					return err;
+				if (!regs_ptr)
+					continue;
+				drgn_log_debug(prog, "irq_regs: cpu %zu: %"PRIx64, cpu, regs_ptr);
+				if (!uint64_vector_append(&addresses, &regs_ptr))
+					return &drgn_enomem;
+			}
+		}
+		drgn_log_debug(prog, "irq_regs: loaded %zu per-cpu __irq_regs",
+			       uint64_vector_size(&addresses));
+
+		// A signal value so we don't need to store length in the
+		// program. The array won't need random access, so this is a
+		// reasonable tradeoff.
+		regs_ptr = 0;
+		if (!uint64_vector_append(&addresses, &regs_ptr))
+			return &drgn_enomem;
+
+		uint64_vector_shrink_to_fit(&addresses);
+		uint64_vector_steal(&addresses, &prog->irq_regs_cached, NULL);
+	}
+
+	for (size_t i = 0; prog->irq_regs_cached[i]; i++) {
+		if (prog->irq_regs_cached[i] == addr) {
+			*ret = true;
+			return NULL;
+		}
+	}
+	*ret = false;
+	return NULL;
+}
