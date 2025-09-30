@@ -9,6 +9,8 @@
 
 #include "array.h"
 #include "error.h"
+#include "linux_kernel.h"
+#include "log.h"
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
 #include "register_state.h"
@@ -99,6 +101,106 @@ get_initial_registers_from_struct_aarch64(struct drgn_program *prog,
 }
 
 
+static struct drgn_error *
+get_stackframe_offset(struct drgn_program *prog, uint64_t *ret)
+{
+	if (!prog->aarch64_stackframe_offset_cached) {
+		struct drgn_error *err;
+		struct drgn_qualified_type pt_regs_type;
+
+		err = drgn_program_find_type(prog, "struct pt_regs", NULL, &pt_regs_type);
+		if (err)
+			return err;
+
+		struct drgn_type_member *stackframe_member;
+		uint64_t bit_offset;
+		err = drgn_type_find_member(pt_regs_type.type, "stackframe",
+					    &stackframe_member, &bit_offset);
+		if (err)
+			return err;
+
+		prog->aarch64_stackframe_offset_cached = bit_offset / 8;
+	}
+
+	*ret = prog->aarch64_stackframe_offset_cached;
+	return NULL;
+}
+
+
+static struct drgn_error *
+fallback_unwind_try_pt_regs(struct drgn_program *prog, uint64_t fp,
+			    uint64_t frame[2],
+			    struct drgn_register_state *regs,
+			    struct drgn_register_state **regs_ret,
+			    bool *found_ret)
+{
+	struct drgn_error *err;
+	uint64_t stackframe_offset;
+	const char *method;
+
+	err = get_stackframe_offset(prog, &stackframe_offset);
+	if (err)
+		return err;
+
+	uint64_t pt_regs_addr = fp - stackframe_offset;
+
+	if (!frame[0] && !frame[1]) {
+		// Since c2c6b27b5aa14 ("arm64: stacktrace: unwind exception
+		// boundaries") - v6.13, a frame record with fp and lr both zero
+		// indicates that we can read the next word on the stack for
+		// "metadata" which tells us whether a pt_regs is pushed to the
+		// stack.
+		uint64_t frame_meta_type;
+		err = drgn_program_read_u64(prog, fp + 16, false, &frame_meta_type);
+		if (err)
+			return err;
+
+		// FRAME_META_TYPE_PT_REGS == 2 indicates a pt_regs
+		if (frame_meta_type != 2) {
+			*found_ret = false;
+			return NULL;
+		}
+		method = "frame metadata";
+	} else {
+		// Before this, it's still possible that this stack frame is
+		// embedded within a pt_regs. However, there's no reliable way
+		// to detect it. We can guess what that pt_regs pointer would
+		// be, and check whether any CPU has a __irq_regs value matching
+		// it. If so, we're guaranteed to be in the pt_regs for an IRQ.
+		// If not, it's still possible that this is a pt_regs, but the
+		// __irq_regs accounting has not yet happened (or has been
+		// cleaned up already). So this heuristic shouldn't have any
+		// false positives, but could have some false negatives.
+		bool is_irq_regs;
+		err = drgn_program_is_irq_regs(prog, pt_regs_addr, &is_irq_regs);
+		if (err)
+			return err;
+
+		if (!is_irq_regs) {
+			*found_ret = false;
+			return NULL;
+		}
+		method = "__irq_regs";
+	}
+
+	// Now that we're reasonably confident that there's a pt_regs here, read
+	// it and use it.
+	char pt_regs[272];
+	err = drgn_program_read_memory(prog, &pt_regs, pt_regs_addr,
+				       sizeof(pt_regs), false);
+	if (err)
+		return err;
+	err = get_initial_registers_from_struct_aarch64(prog, &pt_regs,
+							sizeof(pt_regs), regs_ret);
+	if (err)
+		return err;
+
+	drgn_log_debug(prog, "aarch64 fallback: discovered pt_regs 0x%"PRIx64" via %s",
+		       pt_regs_addr, method);
+	*found_ret = true;
+	return NULL;
+}
+
 // Unwind using the frame pointer. Note that leaf functions may not allocate a
 // stack frame, so this may skip the caller of a leaf function. I don't know of
 // a good way around that.
@@ -127,6 +229,24 @@ fallback_unwind_aarch64(struct drgn_program *prog,
 			err = &drgn_stop;
 		}
 		return err;
+	}
+
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		bool found;
+		err = fallback_unwind_try_pt_regs(prog, fp.value, frame, regs, ret, &found);
+		if (err) {
+			// If we encounter any error trying the pt_regs
+			// approach, log it at the debug level and continue.
+			// It's likely an expected error, but could be useful
+			// debugging information.
+			drgn_error_log_debug(prog, err, "encountered error in linux fallback unwinder:");
+			drgn_error_destroy(err);
+			err = NULL;
+		} else if (found) {
+			// We have set the register state based on a pt_regs
+			// frame we found, return!
+			return NULL;
+		}
 	}
 
 	uint64_t unwound_fp =
