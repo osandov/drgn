@@ -37,6 +37,10 @@ drgn_module_try_linux_kmod_files(struct drgn_module *module,
 				 const struct drgn_debug_info_options *options,
 				 struct drgn_standard_debug_info_find_state *state);
 
+struct drgn_error *
+drgn_program_is_irq_regs(struct drgn_program *prog, uint64_t addr,
+                         bool *ret);
+
 #define KDUMP_SIGNATURE "KDUMP   "
 #define KDUMP_SIG_LEN (sizeof(KDUMP_SIGNATURE) - 1)
 
