@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import os
+from pathlib import Path
+import re
 import signal
 import time
 
@@ -17,6 +19,7 @@ from drgn.helpers.linux.sched import (
     task_since_last_arrival_ns,
     task_state_to_char,
     task_thread_info,
+    thread_group_leader,
 )
 from tests.linux_kernel import (
     LinuxKernelTestCase,
@@ -114,3 +117,16 @@ class TestSched(LinuxKernelTestCase):
                 os.sched_setaffinity(pid, other_affinity)
             task = find_task(self.prog, pid)
             self.assertGreaterEqual(task_since_last_arrival_ns(task), 10000000)
+
+    def test_thread_group_leader(self):
+        with fork_and_stop() as pid:
+            task = find_task(self.prog, pid)
+            leader = thread_group_leader(task)
+
+            text = Path(f"/proc/{pid}/status").read_text()
+            value = re.findall(r"^Pid:\s*([0-9]+)", text, flags=re.MULTILINE)
+            tgid = re.findall(r"^Tgid:\s*([0-9]+)", text, flags=re.MULTILINE)
+
+            if value and tgid:
+                expected = int(value[0]) == int(tgid[0])
+                self.assertEqual(leader, expected)
