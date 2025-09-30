@@ -254,6 +254,8 @@ struct drgn_program {
 			uint64_t direct_mapping_offset;
 			/** Cached value of `MOD_TEXT` in the kernel. */
 			uint64_t mod_text;
+			/** Cached array of per-cpu __irq_regs values */
+			uint64_t *irq_regs_cached;
 			/**
 			 * Whether @ref drgn_program::arch_pfn_offset has been
 			 * cached.
