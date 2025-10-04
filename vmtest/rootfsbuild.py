@@ -31,6 +31,7 @@ _ROOTFS_PACKAGES = [
     "python3-setuptools",
     # Test dependencies.
     "btrfs-progs",
+    "e2fsprogs",
     "check",
     "iproute2",
     "kexec-tools",
