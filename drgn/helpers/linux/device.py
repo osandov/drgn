@@ -21,6 +21,8 @@ __all__ = (
     "MKDEV",
     "bus_for_each_dev",
     "bus_to_subsys",
+    "class_for_each_device",
+    "class_to_subsys",
     "dev_name",
 )
 
@@ -107,3 +109,57 @@ def bus_for_each_dev(bus: Object) -> Iterable[Object]:
         "knode_bus.n_node",
     ):
         yield dev_prv.device.read_()
+
+
+def class_to_subsys(class_: Object) -> Object:
+    """
+    Get the private data for a device class.
+
+    :param bus: ``struct class *``
+    :return: ``struct subsys_private *``
+    """
+    prog = class_.prog_
+    # Walk the list of registered classes to find the struct subsys_private
+    # matching the given class. Note that before Linux kernel commit
+    # 2df418cf4b72 ("driver core: class: remove subsystem private pointer from
+    # struct class") (in v6.4), struct subsys_private could also be found in
+    # struct class::p, but it's easier to only maintain the newer code path.
+    for sp in list_for_each_entry(
+        "struct subsys_private",
+        prog["class_kset"].list.address_of_(),
+        "subsys.kobj.entry",
+    ):
+        if sp.member_("class") == class_:
+            return sp
+    return NULL(prog, "struct subsys_private *")
+
+
+# The naming inconsistency between this and bus_for_each_dev() is inherited
+# from the kernel source code :(
+def class_for_each_device(class_: Object) -> Iterable[Object]:
+    """
+    Iterate over all devices of a class.
+
+    :param bus: ``struct class *``
+    :return: Iterator of ``struct device *`` objects.
+    """
+    prog = class_.prog_
+    try:
+        class_in_device_private = prog.cache["class_in_device_private"]
+    except KeyError:
+        # Linux kernel commit 570d0200123f ("driver core: move
+        # device->knode_class to device_private") (in v5.1) moved the list
+        # node.
+        class_in_device_private = prog.type("struct device_private").has_member(
+            "knode_class"
+        )
+        prog.cache["class_in_device_private"] = class_in_device_private
+
+    devices = class_to_subsys(class_).klist_devices.k_list.address_of_()
+    if class_in_device_private:
+        for dev_prv in list_for_each_entry(
+            "struct device_private", devices, "knode_class.n_node"
+        ):
+            yield dev_prv.device.read_()
+    else:
+        yield from list_for_each_entry("struct device", devices, "knode_class.n_node")

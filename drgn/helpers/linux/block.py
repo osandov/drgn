@@ -17,7 +17,7 @@ from typing import Iterator
 from drgn import Object, Program, cast, container_of
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.prog import takes_program_or_default
-from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
+from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV, class_for_each_device
 from drgn.helpers.linux.list import list_for_each_entry
 
 __all__ = (
@@ -82,47 +82,6 @@ def bdev_partno(bdev: Object) -> Object:
     return impl(bdev)
 
 
-def _class_to_subsys(class_: Object) -> Object:
-    # Walk the list of registered classes to find the struct subsys_private
-    # matching the given class. Note that before Linux kernel commit
-    # 2df418cf4b72 ("driver core: class: remove subsystem private pointer from
-    # struct class") (in v6.4), struct subsys_private could also be found in
-    # struct class::p, but it's easier to only maintain the newer code path.
-    for sp in list_for_each_entry(
-        "struct subsys_private",
-        class_.prog_["class_kset"].list.address_of_(),
-        "subsys.kobj.entry",
-    ):
-        if sp.member_("class") == class_:
-            return sp
-    else:
-        raise LookupError("block_class subsys_private not found")
-
-
-def _for_each_block_device(prog: Program) -> Iterator[Object]:
-    try:
-        devices, class_in_device_private = prog.cache["_for_each_block_device"]
-    except KeyError:
-        devices = _class_to_subsys(
-            prog["block_class"].address_of_()
-        ).klist_devices.k_list.address_of_()
-        # Linux kernel commit 570d0200123f ("driver core: move
-        # device->knode_class to device_private") (in v5.1) moved the list
-        # node.
-        class_in_device_private = prog.type("struct device_private").has_member(
-            "knode_class"
-        )
-        prog.cache["_for_each_block_device"] = devices, class_in_device_private
-
-    if class_in_device_private:
-        for device_private in list_for_each_entry(
-            "struct device_private", devices, "knode_class.n_node"
-        ):
-            yield device_private.device
-    else:
-        yield from list_for_each_entry("struct device", devices, "knode_class.n_node")
-
-
 @takes_program_or_default
 def for_each_disk(prog: Program) -> Iterator[Object]:
     """
@@ -136,7 +95,7 @@ def for_each_disk(prog: Program) -> Iterator[Object]:
     # block_device::bd_device. We start by assuming that the kernel has this
     # commit and fall back to the old path if that fails.
     have_bd_device = True
-    for device in _for_each_block_device(prog):
+    for device in class_for_each_device(prog["block_class"].address_of_()):
         if have_bd_device:
             try:
                 bdev = container_of(device, "struct block_device", "bd_device")
@@ -199,7 +158,7 @@ def for_each_partition(prog: Program) -> Iterator[Object]:
     """
     # See the comment in for_each_disk().
     have_bd_device = True
-    for device in _for_each_block_device(prog):
+    for device in class_for_each_device(prog["block_class"].address_of_()):
         if have_bd_device:
             try:
                 yield container_of(device, "struct block_device", "bd_device")
