@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Dict, Mapping, NamedTuple, Sequence
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-from util import KernelVersion
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
@@ -143,6 +142,8 @@ CONFIG_XFS_FS=m
 
 # For mm tests.
 CONFIG_HUGETLBFS=y
+CONFIG_MEMORY_HOTPLUG=y
+CONFIG_MEMORY_HOTREMOVE=y
 
 # For net tests.
 CONFIG_NAMESPACES=y
@@ -451,21 +452,13 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     vmtest_kernel_version = [
         # Increment the major version to rebuild every
         # architecture/flavor/version combination.
-        36,
+        37,
         # The minor version makes the default flavor the "latest" version.
         1 if flavor.name == "default" else 0,
     ]
     patch_level = 0
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
-    if flavor.name == "alternative" and KernelVersion(version) >= KernelVersion("6.8"):
-        patch_level += 1
-    if KernelVersion(version) < KernelVersion("5.10"):
-        patch_level += 1
-    if arch.name == "x86_64" and flavor.name == "alternative":
-        patch_level += 1
-    if arch.name == "aarch64":
-        patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 
