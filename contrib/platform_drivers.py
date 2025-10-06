@@ -4,18 +4,8 @@
 """Print registered platform drivers."""
 
 from drgn import NULL, container_of
+from drgn.helpers.linux.device import bus_to_subsys
 from drgn.helpers.linux.list import list_for_each_entry
-
-
-def bus_to_subsys(bus):
-    for sp in list_for_each_entry(
-        "struct subsys_private",
-        prog["bus_kset"].list.address_of_(),
-        "subsys.kobj.entry",
-    ):
-        if sp.bus == bus:
-            return sp
-    return NULL(bus.prog_, "struct subsys_private *")
 
 
 sp = bus_to_subsys(prog["platform_bus_type"].address_of_())
