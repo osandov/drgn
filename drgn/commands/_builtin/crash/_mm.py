@@ -755,10 +755,7 @@ if "memory_subsys" in prog:  # Check for CONFIG_MEMORY_HOTPLUG.
         print("-" * 72)
         print()
 
-        try:
-            block_size = memory_block_size_bytes(prog)
-        except NotImplementedError:
-            block_size = None
+        block_size = memory_block_size_bytes(prog)
 
         # struct memory_block::nid was added in Linux kernel commit
         # d0dc12e86b31 ("mm/memory_hotplug: optimize memory hotplug") (in
@@ -774,9 +771,7 @@ if "memory_subsys" in prog:  # Check for CONFIG_MEMORY_HOTPLUG.
                 # with struct memblock, an entirely different type.
                 CellFormat("MEMORY_BLOCK", "^"),
                 "NAME",
-                CellFormat(
-                    "PHYSICAL START" if block_size is None else "PHYSICAL RANGE", "^"
-                ),
+                CellFormat("PHYSICAL RANGE", "^"),
                 *node_heading,
                 "STATE",
                 "START_SECTION_NO",
@@ -786,11 +781,7 @@ if "memory_subsys" in prog:  # Check for CONFIG_MEMORY_HOTPLUG.
         for mem in for_each_memory_block(prog):
             start_section_nr = mem.start_section_nr.read_()
             physical_start = PFN_PHYS(section_nr_to_pfn(start_section_nr))
-            physical_range = f"{physical_start.value_():{paddr_width}x}"
-            if block_size is not None:
-                physical_range += (
-                    f" - {(physical_start + block_size - 1).value_():{paddr_width}x}"
-                )
+            physical_end = physical_start + block_size - 1
 
             if node_heading:
                 node_cell: Sequence[Any] = (CellFormat(mem.nid.value_(), "^"),)
@@ -807,7 +798,11 @@ if "memory_subsys" in prog:  # Check for CONFIG_MEMORY_HOTPLUG.
                     escape_ascii_string(
                         dev_name(mem.dev.address_of_()), escape_backslash=True
                     ),
-                    CellFormat(physical_range, "^"),
+                    CellFormat(
+                        f"{physical_start.value_():{paddr_width}x}"
+                        f" - {physical_end.value_():{paddr_width}x}",
+                        "^",
+                    ),
                     *node_cell,
                     state,
                     CellFormat(start_section_nr.value_(), "<"),

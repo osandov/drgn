@@ -35,11 +35,9 @@ from _drgn import (
 )
 from drgn import (
     NULL,
-    Architecture,
     IntegerLike,
     Object,
     ObjectAbsentError,
-    ObjectNotFoundError,
     Program,
     TypeKind,
     cast,
@@ -1658,32 +1656,7 @@ def memory_block_size_bytes(prog: Program) -> Object:
     This is the unit that can be hot(un)plugged.
 
     :return: ``unsigned long``
-    :raises NotImplementedError: on some ppc64 systems (pSeries and PowerNV) if
-        the kernel is Linux 6.5 or older
     """
-    arch = prog.platform.arch  # type: ignore[union-attr]  # platform can't be None.
-
-    if arch == Architecture.X86_64:
-        return prog["memory_block_size_probed"].read_()
-
-    MIN_MEMORY_BLOCK_SIZE = Object(
-        prog, "unsigned long", 1 << prog["SECTION_SIZE_BITS"]
+    return (
+        cast("unsigned long", prog["sections_per_block"]) << prog["SECTION_SIZE_BITS"]
     )
-
-    if arch == Architecture.S390X:
-        return max(MIN_MEMORY_BLOCK_SIZE, prog["sclp"].rzm.read_())
-    elif arch == Architecture.PPC64:
-        if prog["ppc_md"].memory_block_size:
-            # The kernel calls ppc_md.memory_block_size(). As of Linux kernel
-            # commit 4d15721177d5 ("powerpc/mm: Cleanup memory block size
-            # probing") (in v6.6), there are two implementations, both of which
-            # simply return a global variable. Before that, they do some more
-            # involved probing that we can't easily implement.
-            try:
-                return prog["memory_block_size"]
-            except ObjectNotFoundError:
-                raise NotImplementedError(
-                    "memory_block_size_bytes() is not yet supported for ppc64 on Linux < 6.6"
-                ) from None
-
-    return MIN_MEMORY_BLOCK_SIZE

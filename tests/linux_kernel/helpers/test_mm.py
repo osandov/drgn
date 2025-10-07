@@ -74,7 +74,6 @@ from tests.linux_kernel import (
     skip_unless_have_memory_hotplug,
     skip_unless_have_test_kmod,
 )
-from util import KernelVersion
 
 
 class TestMm(LinuxKernelTestCase):
@@ -574,16 +573,7 @@ class TestMm(LinuxKernelTestCase):
 
     @skip_unless_have_memory_hotplug
     def test_memory_block_size_bytes(self):
-        try:
-            value = memory_block_size_bytes(self.prog)
-        except NotImplementedError as e:
-            # See the comment in memory_block_size_bytes().
-            if NORMALIZED_MACHINE_NAME == "ppc64" and KernelVersion(
-                os.uname().release
-            ) < KernelVersion("6.6"):
-                self.skipTest(str(e))
-            raise
         self.assertEqual(
-            value,
+            memory_block_size_bytes(self.prog),
             int(Path("/sys/devices/system/memory/block_size_bytes").read_text(), 16),
         )
