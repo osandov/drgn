@@ -137,6 +137,11 @@ skip_unless_have_stack_tracing = unittest.skipUnless(
 )
 
 
+skip_unless_have_memory_hotplug = unittest.skipUnless(
+    Path("/sys/bus/memory").exists(), "memory hotplug is not supported"
+)
+
+
 # PRNG used by the test kernel module.
 def prng32(seed):
     seed = seed.encode("ascii")

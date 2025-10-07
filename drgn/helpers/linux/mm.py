@@ -26,16 +26,28 @@ multiple reasons:
 
 import operator
 import re
-from typing import Callable, Iterator, List, NamedTuple, Optional
+from typing import Callable, Iterable, Iterator, List, NamedTuple, Optional
 
 from _drgn import (
     _linux_helper_direct_mapping_offset,
     _linux_helper_follow_phys,
     _linux_helper_read_vm,
 )
-from drgn import NULL, IntegerLike, Object, ObjectAbsentError, Program, TypeKind, cast
+from drgn import (
+    NULL,
+    Architecture,
+    IntegerLike,
+    Object,
+    ObjectAbsentError,
+    ObjectNotFoundError,
+    Program,
+    TypeKind,
+    cast,
+    container_of,
+)
 from drgn.helpers.common.format import decode_enum_type_flags
 from drgn.helpers.common.prog import takes_program_or_default
+from drgn.helpers.linux.device import bus_for_each_dev
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.mapletree import mt_for_each, mtree_load
 from drgn.helpers.linux.percpu import percpu_counter_sum, percpu_counter_sum_positive
@@ -55,18 +67,21 @@ __all__ = (
     "compound_head",
     "compound_nr",
     "compound_order",
+    "decode_memory_block_state",
     "decode_page_flags",
     "environ",
     "find_vmap_area",
     "follow_page",
     "follow_pfn",
     "follow_phys",
+    "for_each_memory_block",
     "for_each_page",
     "for_each_vma",
     "for_each_vmap_area",
     "get_page_flags",
     "get_task_rss_info",
     "in_direct_map",
+    "memory_block_size_bytes",
     "page_size",
     "page_to_pfn",
     "page_to_phys",
@@ -1590,3 +1605,85 @@ def get_task_rss_info(prog: Program, task: Object) -> TaskRss:
                 shmemrss += rss_stat.count[MM_SHMEMPAGES].value_()
 
     return TaskRss(filerss, anonrss, shmemrss, swapents)
+
+
+@takes_program_or_default
+def for_each_memory_block(prog: Program) -> Iterable[Object]:
+    """
+    Iterate over all memory hotplug blocks.
+
+    :return: Iterator of ``struct memory_block *`` objects.
+    """
+    memory_block_type = prog.type("struct memory_block")
+    for dev in bus_for_each_dev(prog["memory_subsys"].address_of_()):
+        yield container_of(dev, memory_block_type, "dev")
+
+
+# These are macros that haven't changed since they were introduced.
+_MEMORY_BLOCK_STATE = {
+    # Added in Linux kernel commit 3947be1969a9 ("[PATCH] memory hotplug: sysfs
+    # and add/remove functions") (in v2.6.15).
+    (1 << 0): "MEM_ONLINE",
+    (1 << 1): "MEM_GOING_OFFLINE",
+    (1 << 2): "MEM_OFFLINE",
+    # Added in Linux kernel commit 7b78d335ac15 ("memory hotplug: rearrange
+    # memory hotplug notifier") (in v2.6.24).
+    (1 << 3): "MEM_GOING_ONLINE",
+    (1 << 4): "MEM_CANCEL_ONLINE",
+    (1 << 5): "MEM_CANCEL_OFFLINE",
+    # Added in Linux kernel commit c5f1e2d18909 ("mm/memory_hotplug: introduce
+    # MEM_PREPARE_ONLINE/MEM_FINISH_OFFLINE notifiers") (in v6.5).
+    (1 << 6): "MEM_PREPARE_ONLINE",
+    (1 << 7): "MEM_FINISH_OFFLINE",
+}
+
+
+def decode_memory_block_state(mem: Object) -> str:
+    """
+    Get a human-readable representation of the state of a memory hotplug block.
+
+    >>> decode_memory_block_state(mem)
+    'MEM_ONLINE'
+
+    :param mem: ``struct memory_block *``
+    """
+    return _MEMORY_BLOCK_STATE[mem.state.value_()]
+
+
+@takes_program_or_default
+def memory_block_size_bytes(prog: Program) -> Object:
+    """
+    Return the size of a memory hotplug block in bytes.
+
+    This is the unit that can be hot(un)plugged.
+
+    :return: ``unsigned long``
+    :raises NotImplementedError: on some ppc64 systems (pSeries and PowerNV) if
+        the kernel is Linux 6.5 or older
+    """
+    arch = prog.platform.arch  # type: ignore[union-attr]  # platform can't be None.
+
+    if arch == Architecture.X86_64:
+        return prog["memory_block_size_probed"].read_()
+
+    MIN_MEMORY_BLOCK_SIZE = Object(
+        prog, "unsigned long", 1 << prog["SECTION_SIZE_BITS"]
+    )
+
+    if arch == Architecture.S390X:
+        return max(MIN_MEMORY_BLOCK_SIZE, prog["sclp"].rzm.read_())
+    elif arch == Architecture.PPC64:
+        if prog["ppc_md"].memory_block_size:
+            # The kernel calls ppc_md.memory_block_size(). As of Linux kernel
+            # commit 4d15721177d5 ("powerpc/mm: Cleanup memory block size
+            # probing") (in v6.6), there are two implementations, both of which
+            # simply return a global variable. Before that, they do some more
+            # involved probing that we can't easily implement.
+            try:
+                return prog["memory_block_size"]
+            except ObjectNotFoundError:
+                raise NotImplementedError(
+                    "memory_block_size_bytes() is not yet supported for ppc64 on Linux < 6.6"
+                ) from None
+
+    return MIN_MEMORY_BLOCK_SIZE

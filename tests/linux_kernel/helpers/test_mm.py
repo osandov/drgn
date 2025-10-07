@@ -14,7 +14,9 @@ import unittest
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn import NULL, FaultError, ObjectNotFoundError
+from drgn.helpers.linux.device import dev_name
 from drgn.helpers.linux.mm import (
+    _MEMORY_BLOCK_STATE,
     PFN_PHYS,
     PHYS_PFN,
     PageCompound,
@@ -28,15 +30,18 @@ from drgn.helpers.linux.mm import (
     compound_head,
     compound_nr,
     compound_order,
+    decode_memory_block_state,
     decode_page_flags,
     environ,
     find_vmap_area,
     follow_page,
     follow_pfn,
     follow_phys,
+    for_each_memory_block,
     for_each_vma,
     for_each_vmap_area,
     get_task_rss_info,
+    memory_block_size_bytes,
     page_size,
     page_to_pfn,
     page_to_phys,
@@ -66,8 +71,10 @@ from tests.linux_kernel import (
     skip_if_highmem,
     skip_if_highpte,
     skip_unless_have_full_mm_support,
+    skip_unless_have_memory_hotplug,
     skip_unless_have_test_kmod,
 )
+from util import KernelVersion
 
 
 class TestMm(LinuxKernelTestCase):
@@ -527,3 +534,56 @@ class TestMm(LinuxKernelTestCase):
             # VmRSS is the sum of three counters, so it has triple the error
             # margin.
             self.assertAlmostEqual(rss_info.total, stats["VmRSS"], delta=delta * 3)
+
+    @skip_unless_have_memory_hotplug
+    def test_for_each_memory_block(self):
+        self.assertCountEqual(
+            [
+                dev_name(mem.dev.address_of_())
+                for mem in for_each_memory_block(self.prog)
+            ],
+            os.listdir(b"/sys/bus/memory/devices"),
+        )
+
+    @skip_unless_have_test_kmod
+    def test_memory_block_states(self):
+        for value, name in _MEMORY_BLOCK_STATE.items():
+            with self.subTest(state=name):
+                try:
+                    expected = self.prog["drgn_test_" + name].value_()
+                except ObjectNotFoundError:
+                    self.skipTest(f"{name} is not defined")
+                self.assertEqual(value, expected)
+
+    @skip_unless_have_memory_hotplug
+    def test_decode_memory_block_state(self):
+        mem = next(iter(for_each_memory_block(self.prog)))
+        self.assertEqual(
+            decode_memory_block_state(mem)
+            .replace("MEM_", "")
+            .lower()
+            .replace("_", "-"),
+            (
+                Path("/sys/bus/memory/devices")
+                / os.fsdecode(dev_name(mem.dev.address_of_()))
+                / "state"
+            )
+            .read_text()
+            .strip(),
+        )
+
+    @skip_unless_have_memory_hotplug
+    def test_memory_block_size_bytes(self):
+        try:
+            value = memory_block_size_bytes(self.prog)
+        except NotImplementedError as e:
+            # See the comment in memory_block_size_bytes().
+            if NORMALIZED_MACHINE_NAME == "ppc64" and KernelVersion(
+                os.uname().release
+            ) < KernelVersion("6.6"):
+                self.skipTest(str(e))
+            raise
+        self.assertEqual(
+            value,
+            int(Path("/sys/devices/system/memory/block_size_bytes").read_text(), 16),
+        )

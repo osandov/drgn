@@ -24,6 +24,7 @@
 #else
 #define HAVE_MAPLE_TREE 0
 #endif
+#include <linux/memory.h>
 #include <linux/mm.h>
 #include <linux/mmzone.h>
 #include <linux/module.h>
@@ -147,6 +148,19 @@ unsigned long drgn_test_SECTION_SIZE_BITS;
 #endif
 #ifdef MAX_PHYSMEM_BITS
 unsigned long drgn_test_MAX_PHYSMEM_BITS;
+#endif
+
+int drgn_test_MEM_ONLINE = MEM_ONLINE;
+int drgn_test_MEM_GOING_OFFLINE = MEM_GOING_OFFLINE;
+int drgn_test_MEM_OFFLINE = MEM_OFFLINE;
+int drgn_test_MEM_GOING_ONLINE = MEM_GOING_ONLINE;
+int drgn_test_MEM_CANCEL_ONLINE = MEM_CANCEL_ONLINE;
+int drgn_test_MEM_CANCEL_OFFLINE = MEM_CANCEL_OFFLINE;
+#ifdef MEM_PREPARE_ONLINE
+int drgn_test_MEM_PREPARE_ONLINE = MEM_PREPARE_ONLINE;
+#endif
+#ifdef MEM_FINISH_OFFLINE
+int drgn_test_MEM_FINISH_OFFLINE = MEM_FINISH_OFFLINE;
 #endif
 
 static void drgn_test_constants_init(void)
