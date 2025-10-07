@@ -26,6 +26,7 @@ from drgn.helpers.common.format import (
 )
 from drgn.helpers.linux.block import nr_blockdev_pages
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
+from drgn.helpers.linux.device import dev_name
 from drgn.helpers.linux.hugetlb import (
     for_each_hstate,
     huge_page_size,
@@ -34,13 +35,25 @@ from drgn.helpers.linux.hugetlb import (
 from drgn.helpers.linux.list import validate_list_count_nodes
 from drgn.helpers.linux.mm import (
     PFN_PHYS,
+    decode_memory_block_state,
+    for_each_memory_block,
     for_each_vmap_area,
+    memory_block_size_bytes,
     pfn_to_page,
     totalram_pages,
     vm_commit_limit,
     vm_memory_committed,
 )
-from drgn.helpers.linux.mmzone import for_each_online_pgdat
+from drgn.helpers.linux.mmzone import (
+    NODE_DATA,
+    decode_section_flags,
+    for_each_online_pgdat,
+    for_each_present_section,
+    section_decode_mem_map,
+    section_mem_map_addr,
+    section_nr_to_pfn,
+)
+from drgn.helpers.linux.nodemask import for_each_online_node
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.slab import (
     SlabCorruptionError,
@@ -536,6 +549,273 @@ for va in for_each_vmap_area():
     print_table(rows)
 
 
+def _kmem_nodes(prog: Program, drgn_arg: bool) -> None:
+    if drgn_arg:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import("drgn.helpers.linux.device", "dev_name")
+        code.add_from_import(
+            "drgn.helpers.linux.mm",
+            "PFN_PHYS",
+            "decode_memory_block_state",
+            "for_each_memory_block",
+            "memory_block_size_bytes",
+            "pfn_to_page",
+        )
+        code.add_from_import(
+            "drgn.helpers.linux.mmzone",
+            "NODE_DATA",
+            "decode_section_flags",
+            "for_each_online_node",
+            "for_each_present_section",
+            "section_decode_mem_map",
+            "section_mem_map_addr",
+            "section_nr_to_pfn",
+        )
+
+        code.append(
+            """\
+for node in for_each_online_node():
+    pgdat = NODE_DATA(node)
+    size = pgdat.node_spanned_pages
+    start_pfn = pgdat.node_start_pfn
+    mem_map = pfn_to_page(start_pfn)
+    start_paddr = PFN_PHYS(start_pfn)
+
+    for zone in pgdat.node_zones:
+        zone_name = zone.name
+        zone_size = zone.spanned_pages
+        if zone_size == 0:
+            continue
+        zone_start_pfn = zone.zone_start_pfn.read_()
+        zone_mem_map = pfn_to_page(zone_start_pfn)
+        zone_start_paddr = PFN_PHYS(zone_start_pfn)
+
+
+if "mem_section" in prog:  # Check for CONFIG_SPARSEMEM.
+    for nr, section in for_each_present_section():
+        coded_mem_map = section_mem_map_addr(section)
+        mem_map = section_decode_mem_map(section, nr)
+        state = decode_section_flags(section)
+        pfn = section_nr_to_pfn(nr)
+
+
+if "memory_subsys" in prog:  # Check for CONFIG_MEMORY_HOTPLUG.
+    block_size = memory_block_size_bytes()
+    for mem in for_each_memory_block():
+        name = dev_name(mem.dev.address_of_())
+        start_section_no = mem.start_section_nr
+        physical_start = PFN_PHYS(section_nr_to_pfn(start_section_no))
+        physical_end = physical_start + block_size
+        node = getattr(mem, "nid", None)  # Only available since Linux 4.17.
+        state = decode_memory_block_state(mem)
+"""
+        )
+        code.print()
+        return
+
+    rows: List[Sequence[Any]] = []
+    for nid in for_each_online_node(prog):
+        if rows:
+            rows.append(RowOptions((), group=3))
+            rows.append(RowOptions(("-" * 72,), group=3))
+            rows.append(RowOptions((), group=3))
+
+        rows.append(
+            (
+                CellFormat("NODE", "^"),
+                CellFormat("SIZE", "^"),
+                CellFormat("PGLIST_DATA", "^"),
+                # Crash includes BOOTMEM_DATA, which was removed entirely in
+                # Linux kernel commit 355c45affca7 ("mm: remove bootmem
+                # allocator implementation.") (in v4.20) and removed from most
+                # mainstream architectures years before that. We don't bother.
+                CellFormat("NODE_ZONES", "^"),
+            )
+        )
+        pgdat = NODE_DATA(prog, nid)
+        prefix: Sequence[Any] = (
+            CellFormat(nid, "^"),
+            CellFormat(pgdat.node_spanned_pages.value_(), "^"),
+            CellFormat(pgdat.value_(), "^x"),
+        )
+        zone_rows = [
+            (),
+            RowOptions(
+                (
+                    CellFormat("ZONE", "^"),
+                    "NAME",
+                    CellFormat("SIZE", ">"),
+                    CellFormat("MEM_MAP", "^"),
+                    CellFormat("START_PADDR", ">"),
+                    CellFormat("START_PFN", ">"),
+                ),
+                group=2,
+            ),
+        ]
+        for i, zone in enumerate(pgdat.node_zones):
+            rows.append((*prefix, CellFormat(zone.address_, "^x")))
+            prefix = ("", "", "")
+
+            zone_size = zone.spanned_pages.value_()
+            if zone_size == 0:
+                zone_mem_map_cell: Any = 0
+                zone_start_paddr_cell: Any = 0
+                zone_start_pfn_cell: Any = 0
+            else:
+                zone_start_pfn = zone.zone_start_pfn.read_()
+                zone_mem_map_cell = CellFormat(
+                    pfn_to_page(zone_start_pfn).value_(), "x"
+                )
+                zone_start_paddr_cell = CellFormat(
+                    PFN_PHYS(zone_start_pfn).value_(), "x"
+                )
+                zone_start_pfn_cell = zone_start_pfn.value_()
+            zone_rows.append(
+                RowOptions(
+                    (
+                        CellFormat(i, "^"),
+                        escape_ascii_string(zone.name.string_(), escape_backslash=True),
+                        zone_size,
+                        zone_mem_map_cell,
+                        zone_start_paddr_cell,
+                        zone_start_pfn_cell,
+                    ),
+                    group=2,
+                )
+            )
+
+        rows.append(
+            RowOptions(
+                (
+                    CellFormat("MEM_MAP", "^"),
+                    CellFormat("START_PADDR", "^"),
+                    CellFormat("START_PFN", "^"),
+                ),
+                group=1,
+            )
+        )
+        node_start_pfn = pgdat.node_start_pfn.read_()
+        rows.append(
+            RowOptions(
+                (
+                    CellFormat(pfn_to_page(node_start_pfn).value_(), "^x"),
+                    CellFormat(PFN_PHYS(node_start_pfn).value_(), "^x"),
+                    CellFormat(node_start_pfn.value_(), "^"),
+                ),
+                group=1,
+            )
+        )
+        rows.extend(zone_rows)
+
+    print_table(rows)
+    rows.clear()
+
+    if "mem_section" in prog:
+        print()
+        print("-" * 72)
+        print()
+
+        rows.append(
+            (
+                CellFormat("NR", ">"),
+                CellFormat("SECTION", "^"),
+                CellFormat("CODED_MEM_MAP", "^"),
+                CellFormat("MEM_MAP", "^"),
+                "STATE",
+                "PFN",
+            )
+        )
+        for nr, section in for_each_present_section(prog):
+            rows.append(
+                (
+                    nr,
+                    CellFormat(section.value_(), "^x"),
+                    CellFormat(section_mem_map_addr(section).value_(), "^x"),
+                    CellFormat(section_decode_mem_map(section, nr).value_(), "^x"),
+                    "".join(
+                        [
+                            {
+                                "SECTION_MARKED_PRESENT": "P",
+                                "SECTION_HAS_MEM_MAP": "M",
+                                "SECTION_IS_ONLINE": "O",
+                                "SECTION_IS_EARLY": "E",
+                                "SECTION_TAINT_ZONE_DEVICE": "D",
+                            }.get(flag, "")
+                            for flag in decode_section_flags(section).split("|")
+                        ]
+                    ),
+                    CellFormat(section_nr_to_pfn(prog, nr).value_(), "<"),
+                )
+            )
+        print_table(rows)
+        rows.clear()
+
+    if "memory_subsys" in prog:
+        print()
+        print("-" * 72)
+        print()
+
+        try:
+            block_size = memory_block_size_bytes(prog)
+        except NotImplementedError:
+            block_size = None
+
+        # struct memory_block::nid was added in Linux kernel commit
+        # d0dc12e86b31 ("mm/memory_hotplug: optimize memory hotplug") (in
+        # v4.17).
+        if prog.type("struct memory_block").has_member("nid"):
+            node_heading: Sequence[Any] = (CellFormat("NODE", "^"),)
+        else:
+            node_heading = ()
+
+        rows.append(
+            (
+                # Crash uses the heading MEM_BLOCK, which can easily be confused
+                # with struct memblock, an entirely different type.
+                CellFormat("MEMORY_BLOCK", "^"),
+                "NAME",
+                CellFormat(
+                    "PHYSICAL START" if block_size is None else "PHYSICAL RANGE", "^"
+                ),
+                *node_heading,
+                "STATE",
+                "START_SECTION_NO",
+            )
+        )
+        paddr_width = len(hex(PFN_PHYS(prog["max_pfn"]))) - 2
+        for mem in for_each_memory_block(prog):
+            start_section_nr = mem.start_section_nr.read_()
+            physical_start = PFN_PHYS(section_nr_to_pfn(start_section_nr))
+            physical_range = f"{physical_start.value_():{paddr_width}x}"
+            if block_size is not None:
+                physical_range += (
+                    f" - {(physical_start + block_size - 1).value_():{paddr_width}x}"
+                )
+
+            if node_heading:
+                node_cell: Sequence[Any] = (CellFormat(mem.nid.value_(), "^"),)
+            else:
+                node_cell = ()
+
+            state = decode_memory_block_state(mem)
+            if state.startswith("MEM_"):
+                state = state[len("MEM_") :]
+
+            rows.append(
+                (
+                    CellFormat(mem.value_(), "^x"),
+                    escape_ascii_string(
+                        dev_name(mem.dev.address_of_()), escape_backslash=True
+                    ),
+                    CellFormat(physical_range, "^"),
+                    *node_cell,
+                    state,
+                    CellFormat(start_section_nr.value_(), "<"),
+                ),
+            )
+        print_table(rows)
+
+
 def _kmem_per_cpu_offset(
     prog: Program,
     drgn_arg: bool,
@@ -756,6 +1036,12 @@ if cache:
                 help="display memory regions allocated with vmalloc()/vmap()",
             ),
             argument(
+                "-n",
+                dest="nodes",
+                action="store_true",
+                help="display NUMA nodes, SPARSEMEM sections, and memory blocks",
+            ),
+            argument(
                 "-o",
                 dest="per_cpu_offset",
                 action="store_true",
@@ -822,6 +1108,8 @@ def _crash_cmd_kmem(
         return _kmem_info(prog, args.drgn)
     if args.vmalloc:
         return _kmem_vmalloc(prog, args.drgn)
+    if args.nodes:
+        return _kmem_nodes(prog, args.drgn)
     if args.per_cpu_offset:
         return _kmem_per_cpu_offset(prog, args.drgn)
     if args.hstate:

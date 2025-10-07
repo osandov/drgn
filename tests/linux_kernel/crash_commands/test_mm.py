@@ -162,6 +162,110 @@ class TestKmem(CrashCommandTestCase):
         for variable in ("start", "end", "size"):
             self.assertIn(variable, cmd.drgn_option.globals)
 
+    @skip_unless_have_test_kmod
+    def test_n(self):
+        cmd = self.check_crash_command("kmem -n")
+
+        expected = set(
+            re.findall(
+                r"^Node\s+([0-9]+)\s*,\s*zone\s+(\w+)",
+                Path("/proc/zoneinfo").read_text(),
+                flags=re.MULTILINE,
+            )
+        )
+        actual = set()
+        state = None
+        for line in cmd.stdout.splitlines():
+            if state is None:
+                if re.match(r"\s*NODE\b", line):
+                    state = "found_node_header"
+            elif state == "found_node_header":
+                match = re.match(r"\s*([0-9]+)", line)
+                if match:
+                    node = match.group(1)
+                    state = "found_node"
+                else:
+                    state = None
+            elif state == "found_node":
+                if re.match(r"\s*ZONE\b", line):
+                    state = "found_zone_header"
+            elif state == "found_zone_header":
+                match = re.match(r"\s*[0-9]+\s*(\w+)", line)
+                if match:
+                    actual.add((node, match.group(1)))
+                else:
+                    state = None
+        # Since Linux kernel commit b2bd8598195f ("mm, vmstat: print
+        # non-populated zones in zoneinfo") (in v4.12), these should be equal,
+        # but before that, /proc/zoneinfo doesn't include all zones.
+        self.assertGreaterEqual(actual, expected)
+
+        for variable in (
+            "node",
+            "pgdat",
+            "size",
+            "start_pfn",
+            "mem_map",
+            "start_paddr",
+            "zone",
+            "zone_name",
+            "zone_size",
+            "zone_start_pfn",
+            "zone_mem_map",
+            "zone_start_paddr",
+        ):
+            self.assertIn(variable, cmd.drgn_option.globals)
+
+        # Memory hotplug depends on SPARSEMEM, so this check is close enough
+        # for both.
+        if Path("/sys/bus/memory").exists():
+            expected_section = (
+                str(self.prog["drgn_test_section_nr"].value_()),
+                f'{self.prog["drgn_test_mem_section"].value_():x}',
+            )
+            found_section_header = False
+            found_section = False
+            for line in cmd.stdout.splitlines():
+                if found_section_header:
+                    match = re.match(r"\s*([0-9]+)\s+([0-9a-f]+)", line)
+                    if not match:
+                        break
+                    if match.groups() == expected_section:
+                        found_section = True
+                        break
+                elif re.match(r"\s*NR\s+SECTION", line):
+                    found_section_header = True
+            self.assertTrue(found_section)
+
+            expected = os.listdir("/sys/bus/memory/devices")
+            actual = []
+            found_memory_block_header = False
+            for line in cmd.stdout.splitlines():
+                if found_memory_block_header:
+                    match = re.match(r"\s*[0-9a-f]+\s+(\S+)", line)
+                    if not match:
+                        break
+                    actual.append(match.group(1))
+                elif re.match(r"\s*MEMORY_BLOCK\b", line):
+                    found_memory_block_header = True
+            self.assertCountEqual(actual, expected)
+
+            for variable in (
+                "nr",
+                "section",
+                "coded_mem_map",
+                "state",
+                "pfn",
+                "block_size",
+                "mem",
+                "name",
+                "start_section_no",
+                "physical_start",
+                "physical_end",
+                "node",
+            ):
+                self.assertIn(variable, cmd.drgn_option.globals)
+
     def test_o(self):
         cmd = self.check_crash_command("kmem -o")
         for cpu in possible_cpus():
