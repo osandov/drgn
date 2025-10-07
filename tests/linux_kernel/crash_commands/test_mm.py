@@ -17,6 +17,7 @@ from tests.linux_kernel import (
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 from tests.linux_kernel.helpers.test_slab import fallback_slab_cache_names
 from tests.linux_kernel.helpers.test_swap import tmp_swaps
+from util import KernelVersion
 
 
 class TestBtop(CrashCommandTestCase):
@@ -160,6 +161,32 @@ class TestKmem(CrashCommandTestCase):
             cmd.drgn_option.globals["vm"].type_.type_name(), "struct vm_struct *"
         )
         for variable in ("start", "end", "size"):
+            self.assertIn(variable, cmd.drgn_option.globals)
+
+    def test_V(self):
+        cmd = self.check_crash_command("kmem -V")
+        labels = ["VM_ZONE_STAT", "VM_NODE_STAT"]
+        vmstat_contents = Path("/proc/vmstat").read_text()
+        # Before Linux kernel commit 3a321d2a3dde ("mm: change the call sites
+        # of numa statistics items") (in v4.14), NUMA events are zone
+        # statistics.
+        if KernelVersion(os.uname().release) >= KernelVersion("4.14") and re.search(
+            r"^numa_hit\b", vmstat_contents, flags=re.M
+        ):
+            labels.append(r"VM_NUMA_(EVENT|STAT)")
+        if re.search(r"^pgmajfault\b", vmstat_contents, flags=re.M):
+            labels.append("VM_EVENT_STATES")
+        for label in labels:
+            self.assertRegex(cmd.stdout, rf"(?m)^{label}:")
+
+        for helper in (
+            "global_zone_page_state",
+            "global_node_page_state",
+            "global_numa_event_state",
+            "global_vm_event_state",
+        ):
+            self.assertIn(helper, cmd.drgn_option.stdout)
+        for variable in ("name", "item", "value"):
             self.assertIn(variable, cmd.drgn_option.globals)
 
     @skip_unless_have_test_kmod

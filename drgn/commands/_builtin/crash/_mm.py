@@ -73,6 +73,9 @@ from drgn.helpers.linux.swap import (
 )
 from drgn.helpers.linux.vmstat import (
     global_node_page_state,
+    global_numa_event_state,
+    global_vm_event_state,
+    global_zone_page_state,
     nr_free_pages,
     zone_page_state,
 )
@@ -547,6 +550,115 @@ for va in for_each_vmap_area():
         )
 
     print_table(rows)
+
+
+def _kmem_vmstat(prog: Program, drgn_arg: bool) -> None:
+    if drgn_arg:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import(
+            "drgn.helpers.linux.vmstat",
+            "global_node_page_state",
+            "global_numa_event_state",
+            "global_vm_event_state",
+            "global_zone_page_state",
+        )
+        code.append(
+            """\
+for name, item in prog.type("enum zone_stat_item").enumerators:
+    if name == "NR_VM_ZONE_STAT_ITEMS":
+        continue
+    value = global_zone_page_state(item)
+
+for name, item in prog.type("enum node_stat_item").enumerators:
+    if name == "NR_VM_NODE_STAT_ITEMS":
+        continue
+    value = global_node_page_state(item)
+
+
+# This depends on CONFIG_NUMA and was added in v4.14.
+try:
+    numa_stat_item_type = prog.type("enum numa_stat_item")
+except LookupError:
+    pass
+else:
+    for name, item in numa_stat_item_type.enumerators:
+        # This was renamed in v5.14.
+        if name == "NR_VM_NUMA_EVENT_ITEMS" or name == "NR_VM_NUMA_STAT_ITEMS":
+            continue
+        value = global_numa_event_state(item)
+
+# This depends on CONFIG_VM_EVENT_COUNTERS.
+if "vm_event_states" in prog:
+    for name, item in prog.type("enum vm_event_item").enumerators:
+        if name == "NR_VM_EVENT_ITEMS":
+            continue
+        value = global_vm_event_state(item)
+"""
+        )
+        code.print()
+        return
+
+    rows: List[Sequence[Any]] = []
+    rows.append(RowOptions(("VM_ZONE_STAT:",), group=1))
+    for name, item in prog.type("enum zone_stat_item").enumerators:  # type: ignore[union-attr]
+        if name == "NR_VM_ZONE_STAT_ITEMS":
+            continue
+        rows.append(
+            (
+                CellFormat("  " + name, ">"),
+                CellFormat(global_zone_page_state(prog, item), "<"),
+            )
+        )
+
+    rows.append(())
+    rows.append(RowOptions(("VM_NODE_STAT:",), group=1))
+    for name, item in prog.type("enum node_stat_item").enumerators:  # type: ignore[union-attr]
+        if name == "NR_VM_NODE_STAT_ITEMS":
+            continue
+        rows.append(
+            (
+                CellFormat("  " + name, ">"),
+                CellFormat(global_node_page_state(prog, item), "<"),
+            )
+        )
+
+    try:
+        numa_stat_item_type = prog.type("enum numa_stat_item")
+    except LookupError:
+        pass
+    else:
+        rows.append(())
+        if "vm_numa_event" in prog:
+            rows.append(RowOptions(("VM_NUMA_EVENT:",), group=1))
+            nr_numa_items = "NR_VM_NUMA_EVENT_ITEMS"
+        else:
+            rows.append(RowOptions(("VM_NUMA_STAT:",), group=1))
+            nr_numa_items = "NR_VM_NUMA_STAT_ITEMS"
+        if nr_numa_items is not None:
+            for name, item in numa_stat_item_type.enumerators:  # type: ignore[union-attr]
+                if name == nr_numa_items:
+                    continue
+                rows.append(
+                    (
+                        CellFormat("  " + name, ">"),
+                        CellFormat(global_numa_event_state(prog, item), "<"),
+                    )
+                )
+
+    if "vm_event_states" in prog:
+        rows.append(())
+        rows.append(RowOptions(("VM_EVENT_STATES:",), group=1))
+        for name, item in prog.type("enum vm_event_item").enumerators:  # type: ignore[union-attr]
+            if name == "NR_VM_EVENT_ITEMS":
+                continue
+            rows.append(
+                (
+                    CellFormat("  " + name, ">"),
+                    CellFormat(global_vm_event_state(prog, item), "<"),
+                )
+            )
+
+    print_table(rows, sep=": ")
 
 
 def _kmem_nodes(prog: Program, drgn_arg: bool) -> None:
@@ -1031,6 +1143,12 @@ if cache:
                 help="display memory regions allocated with vmalloc()/vmap()",
             ),
             argument(
+                "-V",
+                dest="vmstat",
+                action="store_true",
+                help="display zone, node, NUMA, and VM event statistics",
+            ),
+            argument(
                 "-n",
                 dest="nodes",
                 action="store_true",
@@ -1103,6 +1221,8 @@ def _crash_cmd_kmem(
         return _kmem_info(prog, args.drgn)
     if args.vmalloc:
         return _kmem_vmalloc(prog, args.drgn)
+    if args.vmstat:
+        return _kmem_vmstat(prog, args.drgn)
     if args.nodes:
         return _kmem_nodes(prog, args.drgn)
     if args.per_cpu_offset:
