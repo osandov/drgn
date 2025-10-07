@@ -514,10 +514,52 @@ void *drgn_test_vmalloc_va;
 unsigned long drgn_test_vmalloc_pfn;
 struct page *drgn_test_vmalloc_page;
 
+#ifdef CONFIG_SPARSEMEM
+unsigned long drgn_test_section_nr;
+unsigned long drgn_test_section_pfn;
+struct mem_section *drgn_test_mem_section;
+struct page *drgn_test_section_mem_map;
+struct page *drgn_test_section_decoded_mem_map;
+
+unsigned long drgn_test_SECTION_MARKED_PRESENT = SECTION_MARKED_PRESENT;
+struct mem_section *drgn_test_present_section = &(struct mem_section){
+	.section_mem_map = SECTION_MARKED_PRESENT,
+};
+
+unsigned long drgn_test_SECTION_HAS_MEM_MAP = SECTION_HAS_MEM_MAP;
+struct mem_section *drgn_test_valid_section = &(struct mem_section){
+	.section_mem_map = SECTION_HAS_MEM_MAP,
+};
+
+#ifdef SECTION_IS_ONLINE
+unsigned long drgn_test_SECTION_IS_ONLINE = SECTION_IS_ONLINE;
+struct mem_section *drgn_test_online_section = &(struct mem_section){
+	.section_mem_map = SECTION_IS_ONLINE,
+};
+#endif
+
+#ifdef SECTION_IS_EARLY
+unsigned long drgn_test_SECTION_IS_EARLY = SECTION_IS_EARLY;
+struct mem_section *drgn_test_early_section = &(struct mem_section){
+	.section_mem_map = SECTION_IS_EARLY,
+};
+#endif
+
+#ifdef SECTION_TAINT_ZONE_DEVICE
+unsigned long drgn_test_SECTION_TAINT_ZONE_DEVICE = SECTION_TAINT_ZONE_DEVICE;
+#endif
+
+struct {
+	unsigned long nr;
+	struct mem_section *section;
+} *drgn_test_present_sections;
+size_t drgn_test_num_present_sections;
+#endif
+
 static int drgn_test_mm_init(void)
 {
 	u32 fill;
-	size_t i;
+	size_t i, n;
 
 	drgn_test_page = alloc_page(GFP_KERNEL);
 	if (!drgn_test_page)
@@ -539,6 +581,42 @@ static int drgn_test_mm_init(void)
 		return -ENOMEM;
 	drgn_test_vmalloc_pfn = vmalloc_to_pfn(drgn_test_vmalloc_va);
 	drgn_test_vmalloc_page = vmalloc_to_page(drgn_test_vmalloc_va);
+
+#ifdef CONFIG_SPARSEMEM
+	drgn_test_section_nr = pfn_to_section_nr(drgn_test_pfn);
+	drgn_test_section_pfn = section_nr_to_pfn(drgn_test_section_nr);
+	drgn_test_mem_section = __nr_to_section(drgn_test_section_nr);
+	drgn_test_section_mem_map = __section_mem_map_addr(drgn_test_mem_section);
+	// sparse_decode_mem_map() isn't exported, so we do the equivalent
+	// ourselves.
+	drgn_test_section_decoded_mem_map =
+		drgn_test_section_mem_map + drgn_test_section_pfn;
+
+	// __highest_present_section_nr is not exported, so we can't use
+	// for_each_present_section_nr().
+	for (i = 0, n = 0; i < NR_MEM_SECTIONS; i++) {
+		if (present_section_nr(i))
+			n++;
+	}
+
+	drgn_test_present_sections =
+		kmalloc_array(n, sizeof(drgn_test_present_sections[0]),
+			      GFP_KERNEL);
+	if (!drgn_test_present_sections)
+		return -ENOMEM;
+
+	for (i = 0; i < NR_MEM_SECTIONS; i++) {
+		if (present_section_nr(i)) {
+			drgn_test_present_sections[drgn_test_num_present_sections].nr = i;
+			drgn_test_present_sections[drgn_test_num_present_sections].section =
+				__nr_to_section(i);
+			drgn_test_num_present_sections++;
+			if (drgn_test_num_present_sections >= n)
+				break;
+		}
+	}
+#endif
+
 	return 0;
 }
 
