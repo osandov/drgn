@@ -640,6 +640,56 @@ linux_kernel_get_max_physmem_bits_impl(struct drgn_program *prog, int64_t *ret)
 }
 LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(max_physmem_bits, DRGN_C_TYPE_INT)
 
+static struct drgn_error *
+linux_kernel_get_arch_pfn_offset_impl(struct drgn_program *prog, uint64_t *ret)
+{
+	struct drgn_error *err;
+	if (prog->arch_pfn_offset_cached) {
+		*ret = prog->arch_pfn_offset;
+		return NULL;
+	}
+	// Note that contig_page_data.node_mem_map is the struct page * for
+	// contig_page_data.node_start_pfn. Therefore:
+	//    contig_page_data.node_mem_map = mem_map
+	//                                    + contig_page_data.node_start_pfn
+	//                                    - ARCH_PFN_OFFSET
+	// => ARCH_PFN_OFFSET = mem_map
+	//                      + contig_page_data.node_start_pfn
+	//                      - contig_page_data.node_mem_map
+	DRGN_OBJECT(contig_page_data, prog);
+	DRGN_OBJECT(tmp, prog);
+	DRGN_OBJECT(tmp2, prog);
+	err = drgn_program_find_object(prog, "mem_map", NULL,
+				       DRGN_FIND_OBJECT_ANY, &tmp);
+	if (err)
+		return err;
+	err = drgn_program_find_object(prog, "contig_page_data", NULL,
+				       DRGN_FIND_OBJECT_ANY, &contig_page_data);
+	if (err)
+		return err;
+	err = drgn_object_member(&tmp2, &contig_page_data, "node_start_pfn");
+	if (err)
+		return err;
+	err = drgn_object_add(&tmp, &tmp, &tmp2);
+	if (err)
+		return err;
+	err = drgn_object_member(&tmp2, &contig_page_data, "node_mem_map");
+	if (err)
+		return err;
+	err = drgn_object_sub(&tmp, &tmp, &tmp2);
+	if (err)
+		return err;
+	int64_t arch_pfn_offset;
+	err = drgn_object_read_signed(&tmp, &arch_pfn_offset);
+	if (err)
+		return err;
+	prog->arch_pfn_offset = arch_pfn_offset;
+	prog->arch_pfn_offset_cached = true;
+	*ret = prog->arch_pfn_offset;
+	return NULL;
+}
+LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(arch_pfn_offset, DRGN_C_TYPE_UNSIGNED_LONG)
+
 #include "linux_kernel_object_find.inc" // IWYU pragma: keep
 
 // Return whether the given kernel is from Fedora. We check whether the release

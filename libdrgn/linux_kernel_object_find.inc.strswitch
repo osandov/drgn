@@ -58,6 +58,10 @@ linux_kernel_object_find(const char *name, size_t name_len,
 			if (flags & DRGN_FIND_OBJECT_CONSTANT)
 				return linux_kernel_get_max_physmem_bits(prog, ret);
 			break;
+		@case "ARCH_PFN_OFFSET"@
+			if (flags & DRGN_FIND_OBJECT_CONSTANT)
+				return linux_kernel_get_arch_pfn_offset(prog, ret);
+			break;
 		@endswitch@
 	}
 	return &drgn_not_found;

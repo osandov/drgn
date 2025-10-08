@@ -149,6 +149,9 @@ unsigned long drgn_test_SECTION_SIZE_BITS;
 #ifdef MAX_PHYSMEM_BITS
 unsigned long drgn_test_MAX_PHYSMEM_BITS;
 #endif
+#ifdef ARCH_PFN_OFFSET
+unsigned long drgn_test_ARCH_PFN_OFFSET;
+#endif
 
 int drgn_test_MEM_ONLINE = MEM_ONLINE;
 int drgn_test_MEM_GOING_OFFLINE = MEM_GOING_OFFLINE;
@@ -179,6 +182,9 @@ static void drgn_test_constants_init(void)
 #endif
 #ifdef MAX_PHYSMEM_BITS
 	drgn_test_MAX_PHYSMEM_BITS = MAX_PHYSMEM_BITS;
+#endif
+#ifdef ARCH_PFN_OFFSET
+	drgn_test_ARCH_PFN_OFFSET = ARCH_PFN_OFFSET;
 #endif
 }
 

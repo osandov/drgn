@@ -872,12 +872,7 @@ def _page0(prog: Program) -> Object:
         # With CONFIG_SPARSEMEM_VMEMMAP=y, page 0 is vmemmap.
         page0 = prog["vmemmap"]
     except KeyError:
-        contig_page_data = prog["contig_page_data"]
-        # With CONFIG_FLATMEM=y, page 0 is mem_map - ARCH_PFN_OFFSET, but we
-        # can't determine ARCH_PFN_OFFSET easily. Alternatively,
-        # contig_page_data.node_mem_map is the struct page * for
-        # contig_page_data.node_start_pfn, therefore page 0 is:
-        page0 = contig_page_data.node_mem_map - contig_page_data.node_start_pfn
+        page0 = prog["mem_map"] - prog["ARCH_PFN_OFFSET"]
     # The struct page array is not contiguous for CONFIG_SPARSEMEM=y with
     # CONFIG_SPARSEMEM_VMEMMAP=n or CONFIG_DISCONTIGMEM=y, so those are not
     # supported yet.

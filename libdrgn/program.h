@@ -245,6 +245,8 @@ struct drgn_program {
 			 * not cached yet.
 			 */
 			uint64_t cached_sections_per_root;
+			/** Value of `ARCH_PFN_OFFSET` in the kernel. */
+			uint64_t arch_pfn_offset;
 			/*
 			 * Difference between a virtual address in the direct
 			 * mapping and the physical address it maps to.
@@ -252,6 +254,11 @@ struct drgn_program {
 			uint64_t direct_mapping_offset;
 			/** Cached value of `MOD_TEXT` in the kernel. */
 			uint64_t mod_text;
+			/**
+			 * Whether @ref drgn_program::arch_pfn_offset has been
+			 * cached.
+			 */
+			bool arch_pfn_offset_cached;
 			/*
 			 * Whether @ref drgn_program::direct_mapping_offset has
 			 * been cached.

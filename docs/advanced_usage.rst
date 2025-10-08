@@ -438,15 +438,14 @@ core dumps. These special objects include:
 
     This is available without debugging information.
 
-``NR_SECTION_ROOTS``, ``SECTIONS_PER_ROOT``
+``NR_SECTION_ROOTS``, ``SECTIONS_PER_ROOT``, ``ARCH_PFN_OFFSET``
     Object type: ``unsigned long``
 
 ``SECTION_SIZE_BITS``, ``MAX_PHYSMEM_BITS``
     Object type: ``int``
 
     These correspond to the macros of the same name in the Linux kernel source
-    code. They describe the layout of `SPARSEMEM
-    <https://docs.kernel.org/mm/memory-model.html#sparsemem>`_ sections in the
-    kernel.
+    code. They describe the `physical memory model
+    <https://docs.kernel.org/mm/memory-model.html>`_ of the kernel.
 
     These are *not* always available without debugging information.
