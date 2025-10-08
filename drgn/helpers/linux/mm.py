@@ -888,31 +888,13 @@ def _page0(prog: Program) -> Object:
 @takes_program_or_default
 def for_each_page(prog: Program) -> Iterator[Object]:
     """
-    Iterate over every ``struct page *`` from the minimum to the maximum page.
-
-    .. note::
-
-        This may include offline pages which don't have a valid ``struct
-        page``. Wrap accesses in a ``try`` ... ``except``
-        :class:`drgn.FaultError`:
-
-        >>> for page in for_each_page():
-        ...     try:
-        ...         if PageLRU(page):
-        ...             print(hex(page))
-        ...     except drgn.FaultError:
-        ...         continue
-        0xfffffb4a000c0000
-        0xfffffb4a000c0040
-        ...
-
-        This may be fixed in the future.
+    Iterate over every valid ``struct page *``.
 
     :return: Iterator of ``struct page *`` objects.
     """
-    page0 = _page0(prog)
-    for i in range(prog["min_low_pfn"], prog["max_pfn"]):
-        yield page0 + i
+    for start_pfn, end_pfn, mem_map in for_each_valid_page_range(prog):
+        for pfn in range(start_pfn, end_pfn):
+            yield mem_map + pfn
 
 
 def _for_each_valid_page_range_flatmem(
