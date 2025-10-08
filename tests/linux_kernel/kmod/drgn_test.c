@@ -149,7 +149,7 @@ unsigned long drgn_test_SECTION_SIZE_BITS;
 #ifdef MAX_PHYSMEM_BITS
 unsigned long drgn_test_MAX_PHYSMEM_BITS;
 #endif
-#ifdef ARCH_PFN_OFFSET
+#ifdef CONFIG_FLATMEM
 unsigned long drgn_test_ARCH_PFN_OFFSET;
 #endif
 
@@ -183,7 +183,7 @@ static void drgn_test_constants_init(void)
 #ifdef MAX_PHYSMEM_BITS
 	drgn_test_MAX_PHYSMEM_BITS = MAX_PHYSMEM_BITS;
 #endif
-#ifdef ARCH_PFN_OFFSET
+#ifdef CONFIG_FLATMEM
 	drgn_test_ARCH_PFN_OFFSET = ARCH_PFN_OFFSET;
 #endif
 }
