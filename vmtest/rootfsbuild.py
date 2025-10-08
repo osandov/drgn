@@ -38,6 +38,7 @@ _ROOTFS_PACKAGES = [
     "kmod",
     "python3-pyroute2",
     "python3-pytest",
+    "python3-pytest-subtests",
     "zstd",
 ]
 
