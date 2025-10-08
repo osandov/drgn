@@ -38,6 +38,7 @@ from drgn.helpers.linux.mm import (
     follow_pfn,
     follow_phys,
     for_each_memory_block,
+    for_each_valid_page_range,
     for_each_vma,
     for_each_vmap_area,
     get_task_rss_info,
@@ -169,6 +170,21 @@ class TestMm(LinuxKernelTestCase):
         with self._pages() as (map, _, pfns):
             page = pfn_to_page(self.prog, pfns[0])
             self.assertIn("PG_swapbacked", decode_page_flags(page))
+
+    @skip_unless_have_test_kmod
+    def test_for_each_valid_page_range(self):
+        expected_pfn = self.prog["drgn_test_pfn"].value_()
+        found_expected = False
+        for start_pfn, end_pfn, mem_map in for_each_valid_page_range(self.prog):
+            # We should be able to read all valid pages.
+            for page in mem_map[start_pfn:end_pfn]:
+                page._refcount.read_()
+            if start_pfn <= expected_pfn < end_pfn:
+                found_expected = True
+                self.assertEqual(
+                    mem_map + expected_pfn, self.prog["drgn_test_page"].read_()
+                )
+        self.assertTrue(found_expected)
 
     @skip_unless_have_test_kmod
     def test_PFN_PHYS(self):

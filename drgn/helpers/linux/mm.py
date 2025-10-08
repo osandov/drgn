@@ -26,7 +26,7 @@ multiple reasons:
 
 import operator
 import re
-from typing import Callable, Iterable, Iterator, List, NamedTuple, Optional
+from typing import Callable, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
 from _drgn import (
     _linux_helper_direct_mapping_offset,
@@ -35,9 +35,11 @@ from _drgn import (
 )
 from drgn import (
     NULL,
+    Architecture,
     IntegerLike,
     Object,
     ObjectAbsentError,
+    ObjectNotFoundError,
     Program,
     TypeKind,
     cast,
@@ -45,9 +47,11 @@ from drgn import (
 )
 from drgn.helpers.common.format import decode_enum_type_flags
 from drgn.helpers.common.prog import takes_program_or_default
+from drgn.helpers.linux.bitops import for_each_set_bit
 from drgn.helpers.linux.device import bus_for_each_dev
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.mapletree import mt_for_each, mtree_load
+from drgn.helpers.linux.mmzone import _highest_present_section_nr, _section_flags
 from drgn.helpers.linux.percpu import percpu_counter_sum, percpu_counter_sum_positive
 from drgn.helpers.linux.pid import for_each_task_in_group
 from drgn.helpers.linux.rbtree import rb_find
@@ -74,6 +78,7 @@ __all__ = (
     "follow_phys",
     "for_each_memory_block",
     "for_each_page",
+    "for_each_valid_page_range",
     "for_each_vma",
     "for_each_vmap_area",
     "get_page_flags",
@@ -908,6 +913,153 @@ def for_each_page(prog: Program) -> Iterator[Object]:
     page0 = _page0(prog)
     for i in range(prog["min_low_pfn"], prog["max_pfn"]):
         yield page0 + i
+
+
+def _for_each_valid_page_range_flatmem(
+    prog: Program,
+) -> Iterator[Tuple[int, int, Object]]:
+    mem_map = _page0(prog)
+
+    if (
+        prog.platform.arch  # type: ignore[union-attr]  # platform can't be None
+        == Architecture.ARM
+    ):
+        # Since Linux kernel commit a4d5613c4dc6 ("arm: extend pfn_valid to
+        # take into account freed memory map alignment") (in v5.14), Arm's
+        # pfn_valid() checks that the PFN lies within a pageblock that
+        # intersects a present memory chunk. However, pageblock_nr_pages is a
+        # macro, and it's not easy to get its value. So, we get as close as we
+        # can and ignore the extra pages granted by the pageblock alignment
+        # (which is also what the kernel did before Linux kernel commit
+        # 09414d00a137 ("ARM: only consider memblocks with NOMAP cleared for
+        # linear mapping") (in v4.5)).
+        page_shift = prog["PAGE_SHIFT"].value_()
+        memory = prog["memblock"].memory
+        prev_start = prev_end = None
+        for region in memory.regions[: memory.cnt]:
+            start = region.base.value_()
+            end = (start + region.size.value_()) >> page_shift
+            start >>= page_shift
+            if start == prev_end:
+                prev_end = end  # Merge adjacent regions.
+            else:
+                if prev_start is not None:
+                    yield prev_start, prev_end, mem_map
+                prev_start = start
+                prev_end = end
+        if prev_start is not None:
+            yield prev_start, prev_end, mem_map  # type: ignore  # prev_end can't be None
+        return
+
+    # Generic FLATMEM validity.
+    start_pfn = prog["ARCH_PFN_OFFSET"].value_()
+    yield start_pfn, start_pfn + prog["max_mapnr"].value_(), mem_map
+
+
+@takes_program_or_default
+def for_each_valid_page_range(prog: Program) -> Iterator[Tuple[int, int, Object]]:
+    """
+    Iterate over every contiguous range of valid page frame numbers and
+    ``struct page``\\ s.
+
+    >>> for start_pfn, end_pfn, mem_map in for_each_valid_page():
+    ...     pages = mem_map[start_pfn:end_pfn]
+
+    :return: Iterator of (``start_pfn``, ``end_pfn``, ``mem_map``) tuples.
+        ``start_pfn`` is the minimum page frame number (PFN) in the range
+        (inclusive). ``end_pfn`` is the maximum PFN in the range (exclusive).
+        ``mem_map`` is a ``struct page *`` object such that ``mem_map[pfn]`` is
+        the ``struct page`` for the given PFN.
+    """
+    try:
+        mem_section = prog["mem_section"]
+    except ObjectNotFoundError:
+        yield from _for_each_valid_page_range_flatmem(prog)
+        return
+
+    # To support SPARSEMEM without SPARSEMEM_VMEMMAP, we will need to check
+    # whether each section's mem_map is contiguous.
+    mem_map = prog["vmemmap"].read_()
+
+    PAGE_SHIFT = prog["PAGE_SHIFT"].value_()
+    SECTIONS_PER_ROOT = prog["SECTIONS_PER_ROOT"].value_()
+    SECTION_SIZE_BITS = prog["SECTION_SIZE_BITS"].value_()
+    PAGES_PER_SECTION = 1 << (SECTION_SIZE_BITS - PAGE_SHIFT)
+    SUBSECTION_SHIFT = 21
+    SUBSECTIONS_PER_SECTION = 1 << (SECTION_SIZE_BITS - SUBSECTION_SHIFT)
+    PAGES_PER_SUBSECTION = 1 << (SUBSECTION_SHIFT - PAGE_SHIFT)
+    flags = _section_flags(prog)
+    SECTION_HAS_MEM_MAP = flags["SECTION_HAS_MEM_MAP"]
+    SECTION_IS_EARLY = flags["SECTION_IS_EARLY"]
+
+    highest_present_section_nr = _highest_present_section_nr(prog)
+    nr_roots = highest_present_section_nr // SECTIONS_PER_ROOT + 1
+
+    unaliased_type = mem_section.type_.unaliased()
+    if unaliased_type.kind == TypeKind.POINTER:
+        mem_section = mem_section.read_()
+        if not mem_section:
+            return
+
+    root_kind = unaliased_type.type.unaliased_kind()
+
+    pfn = 0
+    start_pfn = None
+    for root_nr, root in enumerate(mem_section[:nr_roots]):
+        if root_kind == TypeKind.POINTER:
+            root = root.read_()
+            if not root:
+                if start_pfn is not None:
+                    yield start_pfn, pfn, mem_map
+                    start_pfn = None
+                pfn += SECTIONS_PER_ROOT * PAGES_PER_SECTION
+                continue
+
+        if root_nr == nr_roots - 1:
+            nr_sections = highest_present_section_nr % SECTIONS_PER_ROOT + 1
+        else:
+            nr_sections = SECTIONS_PER_ROOT
+        for section in root[:nr_sections]:
+            mem_map_value = section.section_mem_map.value_()
+            # Open-coded valid_section() and early_section() to avoid some
+            # overhead.
+            if mem_map_value & SECTION_HAS_MEM_MAP:
+                # struct mem_section::usage only exists since Linux kernel
+                # commit f1eca35a0dc7 ("mm/sparsemem: introduce struct
+                # mem_section_usage") (in v5.3). Additionally, struct
+                # mem_section_usage::subsection_map only exists for
+                # CONFIG_SPARSEMEM_VMEMMAP. Without both, as well as for early
+                # sections, validity has section granularity.
+                subsection_map = None
+                if not (mem_map_value & SECTION_IS_EARLY):
+                    try:
+                        subsection_map = section.usage.subsection_map
+                    except AttributeError:
+                        pass
+
+                if subsection_map is None:
+                    if start_pfn is None:
+                        start_pfn = pfn
+                else:
+                    end_bit = None if start_pfn is None else 0
+                    for bit in for_each_set_bit(
+                        subsection_map, SUBSECTIONS_PER_SECTION
+                    ):
+                        if bit != end_bit:
+                            if start_pfn is not None:
+                                yield start_pfn, pfn + end_bit * PAGES_PER_SUBSECTION, mem_map
+                            start_pfn = pfn + bit * PAGES_PER_SUBSECTION
+                        end_bit = bit + 1
+                    if end_bit != SUBSECTIONS_PER_SECTION and start_pfn is not None:
+                        yield start_pfn, pfn + end_bit * PAGES_PER_SUBSECTION, mem_map
+                        start_pfn = None
+            elif start_pfn is not None:
+                yield start_pfn, pfn, mem_map
+                start_pfn = None
+            pfn += PAGES_PER_SECTION
+
+    if start_pfn is not None:
+        yield start_pfn, pfn, mem_map
 
 
 @takes_program_or_default
