@@ -1454,7 +1454,7 @@ default_size_t_or_ptrdiff_t(struct drgn_program *prog,
 		},
 	};
 	struct drgn_error *err;
-	uint8_t address_size;
+	uint64_t address_size;
 	err = drgn_program_address_size(prog, &address_size);
 	if (err)
 		return err;
@@ -1549,7 +1549,7 @@ drgn_program_find_primitive_type(struct drgn_program *prog,
 	/* long and unsigned long default to the word size. */
 	case DRGN_C_TYPE_LONG:
 	case DRGN_C_TYPE_UNSIGNED_LONG: {
-		uint8_t address_size;
+		uint64_t address_size;
 		err = drgn_program_address_size(prog, &address_size);
 		if (err)
 			break;

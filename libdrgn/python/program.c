@@ -1834,6 +1834,16 @@ static PyObject *Program_crashed_thread(Program *self)
 	return Thread_wrap(thread);
 }
 
+static PyObject *Program_address_size(Program *self)
+{
+	struct drgn_error *err;
+	uint64_t address_size;
+	err = drgn_program_address_size(&self->prog, &address_size);
+	if (err)
+		return set_drgn_error(err);
+	return PyLong_FromUint64(address_size);
+}
+
 // Used for testing.
 static PyObject *Program__log(Program *self, PyObject *args, PyObject *kwds)
 {
@@ -2033,6 +2043,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_main_thread_DOC},
 	{"crashed_thread", (PyCFunction)Program_crashed_thread, METH_NOARGS,
 	 drgn_Program_crashed_thread_DOC},
+	{"address_size", (PyCFunction)Program_address_size, METH_NOARGS,
+	 drgn_Program_address_size_DOC},
 	{"void_type", (PyCFunction)Program_void_type,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_void_type_DOC},
 	{"int_type", (PyCFunction)Program_int_type,

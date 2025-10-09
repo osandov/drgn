@@ -2571,7 +2571,7 @@ c_type_from_declarator(struct drgn_program *prog,
 	}
 
 	if (declarator->kind == C_TOKEN_ASTERISK) {
-		uint8_t address_size;
+		uint64_t address_size;
 		err = drgn_program_address_size(prog, &address_size);
 		if (!err) {
 			err = drgn_pointer_type_create(prog, *ret, address_size,
@@ -3386,7 +3386,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 	*type_ret = drgn_object_operand_type(obj);
 	switch (drgn_type_kind(type_ret->underlying_type)) {
 	case DRGN_TYPE_ARRAY: {
-		uint8_t address_size;
+		uint64_t address_size;
 		err = drgn_program_address_size(drgn_object_program(obj),
 						&address_size);
 		if (err)
@@ -3405,7 +3405,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 	case DRGN_TYPE_FUNCTION: {
 		struct drgn_qualified_type function_type =
 			drgn_operand_type_qualified(type_ret);
-		uint8_t address_size;
+		uint64_t address_size;
 		err = drgn_program_address_size(drgn_object_program(obj),
 						&address_size);
 		if (err)

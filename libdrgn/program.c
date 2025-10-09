@@ -76,6 +76,17 @@ drgn_program_platform(struct drgn_program *prog)
 	return prog->has_platform ? &prog->platform : NULL;
 }
 
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_address_size(struct drgn_program *prog, uint64_t *ret)
+{
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program address size is not known");
+	}
+	*ret = drgn_platform_address_size(&prog->platform);
+	return NULL;
+}
+
 LIBDRGN_PUBLIC
 const char *drgn_program_core_dump_path(struct drgn_program *prog)
 {

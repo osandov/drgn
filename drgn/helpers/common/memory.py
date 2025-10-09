@@ -221,12 +221,11 @@ def print_annotated_memory(
     else:
         byteorder = "big"
 
-    if prog.platform.flags & PlatformFlags.IS_64_BIT:
-        word_size = 8
+    word_size = prog.address_size()
+    if word_size == 8:
         line_format = "{:016x}: {:016x}{}"
         print("ADDRESS           VALUE")
     else:
-        word_size = 4
         line_format = "{:08x}: {:08x}{}"
         print("ADDRESS   VALUE")
 

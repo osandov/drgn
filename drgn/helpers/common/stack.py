@@ -58,12 +58,11 @@ def print_annotated_stack(trace: StackTrace) -> None:
     else:
         byteorder = "big"
 
-    if prog.platform.flags & PlatformFlags.IS_64_BIT:
-        word_size = 8
+    word_size = prog.address_size()
+    if word_size == 8:
         line_format = "{:016x}: {:016x}{}"
         print("STACK POINTER     VALUE")
     else:
-        word_size = 4
         line_format = "{:08x}: {:08x}{}"
         print("STACK     VALUE\nPOINTER")
 

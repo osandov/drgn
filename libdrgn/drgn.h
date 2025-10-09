@@ -879,6 +879,14 @@ enum drgn_program_flags drgn_program_flags(struct drgn_program *prog);
 const struct drgn_platform *drgn_program_platform(struct drgn_program *prog);
 
 /**
+ * Get the size of an address in a @ref drgn_program.
+ *
+ * @param[out] ret Returned address size, in bytes.
+ */
+struct drgn_error *drgn_program_address_size(struct drgn_program *prog,
+					     uint64_t *ret);
+
+/**
  * Get the path of the core dump that a @ref drgn_program was created from.
  *
  * @return Path which is valid until the program is destroyed, or @c NULL if the

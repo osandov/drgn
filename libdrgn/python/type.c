@@ -2068,7 +2068,7 @@ DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds)
 		return NULL;
 
 	if (size.is_none) {
-		uint8_t address_size;
+		uint64_t address_size;
 		struct drgn_error *err =
 			drgn_program_address_size(&self->prog, &address_size);
 		if (err)

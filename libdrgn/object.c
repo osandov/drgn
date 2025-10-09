@@ -1573,7 +1573,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 
 	struct drgn_qualified_type qualified_type =
 		drgn_object_qualified_type(obj);
-	uint8_t address_size;
+	uint64_t address_size;
 	struct drgn_error *err =
 		drgn_program_address_size(drgn_object_program(obj),
 					  &address_size);
@@ -1764,7 +1764,7 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 	if (err)
 		return err;
 
-	uint8_t address_size;
+	uint64_t address_size;
 	err = drgn_program_address_size(drgn_object_program(obj),
 					&address_size);
 	if (err)

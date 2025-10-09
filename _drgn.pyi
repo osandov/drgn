@@ -993,6 +993,14 @@ class Program:
             information. If ``None`` or not given, this uses
             :attr:`self.debug_info_options <debug_info_options>`.
         """
+
+    def address_size(self) -> int:
+        """
+        Get the size of an address in this program, in bytes.
+
+        :raises ValueError: if the size of an address is not known because
+            :attr:`platform` has not been determined yet
+        """
     cache: Dict[Any, Any]
     """
     Dictionary for caching program metadata.

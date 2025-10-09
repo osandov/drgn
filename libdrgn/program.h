@@ -403,17 +403,6 @@ drgn_program_is_64_bit(struct drgn_program *prog, bool *ret)
 }
 
 static inline struct drgn_error *
-drgn_program_address_size(struct drgn_program *prog, uint8_t *ret)
-{
-	if (!prog->has_platform) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "program address size is not known");
-	}
-	*ret = drgn_platform_address_size(&prog->platform);
-	return NULL;
-}
-
-static inline struct drgn_error *
 drgn_program_address_mask(const struct drgn_program *prog, uint64_t *ret)
 {
 	if (!prog->has_platform) {

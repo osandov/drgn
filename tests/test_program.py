@@ -187,6 +187,13 @@ class TestProgram(TestCase):
         with self.assertRaises(AttributeError):
             del Program().language
 
+    def test_address_size(self):
+        self.assertEqual(mock_program().address_size(), 8)
+        self.assertEqual(mock_program(MOCK_32BIT_PLATFORM).address_size(), 4)
+        self.assertRaisesRegex(
+            ValueError, "address size is not known", Program().address_size
+        )
+
 
 class TestMemory(TestCase):
     def test_simple_read(self):
