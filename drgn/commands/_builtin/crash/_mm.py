@@ -340,10 +340,7 @@ expected_free_pages = nr_free_pages()
     print(f"\nnr_free_pages: {free_pages}  ({verified})")
 
 
-def _kmem_info(
-    prog: Program,
-    drgn_arg: bool,
-) -> None:
+def _kmem_info(prog: Program, drgn_arg: bool) -> None:
     if drgn_arg:
         code = CrashDrgnCodeBuilder(prog)
         code.add_from_import("drgn.helpers.linux.block", "nr_blockdev_pages")
@@ -510,10 +507,7 @@ committed = vm_memory_committed()
     print_table(rows)
 
 
-def _kmem_vmalloc(
-    prog: Program,
-    drgn_arg: bool,
-) -> None:
+def _kmem_vmalloc(prog: Program, drgn_arg: bool) -> None:
     if drgn_arg:
         sys.stdout.write(
             """\
@@ -923,10 +917,7 @@ if "memory_subsys" in prog:  # Check for CONFIG_MEMORY_HOTPLUG.
         print_table(rows)
 
 
-def _kmem_per_cpu_offset(
-    prog: Program,
-    drgn_arg: bool,
-) -> None:
+def _kmem_per_cpu_offset(prog: Program, drgn_arg: bool) -> None:
     if drgn_arg:
         sys.stdout.write(
             """\
@@ -948,10 +939,7 @@ for cpu in for_each_possible_cpu():
         print(f"{cpu_field:>7}: {per_cpu_ptr(nullptr, cpu).value_():x}")
 
 
-def _kmem_hstate(
-    prog: Program,
-    drgn_arg: bool,
-) -> None:
+def _kmem_hstate(prog: Program, drgn_arg: bool) -> None:
     if drgn_arg:
         sys.stdout.write(
             """\
