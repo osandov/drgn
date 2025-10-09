@@ -213,7 +213,7 @@ def crash_get_context(
         if arg[0] == "pid":
             task = find_task(prog, arg[1])
             if not task:
-                raise LookupError("no such process")
+                raise LookupError("no such process with PID {}".format(arg[1]))
             return task
         else:
             return Object(prog, "struct task_struct *", arg[1])
