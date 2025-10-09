@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 from drgn import Program
 from drgn.commands import Command, CommandNotFoundError, _write_command_error, argument
-from drgn.commands._builtin.crash.system import _SysPrinter
+from drgn.commands._builtin.crash._sys import _SysPrinter
 from drgn.commands.crash import CRASH_COMMAND_NAMESPACE, crash_command
 from drgn.commands.linux import linux_kernel_custom_command
 
