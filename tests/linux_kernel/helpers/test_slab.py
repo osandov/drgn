@@ -20,6 +20,7 @@ from drgn.helpers.linux.slab import (
     slab_object_info,
     slab_total_usage,
 )
+from tests import slow_test
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     meminfo_field_in_pages,
@@ -264,6 +265,7 @@ class TestSlab(LinuxKernelTestCase):
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
+    @slow_test
     def test_slab_cache_for_each_allocated_object(self):
         for size in ("small", "big"):
             with self.subTest(size=size):

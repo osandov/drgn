@@ -6,6 +6,7 @@ import unittest
 from drgn import NULL, Object, sizeof
 from drgn.helpers.linux.mapletree import mt_for_each, mtree_load
 from drgn.helpers.linux.xarray import xa_is_zero
+from tests import slow_test
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 
@@ -269,6 +270,7 @@ class TestMapleTree(LinuxKernelTestCase):
                 ],
             )
 
+    @slow_test
     def test_mtree_load_three_levels_dense_1(self):
         maple_range64_slots = self.prog["drgn_test_maple_range64_slots"].value_()
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1
@@ -313,6 +315,7 @@ class TestMapleTree(LinuxKernelTestCase):
                 [(i, i, Object(self.prog, "void *", 0xB0BA000 | i)) for i in range(n)],
             )
 
+    @slow_test
     def test_mtree_load_three_levels_dense_2(self):
         maple_range64_slots = self.prog["drgn_test_maple_range64_slots"].value_()
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1
@@ -353,6 +356,7 @@ class TestMapleTree(LinuxKernelTestCase):
                 [(i, i, Object(self.prog, "void *", 0xB0BA000 | i)) for i in range(n)],
             )
 
+    @slow_test
     def test_mtree_load_three_levels_ranges_1(self):
         maple_range64_slots = self.prog["drgn_test_maple_range64_slots"].value_()
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1
@@ -414,6 +418,7 @@ class TestMapleTree(LinuxKernelTestCase):
                 + [(2 * n, ulong_max, Object(self.prog, "void *", 0xB0BA000 | n))],
             )
 
+    @slow_test
     def test_mtree_load_three_levels_ranges_2(self):
         maple_range64_slots = self.prog["drgn_test_maple_range64_slots"].value_()
         ulong_max = (1 << (sizeof(self.prog.type("unsigned long")) * 8)) - 1

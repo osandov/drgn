@@ -462,10 +462,10 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
             python_executable = "/usr/bin/python3"
 
         if kernel.arch is HOST_ARCHITECTURE:
-            tests_expression = ""
+            mark_expression = ""
         else:
             # Skip excessively slow tests when emulating.
-            tests_expression = "-k 'not test_slab_cache_for_each_allocated_object and not test_mtree_load_three_levels'"
+            mark_expression = "-m 'not slow'"
 
         if _kdump_works(kernel):
             kdump_command = """\
@@ -485,7 +485,7 @@ if [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm pytest -v tests/linux_kernel/vmcore
 else
     insmod "$DRGN_TEST_KMOD"
-    "$PYTHON" -Bm pytest -v tests/linux_kernel --ignore=tests/linux_kernel/vmcore {tests_expression}
+    "$PYTHON" -Bm pytest -v tests/linux_kernel --ignore=tests/linux_kernel/vmcore {mark_expression}
 {kdump_command}
 fi
 """

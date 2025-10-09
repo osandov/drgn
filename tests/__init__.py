@@ -29,6 +29,17 @@ from drgn import (
     TypeTemplateParameter,
 )
 
+try:
+    import pytest
+except ImportError:
+
+    def slow_test(func):
+        return func
+
+else:
+    slow_test = pytest.mark.slow
+
+
 DEFAULT_LANGUAGE = Language.C
 
 
