@@ -1210,6 +1210,46 @@ if cache:
     print_table(rows)
 
 
+def _kmem_page_flags(prog: Program, drgn_arg: bool, flags: Optional[int]) -> None:
+    if drgn_arg:
+        if flags is None:
+            sys.stdout.write(
+                """\
+for name, bit in prog.type("enum pageflags").enumerators:
+    if name == "__NR_PAGEFLAGS":
+        continue
+    value = 1 << bit
+"""
+            )
+        else:
+            sys.stdout.write(
+                f"""\
+from drgn.helpers.linux.mm import decode_page_flags_value
+
+
+flags = decode_page_flags_value(0x{flags:x})
+"""
+            )
+        return
+
+    if flags is None:
+        prefix = ""
+    else:
+        print(f"FLAGS: {flags:x}")
+        prefix = "  "
+    rows: List[Sequence[Any]] = [
+        (prefix + "PAGE-FLAG", CellFormat("BIT", ">"), "VALUE")
+    ]
+    width = len(hex((1 << prog["__NR_PAGEFLAGS"].value_()) - 1)) - 2
+    for name, bit in prog.type("enum pageflags").enumerators:  # type: ignore[union-attr]
+        if name == "__NR_PAGEFLAGS":
+            continue
+        value = 1 << bit
+        if flags is None or flags & value:
+            rows.append((prefix + name, bit, f"{value:0{width}x}"))
+    print_table(rows)
+
+
 @crash_command(
     description="kernel memory",
     long_description="""
@@ -1267,6 +1307,18 @@ if cache:
                 dest="slab",
                 action="store_true",
                 help="display an overview of slab caches",
+            ),
+            argument(
+                "-g",
+                dest="page_flags",
+                metavar="FLAGS",
+                type="hexadecimal",
+                nargs="?",
+                default=argparse.SUPPRESS,
+                help="""
+                display the flags set on a hexadecimal page flags value, or
+                display all of the possible flags if no value is given
+                """,
             ),
             required=True,
         ),
@@ -1326,6 +1378,8 @@ def _crash_cmd_kmem(
         return _kmem_slab(
             prog, args.drgn, ignore=ignore_slab_caches, names=slab_cache_names
         )
+    if hasattr(args, "page_flags"):
+        return _kmem_page_flags(prog, args.drgn, args.page_flags)
 
 
 @crash_command(

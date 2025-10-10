@@ -477,6 +477,25 @@ class TestKmem(CrashCommandTestCase):
             cmd.drgn_option.globals["cache"].type_.type_name(), "struct kmem_cache *"
         )
 
+    def test_g_value(self):
+        value = (1 << self.prog["PG_locked"].value_()) | (
+            1 << self.prog["PG_uptodate"].value_()
+        )
+        cmd = self.check_crash_command(f"kmem -g {value:x}")
+        self.assertIn("FLAGS:", cmd.stdout)
+        self.assertIn("PG_locked", cmd.stdout)
+        self.assertIn("PG_uptodate", cmd.stdout)
+        self.assertNotIn("PG_dirty", cmd.stdout)
+        self.assertIn("decode_page_flags_value", cmd.drgn_option.stdout)
+        self.assertIn("PG_locked", cmd.drgn_option.globals["flags"])
+
+    def test_g_no_value(self):
+        cmd = self.check_crash_command("kmem -g")
+        self.assertIn("PG_uptodate", cmd.stdout)
+        self.assertIn(".enumerators", cmd.drgn_option.stdout)
+        for variable in ("name", "bit", "value"):
+            self.assertIn(variable, cmd.drgn_option.globals)
+
 
 class TestSwap(CrashCommandTestCase):
     @skip_unless_have_test_disk
