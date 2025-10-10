@@ -424,6 +424,7 @@ expected_free_pages = nr_free_pages()
                         else:
                             pages = blocks << order
                             total_free_pages += pages
+                            break
                     rows.append(
                         (
                             CellFormat(order, "^"),
