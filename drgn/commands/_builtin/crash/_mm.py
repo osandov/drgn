@@ -8,6 +8,7 @@ import argparse
 import functools
 import re
 import sys
+import textwrap
 from typing import AbstractSet, Any, Callable, List, Optional, Sequence
 
 from drgn import NULL, FaultError, Object, Program, ProgramFlags, TypeKind, sizeof
@@ -44,7 +45,10 @@ from drgn.helpers.linux.hugetlb import (
     huge_page_size,
     hugetlb_total_usage,
 )
-from drgn.helpers.linux.list import validate_list_count_nodes
+from drgn.helpers.linux.list import (
+    validate_list_count_nodes,
+    validate_list_for_each_entry,
+)
 from drgn.helpers.linux.mm import (
     PFN_PHYS,
     decode_memory_block_state,
@@ -278,10 +282,9 @@ def _crash_cmd_ptov(
             print_table(rows)
 
 
-def _kmem_free(prog: Program, drgn_arg: bool) -> None:
+def _kmem_free(prog: Program, drgn_arg: bool, show_pages: bool = False) -> None:
     if drgn_arg:
         code = CrashDrgnCodeBuilder(prog)
-        code.add_from_import("drgn.helpers.linux.list", "validate_list_count_nodes")
         code.add_from_import("drgn.helpers.linux.mm", "PFN_PHYS", "pfn_to_page")
         code.add_from_import("drgn.helpers.linux.mmzone", "for_each_online_pgdat")
         code.add_from_import(
@@ -306,6 +309,22 @@ for pgdat in for_each_online_pgdat():
             for migrate_type, free_list in enumerate(free_area.free_list):
 """
         )
+        if show_pages:
+            code.add_from_import(
+                "drgn.helpers.linux.list", "validate_list_for_each_entry"
+            )
+            loop_body = """\
+                num_blocks = 0
+                for page in validate_list_for_each_entry(
+                    "struct page", free_list.address_of_(), "lru"
+                ):
+                    num_blocks += 1
+"""
+        else:
+            code.add_from_import("drgn.helpers.linux.list", "validate_list_count_nodes")
+            loop_body = """\
+                num_blocks = validate_list_count_nodes(free_list.address_of_())
+"""
         if prog.flags & ProgramFlags.IS_LIVE:
             code.add_from_import("drgn", "FaultError")
             code.add_from_import("drgn.helpers", "ValidationError")
@@ -315,13 +334,10 @@ for pgdat in for_each_online_pgdat():
                 num_attempts = 10
                 for attempt in range(num_attempts):
                     try:
-        """
-            )
-        code.append(
-            """\
-                blocks = validate_list_count_nodes(free_list.address_of_())
 """
-        )
+            )
+            loop_body = textwrap.indent(loop_body, "        ")
+        code.append(loop_body)
         if prog.flags & ProgramFlags.IS_LIVE:
             code.append(
                 """\
@@ -333,8 +349,8 @@ for pgdat in for_each_online_pgdat():
             )
         code.append(
             """\
-                pages = blocks << order
-                actual_free_pages += pages
+                num_pages = num_blocks << order
+                actual_free_pages += num_pages
 
 expected_free_pages = nr_free_pages()
 """
@@ -355,6 +371,16 @@ expected_free_pages = nr_free_pages()
         node_header: Sequence[Any] = (CellFormat("NODE", ">"),)
     else:
         node_header = ()
+
+    free_list_header = [
+        CellFormat("ORDER", "^"),
+        CellFormat("SIZE", ">"),
+        "MIGRATE",
+        CellFormat("FREE_LIST", "^"),
+    ]
+    if not show_pages:
+        free_list_header.append(CellFormat("BLOCKS", ">"))
+        free_list_header.append(CellFormat("PAGES", ">"))
 
     rows: List[Sequence[Any]] = []
     first = True
@@ -415,44 +441,54 @@ expected_free_pages = nr_free_pages()
             if size == 0:
                 continue
 
-            rows.append(
-                (
-                    CellFormat("ORDER", "^"),
-                    CellFormat("SIZE", ">"),
-                    "MIGRATE",
-                    CellFormat("FREE_LIST", "^"),
-                    CellFormat("BLOCKS", ">"),
-                    CellFormat("PAGES", ">"),
-                )
-            )
+            if not show_pages:
+                rows.append(free_list_header)
             for order, free_area in enumerate(zone.free_area):
                 size = (prog["PAGE_SIZE"].value_() << order) // 1024
                 size_cell = CellFormat(f"{size}k", ">")
                 for migrate_type, free_list in enumerate(free_area.free_list):
-                    blocks: Any = "[CORRUPTED]"
-                    pages: Any = ""
+                    num_blocks: Any = "[CORRUPTED]"
+                    num_pages: Any = ""
                     # Walking free lists is racy. Retry a limited number of
                     # times on live kernels.
                     for _ in range(10):
                         try:
-                            blocks = validate_list_count_nodes(free_list.address_of_())
+                            if show_pages:
+                                pages = list(
+                                    validate_list_for_each_entry(
+                                        "struct page", free_list.address_of_(), "lru"
+                                    )
+                                )
+                                num_blocks = len(pages)
+                            else:
+                                num_blocks = validate_list_count_nodes(
+                                    free_list.address_of_()
+                                )
                         except (FaultError, ValidationError):
                             if not (prog.flags & ProgramFlags.IS_LIVE):
                                 break
                         else:
-                            pages = blocks << order
-                            total_free_pages += pages
+                            num_pages = num_blocks << order
+                            total_free_pages += num_pages
                             break
-                    rows.append(
-                        (
-                            CellFormat(order, "^"),
-                            size_cell,
-                            migrate_types[migrate_type],
-                            CellFormat(free_list.address_, "^x"),
-                            blocks,
-                            pages,
-                        ),
-                    )
+                    if show_pages:
+                        rows.append(free_list_header)
+                    row = [
+                        CellFormat(order, "^"),
+                        size_cell,
+                        migrate_types[migrate_type],
+                        CellFormat(free_list.address_, "^x"),
+                    ]
+                    if not show_pages:
+                        row.append(num_blocks)
+                        row.append(num_pages)
+                    rows.append(row)
+
+                    if show_pages:
+                        for page in pages:
+                            rows.append(
+                                RowOptions((CellFormat(page.value_(), "x"),), group=2)
+                            )
     print_table(rows)
 
     free_pages = nr_free_pages(prog)
@@ -1519,6 +1555,12 @@ flags = decode_page_flags_value(0x{flags:x})
                 help="display and verify page allocator free lists",
             ),
             argument(
+                "-F",
+                dest="free_pages",
+                action="store_true",
+                help="like -f, but also display each page on the free lists",
+            ),
+            argument(
                 "-i",
                 dest="info",
                 action="store_true",
@@ -1639,6 +1681,8 @@ def _crash_cmd_kmem(
 
     if args.free:
         return _kmem_free(prog, args.drgn)
+    if args.free_pages:
+        return _kmem_free(prog, args.drgn, show_pages=True)
     if args.info:
         return _kmem_info(prog, args.drgn)
     if args.vmalloc:

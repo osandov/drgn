@@ -140,9 +140,8 @@ skip_unless_kmem_s_supported = unittest.skipUnless(
 
 
 class TestKmem(CrashCommandTestCase):
-    def test_f(self):
-        cmd = self.check_crash_command("kmem -f")
-
+    def _test_free_common(self, flag):
+        cmd = self.check_crash_command(f"kmem -{flag}")
         expected = set(
             re.findall(
                 r"^Node\s+([0-9]+)\s*,\s*zone\s+(\w+)",
@@ -180,8 +179,8 @@ class TestKmem(CrashCommandTestCase):
             "order",
             "block_size",
             "migrate_type",
-            "blocks",
-            "pages",
+            "num_blocks",
+            "num_pages",
         ):
             self.assertIn(variable, cmd.drgn_option.globals)
         for variable in (
@@ -189,6 +188,15 @@ class TestKmem(CrashCommandTestCase):
             "actual_free_pages",
         ):
             self.assertIsInstance(cmd.drgn_option.globals[variable], int)
+        if flag == "F":
+            self.assertRegex(cmd.stdout, r"(?m)^[0-9a-f]+$")
+            self.assertIsInstance(cmd.drgn_option.globals["page"], Object)
+
+    def test_f(self):
+        self._test_free_common("f")
+
+    def test_F(self):
+        self._test_free_common("F")
 
     def test_i(self):
         cmd = self.check_crash_command("kmem -i")
