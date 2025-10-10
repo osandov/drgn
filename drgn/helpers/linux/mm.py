@@ -71,6 +71,7 @@ __all__ = (
     "compound_order",
     "decode_memory_block_state",
     "decode_page_flags",
+    "decode_page_flags_value",
     "environ",
     "find_vmap_area",
     "follow_page",
@@ -860,10 +861,29 @@ def decode_page_flags(page: Object) -> str:
 
     :param page: ``struct page *``
     """
-    NR_PAGEFLAGS = page.prog_["__NR_PAGEFLAGS"]
+    return decode_page_flags_value(get_page_flags(page))
+
+
+@takes_program_or_default
+def decode_page_flags_value(prog: Program, flags: IntegerLike) -> str:
+    """
+    Get a human-readable representation of the flags value from a page.
+
+    >>> flags = get_page_flags(page).read_()
+    >>> hex(flags)
+    0xfffffd0004028
+    >>> decode_page_flags_value(flags)
+    'PG_uptodate|PG_lru|PG_private|PG_reported'
+
+    See also the :func:`decode_page_flags()` shortcut, which takes a
+    ``struct page *`` instead.
+
+    :param flags: ``unsigned long``
+    """
+    NR_PAGEFLAGS = prog["__NR_PAGEFLAGS"]
     PAGEFLAGS_MASK = (1 << NR_PAGEFLAGS.value_()) - 1
     return decode_enum_type_flags(
-        get_page_flags(page) & PAGEFLAGS_MASK, NR_PAGEFLAGS.type_
+        operator.index(flags) & PAGEFLAGS_MASK, NR_PAGEFLAGS.type_
     )
 
 
