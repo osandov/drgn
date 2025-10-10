@@ -1270,7 +1270,7 @@ for pfn, page in for_each_valid_pfn_and_page():
     header: List[Any] = [CellFormat("PAGE", "^")]
     widths = [address_size * 2]
     getters: List[Callable[[int, Object], Any]] = [
-        lambda pfn, page: CellFormat(page.value_(), "x")
+        lambda pfn, page: f"{page.value_():0{address_size * 2}x}"
     ]
 
     if members is None:
