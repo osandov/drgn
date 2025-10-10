@@ -30,6 +30,7 @@ from drgn.helpers.common.format import (
     CellFormat,
     RowOptions,
     _print_table_row,
+    double_quote_ascii_string,
     escape_ascii_string,
     number_in_binary_units,
     print_table,
@@ -65,6 +66,9 @@ from drgn.helpers.linux.mmzone import (
     decode_section_flags,
     for_each_online_pgdat,
     for_each_present_section,
+    high_wmark_pages,
+    low_wmark_pages,
+    min_wmark_pages,
     section_decode_mem_map,
     section_mem_map_addr,
     section_nr_to_pfn,
@@ -1036,6 +1040,89 @@ if "memory_subsys" in prog:  # Check for CONFIG_MEMORY_HOTPLUG.
         print_table(rows)
 
 
+def _kmem_zones(prog: Program, drgn_arg: bool) -> None:
+    if drgn_arg:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import(
+            "drgn.helpers.linux.mmzone",
+            "for_each_online_pgdat",
+            "high_wmark_pages",
+            "low_wmark_pages",
+            "min_wmark_pages",
+        )
+        code.add_from_import("drgn.helpers.linux.vmstat", "zone_page_state")
+        code.append(
+            """\
+for pgdat in for_each_online_pgdat():
+    node = pgdat.node_id
+    for zone in pgdat.node_zones:
+        zone = zone.address_of_()
+        name = zone.name
+        size = zone.spanned_pages
+        if size == 0:
+            continue
+
+        present = zone.present_pages
+        min_watermark = min_wmark_pages(zone)
+        low_watermark = low_wmark_pages(zone)
+        high_watermark = high_wmark_pages(zone)
+
+        for stat_name, stat_item in prog.type("enum zone_stat_item").enumerators:
+            if stat_name == "NR_VM_ZONE_STAT_ITEMS":
+                continue
+            stat_value = zone_page_state(zone, stat_item)
+"""
+        )
+        code.print()
+        return
+
+    separator = ""
+    for pgdat in for_each_online_pgdat(prog):
+        nid = pgdat.node_id.value_()
+        for i, zone in enumerate(pgdat.node_zones):
+            # Separate with one newline after an unpopulated zone, two after
+            # populated.
+            sys.stdout.write(separator)
+
+            zone = zone.address_of_()
+            print(
+                f"NODE: {nid}  ZONE: {i}  ADDR: {zone.value_():x}  NAME: {double_quote_ascii_string(zone.name.string_())}"
+            )
+
+            size = zone.spanned_pages.value_()
+            if not size:
+                print("  [unpopulated]")
+                separator = "\n"
+                continue
+
+            present = zone.present_pages.value_()
+            if present < size:
+                present_column = f"  PRESENT: {present}"
+            else:
+                present_column = ""
+
+            minw = min_wmark_pages(zone)
+            loww = low_wmark_pages(zone)
+            highw = high_wmark_pages(zone)
+
+            print(
+                f"  SIZE: {size}{present_column}  MIN/LOW/HIGH: {minw}/{loww}/{highw}\n  VM_STAT:"
+            )
+
+            rows: List[Sequence[Any]] = []
+            for name, item in prog.type("enum zone_stat_item").enumerators:  # type: ignore[union-attr]
+                if name == "NR_VM_ZONE_STAT_ITEMS":
+                    continue
+                rows.append(
+                    (
+                        CellFormat("  " + name, ">"),
+                        CellFormat(zone_page_state(zone, item), "<"),
+                    )
+                )
+            print_table(rows)
+            separator = "\n\n"
+
+
 def _kmem_per_cpu_offset(prog: Program, drgn_arg: bool) -> None:
     if drgn_arg:
         sys.stdout.write(
@@ -1456,6 +1543,12 @@ flags = decode_page_flags_value(0x{flags:x})
                 help="display NUMA nodes, SPARSEMEM sections, and memory blocks",
             ),
             argument(
+                "-z",
+                dest="zones",
+                action="store_true",
+                help="display per-zone memory statistics",
+            ),
+            argument(
                 "-o",
                 dest="per_cpu_offset",
                 action="store_true",
@@ -1554,6 +1647,8 @@ def _crash_cmd_kmem(
         return _kmem_vmstat(prog, args.drgn)
     if args.nodes:
         return _kmem_nodes(prog, args.drgn)
+    if args.zones:
+        return _kmem_zones(prog, args.drgn)
     if args.per_cpu_offset:
         return _kmem_per_cpu_offset(prog, args.drgn)
     if args.hstate:

@@ -369,6 +369,42 @@ class TestKmem(CrashCommandTestCase):
             ):
                 self.assertIn(variable, cmd.drgn_option.globals)
 
+    def test_z(self):
+        cmd = self.check_crash_command("kmem -z")
+
+        expected = set(
+            re.findall(
+                r"^Node\s+([0-9]+)\s*,\s*zone\s+(\w+)",
+                Path("/proc/zoneinfo").read_text(),
+                flags=re.MULTILINE,
+            )
+        )
+        actual = set(
+            re.findall(
+                r'^NODE: ([0-9]+).*NAME: "([^"]+)"',
+                cmd.stdout,
+                flags=re.MULTILINE,
+            )
+        )
+        # Since Linux kernel commit b2bd8598195f ("mm, vmstat: print
+        # non-populated zones in zoneinfo") (in v4.12), these should be equal,
+        # but before that, /proc/zoneinfo doesn't include all zones.
+        self.assertGreaterEqual(actual, expected)
+
+        for variable in (
+            "node",
+            "zone",
+            "size",
+            "present",
+            "min_watermark",
+            "low_watermark",
+            "high_watermark",
+            "stat_name",
+            "stat_item",
+            "stat_value",
+        ):
+            self.assertIn(variable, cmd.drgn_option.globals)
+
     def test_o(self):
         cmd = self.check_crash_command("kmem -o")
         for cpu in possible_cpus():
