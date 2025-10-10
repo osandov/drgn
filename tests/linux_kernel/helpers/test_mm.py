@@ -43,6 +43,7 @@ from drgn.helpers.linux.mm import (
     for_each_vmap_area,
     get_task_rss_info,
     memory_block_size_bytes,
+    page_index,
     page_size,
     page_to_pfn,
     page_to_phys,
@@ -107,6 +108,10 @@ class TestMm(LinuxKernelTestCase):
                         for entry in struct.unpack(f"{pages}Q", pagemap.read(pages * 8))
                     ]
                 yield map, address, pfns
+
+    def test_page_index(self):
+        with self._pages() as (_, _, pfns):
+            self.assertEqual(page_index(pfn_to_page(self.prog, pfns[3])), 3)
 
     def test_page_flag_getters(self):
         with self._pages() as (map, _, pfns):

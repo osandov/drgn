@@ -87,6 +87,7 @@ __all__ = (
     "get_task_rss_info",
     "in_direct_map",
     "memory_block_size_bytes",
+    "page_index",
     "page_size",
     "page_to_pfn",
     "page_to_phys",
@@ -161,6 +162,21 @@ def get_page_flags(page: Object) -> Object:
         return page.flags.f
     except AttributeError:
         return page.flags
+
+
+def page_index(page: Object) -> Object:
+    """
+    Return a page's offset (in pages) within its mapping.
+
+    :param page: ``struct page *``
+    :return: ``pgoff_t``
+    """
+    # The member was renamed in acc53a0b4c15 ("mm: rename page->index to
+    # page->__folio_index") (in v6.16).
+    try:
+        return page.__folio_index
+    except AttributeError:
+        return page.index
 
 
 def PageActive(page: Object) -> bool:
