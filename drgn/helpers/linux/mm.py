@@ -80,6 +80,7 @@ __all__ = (
     "for_each_memory_block",
     "for_each_page",
     "for_each_valid_page_range",
+    "for_each_valid_pfn_and_page",
     "for_each_vma",
     "for_each_vmap_area",
     "get_page_flags",
@@ -915,6 +916,18 @@ def for_each_page(prog: Program) -> Iterator[Object]:
     for start_pfn, end_pfn, mem_map in for_each_valid_page_range(prog):
         for pfn in range(start_pfn, end_pfn):
             yield mem_map + pfn
+
+
+@takes_program_or_default
+def for_each_valid_pfn_and_page(prog: Program) -> Iterator[Tuple[int, Object]]:
+    """
+    Iterate over every valid page frame number (PFN) and ``struct page *``.
+
+    :return: Iterator of (``pfn``, ``struct page *``) tuples.
+    """
+    for start_pfn, end_pfn, mem_map in for_each_valid_page_range(prog):
+        for pfn in range(start_pfn, end_pfn):
+            yield pfn, mem_map + pfn
 
 
 def _for_each_valid_page_range_flatmem(
