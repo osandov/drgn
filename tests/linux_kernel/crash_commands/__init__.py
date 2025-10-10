@@ -13,6 +13,18 @@ from tests.linux_kernel import LinuxKernelTestCase
 
 
 class CrashCommandTestCase(LinuxKernelTestCase):
+    @contextlib.contextmanager
+    def with_default_prog(self):
+        try:
+            old_default_prog = drgn.get_default_prog()
+        except drgn.NoDefaultProgramError:
+            old_default_prog = None
+        try:
+            drgn.set_default_prog(self.prog)
+            yield
+        finally:
+            drgn.set_default_prog(old_default_prog)
+
     # Run a crash command and capture its stdout and stderr.
     def run_crash_command(self, command):
         with contextlib.redirect_stdout(
@@ -53,15 +65,8 @@ class CrashCommandTestCase(LinuxKernelTestCase):
 
         if mode == "exec":
             drgn_option.globals = {"prog": self.prog}
-            try:
-                old_default_prog = drgn.get_default_prog()
-            except drgn.NoDefaultProgramError:
-                old_default_prog = None
-            try:
-                drgn.set_default_prog(self.prog)
+            with self.with_default_prog():
                 exec(drgn_option.stdout, drgn_option.globals)
-            finally:
-                drgn.set_default_prog(old_default_prog)
 
         ret = self.run_crash_command(command)
 

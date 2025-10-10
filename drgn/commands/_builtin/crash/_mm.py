@@ -5,10 +5,12 @@
 """Memory management-related crash commands."""
 
 import argparse
+import functools
+import re
 import sys
-from typing import AbstractSet, Any, List, Optional, Sequence
+from typing import AbstractSet, Any, Callable, List, Optional, Sequence
 
-from drgn import NULL, FaultError, Object, Program, ProgramFlags
+from drgn import NULL, FaultError, Object, Program, ProgramFlags, TypeKind, sizeof
 from drgn.commands import (
     CommandArgumentError,
     _repr_black,
@@ -16,15 +18,23 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command, parse_cpuspec
+from drgn.commands.crash import (
+    _MEMBER_PATTERN,
+    CrashDrgnCodeBuilder,
+    _sanitize_member_name,
+    crash_command,
+    parse_cpuspec,
+)
 from drgn.helpers import ValidationError
 from drgn.helpers.common.format import (
     CellFormat,
     RowOptions,
+    _print_table_row,
     escape_ascii_string,
     number_in_binary_units,
     print_table,
 )
+from drgn.helpers.common.type import typeof_member
 from drgn.helpers.linux.block import nr_blockdev_pages
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.device import dev_name
@@ -37,9 +47,13 @@ from drgn.helpers.linux.list import validate_list_count_nodes
 from drgn.helpers.linux.mm import (
     PFN_PHYS,
     decode_memory_block_state,
+    decode_page_flags_value,
     for_each_memory_block,
+    for_each_valid_pfn_and_page,
     for_each_vmap_area,
     memory_block_size_bytes,
+    page_flags,
+    page_index,
     pfn_to_page,
     phys_to_virt,
     totalram_pages,
@@ -1083,6 +1097,160 @@ for hstate in for_each_hstate(prog):
     print_table(rows)
 
 
+def _page_flags_and_decoded_flags(pfn: int, page: Object) -> str:
+    flags = page_flags(page).read_()
+    decoded_flags = decode_page_flags_value(flags).replace("|", ",").replace("PG_", "")
+    return f"{flags.value_():x} {decoded_flags}"
+
+
+def _page_flags_member(pfn: int, page: Object) -> str:
+    flags = page_flags(page)
+    return f"{flags.value_():0{sizeof(flags) * 2}x}"
+
+
+def _page_list_head_member(member: str, pfn: int, page: Object) -> str:
+    node = page[0].subobject_(member)
+    next = node.next
+    prev = node.prev
+    return f"{next.value_():0{sizeof(next) * 2}x},{prev.value_():0{sizeof(prev) * 2}x}"
+
+
+def _page_callback_head_member(member: str, pfn: int, page: Object) -> str:
+    head = page[0].subobject_(member)
+    next = head.next
+    func = head.func
+    return f"{next.value_():0{sizeof(next) * 2}x},{func.value_():0{sizeof(func) * 2}x}"
+
+
+def _page_decimal_member(member: str, pfn: int, page: Object) -> str:
+    return str(page[0].subobject_(member).value_())
+
+
+def _page_hex_member(member: str, pfn: int, page: Object) -> str:
+    object = page[0].subobject_(member)
+    return f"{object.value_():0{sizeof(object) * 2}x}"
+
+
+def _kmem_pages(
+    prog: Program, drgn_arg: bool, *, members: Optional[str] = None
+) -> None:
+    if drgn_arg:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import("drgn.helpers.linux.mm", "for_each_valid_pfn_and_page")
+        code.append(
+            """\
+for pfn, page in for_each_valid_pfn_and_page():
+"""
+        )
+        if members is None:
+            code.add_from_import(
+                "drgn.helpers.linux.mm",
+                "PFN_PHYS",
+                "decode_page_flags_value",
+                "page_flags",
+                "page_index",
+            )
+            code.append(
+                """\
+    physical = PFN_PHYS(pfn)
+    mapping = page.mapping
+    index = page_index(page)
+    cnt = page._refcount.counter
+    flags = page_flags(page)
+    decoded_flags = decode_page_flags_value(flags)
+"""
+            )
+        else:
+            for member in members.split(","):
+                if not re.fullmatch(_MEMBER_PATTERN, member):
+                    raise ValueError(f"invalid member name: {member}")
+                if member == "flags":
+                    code.add_from_import("drgn.helpers.linux.mm", "page_flags")
+                    code.append("    flags = page_flags(page)\n")
+                else:
+                    code.append(
+                        f"    {_sanitize_member_name(member)} = " f"page.{member}\n"
+                    )
+        code.print()
+        return
+
+    address_size = prog.address_size()
+    PAGE_SHIFT = prog["PAGE_SHIFT"].value_()
+
+    # print_table() requires having all rows available ahead of time. With a
+    # row per page, this would take too much time and memory. Instead, we
+    # compute the column widths and print each row manually.
+    header: List[Any] = [CellFormat("PAGE", "^")]
+    widths = [address_size * 2]
+    getters: List[Callable[[int, Object], Any]] = [
+        lambda pfn, page: CellFormat(page.value_(), "x")
+    ]
+
+    if members is None:
+        header.append(CellFormat("PHYSICAL", ">"))
+        widths.append(len(hex(prog["max_pfn"].value_() << PAGE_SHIFT)) - 2)
+        getters.append(lambda pfn, page: CellFormat(pfn << PAGE_SHIFT, "x"))
+
+        header.append(CellFormat("MAPPING", "^"))
+        widths.append(address_size * 2)
+        getters.append(lambda pfn, page: CellFormat(page.mapping.value_(), "x"))
+
+        header.append(CellFormat("INDEX", ">"))
+        widths.append(12)
+        getters.append(lambda pfn, page: CellFormat(page_index(page).value_(), "x"))
+
+        header.append(CellFormat("CNT", ">"))
+        widths.append(3)
+        getters.append(lambda pfn, page: page._refcount.counter.value_())
+
+        header.append("FLAGS")
+        widths.append(5)
+        getters.append(_page_flags_and_decoded_flags)
+    else:
+        struct_page = prog.type("struct page")
+        integer_base = prog.config.get("crash_radix", 10)
+        for member in members.split(","):
+            if not re.fullmatch(_MEMBER_PATTERN, member):
+                raise ValueError(f"invalid member name: {member}")
+            header.append(member)
+
+            if member == "flags":
+                widths.append(address_size * 2)
+                getters.append(_page_flags_member)
+                continue
+
+            member_type = typeof_member(struct_page, member)
+            member_type_kind = member_type.unaliased_kind()
+            member_type_name = member_type.type_name()
+            if member_type_name == "struct list_head":
+                widths.append(max(address_size * 4 + 1, len(member)))
+                getters.append(functools.partial(_page_list_head_member, member))
+            elif member_type_name == "struct callback_head":
+                widths.append(max(address_size * 4 + 1, len(member)))
+                getters.append(functools.partial(_page_callback_head_member, member))
+            elif member_type_name == "atomic_t" or member_type_name == "atomic_long_t":
+                widths.append(max(12, len(member)))
+                getters.append(
+                    functools.partial(_page_decimal_member, member + ".counter")
+                )
+            elif (
+                member_type_kind == TypeKind.INT and integer_base == 16
+            ) or member_type_kind == TypeKind.POINTER:
+                widths.append(max(sizeof(member_type) * 2, len(member)))
+                getters.append(functools.partial(_page_hex_member, member))
+            elif member_type_kind == TypeKind.INT:
+                widths.append(max(12, len(member)))
+                getters.append(functools.partial(_page_decimal_member, member))
+            else:
+                raise NotImplementedError(
+                    f"formatting {member_type_name!r} not implemented"
+                )
+
+    _print_table_row(header, widths=widths)
+    for pfn, page in for_each_valid_pfn_and_page(prog):
+        _print_table_row([getter(pfn, page) for getter in getters], widths=widths)
+
+
 def _kmem_slab(
     prog: Program,
     drgn_arg: bool,
@@ -1303,6 +1471,22 @@ flags = decode_page_flags_value(0x{flags:x})
                 help="display HugeTLB state",
             ),
             argument(
+                "-p",
+                dest="pages",
+                action="store_true",
+                help="""
+                display every valid struct page, including its physical
+                address, mapping, index, refcount, and flags
+                """,
+            ),
+            argument(
+                "-m",
+                dest="page_members",
+                help="""
+                display the given comma-separated members of every valid struct page
+                """,
+            ),
+            argument(
                 "-s",
                 dest="slab",
                 action="store_true",
@@ -1374,6 +1558,10 @@ def _crash_cmd_kmem(
         return _kmem_per_cpu_offset(prog, args.drgn)
     if args.hstate:
         return _kmem_hstate(prog, args.drgn)
+    if args.pages:
+        return _kmem_pages(prog, args.drgn)
+    if args.page_members is not None:
+        return _kmem_pages(prog, args.drgn, members=args.page_members)
     if args.slab:
         return _kmem_slab(
             prog, args.drgn, ignore=ignore_slab_caches, names=slab_cache_names

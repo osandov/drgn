@@ -6,9 +6,11 @@ import mmap
 import os
 from pathlib import Path
 import re
+import tempfile
 import unittest
 
 from drgn import Object
+from drgn.commands.crash import CRASH_COMMAND_NAMESPACE
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.mm import PageUsage, phys_to_virt
 from drgn.helpers.linux.percpu import per_cpu_ptr
@@ -390,6 +392,66 @@ class TestKmem(CrashCommandTestCase):
             )
             for variable in ("size", "free", "total", "name"):
                 self.assertIn(variable, cmd.drgn_option.globals)
+
+    # For kmem -p and kmem -m, printing every page is too slow. Just get the
+    # first few.
+    def test_p(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "file"
+            CRASH_COMMAND_NAMESPACE.run(self.prog, f"kmem -p | head > {path}")
+            for line in path.read_text().splitlines()[1:]:
+                self.assertRegex(
+                    line,
+                    # PAGE
+                    r"^[0-9a-f]+\s+"
+                    # PHYSICAL
+                    r"[0-9a-f]+\s+"
+                    # MAPPING
+                    r"[0-9a-f]+\s+"
+                    # INDEX
+                    r"[0-9a-f]+\s+"
+                    # CNT
+                    r"-?[0-9]+\s+"
+                    # FLAGS
+                    r"[0-9a-f]+( [\w,]+)?$",
+                )
+
+        drgn_option = self.run_crash_command("kmem -p --drgn")
+        drgn_option_globals = {"prog": self.prog}
+        with self.with_default_prog():
+            exec(drgn_option.stdout + "\n    break", drgn_option_globals)
+        for variable in ("physical", "mapping", "index", "cnt", "flags"):
+            self.assertIsInstance(drgn_option_globals[variable], Object)
+        self.assertIsInstance(drgn_option_globals["decoded_flags"], str)
+
+    def test_m(self):
+        members = "mapping,private,_refcount,lru,flags"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "file"
+            CRASH_COMMAND_NAMESPACE.run(self.prog, f"kmem -m {members} | head > {path}")
+            for line in path.read_text().splitlines()[1:]:
+                self.assertRegex(
+                    line,
+                    # PAGE
+                    r"^[0-9a-f]+\s+"
+                    # mapping
+                    r"[0-9a-f]+\s+"
+                    # private
+                    r"-?[0-9]+\s+"
+                    # _refcount
+                    r"-?[0-9]+\s+"
+                    # lru
+                    r"[0-9a-f]+,[0-9a-f]+\s+"
+                    # flags
+                    r"[0-9a-f]+$",
+                )
+
+        drgn_option = self.run_crash_command(f"kmem -m {members} --drgn")
+        drgn_option_globals = {"prog": self.prog}
+        with self.with_default_prog():
+            exec(drgn_option.stdout + "\n    break", drgn_option_globals)
+        for variable in ("mapping", "private", "_refcount", "lru", "flags"):
+            self.assertIsInstance(drgn_option_globals[variable], Object)
 
     def _test_s_common(self, cmd):
         self.assertEqual(
