@@ -17,17 +17,6 @@ from drgn.commands import (
 from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command
 
 
-@contextlib.contextmanager
-def _log_debug() -> Iterator[None]:
-    logger = logging.getLogger("drgn")
-    old_level = logger.level
-    try:
-        logger.setLevel(logging.DEBUG)
-        yield
-    finally:
-        logger.setLevel(old_level)
-
-
 @crash_command(
     description="translate a hexadecimal value to ASCII",
     long_description="""
@@ -76,50 +65,26 @@ def _crash_cmd_ascii(
 
     if args.drgn:
         code = CrashDrgnCodeBuilder(prog)
-        if not args.value:
-            code.append(ASCII_TABLE_TEXT)
-            code.print()
-            return
-
-        code.append(f"CONTROL_NAMES = {CONTROL_NAMES}\n")
         code.append(
-"""
-def fmt_byte(b: int) -> str:
-    if b == 0x20:
-        return " "
-    if 0x21 <= b <= 0x7E:
-        return chr(b)
-    if b < 0x20:
-        return f"<{CONTROL_NAMES[b]}>"
-    if b == 0x7F:
-        return "<DEL>"
-    return f"<{b:02x}>"
-
-def ascii_from_value(val: int) -> None:
-    try:
-        sizeof_long = int(prog.type("unsigned long").size)
-    except Exception:
-        sizeof_long = 8
-    try:
-        sizeof_ull = int(prog.type("unsigned long long").size)
-    except Exception:
-        sizeof_ull = sizeof_long
-    prlen_long = sizeof_long * 2
-    prlen_ll = sizeof_ull * 2
-    digits = max(1, (val.bit_length() + 3) // 4)
-    if digits > prlen_ll:
-        raise ValueError(f"value too large: 0x{val:x} ({digits} hex digits vs {prlen_ll})")
-    prlen = prlen_ll if digits > prlen_long else prlen_long
-    out = []
-    for i in range(prlen // 2):
-        b = (val >> (8 * i)) & 0xFF
-        out.append(fmt_byte(b))
-    print(f"{val:0{prlen}x}: {''.join(out)}")
+            """\
+unsigned_long_size = prog.type("unsigned long").size
+unsigned_long_long_size = prog.type("unsigned long long").size
+for value in ["""
+        )
+        code.append(", ".join([hex(value) for value in args.value]))
+        code.append(
+            """]:
+    bit_length = value.bit_length()
+    if bit_length <= unsigned_long_size * 8:
+        size = unsigned_long_size
+    elif bit_length <= unsigned_long_long_size * 8:
+        size = unsigned_long_long_size
+    else:
+        raise ValueError("value too large")
+    bytestring = value.to_bytes(size, byteorder="little")
 """
         )
-        hex_values = ", ".join(hex(v) for v in args.value)
-        code.append(f"\nvalues = [{hex_values}]\n")
-        code.append("for _v in values:\n    ascii_from_value(_v)\n")
+
         code.print()
         return
 
@@ -129,22 +94,18 @@ def ascii_from_value(val: int) -> None:
 
     for value in args.value:
         # Choose padding width based on values of sizeof(long)/sizeof(long long)
-        try:
-            sizeof_long = prog.type("unsigned long").size
-            sizeof_ull = prog.type("unsigned long long").size
-        except Exception:
-            sizeof_long = 8
-            sizeof_ull = 8
-        prlen_long = (sizeof_long or 8) * 2
-        prlen_ll = (sizeof_ull or 8) * 2
+        sizeof_long: int = prog.type("unsigned long").size  # type: ignore[assignment]
+        sizeof_ull: int = prog.type("unsigned long long").size  # type: ignore[assignment]
 
-        digits = max(1, (value.bit_length() + 3) // 4)
-        if digits > prlen_ll:
+        bit_length = value.bit_length()
+        if bit_length <= sizeof_long * 8:
+            prlen = sizeof_long * 2
+        elif bit_length <= sizeof_ull * 8:
+            prlen = sizeof_ull * 2
+        else:
             raise CommandArgumentError(
-                f"value too large: 0x{value:x} ({digits} hex digits vs {prlen_ll})"
+                f"value too large: 0x{value:x} ({bit_length} bits vs {sizeof_ull * 8})"
             )
-
-        prlen = prlen_ll if digits > prlen_long else prlen_long
 
         bytes_ = prlen // 2
         out = []
