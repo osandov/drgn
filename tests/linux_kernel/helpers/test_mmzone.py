@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import functools
+import re
 import unittest.mock
 
 from drgn import NULL, Object, ObjectNotFoundError
@@ -12,6 +13,9 @@ from drgn.helpers.linux.mmzone import (
     decode_section_flags,
     for_each_online_pgdat,
     for_each_present_section,
+    high_wmark_pages,
+    low_wmark_pages,
+    min_wmark_pages,
     nr_to_section,
     pfn_to_section,
     pfn_to_section_nr,
@@ -43,6 +47,32 @@ class TestMmzone(LinuxKernelTestCase):
         self.assertEqual(
             next(for_each_online_pgdat(self.prog)), self.prog["drgn_test_pgdat"]
         )
+
+    def test_wmark_pages(self):
+        pgdat = next(for_each_online_pgdat(self.prog))
+        nid = pgdat.node_id.value_()
+        zone = pgdat.node_zones + 0
+        zone_name = zone.name.string_().decode()
+        expected = {}
+        with open("/proc/zoneinfo", "r") as f:
+            found_zone = False
+            for line in f:
+                match = re.match(r"Node ([0-9]+), zone\s+(\w+)", line)
+                if match:
+                    if found_zone:
+                        break
+                    elif int(match.group(1)) == nid and match.group(2) == zone_name:
+                        found_zone = True
+                elif found_zone:
+                    match = re.match(r"\s*(min|low|high)\s+([0-9]+)", line)
+                    if match:
+                        expected[match.group(1)] = int(match.group(2))
+            else:
+                self.fail("zone not found")
+
+        self.assertEqual(min_wmark_pages(zone), expected["min"])
+        self.assertEqual(low_wmark_pages(zone), expected["low"])
+        self.assertEqual(high_wmark_pages(zone), expected["high"])
 
     @skip_unless_have_test_kmod
     @skip_unless_sparsemem

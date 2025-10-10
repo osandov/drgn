@@ -24,6 +24,9 @@ __all__ = (
     "early_section_nr",
     "for_each_online_pgdat",
     "for_each_present_section",
+    "high_wmark_pages",
+    "low_wmark_pages",
+    "min_wmark_pages",
     "nr_to_section",
     "online_section",
     "online_section_nr",
@@ -36,6 +39,7 @@ __all__ = (
     "section_nr_to_pfn",
     "valid_section",
     "valid_section_nr",
+    "wmark_pages",
 )
 
 
@@ -63,6 +67,63 @@ def for_each_online_pgdat(prog: Program) -> Iterator[Object]:
     """
     for nid in for_each_online_node(prog):
         yield NODE_DATA(prog, nid)
+
+
+def min_wmark_pages(zone: Object) -> int:
+    """
+    Return the given memory zone's minimum watermark.
+
+    This controls when *direct reclaim* is performed.
+
+    :param zone: ``struct zone *``
+    """
+    return wmark_pages(zone, zone.prog_["WMARK_MIN"])
+
+
+def low_wmark_pages(zone: Object) -> int:
+    """
+    Return the given memory zone's low watermark.
+
+    This controls when *indirect reclaim* is performed.
+
+    :param zone: ``struct zone *``
+    """
+    return wmark_pages(zone, zone.prog_["WMARK_LOW"])
+
+
+def high_wmark_pages(zone: Object) -> int:
+    """
+    Return the given memory zone's high watermark.
+
+    This controls when ``kswapd`` can go to sleep.
+
+    :param zone: ``struct zone *``
+    """
+    return wmark_pages(zone, zone.prog_["WMARK_HIGH"])
+
+
+def wmark_pages(zone: Object, i: IntegerLike) -> int:
+    """
+    Return the given watermark in a memory zone.
+
+    >>> wmark_pages(zone, prog["WMARK_PROMO"])
+    28
+
+    :param zone: ``struct zone *``
+    :param i: ``enum zone_watermarks``
+    """
+    # Linux kernel commit a921444382b4 ("mm: move zone watermark accesses
+    # behind an accessor") (in v5.0) renamed the member, and then Linux kernel
+    # commit 1c30844d2dfe ("mm: reclaim small amounts of memory when an
+    # external fragmentation event occurs") (in v5.0) added struct
+    # zone::watermark_boost.
+    try:
+        wmark = zone._watermark[i]
+    except AttributeError:
+        wmark = zone.watermark[i]
+    else:
+        wmark += zone.watermark_boost
+    return wmark.value_()
 
 
 @takes_program_or_default
