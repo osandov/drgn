@@ -286,6 +286,23 @@ def number_in_binary_units(n: SupportsFloat, precision: int = 1) -> str:
     return f"{n:.{precision}f}{prefix}"
 
 
+def _print_table_row(
+    row: Sequence[Any],
+    *,
+    widths: Sequence[int],
+    sep: str = "  ",
+    file: "Optional[SupportsWrite[str]]" = None,
+) -> None:
+    print(
+        *(
+            f"{value:{widths[i]}}".rstrip(" " if i == len(row) - 1 else "")
+            for i, value in enumerate(row)
+        ),
+        sep=sep,
+        file=file,
+    )
+
+
 def print_table(
     rows: Sequence[Sequence[Any]],
     *,
@@ -345,23 +362,20 @@ def print_table(
     :param sep: Column separator.
     :param file: File to write to (defaults to ``sys.stdout``).
     """
-    width_by_group: Dict[Any, List[int]] = collections.defaultdict(list)
+    group_widths: Dict[Any, List[int]] = collections.defaultdict(list)
     for row in rows:
-        width = width_by_group[row._group if isinstance(row, RowOptions) else 0]
+        widths = group_widths[row._group if isinstance(row, RowOptions) else 0]
         for i, value in enumerate(row):
             cell_width = len(str(value))
-            if i < len(width):
-                width[i] = max(width[i], cell_width)
+            if i < len(widths):
+                widths[i] = max(widths[i], cell_width)
             else:
-                width.append(cell_width)
+                widths.append(cell_width)
 
     for row in rows:
-        width = width_by_group[row._group if isinstance(row, RowOptions) else 0]
-        print(
-            *(
-                f"{value:{width[i]}}".rstrip(" " if i == len(row) - 1 else "")
-                for i, value in enumerate(row)
-            ),
+        _print_table_row(
+            row,
+            widths=group_widths[row._group if isinstance(row, RowOptions) else 0],
             sep=sep,
             file=file,
         )
