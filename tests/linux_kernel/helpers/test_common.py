@@ -4,7 +4,7 @@
 from contextlib import redirect_stdout
 import io
 
-from drgn import sizeof
+from drgn import offsetof, sizeof
 from drgn.helpers.common.memory import identify_address, print_annotated_memory
 from drgn.helpers.common.stack import print_annotated_stack
 from drgn.helpers.linux.mm import pfn_to_virt
@@ -73,6 +73,18 @@ class TestIdentifyAddress(LinuxKernelTestCase):
                     ),
                     f"vmap stack: {self.prog['drgn_test_kthread'].pid.value_()} (drgn_test_kthre) +0x4d2",
                 )
+
+    @skip_unless_have_test_kmod
+    def test_identify_page(self):
+        self.assertEqual(
+            identify_address(self.prog["drgn_test_page"]),
+            f"page: pfn {self.prog['drgn_test_pfn'].value_()}",
+        )
+        mapping_offset = offsetof(self.prog.type("struct page"), "mapping")
+        self.assertEqual(
+            identify_address(self.prog["drgn_test_page"].mapping.address_of_()),
+            f"page: pfn {self.prog['drgn_test_pfn'].value_()} +{hex(mapping_offset)}",
+        )
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod

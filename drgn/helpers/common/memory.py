@@ -10,13 +10,25 @@ The ``drgn.helpers.common.memory`` module provides helpers for working with memo
 
 import operator
 import os
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Iterable, Literal, Optional, Tuple
 
 import drgn
-from drgn import FaultError, IntegerLike, Object, PlatformFlags, Program, SymbolKind
+from drgn import (
+    FaultError,
+    IntegerLike,
+    Object,
+    PlatformFlags,
+    Program,
+    SymbolKind,
+    sizeof,
+)
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.prog import takes_program_or_default
-from drgn.helpers.linux.mm import find_vmap_area, in_direct_map
+from drgn.helpers.linux.mm import (
+    find_vmap_area,
+    for_each_valid_page_range,
+    in_direct_map,
+)
 from drgn.helpers.linux.pid import for_each_task
 from drgn.helpers.linux.slab import _find_containing_slab, _get_slab_cache_helper
 
@@ -30,6 +42,38 @@ _SYMBOL_KIND_STR = {
     SymbolKind.OBJECT: "object symbol",
     SymbolKind.FUNC: "function symbol",
 }
+
+
+def _identify_kernel_page(
+    prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
+) -> Optional[str]:
+    if cache is None:
+        valid_page_ranges: Iterable[Tuple[int, int, Object]] = (
+            for_each_valid_page_range(prog)
+        )
+    else:
+        try:
+            valid_page_ranges = cache["valid_page_ranges"]
+        except KeyError:
+            valid_page_ranges = list(for_each_valid_page_range(prog))
+            cache["valid_page_ranges"] = valid_page_ranges
+
+    for start_pfn, end_pfn, mem_map in valid_page_ranges:
+        start_page = mem_map[start_pfn]
+        start_address: int = start_page.address_  # type: ignore[assignment]
+        if start_address <= addr < mem_map[end_pfn].address_:  # type: ignore[operator]
+            break
+    else:
+        return None
+
+    offset = addr - start_address
+    sizeof_page = sizeof(start_page)
+    pfn = start_pfn + offset // sizeof_page
+    offset %= sizeof_page
+    identified = f"page: pfn {pfn}"
+    if offset:
+        identified += f" +{hex(offset)}"
+    return identified
 
 
 def _identify_kernel_vmap(
@@ -120,6 +164,9 @@ def _identify_kernel_address(
                     maybe_free = "free "
                 return f"{maybe_free}slab object: {cache_name}+{hex(addr - slab_info.address)}"
     else:
+        identified = _identify_kernel_page(prog, addr, cache)
+        if identified is not None:
+            return identified
         return _identify_kernel_vmap(prog, addr, cache)
     return None
 
@@ -146,6 +193,9 @@ def identify_address(
       (where ``hex_offset`` is the offset from the beginning of the object in
       hexadecimal).
     * Free slab objects: ``free slab object: {slab_cache_name}+{hex_offset}``.
+    * Page structures: ``page: pfn {pfn} +{hex_offset}`` (where ``pfn`` is the
+      page frame number and ``hex_offset`` is the optional offset from the
+      beginning of the structure).
     * Vmap addresses (e.g., vmalloc, ioremap):
       ``vmap: {hex_start_address}-{hex_end_address}``. If the function that
       allocated the vmap is known, this also includes
