@@ -117,6 +117,16 @@ skip_unless_have_full_mm_support = unittest.skipUnless(
 )
 
 
+def skip_if_slob(f):
+    @skip_unless_have_test_kmod
+    @functools.wraps(f)
+    def wrapper(self, *args, **kwargs):
+        if self.prog["drgn_test_slob"]:
+            self.skipTest("test does not support SLOB")
+
+    return wrapper
+
+
 def skip_if_highmem(f):
     @functools.wraps(f)
     def wrapper(self, *args, **kwargs):
@@ -248,6 +258,10 @@ def parse_range_list(s):
             else:
                 values.add(int(first))
     return values
+
+
+def online_cpus():
+    return parse_range_list(Path("/sys/devices/system/cpu/online").read_text())
 
 
 def possible_cpus():

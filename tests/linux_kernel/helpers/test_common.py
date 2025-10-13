@@ -6,16 +6,25 @@ import io
 
 from drgn import offsetof, sizeof
 from drgn.helpers.common.memory import (
+    IdentifiedSymbol,
     identify_address,
     identify_address_all,
     print_annotated_memory,
 )
 from drgn.helpers.common.stack import print_annotated_stack
-from drgn.helpers.linux.common import IdentifiedTaskStack, IdentifiedVmap
+from drgn.helpers.linux.common import (
+    IdentifiedSlabObject,
+    IdentifiedTaskStack,
+    IdentifiedTaskStruct,
+    IdentifiedVmap,
+)
 from drgn.helpers.linux.mm import pfn_to_virt
+from drgn.helpers.linux.sched import idle_task
 from tests.linux_kernel import (
     HAVE_FULL_MM_SUPPORT,
     LinuxKernelTestCase,
+    online_cpus,
+    skip_if_slob,
     skip_unless_have_full_mm_support,
     skip_unless_have_stack_tracing,
     skip_unless_have_test_kmod,
@@ -53,6 +62,53 @@ class TestIdentifyAddress(LinuxKernelTestCase):
                             identify_address(obj),
                             f"slab object: drgn_test_{size}+0x0",
                         )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    @skip_if_slob
+    def test_identify_task(self):
+        identified = list(identify_address_all(self.prog["drgn_test_kthread"]))
+        self.assertIsInstance(identified[0], IdentifiedTaskStruct)
+        self.assertEqual(identified[0].task, self.prog["drgn_test_kthread"])
+        self.assertEqual(
+            str(identified[0]),
+            f"task: {self.prog['drgn_test_kthread'].pid.value_()} (drgn_test_kthre)",
+        )
+        self.assertIsInstance(identified[1], IdentifiedSlabObject)
+        self.assertEqual(len(identified), 2)
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    @skip_if_slob
+    def test_identify_task_member(self):
+        pid_offset = offsetof(self.prog.type("struct task_struct"), "pid")
+        self.assertEqual(
+            identify_address(self.prog, self.prog["drgn_test_kthread"].pid.address_),
+            f"task: {self.prog['drgn_test_kthread'].pid.value_()} (drgn_test_kthre) +{hex(pid_offset)}",
+        )
+
+    def test_identify_idle_task_0(self):
+        identified = list(identify_address_all(self.prog["init_task"].address_of_()))
+        self.assertIsInstance(identified[0], IdentifiedTaskStruct)
+        self.assertEqual(identified[0].task, idle_task(self.prog, 0))
+        self.assertIsInstance(identified[1], IdentifiedSymbol)
+        self.assertEqual(len(identified), 2)
+
+    @skip_unless_have_full_mm_support
+    @skip_if_slob
+    def test_identify_idle_task_1(self):
+        for cpu in online_cpus():
+            if cpu > 0:
+                break
+        else:
+            self.skipTest("online CPU > 0 not found")
+
+        task = idle_task(self.prog, cpu)
+        identified = list(identify_address_all(task))
+        self.assertIsInstance(identified[0], IdentifiedTaskStruct)
+        self.assertEqual(identified[0].task, task)
+        self.assertIsInstance(identified[1], IdentifiedSlabObject)
+        self.assertEqual(len(identified), 2)
 
     @skip_unless_have_test_kmod
     def test_identify_vmap(self):

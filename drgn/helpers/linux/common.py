@@ -12,14 +12,15 @@ import dataclasses
 import os
 from typing import Any, Dict, Iterable, Iterator, Optional, Tuple, Union
 
-from drgn import FaultError, Object, Program, sizeof
+from drgn import FaultError, Object, Program, Symbol, sizeof
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.mm import (
     find_vmap_area,
     for_each_valid_page_range,
     in_direct_map,
 )
-from drgn.helpers.linux.pid import for_each_task
+from drgn.helpers.linux.pid import find_task, for_each_task
+from drgn.helpers.linux.sched import idle_task, task_cpu
 from drgn.helpers.linux.slab import (
     SlabObjectInfo,
     _find_containing_slab,
@@ -27,6 +28,29 @@ from drgn.helpers.linux.slab import (
 )
 
 __all__ = ()
+
+
+@dataclasses.dataclass
+class IdentifiedTaskStruct:
+    """
+    :class:`~drgn.helpers.common.memory.IdentifiedAddress` for an address in a
+    ``struct task_struct``.
+    """
+
+    address: int
+
+    task: Object
+    """``struct task_struct *`` containing the address."""
+
+    def __str__(self) -> str:
+        s = (
+            f"task: {self.task.pid.value_()}"
+            f" ({os.fsdecode(self.task.comm.string_())})"
+        )
+        task_address = self.task.value_()
+        if self.address > task_address:
+            s += f" +{hex(self.address - task_address)}"
+        return s
 
 
 @dataclasses.dataclass
@@ -128,6 +152,33 @@ class IdentifiedPage:
         return s
 
 
+def _is_task_struct(
+    prog: Program, slab_object_info: SlabObjectInfo
+) -> Optional[Object]:
+    try:
+        task_struct_cachep = prog.cache["task_struct_cachep"]
+    except KeyError:
+        task_struct_cachep = prog["task_struct_cachep"].read_()
+        prog.cache["task_struct_cachep"] = task_struct_cachep
+    if slab_object_info.slab_cache != task_struct_cachep:
+        return None
+
+    task = Object(prog, "struct task_struct *", slab_object_info.address)
+
+    # If the task_struct slab cache is merged, we need to make sure that we got
+    # an actual task_struct.
+    if task_struct_cachep.refcount.value_() > 1:
+        pid = task.pid.value_()
+        if pid:
+            if find_task(prog, pid) != task:
+                return None
+        else:
+            if idle_task(prog, task_cpu(task)) != task:
+                return None
+
+    return task
+
+
 def _identify_page(
     prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
 ) -> Optional[IdentifiedPage]:
@@ -208,10 +259,38 @@ def _identify_vmap(
     yield IdentifiedVmap(addr, va, vm)
 
 
+def _identify_kernel_symbol(
+    prog: Program, addr: int, symbol: Symbol
+) -> Iterator[Union[IdentifiedTaskStruct, IdentifiedTaskStack]]:
+    # init_task is identified as a symbol, but we want to identify it as a
+    # task/stack first.
+    task: Object
+    init_task_range: Tuple[int, int]
+    try:
+        task, init_task_range = prog.cache["init_task_ranges"]
+    except KeyError:
+        task = prog["init_task"]
+
+        task_address: int = task.address_  # type: ignore
+        init_task_range = (task_address, task_address + sizeof(task))
+
+        task = task.address_of_()
+        prog.cache["init_task_ranges"] = (task, init_task_range)
+
+    if init_task_range[0] <= addr < init_task_range[1]:
+        yield IdentifiedTaskStruct(addr, task)
+
+
 def _identify_kernel_address(
     prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
 ) -> Iterator[
-    Union[IdentifiedSlabObject, IdentifiedPage, IdentifiedTaskStack, IdentifiedVmap]
+    Union[
+        IdentifiedTaskStruct,
+        IdentifiedTaskStack,
+        IdentifiedSlabObject,
+        IdentifiedPage,
+        IdentifiedVmap,
+    ]
 ]:
     try:
         direct_map = in_direct_map(prog, addr)
@@ -226,6 +305,10 @@ def _identify_kernel_address(
             slab_cache, page, slab = result
             slab_info = _get_slab_cache_helper(slab_cache).object_info(page, slab, addr)
             if slab_info:
+                if slab_info.allocated:
+                    task = _is_task_struct(prog, slab_info)
+                    if task is not None:
+                        yield IdentifiedTaskStruct(addr, task)
                 yield IdentifiedSlabObject(addr, slab_info)
     else:
         identified = _identify_page(prog, addr, cache)

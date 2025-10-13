@@ -47,6 +47,9 @@ def identify_address(
 
     Additionally, for the Linux kernel, this will identify:
 
+    * Task structures: ``task: {pid} ({comm}) +{hex_offset}`` (where ``pid``
+      and ``comm`` identify the task and ``hex_offset`` is the optional offset
+      from the beginning of the structure).
     * Allocated slab objects: ``slab object: {slab_cache_name}+{hex_offset}``
       (where ``hex_offset`` is the offset from the beginning of the object in
       hexadecimal).
@@ -92,6 +95,8 @@ def identify_address_all(
     * Instead of strings, it yields :class:`IdentifiedAddress` instances which
       have attributes describing the identity of the address.
     * If the address can be identified in multiple ways, it yields each one.
+      For example, a pointer to a Linux kernel ``task_struct`` can be
+      identified as both a task and a slab object.
 
     For all programs, this can yield:
 
@@ -99,6 +104,7 @@ def identify_address_all(
 
     Additionally, for the Linux kernel, this can yield:
 
+    * :class:`~drgn.helpers.linux.common.IdentifiedTaskStruct`
     * :class:`~drgn.helpers.linux.common.IdentifiedTaskStack`
     * :class:`~drgn.helpers.linux.common.IdentifiedSlabObject`
     * :class:`~drgn.helpers.linux.common.IdentifiedVmap`
@@ -120,6 +126,11 @@ def identify_address_all(
     except LookupError:  # not a symbol
         pass
     else:
+        if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
+            from drgn.helpers.linux.common import _identify_kernel_symbol
+
+            yield from _identify_kernel_symbol(prog, addr, symbol)
+
         yield IdentifiedSymbol(addr, symbol)
         return
 
