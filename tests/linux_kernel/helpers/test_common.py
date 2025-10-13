@@ -5,8 +5,13 @@ from contextlib import redirect_stdout
 import io
 
 from drgn import offsetof, sizeof
-from drgn.helpers.common.memory import identify_address, print_annotated_memory
+from drgn.helpers.common.memory import (
+    identify_address,
+    identify_address_all,
+    print_annotated_memory,
+)
 from drgn.helpers.common.stack import print_annotated_stack
+from drgn.helpers.linux.common import IdentifiedTaskStack, IdentifiedVmap
 from drgn.helpers.linux.mm import pfn_to_virt
 from tests.linux_kernel import (
     HAVE_FULL_MM_SUPPORT,
@@ -63,16 +68,22 @@ class TestIdentifyAddress(LinuxKernelTestCase):
     def test_identify_vmap_stack(self):
         if not self.prog["drgn_test_vmap_stack_enabled"]:
             self.skipTest("kernel does not use vmap stacks (CONFIG_VMAP_STACK)")
-        for cache in (None, {}):
-            with self.subTest("uncached" if cache is None else "cached"):
-                self.assertEqual(
-                    identify_address(
+        for cached in (False, True):
+            with self.subTest("cached" if cached else "uncached"):
+                identified = list(
+                    identify_address_all(
                         self.prog,
                         self.prog["drgn_test_kthread"].stack.value_() + 1234,
-                        cache=cache,
-                    ),
+                        cache={} if cached else None,
+                    )
+                )
+                self.assertIsInstance(identified[0], IdentifiedTaskStack)
+                self.assertEqual(
+                    str(identified[0]),
                     f"vmap stack: {self.prog['drgn_test_kthread'].pid.value_()} (drgn_test_kthre) +0x4d2",
                 )
+                self.assertIsInstance(identified[1], IdentifiedVmap)
+                self.assertEqual(len(identified), 2)
 
     @skip_unless_have_test_kmod
     def test_identify_page(self):

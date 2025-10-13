@@ -8,32 +8,17 @@ Memory
 The ``drgn.helpers.common.memory`` module provides helpers for working with memory and addresses.
 """
 
+import dataclasses
 import operator
-import os
-from typing import Any, Dict, Iterable, Literal, Optional, Tuple
+from typing import Any, Dict, Iterator, Literal, Optional, Protocol
 
 import drgn
-from drgn import (
-    FaultError,
-    IntegerLike,
-    Object,
-    PlatformFlags,
-    Program,
-    SymbolKind,
-    sizeof,
-)
-from drgn.helpers.common.format import escape_ascii_string
+from drgn import IntegerLike, PlatformFlags, Program, Symbol, SymbolKind
 from drgn.helpers.common.prog import takes_program_or_default
-from drgn.helpers.linux.mm import (
-    find_vmap_area,
-    for_each_valid_page_range,
-    in_direct_map,
-)
-from drgn.helpers.linux.pid import for_each_task
-from drgn.helpers.linux.slab import _find_containing_slab, _get_slab_cache_helper
 
 __all__ = (
     "identify_address",
+    "identify_address_all",
     "print_annotated_memory",
 )
 
@@ -42,133 +27,6 @@ _SYMBOL_KIND_STR = {
     SymbolKind.OBJECT: "object symbol",
     SymbolKind.FUNC: "function symbol",
 }
-
-
-def _identify_kernel_page(
-    prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
-) -> Optional[str]:
-    if cache is None:
-        valid_page_ranges: Iterable[Tuple[int, int, Object]] = (
-            for_each_valid_page_range(prog)
-        )
-    else:
-        try:
-            valid_page_ranges = cache["valid_page_ranges"]
-        except KeyError:
-            valid_page_ranges = list(for_each_valid_page_range(prog))
-            cache["valid_page_ranges"] = valid_page_ranges
-
-    for start_pfn, end_pfn, mem_map in valid_page_ranges:
-        start_page = mem_map[start_pfn]
-        start_address: int = start_page.address_  # type: ignore[assignment]
-        if start_address <= addr < mem_map[end_pfn].address_:  # type: ignore[operator]
-            break
-    else:
-        return None
-
-    offset = addr - start_address
-    sizeof_page = sizeof(start_page)
-    pfn = start_pfn + offset // sizeof_page
-    offset %= sizeof_page
-    identified = f"page: pfn {pfn}"
-    if offset:
-        identified += f" +{hex(offset)}"
-    return identified
-
-
-def _identify_kernel_vmap(
-    prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
-) -> Optional[str]:
-    va = find_vmap_area(prog, addr)
-    if not va:
-        return None
-
-    vm = va.vm.read_()
-    if not vm:
-        return None
-
-    task: Optional[Object]
-    # The cached and uncached cases are separate so that we can avoid creating
-    # a large cache and stop early in the uncached case.
-    if cache is None:
-        for task in for_each_task(prog):
-            try:
-                if task.stack_vm_area == vm:
-                    break
-            except AttributeError:
-                # CONFIG_VMAP_STACK must be disabled.
-                task = None
-                break
-            except FaultError:
-                continue
-        else:
-            task = None
-    else:
-        try:
-            stack_vm_area_to_task = cache["stack_vm_area_to_task"]
-        except KeyError:
-            stack_vm_area_to_task = {}
-            for task in for_each_task(prog):
-                try:
-                    stack_vm_area_to_task[task.stack_vm_area.value_()] = task
-                except AttributeError:
-                    # CONFIG_VMAP_STACK must be disabled.
-                    break
-                except FaultError:
-                    continue
-            cache["stack_vm_area_to_task"] = stack_vm_area_to_task
-        task = stack_vm_area_to_task.get(vm.value_())
-
-    if task is not None:
-        return (
-            f"vmap stack: {task.pid.value_()}"
-            f" ({os.fsdecode(task.comm.string_())})"
-            f" +{hex(addr - task.stack.value_())}"
-        )
-
-    caller = ""
-    caller_value = vm.caller.value_()
-    try:
-        caller_sym = prog.symbol(caller_value)
-    except LookupError:
-        pass
-    else:
-        caller = f" caller {caller_sym.name}+{hex(caller_value - caller_sym.address)}"
-    return f"vmap: {hex(va.va_start)}-{hex(va.va_end)}{caller}"
-
-
-def _identify_kernel_address(
-    prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
-) -> Optional[str]:
-    try:
-        direct_map = in_direct_map(prog, addr)
-    except NotImplementedError:
-        # Virtual address translation isn't implemented for this
-        # architecture.
-        direct_map = False
-
-    if direct_map:
-        result = _find_containing_slab(prog, addr)
-        if result is not None:
-            slab_cache, page, slab = result
-            slab_info = _get_slab_cache_helper(slab_cache).object_info(page, slab, addr)
-            if slab_info:
-                cache_name = escape_ascii_string(
-                    slab_info.slab_cache.name.string_(), escape_backslash=True
-                )
-                if slab_info.allocated:
-                    maybe_free = ""
-                elif slab_info.allocated is None:
-                    maybe_free = "corrupted "
-                else:
-                    maybe_free = "free "
-                return f"{maybe_free}slab object: {cache_name}+{hex(addr - slab_info.address)}"
-    else:
-        identified = _identify_kernel_page(prog, addr, cache)
-        if identified is not None:
-            return identified
-        return _identify_kernel_vmap(prog, addr, cache)
-    return None
 
 
 @takes_program_or_default
@@ -206,6 +64,9 @@ def identify_address(
 
     This may recognize other types of addresses in the future.
 
+    To get more information instead of just a string, use
+    :func:`identify_address_all()`.
+
     :param addr: ``void *``
     :param cache: Opaque cache used to amortize expensive lookups. If you're
         going to call this function many times in a short period, create an
@@ -213,21 +74,95 @@ def identify_address(
         Don't reuse it indefinitely or you may get stale results.
     :return: Identity as string, or ``None`` if the address is unrecognized.
     """
-    addr = operator.index(addr)
+    for identified in identify_address_all(prog, addr, cache=cache):
+        return str(identified)
+    return None
 
+
+@takes_program_or_default
+def identify_address_all(
+    prog: Program, addr: IntegerLike, *, cache: Optional[Dict[Any, Any]] = None
+) -> Iterator["IdentifiedAddress"]:
+    """
+    Identify everything an address refers to.
+
+    This is a more programmatic variant of :func:`identify_address()` that
+    provides the following additional information:
+
+    * Instead of strings, it yields :class:`IdentifiedAddress` instances which
+      have attributes describing the identity of the address.
+    * If the address can be identified in multiple ways, it yields each one.
+
+    For all programs, this can yield:
+
+    * :class:`IdentifiedSymbol`
+
+    Additionally, for the Linux kernel, this can yield:
+
+    * :class:`~drgn.helpers.linux.common.IdentifiedTaskStack`
+    * :class:`~drgn.helpers.linux.common.IdentifiedSlabObject`
+    * :class:`~drgn.helpers.linux.common.IdentifiedVmap`
+    * :class:`~drgn.helpers.linux.common.IdentifiedPage`
+
+    :param addr: ``void *``
+    :param cache: Opaque cache used to amortize expensive lookups. If you're
+        going to call this function many times in a short period, create an
+        empty dictionary and pass the same dictionary as *cache* to each call.
+        Don't reuse it indefinitely or you may get stale results.
+    :return: Iterator of identities, from most specific to least specific. If
+        the address is unrecognized, this is empty.
+    """
+
+    addr = operator.index(addr)
     # Check if address is of a symbol:
     try:
         symbol = prog.symbol(addr)
     except LookupError:  # not a symbol
         pass
     else:
-        symbol_kind = _SYMBOL_KIND_STR.get(symbol.kind, "symbol")
-        return f"{symbol_kind}: {symbol.name}+{hex(addr - symbol.address)}"
+        yield IdentifiedSymbol(addr, symbol)
+        return
 
     if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
+        from drgn.helpers.linux.common import _identify_kernel_address
+
         # Linux kernel-specific identification:
-        return _identify_kernel_address(prog, addr, cache)
-    return None
+        yield from _identify_kernel_address(prog, addr, cache)
+
+
+class IdentifiedAddress(Protocol):
+    """Address that was identified by :func:`identify_address_all()`."""
+
+    address: int
+    """Address passed to :func:`identify_address_all()`."""
+
+    def __str__(self) -> str:
+        """
+        Get a human-readable description of the identity.
+
+        This is the same string that is returned from
+        :func:`identify_address()`.
+
+        >>> identity
+        IdentifiedSymbol(address=18446744071889293504, symbol=Symbol(name='init_task', address=0xffffffff938110c0, size=0x36c0, binding=<SymbolBinding.GLOBAL: 2>, kind=<SymbolKind.OBJECT: 1>))
+        >>> str(identity)
+        'object symbol: init_task+0x0'
+        """
+        ...
+
+
+@dataclasses.dataclass
+class IdentifiedSymbol:
+    """:class:`IdentifiedAddress` for an address in the symbol table."""
+
+    address: int
+
+    symbol: Symbol
+    """Symbol containing the address."""
+
+    def __str__(self) -> str:
+        symbol_kind = _SYMBOL_KIND_STR.get(self.symbol.kind, "symbol")
+        return f"{symbol_kind}: {self.symbol.name}+{hex(self.address - self.symbol.address)}"
 
 
 @takes_program_or_default
