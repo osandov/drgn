@@ -340,6 +340,13 @@ def _identify_kernel_address(
         direct_map = False
 
     if direct_map:
+        if "vmemmap" not in prog:
+            # Without vmemmap, pages are in the direct mapping.
+            identified = _identify_page(prog, addr, cache)
+            if identified is not None:
+                yield identified
+                return
+
         result = _find_containing_slab(prog, addr)
         if result is not None:
             slab_cache, page, slab = result
@@ -367,8 +374,10 @@ def _identify_kernel_address(
             # address is in a stack.
             yield from _identify_task_stack(prog, addr, cache)
     else:
-        identified = _identify_page(prog, addr, cache)
-        if identified is not None:
-            yield identified
-            return
+        if "vmemmap" in prog:
+            # With vmemmap, pages are outside of the direct mapping.
+            identified = _identify_page(prog, addr, cache)
+            if identified is not None:
+                yield identified
+                return
         yield from _identify_vmap(prog, addr, cache)
