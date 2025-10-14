@@ -94,7 +94,14 @@ def get_net_ns_by_inode(inode: Object) -> Object:
         raise ValueError("not a namespace inode")
 
     ns = cast("struct ns_common *", inode.i_private)
-    if ns.ops.type != _CLONE_NEWNET:
+    # Linux kernel commit 4055526d3574 ("ns: move ns type into struct
+    # ns_common") (in v6.18) moved the type from struct proc_ns_operations to
+    # struct ns_common.
+    try:
+        ns_type = ns.ns_type
+    except AttributeError:
+        ns_type = ns.ops.type
+    if ns_type != _CLONE_NEWNET:
         raise ValueError("not a network namespace inode")
 
     return container_of(ns, "struct net", "ns")
