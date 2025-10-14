@@ -155,9 +155,9 @@ def page_flags(page: Object) -> Object:
     :param page: ``struct page *``
     :return: ``unsigned long``
     """
-    # Since Linux kernel patch "mm: introduce memdesc_flags_t" (currently in
-    # linux-next for 6.18), struct page->flags is no longer an unsigned long,
-    # but a memdesc_flags_t containing the actual flags in '.f'.
+    # Since Linux kernel commit 53fbef56e07d ("mm: introduce memdesc_flags_t")
+    # (in v6.18), struct page->flags is no longer an unsigned long, but a
+    # memdesc_flags_t containing the actual flags in '.f'.
     try:
         return page.flags.f
     except AttributeError:
