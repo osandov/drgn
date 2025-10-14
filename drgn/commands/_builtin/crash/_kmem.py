@@ -1276,15 +1276,22 @@ if cache:
     for cache in caches:
         name = cache.name.string_()
         if name in ignore:
-            objsize: Any = "[IGNORED]"
-            allocated: Any = ""
-            total: Any = ""
-            slabs: Any = ""
-            ssize_cell: Any = ""
+            rows.append(
+                (
+                    CellFormat(cache.value_(), "<x"),
+                    "[IGNORED]",
+                    "",
+                    "",
+                    "",
+                    "",
+                    escape_ascii_string(cache.name.string_(), escape_backslash=True),
+                )
+            )
         else:
             objsize = cache.object_size.value_()
-            allocated = "[CORRUPTED]"
-            total = slabs = ""
+            allocated: Any = "[CORRUPTED]"
+            total: Any = ""
+            slabs: Any = ""
             # Walking slab lists is racy. Retry a limited number of times on
             # live kernels.
             for i in range(10):
@@ -1300,17 +1307,17 @@ if cache:
                     break
             ssize = prog["PAGE_SIZE"].value_() << slab_cache_order(cache)
             ssize_cell = CellFormat(f"{ssize // 1024}k", ">")
-        rows.append(
-            (
-                CellFormat(cache.value_(), "<x"),
-                objsize,
-                allocated,
-                total,
-                slabs,
-                ssize_cell,
-                escape_ascii_string(cache.name.string_(), escape_backslash=True),
+            rows.append(
+                (
+                    CellFormat(cache.value_(), "<x"),
+                    objsize,
+                    allocated,
+                    total,
+                    slabs,
+                    ssize_cell,
+                    escape_ascii_string(cache.name.string_(), escape_backslash=True),
+                )
             )
-        )
     print_table(rows)
 
 
