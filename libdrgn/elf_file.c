@@ -667,7 +667,10 @@ static bool elf_address_range_from_first_and_last_segment(Elf *elf,
 		phdr = gelf_getphdr(elf, i, &phdr_mem);
 		if (!phdr)
 			return false;
-		if (phdr->p_type == PT_LOAD) {
+		// Program headers with a p_memsz of 0 have been observed in
+		// vmlinux since Linux kernel commit 3e86e4d74c04 ("kbuild: keep
+		// .modinfo section in vmlinux.unstripped") (in v6.18).
+		if (phdr->p_type == PT_LOAD && phdr->p_memsz > 0) {
 			start = phdr->p_vaddr;
 			break;
 		}
@@ -682,7 +685,7 @@ static bool elf_address_range_from_first_and_last_segment(Elf *elf,
 		if (!phdr)
 			return false;
 
-		if (phdr->p_type == PT_LOAD) {
+		if (phdr->p_type == PT_LOAD && phdr->p_memsz > 0) {
 			uint64_t end = phdr->p_vaddr + phdr->p_memsz;
 			if (start < end) {
 				*start_ret = start;
@@ -709,7 +712,7 @@ static bool elf_address_range_from_min_and_max_segment(Elf *elf,
 		GElf_Phdr phdr_mem, *phdr = gelf_getphdr(elf, i, &phdr_mem);
 		if (!phdr)
 			return false;
-		if (phdr->p_type == PT_LOAD) {
+		if (phdr->p_type == PT_LOAD && phdr->p_memsz > 0) {
 			start = min(start, phdr->p_vaddr);
 			end = max(end, phdr->p_vaddr + phdr->p_memsz);
 		}
