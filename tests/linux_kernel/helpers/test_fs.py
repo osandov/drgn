@@ -43,10 +43,12 @@ class TestFs(LinuxKernelTestCase):
         self.assertEqual(d_path(task.fs.pwd.address_of_()), os.fsencode(os.getcwd()))
 
     def test_d_path_dentry_only(self):
-        # This test could fail if we are running inside a container or if we are
-        # in a bind mount.
-        task = find_task(self.prog, os.getpid())
-        self.assertEqual(d_path(task.fs.pwd.dentry), os.fsencode(os.getcwd()))
+        # Since d_path(dentry) picks an arbitrary mount containing the dentry,
+        # this should be a directory that is unlikely to be bind mounted
+        # anywhere else.
+        with tempfile.NamedTemporaryFile(dir="/dev/shm") as f:
+            dentry = fget(find_task(self.prog, os.getpid()), f.fileno()).f_path.dentry
+            self.assertEqual(d_path(dentry), os.fsencode(f.name))
 
     def test_d_path_no_internal_mount(self):
         if not os.path.isdir("/sys/kernel/tracing"):
