@@ -120,10 +120,12 @@ class TestIdentifyAddress(LinuxKernelTestCase):
                     ).startswith("vmap: 0x")
                 )
 
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
-    def test_identify_vmap_stack(self):
-        if not self.prog["drgn_test_vmap_stack_enabled"]:
-            self.skipTest("kernel does not use vmap stacks (CONFIG_VMAP_STACK)")
+    def test_identify_task_stack(self):
+        if self.prog["drgn_test_slob"] and self.prog["drgn_test_slab_stack_enabled"]:
+            self.skipTest("test does not support SLOB")
+
         for cached in (False, True):
             with self.subTest("cached" if cached else "uncached"):
                 identified = list(
@@ -136,10 +138,54 @@ class TestIdentifyAddress(LinuxKernelTestCase):
                 self.assertIsInstance(identified[0], IdentifiedTaskStack)
                 self.assertEqual(
                     str(identified[0]),
-                    f"vmap stack: {self.prog['drgn_test_kthread'].pid.value_()} (drgn_test_kthre) +0x4d2",
+                    f"task stack: {self.prog['drgn_test_kthread'].pid.value_()} (drgn_test_kthre) +0x4d2",
                 )
-                self.assertIsInstance(identified[1], IdentifiedVmap)
-                self.assertEqual(len(identified), 2)
+                if self.prog["drgn_test_vmap_stack_enabled"]:
+                    self.assertIsInstance(identified[1], IdentifiedVmap)
+                    self.assertEqual(len(identified), 2)
+                elif self.prog["drgn_test_slab_stack_enabled"]:
+                    self.assertIsInstance(identified[1], IdentifiedSlabObject)
+                    self.assertEqual(len(identified), 2)
+                else:
+                    self.assertEqual(len(identified), 1)
+
+    @skip_unless_have_full_mm_support
+    def test_identify_idle_task_0_stack(self):
+        identified = list(identify_address_all(self.prog["init_task"].stack))
+        self.assertIsInstance(identified[0], IdentifiedTaskStack)
+        self.assertEqual(identified[0].task, idle_task(self.prog, 0))
+        self.assertIsInstance(identified[1], IdentifiedSymbol)
+        self.assertEqual(len(identified), 2)
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_identify_idle_task_1_stack(self):
+        if self.prog["drgn_test_slob"] and self.prog["drgn_test_slab_stack_enabled"]:
+            self.skipTest("test does not support SLOB")
+
+        for cpu in online_cpus():
+            if cpu > 0:
+                break
+        else:
+            self.skipTest("online CPU > 0 not found")
+
+        task = idle_task(self.prog, cpu)
+
+        for cached in (False, True):
+            with self.subTest("cached" if cached else "uncached"):
+                identified = list(
+                    identify_address_all(task.stack, cache={} if cached else None)
+                )
+                self.assertIsInstance(identified[0], IdentifiedTaskStack)
+                self.assertEqual(identified[0].task, task)
+                if self.prog["drgn_test_vmap_stack_enabled"]:
+                    self.assertIsInstance(identified[1], IdentifiedVmap)
+                    self.assertEqual(len(identified), 2)
+                elif self.prog["drgn_test_slab_stack_enabled"]:
+                    self.assertIsInstance(identified[1], IdentifiedSlabObject)
+                    self.assertEqual(len(identified), 2)
+                else:
+                    self.assertEqual(len(identified), 1)
 
     @skip_unless_have_test_kmod
     def test_identify_page(self):

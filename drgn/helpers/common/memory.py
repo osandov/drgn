@@ -50,6 +50,9 @@ def identify_address(
     * Task structures: ``task: {pid} ({comm}) +{hex_offset}`` (where ``pid``
       and ``comm`` identify the task and ``hex_offset`` is the optional offset
       from the beginning of the structure).
+    * Task stacks: ``task stack: {pid} ({comm}) +{hex_offset}`` (where
+      ``pid`` and ``comm`` identify the task and ``hex_offset`` is the offset
+      from the beginning of the stack in hexadecimal).
     * Allocated slab objects: ``slab object: {slab_cache_name}+{hex_offset}``
       (where ``hex_offset`` is the offset from the beginning of the object in
       hexadecimal).
@@ -61,9 +64,6 @@ def identify_address(
       ``vmap: {hex_start_address}-{hex_end_address}``. If the function that
       allocated the vmap is known, this also includes
       ``caller {function_name}+{hex_offset}``.
-    * Vmap kernel stacks: ``vmap stack: {pid} ({comm}) +{hex_offset}`` (where
-      ``pid`` and ``comm`` identify the task and ``hex_offset`` is the offset
-      from the beginning of the stack in hexadecimal).
 
     This may recognize other types of addresses in the future.
 

@@ -12,8 +12,9 @@ import dataclasses
 import os
 from typing import Any, Dict, Iterable, Iterator, Optional, Tuple, Union
 
-from drgn import FaultError, Object, Program, Symbol, sizeof
+from drgn import FaultError, Object, ObjectNotFoundError, Program, Symbol, sizeof
 from drgn.helpers.common.format import escape_ascii_string
+from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.mm import (
     find_vmap_area,
     for_each_valid_page_range,
@@ -67,7 +68,7 @@ class IdentifiedTaskStack:
 
     def __str__(self) -> str:
         return (
-            f"vmap stack: {self.task.pid.value_()}"
+            f"task stack: {self.task.pid.value_()}"
             f" ({os.fsdecode(self.task.comm.string_())})"
             f" +{hex(self.address - self.task.stack.value_())}"
         )
@@ -179,6 +180,70 @@ def _is_task_struct(
     return task
 
 
+# Return True if kernel stacks are vmap'ed, the thread_stack_cache Object if
+# they are slab allocated, or False if they come from the page allocator.
+def _stack_alloc_info(prog: Program) -> Union[bool, Object]:
+    try:
+        return prog.cache["stack_alloc_mode"]
+    except KeyError:
+        pass
+    if prog.type("struct task_struct").has_member("stack_vm_area"):
+        info: Union[bool, Object] = True
+    else:
+        try:
+            info = prog["thread_stack_cache"].read_()
+        except ObjectNotFoundError:
+            info = False
+    prog.cache["stack_alloc_mode"] = info
+    return info
+
+
+# for_each_task() plus every idle task other than CPU 0's.
+def _for_each_allocated_task(prog: Program) -> Iterator[Object]:
+    yield from for_each_task(prog)
+    for cpu in for_each_online_cpu(prog):
+        if cpu > 0:
+            yield idle_task(prog, cpu)
+
+
+def _identify_task_stack(
+    prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
+) -> Iterator[IdentifiedTaskStack]:
+    # Kernel stacks are guaranteed to be aligned to the stack size, so we can
+    # always compute the stack address that would contain the given address.
+    aligned_addr = addr & ~(prog["THREAD_SIZE"].value_() - 1)
+
+    # The cached and uncached cases are separate so that we can avoid creating
+    # a large cache and stop early in the uncached case.
+    if cache is None:
+        for task in _for_each_allocated_task(prog):
+            try:
+                if task.stack.value_() == aligned_addr:
+                    break
+            except FaultError:
+                continue
+        else:
+            return
+    else:
+        try:
+            stack_to_task = cache["stack_to_task"]
+        except KeyError:
+            stack_to_task = {}
+            for task in _for_each_allocated_task(prog):
+                try:
+                    stack_to_task[task.stack.value_()] = task
+                except FaultError:
+                    pass
+            cache["stack_to_task"] = stack_to_task
+
+        try:
+            task = stack_to_task[aligned_addr]
+        except KeyError:
+            return
+
+    yield IdentifiedTaskStack(addr, task)
+
+
 def _identify_page(
     prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
 ) -> Optional[IdentifiedPage]:
@@ -221,40 +286,9 @@ def _identify_vmap(
     if not vm:
         return
 
-    task: Optional[Object]
-    # The cached and uncached cases are separate so that we can avoid creating
-    # a large cache and stop early in the uncached case.
-    if cache is None:
-        for task in for_each_task(prog):
-            try:
-                if task.stack_vm_area == vm:
-                    break
-            except AttributeError:
-                # CONFIG_VMAP_STACK must be disabled.
-                task = None
-                break
-            except FaultError:
-                continue
-        else:
-            task = None
-    else:
-        try:
-            stack_vm_area_to_task = cache["stack_vm_area_to_task"]
-        except KeyError:
-            stack_vm_area_to_task = {}
-            for task in for_each_task(prog):
-                try:
-                    stack_vm_area_to_task[task.stack_vm_area.value_()] = task
-                except AttributeError:
-                    # CONFIG_VMAP_STACK must be disabled.
-                    break
-                except FaultError:
-                    continue
-            cache["stack_vm_area_to_task"] = stack_vm_area_to_task
-        task = stack_vm_area_to_task.get(vm.value_())
-
-    if task is not None:
-        yield IdentifiedTaskStack(addr, task)
+    # If kernel stacks are vmap'd, check if the address is in a stack.
+    if _stack_alloc_info(prog) is True:
+        yield from _identify_task_stack(prog, addr, cache)
 
     yield IdentifiedVmap(addr, va, vm)
 
@@ -262,23 +296,29 @@ def _identify_vmap(
 def _identify_kernel_symbol(
     prog: Program, addr: int, symbol: Symbol
 ) -> Iterator[Union[IdentifiedTaskStruct, IdentifiedTaskStack]]:
-    # init_task is identified as a symbol, but we want to identify it as a
-    # task/stack first.
+    # init_task and its stack are identified as symbols, but we want to
+    # identify them as a task/stack first.
     task: Object
     init_task_range: Tuple[int, int]
+    init_stack_range: Tuple[int, int]
     try:
-        task, init_task_range = prog.cache["init_task_ranges"]
+        task, init_task_range, init_stack_range = prog.cache["init_task_ranges"]
     except KeyError:
         task = prog["init_task"]
 
         task_address: int = task.address_  # type: ignore
         init_task_range = (task_address, task_address + sizeof(task))
 
+        stack_address = task.stack.value_()
+        init_stack_range = (stack_address, stack_address + prog["THREAD_SIZE"].value_())
+
         task = task.address_of_()
-        prog.cache["init_task_ranges"] = (task, init_task_range)
+        prog.cache["init_task_ranges"] = (task, init_task_range, init_stack_range)
 
     if init_task_range[0] <= addr < init_task_range[1]:
         yield IdentifiedTaskStruct(addr, task)
+    elif init_stack_range[0] <= addr < init_stack_range[1]:
+        yield IdentifiedTaskStack(addr, task)
 
 
 def _identify_kernel_address(
@@ -309,7 +349,23 @@ def _identify_kernel_address(
                     task = _is_task_struct(prog, slab_info)
                     if task is not None:
                         yield IdentifiedTaskStruct(addr, task)
+                    else:
+                        # If kernel stacks are slab allocated, check if the
+                        # address came from the stack slab cache, and if so,
+                        # find the stack. Note that this may not find anything
+                        # if the allocation was actually from a merged cache.
+                        thread_stack_cache = _stack_alloc_info(prog)
+                        if (
+                            isinstance(thread_stack_cache, Object)
+                            and slab_info.slab_cache == thread_stack_cache
+                        ):
+                            yield from _identify_task_stack(prog, addr, cache)
+
                 yield IdentifiedSlabObject(addr, slab_info)
+        elif _stack_alloc_info(prog) is False:
+            # If kernel stacks come from the page allocator, check if the
+            # address is in a stack.
+            yield from _identify_task_stack(prog, addr, cache)
     else:
         identified = _identify_page(prog, addr, cache)
         if identified is not None:
