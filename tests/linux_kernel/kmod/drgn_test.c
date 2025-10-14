@@ -581,7 +581,10 @@ size_t drgn_test_num_present_sections;
 static int drgn_test_mm_init(void)
 {
 	u32 fill;
-	size_t i, n;
+	size_t i;
+#ifdef CONFIG_SPARSEMEM
+	size_t n;
+#endif
 
 	drgn_test_page = alloc_page(GFP_KERNEL);
 	if (!drgn_test_page)
