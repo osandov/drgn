@@ -1370,50 +1370,58 @@ flags = decode_page_flags_value(0x{flags:x})
         mutually_exclusive_group(
             argument(
                 "-f",
-                dest="free",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="free",
                 help="display and verify page allocator free lists",
             ),
             argument(
                 "-F",
-                dest="free_pages",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="free_pages",
                 help="like -f, but also display each page on the free lists",
             ),
             argument(
                 "-i",
-                dest="info",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="info",
                 help="display general memory usage information",
             ),
             argument(
                 "-v",
-                dest="vmalloc",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="vmalloc",
                 help="display memory regions allocated with vmalloc()/vmap()",
             ),
             argument(
                 "-V",
-                dest="vmstat",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="vmstat",
                 help="display zone, node, NUMA, and VM event statistics",
             ),
             argument(
                 "-n",
-                dest="nodes",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="nodes",
                 help="display NUMA nodes, SPARSEMEM sections, and memory blocks",
             ),
             argument(
                 "-z",
-                dest="zones",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="zones",
                 help="display per-zone memory statistics",
             ),
             argument(
                 "-o",
-                dest="per_cpu_offset",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="per_cpu_offset",
                 help="""
                 display each CPU's per-CPU offset (the value added to convert a
                 per-CPU symbol to a virtual address)
@@ -1421,14 +1429,16 @@ flags = decode_page_flags_value(0x{flags:x})
             ),
             argument(
                 "-h",
-                dest="hstate",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="hstate",
                 help="display HugeTLB state",
             ),
             argument(
                 "-p",
-                dest="pages",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="pages",
                 help="""
                 display every valid struct page, including its physical
                 address, mapping, index, refcount, and flags
@@ -1443,8 +1453,9 @@ flags = decode_page_flags_value(0x{flags:x})
             ),
             argument(
                 "-s",
-                dest="slab",
-                action="store_true",
+                dest="mode",
+                action="store_const",
+                const="slab",
                 help="display an overview of slab caches",
             ),
             argument(
@@ -1483,47 +1494,50 @@ flags = decode_page_flags_value(0x{flags:x})
 def _crash_cmd_kmem(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
+    if args.page_members is not None:
+        args.mode = "pages"
+    elif hasattr(args, "page_flags"):
+        args.mode = "page_flags"
+
     if args.ignore_slab_caches is None:
         ignore_slab_caches: AbstractSet[bytes] = frozenset()
     else:
-        if not args.slab:
+        if args.mode != "slab":
             raise CommandArgumentError("-I can only be used with -s")
         ignore_slab_caches = {
             name.encode() for name in args.ignore_slab_caches.split(",")
         }
 
     if args.name:
-        if not args.slab:
+        if args.mode != "slab":
             raise CommandArgumentError("name can only be used with -s")
         slab_cache_names: Optional[List[str]] = args.name
     else:
         slab_cache_names = None
 
-    if args.free:
+    if args.mode == "free":
         return _kmem_free(prog, args.drgn)
-    if args.free_pages:
+    elif args.mode == "free_pages":
         return _kmem_free(prog, args.drgn, show_pages=True)
-    if args.info:
+    elif args.mode == "info":
         return _kmem_info(prog, args.drgn)
-    if args.vmalloc:
+    elif args.mode == "vmalloc":
         return _kmem_vmalloc(prog, args.drgn)
-    if args.vmstat:
+    elif args.mode == "vmstat":
         return _kmem_vmstat(prog, args.drgn)
-    if args.nodes:
+    elif args.mode == "nodes":
         return _kmem_nodes(prog, args.drgn)
-    if args.zones:
+    elif args.mode == "zones":
         return _kmem_zones(prog, args.drgn)
-    if args.per_cpu_offset:
+    elif args.mode == "per_cpu_offset":
         return _kmem_per_cpu_offset(prog, args.drgn)
-    if args.hstate:
+    elif args.mode == "hstate":
         return _kmem_hstate(prog, args.drgn)
-    if args.pages:
-        return _kmem_pages(prog, args.drgn)
-    if args.page_members is not None:
+    elif args.mode == "pages":
         return _kmem_pages(prog, args.drgn, members=args.page_members)
-    if args.slab:
+    elif args.mode == "slab":
         return _kmem_slab(
             prog, args.drgn, ignore=ignore_slab_caches, names=slab_cache_names
         )
-    if hasattr(args, "page_flags"):
+    elif args.mode == "page_flags":
         return _kmem_page_flags(prog, args.drgn, args.page_flags)
