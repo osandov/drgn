@@ -12,7 +12,7 @@ Linux virtual filesystem (VFS) layer, including mounts, dentries, and inodes.
 import os
 from typing import Iterator, Optional, Tuple, Union, overload
 
-from drgn import IntegerLike, Object, Path, Program, container_of, sizeof
+from drgn import IntegerLike, Object, Path, Program, TypeKind, container_of, sizeof
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.prog import takes_object_or_program_or_default
 from drgn.helpers.linux.list import (
@@ -36,6 +36,7 @@ __all__ = (
     "fget",
     "for_each_file",
     "print_files",
+    "super_block_for_each_mount",
 )
 
 
@@ -213,9 +214,7 @@ def d_path(  # type: ignore  # Need positional-only arguments.
             MNT_INTERNAL = 0x4000
             internal_mnt = None
             dentry = arg1
-            for mnt in list_for_each_entry(
-                "struct mount", dentry.d_sb.s_mounts.address_of_(), "mnt_instance"
-            ):
+            for mnt in super_block_for_each_mount(dentry.d_sb):
                 if mnt.mnt.mnt_flags & MNT_INTERNAL:
                     internal_mnt = internal_mnt or mnt
                     continue
@@ -380,6 +379,29 @@ def for_each_mount(
             and (fstype is None or mount_fstype(mnt) == fstype)
         ):
             yield mnt
+
+
+def super_block_for_each_mount(sb: Object) -> Iterator[Object]:
+    """
+    Iterate over every mount of a super block.
+
+    :param sb: ``struct super_block *``.
+    :return: Iterator of ``struct mount *`` objects.
+    """
+    # Since Linux kernel commit 09a1b33c080f ("preparations to taking
+    # MNT_WRITE_HOLD out of ->mnt_flags") (in v6.18), mounts for a super_block
+    # are on an open-coded singly-linked list. Before that, they are on a
+    # list_head.
+    s_mounts = sb.s_mounts
+    if s_mounts.type_.unaliased_kind() == TypeKind.POINTER:
+        mount = s_mounts.read_()
+        while mount:
+            yield mount
+            mount = mount.mnt_next_for_sb.read_()
+    else:
+        yield from list_for_each_entry(
+            "struct mount", s_mounts.address_of_(), "mnt_instance"
+        )
 
 
 @takes_object_or_program_or_default
