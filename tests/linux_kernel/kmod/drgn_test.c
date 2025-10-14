@@ -2013,3 +2013,4 @@ module_init(drgn_test_init);
 module_exit(drgn_test_exit);
 
 MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Module for testing drgn");

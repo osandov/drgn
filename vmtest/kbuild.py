@@ -532,6 +532,7 @@ static int __init test_init(void)
 module_init(test_init);
 
 MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Module for testing build");
 """
             )
             (test_module_dir / "Makefile").write_text("obj-m := test.o\n")
