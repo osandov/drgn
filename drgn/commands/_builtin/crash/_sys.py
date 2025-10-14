@@ -8,9 +8,9 @@ import datetime
 import itertools
 import logging
 import sys
-from typing import Any, Callable, Iterable, Literal, Optional, Tuple
+from typing import Any, Callable, Iterable, Literal, Optional, Tuple, Union
 
-from drgn import Program
+from drgn import Object, Program
 from drgn.commands import argument, drgn_argument
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
@@ -52,21 +52,21 @@ class _SysPrinter:
         drgn: bool,
         *,
         system_fields: bool = True,
-        context: Optional[Literal["panic", "current"]] = None,
+        context: Union[Literal["panic", "current"], Object, None] = None,
     ) -> None:
         self.prog = prog
         self.drgn = drgn
         self.context = context
         self.system_fields = system_fields
         if self.drgn:
+            assert not isinstance(context, Object)
             self.code = CrashDrgnCodeBuilder(prog)
         elif context == "panic":
             self.task = _crash_get_panic_context(prog)
         elif context == "current":
             self.task = crash_get_context(prog)
         else:
-            assert context is None
-            self.task = None  # type: ignore
+            self.task = context  # type: ignore
 
     def _print_drgn(self) -> None:
         if self.system_fields:
