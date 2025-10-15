@@ -8,9 +8,19 @@ import functools
 import re
 import sys
 import textwrap
-from typing import AbstractSet, Any, Callable, List, Optional, Sequence
+from typing import AbstractSet, Any, Callable, Iterable, List, Optional, Sequence, Tuple
 
-from drgn import NULL, FaultError, Object, Program, ProgramFlags, TypeKind, sizeof
+from drgn import (
+    NULL,
+    FaultError,
+    Object,
+    Program,
+    ProgramFlags,
+    RelocatableModule,
+    TypeKind,
+    cast,
+    sizeof,
+)
 from drgn.commands import (
     CommandArgumentError,
     _repr_black,
@@ -18,6 +28,7 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
+from drgn.commands._builtin.crash._sys import _SysPrinter
 from drgn.commands.crash import (
     _MEMBER_PATTERN,
     CrashDrgnCodeBuilder,
@@ -34,8 +45,16 @@ from drgn.helpers.common.format import (
     number_in_binary_units,
     print_table,
 )
+from drgn.helpers.common.memory import IdentifiedSymbol, identify_address_all
 from drgn.helpers.common.type import typeof_member
 from drgn.helpers.linux.block import nr_blockdev_pages
+from drgn.helpers.linux.common import (
+    IdentifiedPage,
+    IdentifiedSlabObject,
+    IdentifiedTaskStack,
+    IdentifiedTaskStruct,
+    IdentifiedVmap,
+)
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.device import dev_name
 from drgn.helpers.linux.hugetlb import (
@@ -51,12 +70,14 @@ from drgn.helpers.linux.mm import (
     PFN_PHYS,
     decode_memory_block_state,
     decode_page_flags_value,
+    follow_pfn,
     for_each_memory_block,
     for_each_valid_pfn_and_page,
     for_each_vmap_area,
     memory_block_size_bytes,
     page_flags,
     page_index,
+    page_to_virt,
     pfn_to_page,
     totalram_pages,
     vm_commit_limit,
@@ -479,7 +500,9 @@ committed = vm_memory_committed()
     print_table(rows)
 
 
-def _kmem_vmalloc(prog: Program, drgn_arg: bool) -> None:
+def _kmem_vmalloc(
+    prog: Program, drgn_arg: bool, *, identified: Optional[IdentifiedVmap] = None
+) -> None:
     if drgn_arg:
         sys.stdout.write(
             """\
@@ -503,13 +526,24 @@ for va in for_each_vmap_area():
             CellFormat("SIZE", ">"),
         )
     ]
-    for va in for_each_vmap_area(prog):
+    if identified is None:
+
+        def areas() -> Iterable[Tuple[Object, Object]]:
+            for va in for_each_vmap_area(prog):
+                yield va, va.vm.read_()
+
+    else:
+
+        def areas() -> Iterable[Tuple[Object, Object]]:
+            yield identified.vmap_area, identified.vm_struct
+
+    for va, vm in areas():
         start = va.va_start.value_()
         end = va.va_end.value_()
         rows.append(
             (
                 CellFormat(va.value_(), "^x"),
-                CellFormat(va.vm.value_(), "^x"),
+                CellFormat(vm.value_(), "^x"),
                 CellFormat(f"{start:x} - {end:x}", "^"),
                 end - start,
             )
@@ -1068,7 +1102,11 @@ def _page_hex_member(member: str, pfn: int, page: Object) -> str:
 
 
 def _kmem_pages(
-    prog: Program, drgn_arg: bool, *, members: Optional[str] = None
+    prog: Program,
+    drgn_arg: bool,
+    *,
+    members: Optional[str] = None,
+    identified: Optional[IdentifiedPage] = None,
 ) -> None:
     if drgn_arg:
         code = CrashDrgnCodeBuilder(prog)
@@ -1182,8 +1220,18 @@ for pfn, page in for_each_valid_pfn_and_page():
                     f"formatting {member_type_name!r} not implemented"
                 )
 
+    if identified is None:
+
+        def pfn_page_iter() -> Iterable[Tuple[int, Object]]:
+            return for_each_valid_pfn_and_page(prog)
+
+    else:
+
+        def pfn_page_iter() -> Iterable[Tuple[int, Object]]:
+            yield identified.pfn, identified.page
+
     _print_table_row(header, widths=widths)
-    for pfn, page in for_each_valid_pfn_and_page(prog):
+    for pfn, page in pfn_page_iter():
         _print_table_row([getter(pfn, page) for getter in getters], widths=widths)
 
 
@@ -1192,7 +1240,8 @@ def _kmem_slab(
     drgn_arg: bool,
     *,
     ignore: AbstractSet[bytes],
-    names: Optional[List[str]],
+    names: Optional[Sequence[str]] = None,
+    identified: Optional[IdentifiedSlabObject] = None,
 ) -> None:
     if drgn_arg:
         code = CrashDrgnCodeBuilder(prog)
@@ -1266,12 +1315,12 @@ if cache:
         )
     ]
 
-    if names is None:
+    if identified is not None:
+        caches: Iterable[Object] = (identified.slab_object_info.slab_cache,)
+    elif names is None:
         caches = for_each_slab_cache(prog)
     else:
-        caches = iter(
-            [cache for name in names if (cache := find_slab_cache(prog, name))]
-        )
+        caches = [cache for name in names if (cache := find_slab_cache(prog, name))]
 
     for cache in caches:
         name = cache.name.string_()
@@ -1318,6 +1367,52 @@ if cache:
                     escape_ascii_string(cache.name.string_(), escape_backslash=True),
                 )
             )
+
+            if identified is not None:
+                rows.append(
+                    RowOptions(
+                        (
+                            "",
+                            "SLAB",
+                            "MEMORY",
+                        ),
+                        group=1,
+                    )
+                )
+                slab = identified.slab_object_info.slab
+                slab_memory = page_to_virt(cast("struct page *", slab))
+                rows.append(
+                    RowOptions(
+                        (
+                            "",
+                            f"{slab.value_():x}",
+                            f"{slab_memory.value_():x}",
+                        ),
+                        group=1,
+                    )
+                )
+
+                rows.append(
+                    RowOptions(
+                        (
+                            "",
+                            "FREE / [ALLOCATED]",
+                        ),
+                        group=2,
+                    )
+                )
+                object_address = f"{identified.slab_object_info.address:x}"
+                if identified.slab_object_info.allocated:
+                    object_address = f"[{object_address}]"
+                rows.append(
+                    RowOptions(
+                        (
+                            "",
+                            object_address,
+                        ),
+                        group=2,
+                    )
+                )
     print_table(rows)
 
 
@@ -1359,6 +1454,133 @@ flags = decode_page_flags_value(0x{flags:x})
         if flags is None or flags & value:
             rows.append((prefix + name, bit, f"{value:0{width}x}"))
     print_table(rows)
+
+
+_IDENTIFY_MODES = {
+    None,
+    # Crash supposedly supports -f, too, but I've never been able to get it to
+    # work, so we ignore it for now.
+    "free",
+    "pages",
+    "slab",
+    "vmalloc",
+}
+
+
+def _kmem_identify(
+    prog: Program,
+    drgn_arg: bool,
+    addresses: List[int],
+    mode: Optional[str],
+    *,
+    page_members: Optional[str],
+    ignore_slab_caches: AbstractSet[bytes],
+    slab_cache_names: bool,
+) -> None:
+    if mode not in _IDENTIFY_MODES:
+        raise CommandArgumentError(f"address not allowed with {mode}")
+
+    if drgn_arg:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import("drgn.helpers.common.memory", "identify_address")
+        if len(addresses) == 1:
+            code.append(f"address = {hex(addresses[0])}\n")
+        else:
+            code.append("for address in (")
+            code.append(", ".join([hex(address) for address in addresses]))
+            code.append("):\n    ")
+        code.append("identified = identify_address(address)\n")
+        code.print()
+        return
+
+    first = True
+
+    def print_divider() -> None:
+        nonlocal first
+        if first:
+            first = False
+        else:
+            print()
+
+    for address in addresses:
+        all_identified = identify_address_all(prog, address)
+        if all_identified is None:
+            all_identified = ()
+
+        found_vmap = False
+        found_page = False
+        found_slab = False
+        for identified in all_identified:
+            if isinstance(identified, IdentifiedSymbol):
+                if mode is None:
+                    offset = address - identified.symbol.address
+                    offset_str = f"+{offset}" if offset else ""
+
+                    module_str = ""
+                    try:
+                        module = prog.module(address)
+                    except LookupError:
+                        pass
+                    else:
+                        if isinstance(module, RelocatableModule):
+                            module_str = f" [{module.name}]"
+
+                    print_divider()
+                    print(
+                        f"{address:x} (?) {identified.symbol.name}{offset_str}{module_str}"
+                    )
+            elif isinstance(identified, (IdentifiedTaskStruct, IdentifiedTaskStack)):
+                if mode is None:
+                    print_divider()
+                    _SysPrinter(
+                        prog, False, system_fields=False, context=identified.task
+                    ).print()
+            elif isinstance(identified, IdentifiedVmap):
+                found_vmap = True
+                if mode is None or mode == "vmalloc":
+                    print_divider()
+                    _kmem_vmalloc(prog, False, identified=identified)
+            elif isinstance(identified, IdentifiedPage):
+                found_page = True
+                if mode is None or mode == "pages":
+                    print_divider()
+                    _kmem_pages(
+                        prog, False, members=page_members, identified=identified
+                    )
+            elif isinstance(identified, IdentifiedSlabObject):
+                found_slab = True
+                if mode is None or mode == "slab":
+                    print_divider()
+                    if slab_cache_names:
+                        print(
+                            f"kmem: ignoring pre-selected slab caches for address: {address:x}"
+                        )
+                    _kmem_slab(
+                        prog, False, ignore=ignore_slab_caches, identified=identified
+                    )
+
+        if not found_vmap and mode == "vmalloc":
+            print_divider()
+            # Crash fails with a bad memory access instead.
+            print(f"kmem: address is not allocated in vmalloc subsystem: {address:x}")
+
+        if not found_page and (mode is None or mode == "pages"):
+            try:
+                pfn = follow_pfn(prog["init_mm"].address_of_(), address)
+            except (FaultError, NotImplementedError):
+                pass
+            else:
+                print_divider()
+                _kmem_pages(
+                    prog,
+                    False,
+                    members=page_members,
+                    identified=IdentifiedPage(address, pfn_to_page(pfn), pfn.value_()),
+                )
+
+        if mode == "slab" and not found_slab:
+            print_divider()
+            print(f"kmem: address is not allocated in slab subsystem: {address:x}")
 
 
 @crash_command(
@@ -1470,7 +1692,6 @@ flags = decode_page_flags_value(0x{flags:x})
                 display all of the possible flags if no value is given
                 """,
             ),
-            required=True,
         ),
         argument(
             "-I",
@@ -1488,12 +1709,32 @@ flags = decode_page_flags_value(0x{flags:x})
             when used with -s, only display the slab caches with the given names
             """,
         ),
+        argument(
+            "address",
+            nargs="*",
+            help="""
+            addresses to identify as symbols, tasks, task stacks, vmalloc
+            allocations, pages, and/or slab objects. Can be combined with -v,
+            -p, -m, or -s to limit the search to their respective types
+            """,
+        ),
         drgn_argument,
     ),
 )
 def _crash_cmd_kmem(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
+    # argparse greedily assigns all of the positional arguments to name.
+    # Separate the addresses.
+    posargs = args.name
+    args.name = []
+    assert not args.address
+    for posarg in posargs:
+        try:
+            args.address.append(int(posarg, 16))
+        except ValueError:
+            args.name.append(posarg)
+
     if args.page_members is not None:
         args.mode = "pages"
     elif hasattr(args, "page_flags"):
@@ -1515,7 +1756,17 @@ def _crash_cmd_kmem(
     else:
         slab_cache_names = None
 
-    if args.mode == "free":
+    if args.address:
+        _kmem_identify(
+            prog,
+            args.drgn,
+            args.address,
+            args.mode,
+            page_members=args.page_members,
+            ignore_slab_caches=ignore_slab_caches,
+            slab_cache_names=bool(slab_cache_names),
+        )
+    elif args.mode == "free":
         return _kmem_free(prog, args.drgn)
     elif args.mode == "free_pages":
         return _kmem_free(prog, args.drgn, show_pages=True)
@@ -1541,3 +1792,5 @@ def _crash_cmd_kmem(
         )
     elif args.mode == "page_flags":
         return _kmem_page_flags(prog, args.drgn, args.page_flags)
+    else:
+        raise CommandArgumentError("address or option is required")

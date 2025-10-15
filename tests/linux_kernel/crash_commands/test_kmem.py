@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from drgn import Object
+from drgn.commands import CommandArgumentError
 from drgn.commands.crash import CRASH_COMMAND_NAMESPACE
 from drgn.helpers.linux.mm import PageUsage
 from drgn.helpers.linux.slab import SlabTotalUsage
@@ -485,3 +486,111 @@ class TestKmem(CrashCommandTestCase):
         self.assertIn(".enumerators", cmd.drgn_option.stdout)
         for variable in ("name", "bit", "value"):
             self.assertIn(variable, cmd.drgn_option.globals)
+
+    @skip_unless_have_test_kmod
+    def test_identify_symbol(self):
+        address = self.prog.symbol("drgn_test_function").address
+        cmd = self.run_crash_command(f"kmem {address:x}")
+        self.assertRegex(
+            cmd.stdout, rf"(?m)^{address:x} \(.\) drgn_test_function \[drgn_test\]$"
+        )
+
+    @skip_unless_have_test_kmod
+    def test_identify_symbol_offset(self):
+        symbol = self.prog.symbol("drgn_test_function")
+        address = symbol.address + symbol.size - 1
+        cmd = self.run_crash_command(f"kmem {address:x}")
+        self.assertRegex(
+            cmd.stdout,
+            rf"(?m)^{address:x} \(.\) drgn_test_function\+{symbol.size - 1} \[drgn_test\]$",
+        )
+
+    def test_identify_task(self):
+        cmd = self.check_crash_command(f"kmem {self.prog['init_task'].address_:x}")
+        self.assertRegex(cmd.stdout, r'(?m)^COMMAND: "swapper')
+        self.assertIn("identify_address", cmd.drgn_option.globals)
+        self.assertTrue(cmd.drgn_option.globals["identified"])
+
+    def test_identify_task_stack(self):
+        cmd = self.run_crash_command(f"kmem {self.prog['init_task'].stack.value_():x}")
+        self.assertRegex(cmd.stdout, r'(?m)^COMMAND: "swapper')
+
+    @skip_unless_have_test_kmod
+    def test_identify_vmalloc(self):
+        address = self.prog["drgn_test_vmalloc_va"].value_()
+        for option in ("", " -v"):
+            with self.subTest(option=option):
+                cmd = self.run_crash_command(f"kmem{option} {address:x}")
+                self.assertIn("VMAP_AREA", cmd.stdout)
+                self.assertIn(f"{address:x}", cmd.stdout)
+                page_address = f"{self.prog['drgn_test_vmalloc_page'].value_():x}"
+                if option:
+                    self.assertNotIn(page_address, cmd.stdout)
+                else:
+                    self.assertIn(page_address, cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_identify_not_vmalloc(self):
+        address = self.prog["drgn_test_small_slab_objects"][0].value_()
+        cmd = self.run_crash_command(f"kmem -v {address:x}")
+        self.assertIn("address is not allocated in vmalloc subsystem", cmd.stdout)
+        self.assertNotIn("SLAB", cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_identify_page(self):
+        address = self.prog["drgn_test_page"].value_()
+        for option in ("", " -p"):
+            with self.subTest(option=option):
+                cmd = self.run_crash_command(f"kmem{option} {address + 1:x}")
+                self.assertIn("PAGE", cmd.stdout)
+                self.assertIn(f"{address:x}", cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_identify_slab(self):
+        address = self.prog["drgn_test_small_slab_objects"][0].value_()
+        for option in ("", " -s"):
+            with self.subTest(option=option):
+                cmd = self.run_crash_command(f"kmem{option} {address + 1:x}")
+                self.assertIn("drgn_test_small", cmd.stdout)
+                self.assertIn(f"[{address:x}]", cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_identify_not_slab(self):
+        address = self.prog["drgn_test_vmalloc_va"].value_()
+        cmd = self.run_crash_command(f"kmem -s {address:x}")
+        self.assertIn("address is not allocated in slab subsystem", cmd.stdout)
+        self.assertNotIn("VMAP_AREA", cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_identify_slab_with_names(self):
+        address = self.prog["drgn_test_small_slab_objects"][0].value_()
+        cmd = self.run_crash_command(f"kmem -s drgn_test_big {address + 1:x}")
+        self.assertIn("ignoring pre-selected slab caches for address", cmd.stdout)
+        self.assertIn("drgn_test_small", cmd.stdout)
+        self.assertIn(f"[{address:x}]", cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_identify_slab_ignored(self):
+        address = self.prog["drgn_test_small_slab_objects"][0].value_()
+        cmd = self.run_crash_command(f"kmem -s -I drgn_test_small {address + 1:x}")
+        self.assertIn("drgn_test_small", cmd.stdout)
+        self.assertIn("[IGNORED]", cmd.stdout)
+        self.assertNotIn(f"[{address:x}]", cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_identify_multiple(self):
+        slab_address = self.prog["drgn_test_small_slab_objects"][0].value_()
+        vmalloc_address = self.prog["drgn_test_vmalloc_va"].value_()
+        cmd = self.check_crash_command(f"kmem {vmalloc_address:x} {slab_address:x}")
+
+        self.assertIn("VMAP_AREA", cmd.stdout)
+        self.assertIn(f"{vmalloc_address:x}", cmd.stdout)
+
+        self.assertIn("drgn_test_small", cmd.stdout)
+        self.assertIn(f"[{slab_address:x}]", cmd.stdout)
+
+        self.assertIn("identify_address", cmd.drgn_option.globals)
+        self.assertTrue(cmd.drgn_option.globals["identified"])
+
+    def test_no_arguments(self):
+        self.assertRaises(CommandArgumentError, self.run_crash_command, "kmem")
