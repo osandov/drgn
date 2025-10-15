@@ -98,7 +98,6 @@ from drgn.helpers.linux.mmzone import (
 from drgn.helpers.linux.nodemask import for_each_online_node
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.slab import (
-    SlabCorruptionError,
     find_slab_cache,
     for_each_slab_cache,
     slab_cache_order,
@@ -1338,22 +1337,16 @@ if cache:
             )
         else:
             objsize = cache.object_size.value_()
-            allocated: Any = "[CORRUPTED]"
-            total: Any = ""
-            slabs: Any = ""
-            # Walking slab lists is racy. Retry a limited number of times on
-            # live kernels.
-            for i in range(10):
-                try:
-                    usage = slab_cache_usage(cache)
-                except (FaultError, SlabCorruptionError):
-                    if not (prog.flags & ProgramFlags.IS_LIVE):
-                        break
-                else:
-                    allocated = usage.active_objs
-                    total = usage.num_objs
-                    slabs = usage.num_slabs
-                    break
+            try:
+                usage = slab_cache_usage(cache)
+            except (FaultError, ValidationError):
+                allocated: Any = "[CORRUPTED]"
+                total: Any = ""
+                slabs: Any = ""
+            else:
+                allocated = usage.active_objs
+                total = usage.num_objs
+                slabs = usage.num_slabs
             ssize = prog["PAGE_SIZE"].value_() << slab_cache_order(cache)
             ssize_cell = CellFormat(f"{ssize // 1024}k", ">")
             rows.append(

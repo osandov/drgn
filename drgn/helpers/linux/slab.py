@@ -27,6 +27,7 @@ from drgn import (
     Object,
     ObjectNotFoundError,
     Program,
+    ProgramFlags,
     Type,
     cast,
     container_of,
@@ -36,7 +37,7 @@ from drgn.helpers import ValidationError
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.cpumask import for_each_online_cpu
-from drgn.helpers.linux.list import list_for_each_entry
+from drgn.helpers.linux.list import list_for_each_entry, validate_list_for_each_entry
 from drgn.helpers.linux.mm import (
     PageSlab,
     _get_PageSlab_impl,
@@ -354,20 +355,42 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             return 0
 
     def _slub_get_freelist(
-        self, freelist_name: Callable[[], str], freelist: Object, freelist_set: Set[int]
-    ) -> None:
+        self, freelist_name: Callable[[], str], freelist: Object
+    ) -> Set[int]:
         # In SLUB, the freelist is a linked list with the next pointer located
         # at ptr + slab_cache->offset.
-        ptr = freelist.value_()
-        while ptr:
-            if ptr in freelist_set:
-                raise SlabFreelistCycleError(
-                    f"{fsdecode(self._slab_cache.name.string_())} {freelist_name()} "
-                    "freelist contains cycle; "
-                    "may be corrupted or in the middle of update"
-                )
-            freelist_set.add(ptr)
-            ptr = self._freelist_dereference(ptr + self._freelist_offset)
+        freelist_set: Set[int] = set()
+        # This is racy. On live kernels, we retry a limited number of times.
+        num_attempts = 1000 if (self._prog.flags & ProgramFlags.IS_LIVE) else 1
+        for attempts_remaining in range(num_attempts, -1, -1):
+            ptr = freelist.value_()
+            while ptr:
+                if ptr in freelist_set:
+                    if attempts_remaining > 0:
+                        # Break the loop over the freelist and retry from the
+                        # beginning of the list.
+                        break
+                    e = SlabFreelistCycleError(
+                        f"{fsdecode(self._slab_cache.name.string_())} {freelist_name()} "
+                        "freelist contains cycle; "
+                        "may be corrupted or in the middle of update"
+                    )
+                    # Smuggle the freelist we got so far.
+                    e.freelist = freelist_set  # type: ignore[attr-defined]
+                    raise e
+                freelist_set.add(ptr)
+                try:
+                    ptr = self._freelist_dereference(ptr + self._freelist_offset)
+                except FaultError as e:
+                    if attempts_remaining > 0:
+                        break
+                    e.freelist = freelist_set  # type: ignore[attr-defined]
+                    raise
+            else:
+                return freelist_set
+
+            freelist_set.clear()
+        assert False  # Tell mypy that this is unreachable.
 
     @functools.cached_property
     def _freelist_offset(self) -> int:
@@ -440,24 +463,39 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         # the partial list is `->slabs`. Before that, it is `->pages`.
         nr_slabs_attr = "slabs" if hasattr(partial, "slabs") else "pages"
 
-        free_objs = 0
-        prev_nr_slabs = None
-        while partial:
-            nr_slabs = getattr(partial, nr_slabs_attr).value_()
-            # We could be stricter and check nr_slabs == prev_nr_slabs - 1, but
-            # the main thing we care about is not getting stuck in a cycle.
-            if prev_nr_slabs is not None and nr_slabs >= prev_nr_slabs:
-                raise SlabPartialListError(
-                    f"{fsdecode(self._slab_cache.name.string_())} cpu {cpu} "
-                    "partial slabs count not decreasing; "
-                    "may be corrupted or in the middle of update"
-                )
-            prev_nr_slabs = nr_slabs
+        # This is racy. On live kernels, we retry a limited number of times.
+        num_attempts = 1000 if (self._prog.flags & ProgramFlags.IS_LIVE) else 1
+        for attempts_remaining in range(num_attempts, -1, -1):
+            free_objs = 0
+            prev_nr_slabs = None
+            while partial:
+                nr_slabs = getattr(partial, nr_slabs_attr).value_()
+                # We could be stricter and check nr_slabs == prev_nr_slabs - 1, but
+                # the main thing we care about is not getting stuck in a cycle.
+                if prev_nr_slabs is not None and nr_slabs >= prev_nr_slabs:
+                    if attempts_remaining > 0:
+                        # Break the loop over the slab list and retry from the
+                        # beginning of the list.
+                        break
+                    raise SlabPartialListError(
+                        f"{fsdecode(self._slab_cache.name.string_())} cpu {cpu} "
+                        "partial slabs count not decreasing; "
+                        "may be corrupted or in the middle of update"
+                    )
+                prev_nr_slabs = nr_slabs
 
-            free_objs += partial.objects.value_() - partial.inuse.value_()
-            partial = partial.next.read_()
+                free_objs += partial.objects.value_() - partial.inuse.value_()
+                try:
+                    partial = partial.next.read_()
+                except FaultError:
+                    if attempts_remaining > 0:
+                        break
+                    raise
+            else:
+                return free_objs
 
-        return free_objs
+            partial = cpu_slab.partial.read_()
+        assert False  # Tell mypy that this is unreachable.
 
     def _per_cpu_info(
         self, *, count_partial_list_free_objs: bool = False, catch_errors: bool = False
@@ -482,8 +520,8 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                     this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
                     slab = getattr(this_cpu_slab, cpu_slab_attr).read_()
                     if slab and slab.slab_cache == self._slab_cache:
-                        self._slub_get_freelist(
-                            lambda: f"cpu {cpu}", this_cpu_slab.freelist, freelists
+                        freelists |= self._slub_get_freelist(
+                            lambda: f"cpu {cpu}", this_cpu_slab.freelist
                         )
 
                     if count_partial_list_free_objs:
@@ -502,6 +540,8 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         )
 
     def usage(self) -> "SlabCacheUsage":
+        num_attempts = 1000 if (self._prog.flags & ProgramFlags.IS_LIVE) else 1
+
         num_slabs = 0
         num_objs = 0
         # SLUB doesn't maintain a counter of free objects. Instead, we have to
@@ -532,10 +572,20 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                 ) from None
             num_slabs += nr_slabs.counter.value_()
             num_objs += node.total_objects.counter.value_()
-            for slab in list_for_each_entry(
-                slab_type, node.partial.address_of_(), slab_list_member
-            ):
-                free_objs += slab.objects.value_() - slab.inuse.value_()
+
+            # This is racy. On live kernels, we retry a limited number of times.
+            for attempts_remaining in range(num_attempts, -1, -1):
+                node_free_objs = 0
+                try:
+                    for slab in validate_list_for_each_entry(
+                        slab_type, node.partial.address_of_(), slab_list_member
+                    ):
+                        node_free_objs += slab.objects.value_() - slab.inuse.value_()
+                    break
+                except (FaultError, ValidationError):
+                    if attempts_remaining == 0:
+                        raise
+            free_objs += node_free_objs
 
         return SlabCacheUsage(
             num_slabs=num_slabs, num_objs=num_objs, free_objs=free_objs
@@ -544,8 +594,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
     def _page_objects(
         self, page: Object, slab: Object, pointer_type: Type
     ) -> Iterator[Object]:
-        freelist: Set[int] = set()
-        self._slub_get_freelist(lambda: f"slab {hex(slab)}", slab.freelist, freelist)
+        freelist = self._slub_get_freelist(lambda: f"slab {hex(slab)}", slab.freelist)
         addr = page_to_virt(page).value_() + self._red_left_pad
         end = addr + self._slab_cache_size * slab.objects
         while addr < end:
@@ -567,13 +616,14 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         if address in per_cpu.freelists:
             allocated: Optional[bool] = False
         else:
-            freelist: Set[int] = set()
             try:
-                self._slub_get_freelist(
-                    lambda: f"slab {hex(slab)}", slab.freelist, freelist
+                freelist = self._slub_get_freelist(
+                    lambda: f"slab {hex(slab)}", slab.freelist
                 )
-            except (SlabCorruptionError, FaultError):
-                allocated = False if address in freelist else None
+            except (SlabCorruptionError, FaultError) as e:
+                # On error, _slub_get_freelist() smuggles the partial freelist
+                # it got as an attribute on the exception.
+                allocated = False if address in getattr(e, "freelist", ()) else None
             else:
                 if address in freelist:
                     allocated = False
