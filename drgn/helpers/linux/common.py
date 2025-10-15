@@ -276,7 +276,7 @@ def _identify_page(
 
 
 def _identify_vmap(
-    prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
+    prog: Program, addr: int, check_stack: bool, cache: Optional[Dict[Any, Any]]
 ) -> Iterator[Union[IdentifiedTaskStack, IdentifiedVmap]]:
     va = find_vmap_area(prog, addr)
     if not va:
@@ -287,17 +287,18 @@ def _identify_vmap(
         return
 
     # If kernel stacks are vmap'd, check if the address is in a stack.
-    if _stack_alloc_info(prog) is True:
+    if check_stack and _stack_alloc_info(prog) is True:
         yield from _identify_task_stack(prog, addr, cache)
 
     yield IdentifiedVmap(addr, va, vm)
 
 
+# Called before identify_address_all() yields an IdentifiedSymbol to check for
+# a more specific match. Namely, we want init_task and init_stack to be
+# identified as a task or stack, respectively.
 def _identify_kernel_symbol(
     prog: Program, addr: int, symbol: Symbol
 ) -> Iterator[Union[IdentifiedTaskStruct, IdentifiedTaskStack]]:
-    # init_task and its stack are identified as symbols, but we want to
-    # identify them as a task/stack first.
     task: Object
     init_task_range: Tuple[int, int]
     init_stack_range: Tuple[int, int]
@@ -321,8 +322,11 @@ def _identify_kernel_symbol(
         yield IdentifiedTaskStack(addr, task)
 
 
+# Called after identify_address_all() checks if the address is in a symbol. If
+# it's not a symbol, we check everything. If it is a symbol, since module
+# symbols (and vmlinux symbols on AArch64) are vmapped, we only check vmap.
 def _identify_kernel_address(
-    prog: Program, addr: int, cache: Optional[Dict[Any, Any]] = None
+    prog: Program, addr: int, symbol: bool, cache: Optional[Dict[Any, Any]]
 ) -> Iterator[
     Union[
         IdentifiedTaskStruct,
@@ -333,7 +337,7 @@ def _identify_kernel_address(
     ]
 ]:
     try:
-        direct_map = in_direct_map(prog, addr)
+        direct_map = not symbol and in_direct_map(prog, addr)
     except NotImplementedError:
         # Virtual address translation isn't implemented for this
         # architecture.
@@ -374,10 +378,10 @@ def _identify_kernel_address(
             # address is in a stack.
             yield from _identify_task_stack(prog, addr, cache)
     else:
-        if "vmemmap" in prog:
+        if not symbol and "vmemmap" in prog:
             # With vmemmap, pages are outside of the direct mapping.
             identified = _identify_page(prog, addr, cache)
             if identified is not None:
                 yield identified
                 return
-        yield from _identify_vmap(prog, addr, cache)
+        yield from _identify_vmap(prog, addr, not symbol, cache)

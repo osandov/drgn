@@ -36,10 +36,12 @@ class TestIdentifyAddress(LinuxKernelTestCase):
     def test_identify_symbol(self):
         symbol = self.prog.symbol("drgn_test_function")
 
-        self.assertEqual(
-            identify_address(self.prog, symbol.address),
-            "function symbol: drgn_test_function+0x0",
-        )
+        identified = list(identify_address_all(self.prog, symbol.address))
+        self.assertIsInstance(identified[0], IdentifiedSymbol)
+        self.assertEqual(str(identified[0]), "function symbol: drgn_test_function+0x0")
+        # Module symbols are also vmapped.
+        self.assertIsInstance(identified[1], IdentifiedVmap)
+        self.assertEqual(len(identified), 2)
 
         self.assertEqual(
             identify_address(self.prog, symbol.address + 1),
@@ -92,7 +94,7 @@ class TestIdentifyAddress(LinuxKernelTestCase):
         self.assertIsInstance(identified[0], IdentifiedTaskStruct)
         self.assertEqual(identified[0].task, idle_task(self.prog, 0))
         self.assertIsInstance(identified[1], IdentifiedSymbol)
-        self.assertEqual(len(identified), 2)
+        self.assertGreaterEqual(len(identified), 2)
 
     @skip_unless_have_full_mm_support
     @skip_if_slob
@@ -155,7 +157,7 @@ class TestIdentifyAddress(LinuxKernelTestCase):
         self.assertIsInstance(identified[0], IdentifiedTaskStack)
         self.assertEqual(identified[0].task, idle_task(self.prog, 0))
         self.assertIsInstance(identified[1], IdentifiedSymbol)
-        self.assertEqual(len(identified), 2)
+        self.assertGreaterEqual(len(identified), 2)
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod

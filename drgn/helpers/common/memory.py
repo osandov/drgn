@@ -118,27 +118,28 @@ def identify_address_all(
     :return: Iterator of identities, from most specific to least specific. If
         the address is unrecognized, this is empty.
     """
+    is_linux_kernel = bool(prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL)
+    if is_linux_kernel:
+        from drgn.helpers.linux.common import (
+            _identify_kernel_address,
+            _identify_kernel_symbol,
+        )
 
     addr = operator.index(addr)
     # Check if address is of a symbol:
+    symbol: Optional[Symbol]
     try:
         symbol = prog.symbol(addr)
     except LookupError:  # not a symbol
-        pass
+        symbol = None
     else:
-        if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
-            from drgn.helpers.linux.common import _identify_kernel_symbol
-
+        if is_linux_kernel:
             yield from _identify_kernel_symbol(prog, addr, symbol)
 
         yield IdentifiedSymbol(addr, symbol)
-        return
 
-    if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
-        from drgn.helpers.linux.common import _identify_kernel_address
-
-        # Linux kernel-specific identification:
-        yield from _identify_kernel_address(prog, addr, cache)
+    if is_linux_kernel:
+        yield from _identify_kernel_address(prog, addr, bool(symbol), cache)
 
 
 class IdentifiedAddress(Protocol):
