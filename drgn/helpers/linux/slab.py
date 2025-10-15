@@ -17,7 +17,7 @@ Linux slab allocator.
 
 import functools
 import operator
-from os import fsdecode
+import os
 from typing import Callable, Dict, Iterator, NamedTuple, Optional, Set, Tuple, Union
 
 from drgn import (
@@ -233,8 +233,8 @@ def get_slab_cache_aliases(prog: Program) -> Dict[str, str]:
                 "struct kmem_cache",
                 "kobj",
             )
-            original_name = fsdecode(child.name.string_())
-            target_name = fsdecode(cache.name.string_())
+            original_name = os.fsdecode(child.name.string_())
+            target_name = os.fsdecode(cache.name.string_())
             if original_name != target_name:
                 name_map[original_name] = target_name
     return name_map
@@ -371,7 +371,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                         # beginning of the list.
                         break
                     e = SlabFreelistCycleError(
-                        f"{fsdecode(self._slab_cache.name.string_())} {freelist_name()} "
+                        f"{os.fsdecode(self._slab_cache.name.string_())} {freelist_name()} "
                         "freelist contains cycle; "
                         "may be corrupted or in the middle of update"
                     )
@@ -478,7 +478,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                         # beginning of the list.
                         break
                     raise SlabPartialListError(
-                        f"{fsdecode(self._slab_cache.name.string_())} cpu {cpu} "
+                        f"{os.fsdecode(self._slab_cache.name.string_())} cpu {cpu} "
                         "partial slabs count not decreasing; "
                         "may be corrupted or in the middle of update"
                     )
