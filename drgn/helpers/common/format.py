@@ -295,7 +295,9 @@ def _print_table_row(
 ) -> None:
     print(
         *(
-            f"{value:{widths[i]}}".rstrip(" " if i == len(row) - 1 else "")
+            # `or ''` works around
+            # https://github.com/python/cpython/issues/71959 on Python < 3.10.
+            f"{value:{widths[i] or ''}}".rstrip(" " if i == len(row) - 1 else "")
             for i, value in enumerate(row)
         ),
         sep=sep,
