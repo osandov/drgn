@@ -295,6 +295,14 @@ class SlabPartialListError(SlabCorruptionError):
     """
 
 
+# Get the name of a slab cache or fall back to a placeholder.
+def _slab_cache_name(slab_cache: Object) -> str:
+    try:
+        return os.fsdecode(slab_cache.name.string_())
+    except FaultError:
+        return "slab cache"
+
+
 # Between SLUB, SLAB, their respective configuration options, and the
 # differences between kernel versions, there is a lot of state that we need to
 # keep track of to inspect the slab allocator. It isn't pretty, but this class
@@ -371,7 +379,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                         # beginning of the list.
                         break
                     e = SlabFreelistCycleError(
-                        f"{os.fsdecode(self._slab_cache.name.string_())} {freelist_name()} "
+                        f"{_slab_cache_name(self._slab_cache)} {freelist_name()} "
                         "freelist contains cycle; "
                         "may be corrupted or in the middle of update"
                     )
@@ -478,7 +486,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                         # beginning of the list.
                         break
                     raise SlabPartialListError(
-                        f"{os.fsdecode(self._slab_cache.name.string_())} cpu {cpu} "
+                        f"{_slab_cache_name(self._slab_cache)} cpu {cpu} "
                         "partial slabs count not decreasing; "
                         "may be corrupted or in the middle of update"
                     )
