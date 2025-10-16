@@ -341,7 +341,7 @@ class TestKmem(CrashCommandTestCase):
                     r"[0-9a-f]+( [\w,]+)?$",
                 )
 
-        drgn_option = self.run_crash_command("kmem -p --drgn")
+        drgn_option = self.run_crash_command_drgn_option("kmem -p", mode="capture")
         drgn_option_globals = {"prog": self.prog}
         with self.with_default_prog():
             exec(drgn_option.stdout + "\n    break", drgn_option_globals)
@@ -371,7 +371,9 @@ class TestKmem(CrashCommandTestCase):
                     r"[0-9a-f]+$",
                 )
 
-        drgn_option = self.run_crash_command(f"kmem -m {members} --drgn")
+        drgn_option = self.run_crash_command_drgn_option(
+            f"kmem -m {members}", mode="capture"
+        )
         drgn_option_globals = {"prog": self.prog}
         with self.with_default_prog():
             exec(drgn_option.stdout + "\n    break", drgn_option_globals)

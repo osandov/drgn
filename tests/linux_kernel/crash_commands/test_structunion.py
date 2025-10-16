@@ -32,7 +32,9 @@ class TestStruct(CrashCommandTestCase):
         )
 
     def test_not_found_drgn_option(self):
-        cmd = self.run_crash_command("struct drgn_test_non_existent --drgn")
+        cmd = self.run_crash_command_drgn_option(
+            "struct drgn_test_non_existent", mode="compile"
+        )
         self.assertIn('prog.type("struct drgn_test_non_existent")', cmd.stdout)
 
     @skip_unless_have_test_kmod

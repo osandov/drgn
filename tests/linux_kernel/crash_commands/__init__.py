@@ -33,19 +33,21 @@ class CrashCommandTestCase(LinuxKernelTestCase):
             CRASH_COMMAND_NAMESPACE.run(self.prog, command)
         return types.SimpleNamespace(stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
-    # Run a crash command with and without --drgn. Capture its stdout and
-    # stderr, and check that --drgn doesn't write anything to stderr.
+    # Run a crash command with --drgn. Capture its stdout and check that it
+    # doesn't write anything to stderr.
     #
-    # If mode is "compile" or "exec", check that --drgn outputs valid,
-    # non-empty Python code.
+    # mode must be "capture", "compile", or "exec".
+    #
+    # If mode is "compile" or "exec", check that it outputs valid, non-empty
+    # Python code.
     #
     # If mode is "exec", also execute the code and capture any globals it sets.
-    def check_crash_command(self, command, mode="exec"):
+    def run_crash_command_drgn_option(self, command, mode="exec"):
         assert mode in {"capture", "compile", "exec"}
 
-        drgn_option = self.run_crash_command(command + " --drgn")
+        ret = self.run_crash_command(command + " --drgn")
 
-        self.assertFalse(drgn_option.stderr)
+        self.assertFalse(ret.stderr)
 
         if os.getenv("DRGN_TEST_LOG_CRASH_DRGN"):
             sys.stderr.write(
@@ -53,20 +55,27 @@ class CrashCommandTestCase(LinuxKernelTestCase):
 {'=' * 88}
 %crash {command} --drgn
 {'-' * 88}
-{drgn_option.stdout}\
+{ret.stdout}\
 {'=' * 88}
 """
             )
             sys.stderr.flush()
 
         if mode == "compile" or mode == "exec":
-            self.assertTrue(drgn_option.stdout)
-            drgn_option.code = compile(drgn_option.stdout, command + " --drgn", "exec")
+            self.assertTrue(ret.stdout)
+            ret.code = compile(ret.stdout, command + " --drgn", "exec")
 
         if mode == "exec":
-            drgn_option.globals = {"prog": self.prog}
+            ret.globals = {"prog": self.prog}
             with self.with_default_prog():
-                exec(drgn_option.stdout, drgn_option.globals)
+                exec(ret.stdout, ret.globals)
+
+        return ret
+
+    # Run a crash command with and without --drgn. mode is passed to
+    # run_crash_command_drgn_option().
+    def check_crash_command(self, command, mode="exec"):
+        drgn_option = self.run_crash_command_drgn_option(command, mode)
 
         ret = self.run_crash_command(command)
 
