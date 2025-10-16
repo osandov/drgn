@@ -4,6 +4,7 @@
 from contextlib import redirect_stdout
 import io
 
+from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn import offsetof, sizeof
 from drgn.helpers.common.memory import (
     IdentifiedSymbol,
@@ -161,8 +162,25 @@ class TestIdentifyAddress(LinuxKernelTestCase):
         identified = list(identify_address_all(self.prog["init_task"].stack))
         self.assertIsInstance(identified[0], IdentifiedTaskStack)
         self.assertEqual(identified[0].task, idle_task(self.prog, 0))
-        self.assertIsInstance(identified[1], IdentifiedSymbol)
-        self.assertGreaterEqual(len(identified), 2)
+        # s390x between Linux kernel commits ce3dc447493f ("s390: add support
+        # for virtually mapped kernel stacks") (in v4.20) and 944c78376a39
+        # ("s390: use init_thread_union aka initial stack for the first
+        # process") (in v6.4) allocates init_task.stack.
+        if NORMALIZED_MACHINE_NAME == "s390x":
+            if self.prog["drgn_test_vmap_stack_enabled"]:
+                self.assertIsInstance(identified[1], (IdentifiedSymbol, IdentifiedVmap))
+                self.assertEqual(len(identified), 2)
+            elif self.prog["drgn_test_slab_stack_enabled"]:
+                self.assertIsInstance(
+                    identified[1], (IdentifiedSymbol, IdentifiedSlabObject)
+                )
+                self.assertEqual(len(identified), 2)
+            elif len(identified) > 1:
+                self.assertIsInstance(identified[1], IdentifiedSymbol)
+                self.assertEqual(len(identified), 2)
+        else:
+            self.assertIsInstance(identified[1], IdentifiedSymbol)
+            self.assertGreaterEqual(len(identified), 2)
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod

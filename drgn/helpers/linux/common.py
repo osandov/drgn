@@ -12,7 +12,16 @@ import dataclasses
 import os
 from typing import Any, Dict, Iterable, Iterator, Optional, Tuple, Union
 
-from drgn import NULL, FaultError, Object, ObjectNotFoundError, Program, Symbol, sizeof
+from drgn import (
+    NULL,
+    Architecture,
+    FaultError,
+    Object,
+    ObjectNotFoundError,
+    Program,
+    Symbol,
+    sizeof,
+)
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.mm import (
@@ -201,11 +210,24 @@ def _stack_alloc_info(prog: Program) -> Union[bool, Object]:
     return info
 
 
-# for_each_task() plus every idle task other than CPU 0's.
-def _for_each_allocated_task(prog: Program) -> Iterator[Object]:
+# Yield each task_struct that may have an allocated stack.
+def _for_each_allocated_task_stack(prog: Program) -> Iterator[Object]:
     yield from for_each_task(prog)
+    is_s390x = (
+        prog.platform.arch  # type: ignore[union-attr]  # platform can't be None.
+        == Architecture.S390X
+    )
     for cpu in for_each_online_cpu(prog):
-        if cpu > 0:
+        # s390x between Linux kernel commits ce3dc447493f ("s390: add support
+        # for virtually mapped kernel stacks") (in v4.20) and 944c78376a39
+        # ("s390: use init_thread_union aka initial stack for the first
+        # process") (in v6.4) allocates init_task.stack. In every other case,
+        # it is a symbol.
+        #
+        # Note that on s390x outside of these versions, it's technically
+        # incorrect to include init_task here, but it's okay because we don't
+        # call this if we already identified a symbol.
+        if cpu > 0 or is_s390x:
             yield idle_task(prog, cpu)
 
 
@@ -219,7 +241,7 @@ def _identify_task_stack(
     # The cached and uncached cases are separate so that we can avoid creating
     # a large cache and stop early in the uncached case.
     if cache is None:
-        for task in _for_each_allocated_task(prog):
+        for task in _for_each_allocated_task_stack(prog):
             try:
                 if task.stack.value_() == aligned_addr:
                     break
@@ -232,7 +254,7 @@ def _identify_task_stack(
             stack_to_task = cache["stack_to_task"]
         except KeyError:
             stack_to_task = {}
-            for task in _for_each_allocated_task(prog):
+            for task in _for_each_allocated_task_stack(prog):
                 try:
                     stack_to_task[task.stack.value_()] = task
                 except FaultError:
