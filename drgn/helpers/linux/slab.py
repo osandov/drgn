@@ -475,23 +475,23 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             free_objs = 0
             prev_nr_slabs = None
             while partial:
-                nr_slabs = getattr(partial, nr_slabs_attr).value_()
-                # We could be stricter and check nr_slabs == prev_nr_slabs - 1, but
-                # the main thing we care about is not getting stuck in a cycle.
-                if prev_nr_slabs is not None and nr_slabs >= prev_nr_slabs:
-                    if attempts_remaining > 0:
-                        # Break the loop over the slab list and retry from the
-                        # beginning of the list.
-                        break
-                    raise SlabPartialListError(
-                        f"{_slab_cache_name(self._slab_cache)} cpu {cpu} "
-                        "partial slabs count not decreasing; "
-                        "may be corrupted or in the middle of update"
-                    )
-                prev_nr_slabs = nr_slabs
-
-                free_objs += partial.objects.value_() - partial.inuse.value_()
                 try:
+                    nr_slabs = getattr(partial, nr_slabs_attr).value_()
+                    # We could be stricter and check nr_slabs == prev_nr_slabs - 1, but
+                    # the main thing we care about is not getting stuck in a cycle.
+                    if prev_nr_slabs is not None and nr_slabs >= prev_nr_slabs:
+                        if attempts_remaining > 0:
+                            # Break the loop over the slab list and retry from the
+                            # beginning of the list.
+                            break
+                        raise SlabPartialListError(
+                            f"{_slab_cache_name(self._slab_cache)} cpu {cpu} "
+                            "partial slabs count not decreasing; "
+                            "may be corrupted or in the middle of update"
+                        )
+                    prev_nr_slabs = nr_slabs
+
+                    free_objs += partial.objects.value_() - partial.inuse.value_()
                     partial = partial.next.read_()
                 except FaultError:
                     if attempts_remaining > 0:
