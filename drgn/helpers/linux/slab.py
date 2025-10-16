@@ -342,9 +342,7 @@ class _SlabCacheHelper:
             if slab.slab_cache == self._slab_cache:
                 yield from self._page_objects(page, slab, pointer_type)
 
-    def object_info(
-        self, page: Object, slab: Object, addr: int
-    ) -> "Optional[SlabObjectInfo]":
+    def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
         raise NotImplementedError()
 
 
@@ -745,8 +743,8 @@ class _SlabCacheHelperSlob(_SlabCacheHelper):
     def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
         raise ValueError("SLOB is not supported")
 
-    def object_info(self, page: Object, slab: Object, addr: int) -> None:
-        return None
+    def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
+        return SlabObjectInfo(self._slab_cache, slab, 0, None)
 
 
 def _get_slab_cache_helper(slab_cache: Object) -> _SlabCacheHelper:
@@ -820,9 +818,7 @@ def slab_cache_for_each_allocated_object(
     return _get_slab_cache_helper(slab_cache).for_each_allocated_object(type)
 
 
-def _find_containing_slab(
-    prog: Program, addr: int
-) -> Optional[Tuple[Object, Object, Object]]:
+def _find_containing_slab(prog: Program, addr: int) -> Optional[Tuple[Object, Object]]:
     page = virt_to_page(prog, addr)
 
     try:
@@ -833,12 +829,7 @@ def _find_containing_slab(
         # Page does not exist
         return None
 
-    slab = cast(_get_slab_type(prog), page)
-    try:
-        return slab.slab_cache, page, slab
-    except AttributeError:
-        # SLOB
-        return None
+    return page, cast(_get_slab_type(prog), page)
 
 
 @takes_program_or_default
@@ -861,8 +852,11 @@ def slab_object_info(prog: Program, addr: IntegerLike) -> "Optional[SlabObjectIn
     1496
 
     Note that SLOB does not store enough information to identify slab objects,
-    so if the kernel is configured to use SLOB, this will always return
-    ``None``.
+    so if the kernel is configured to use SLOB, then
+    :attr:`SlabObjectInfo.slab_cache` will always be ``NULL`` and
+    :attr:`SlabObjectInfo.address` will always be 0. Additionally, for
+    allocations of at least one page, SLOB allocates pages directly, so this
+    will return ``None``.
 
     :param addr: ``void *``
     :return: :class:`SlabObjectInfo` if *addr* is in a slab object, or ``None``
@@ -874,7 +868,12 @@ def slab_object_info(prog: Program, addr: IntegerLike) -> "Optional[SlabObjectIn
     result = _find_containing_slab(prog, addr)
     if result is None:
         return None
-    slab_cache, page, slab = result
+    page, slab = result
+    try:
+        slab_cache = slab.slab_cache.read_()
+    except AttributeError:
+        # SLOB
+        slab_cache = NULL(prog, "struct kmem_cache *")
     return _get_slab_cache_helper(slab_cache).object_info(page, slab, addr)
 
 
@@ -882,7 +881,12 @@ class SlabObjectInfo:
     """Information about an object in the slab allocator."""
 
     slab_cache: Object
-    """``struct kmem_cache *`` that the slab object is from."""
+    """
+    ``struct kmem_cache *`` that the slab object is from.
+
+    SLOB does not store enough information to find this, so if the kernel is
+    configured to use SLOB, then this will always be ``NULL``.
+    """
 
     slab: Object
     """
@@ -893,12 +897,18 @@ class SlabObjectInfo:
     """
 
     address: int
-    """Address of the slab object."""
+    """
+    Address of the slab object.
+
+    SLOB does not store enough information to find this, so if the kernel is
+    configured to use SLOB, then this will always be 0.
+    """
 
     allocated: Optional[bool]
     """
     ``True`` if the object is allocated, ``False`` if it is free, or ``None``
-    if not known because the slab cache is corrupted.
+    if not known because the slab cache is corrupted or the kernel is
+    configured to use SLOB.
     """
 
     def __init__(
@@ -929,9 +939,13 @@ def find_containing_slab_cache(prog: Program, addr: IntegerLike) -> Object:
     if not in_direct_map(prog, addr):
         return NULL(prog, "struct kmem_cache *")
     result = _find_containing_slab(prog, operator.index(addr))
-    if result is None:
-        return NULL(prog, "struct kmem_cache *")
-    return result[0].read_()
+    if result is not None:
+        try:
+            return result[1].slab_cache.read_()
+        except AttributeError:
+            # SLOB
+            pass
+    return NULL(prog, "struct kmem_cache *")
 
 
 @takes_program_or_default

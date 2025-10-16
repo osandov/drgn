@@ -57,6 +57,7 @@ def identify_address(
       (where ``hex_offset`` is the offset from the beginning of the object in
       hexadecimal).
     * Free slab objects: ``free slab object: {slab_cache_name}+{hex_offset}``.
+    * Slab objects with SLOB: ``unknown slab object``.
     * Page structures: ``page: pfn {pfn} +{hex_offset}`` (where ``pfn`` is the
       page frame number and ``hex_offset`` is the optional offset from the
       beginning of the structure).

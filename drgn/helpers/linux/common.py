@@ -12,7 +12,7 @@ import dataclasses
 import os
 from typing import Any, Dict, Iterable, Iterator, Optional, Tuple, Union
 
-from drgn import FaultError, Object, ObjectNotFoundError, Program, Symbol, sizeof
+from drgn import NULL, FaultError, Object, ObjectNotFoundError, Program, Symbol, sizeof
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.mm import (
@@ -87,6 +87,9 @@ class IdentifiedSlabObject:
     """Information about slab object containing the address."""
 
     def __str__(self) -> str:
+        if not self.slab_object_info.address:  # SLOB
+            return "unknown slab object"
+
         cache_name = escape_ascii_string(
             self.slab_object_info.slab_cache.name.string_(), escape_backslash=True
         )
@@ -353,7 +356,12 @@ def _identify_kernel_address(
 
         result = _find_containing_slab(prog, addr)
         if result is not None:
-            slab_cache, page, slab = result
+            page, slab = result
+            try:
+                slab_cache = slab.slab_cache.read_()
+            except AttributeError:
+                # SLOB
+                slab_cache = NULL(prog, "struct kmem_cache *")
             slab_info = _get_slab_cache_helper(slab_cache).object_info(page, slab, addr)
             if slab_info:
                 if slab_info.allocated:

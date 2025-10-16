@@ -297,7 +297,14 @@ class TestSlab(LinuxKernelTestCase):
                 cache = self.prog[f"drgn_test_{size}_kmem_cache"]
                 objects = self.prog[f"drgn_test_{size}_slab_objects"]
                 if self.prog["drgn_test_slob"]:
-                    self.assertIsNone(slab_object_info(objects[0]))
+                    info = slab_object_info(objects[0])
+                    if size == "small":
+                        self.assertFalse(info.slab_cache)
+                        self.assertTrue(info.slab)
+                        self.assertFalse(info.address)
+                        self.assertIsNone(info.allocated)
+                    else:
+                        self.assertIsNone(info)
                 else:
                     info = slab_object_info(objects[0])
                     self.assertEqual(info.slab_cache, cache)

@@ -57,7 +57,12 @@ class TestIdentifyAddress(LinuxKernelTestCase):
 
                 if self.prog["drgn_test_slob"]:
                     for obj in objects:
-                        self.assertIsNone(identify_address(obj))
+                        if size == "small":
+                            self.assertEqual(
+                                identify_address(obj), "unknown slab object"
+                            )
+                        else:
+                            self.assertIsNone(identify_address(obj))
                 else:
                     for obj in objects:
                         self.assertEqual(
