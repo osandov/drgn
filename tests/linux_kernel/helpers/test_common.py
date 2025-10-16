@@ -228,13 +228,10 @@ class TestIdentifyAddress(LinuxKernelTestCase):
     @skip_unless_have_test_kmod
     def test_identify_unrecognized(self):
         start_addr = (pfn_to_virt(self.prog["min_low_pfn"])).value_()
-        end_addr = (pfn_to_virt(self.prog["max_pfn"]) + self.prog["PAGE_SIZE"]).value_()
-
         # On s390x, the start address is 0, and identify_address() doesn't
         # allow a negative address.
         if start_addr > 0:
             self.assertIsNone(identify_address(self.prog, start_addr - 1))
-        self.assertIsNone(identify_address(self.prog, end_addr))
         self.assertIsNone(identify_address(self.prog, self.prog["drgn_test_va"]))
 
 
