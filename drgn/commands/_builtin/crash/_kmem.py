@@ -1292,11 +1292,20 @@ if cache:
         code.append(
             """\
     objsize = cache.object_size
-    usage = slab_cache_usage(cache)
-    allocated = usage.active_objs
-    total = usage.num_objs
-    slabs = usage.num_slabs
-    ssize = prog["PAGE_SIZE"] * slab_cache_pages_per_slab(cache)
+    try:
+        usage = slab_cache_usage(cache)
+    except ValueError:
+        # SLUB without SLUB_DEBUG and SLOB do not support slab_cache_usage().
+        pass
+    else:
+        allocated = usage.active_objs
+        total = usage.num_objs
+        slabs = usage.num_slabs
+    try:
+        ssize = prog["PAGE_SIZE"] * slab_cache_pages_per_slab(cache)
+    except ValueError:
+        # SLOB does not support slab_cache_pages_per_slab().
+        pass
 """
         )
         code.print()
@@ -1338,17 +1347,34 @@ if cache:
         else:
             objsize = cache.object_size.value_()
             try:
-                usage = slab_cache_usage(cache)
-            except (FaultError, ValidationError):
-                allocated: Any = "[CORRUPTED]"
+                order = slab_cache_order(cache)
+            except ValueError:
+                # SLOB doesn't support slab_cache_order() or
+                # slab_cache_usage().
+                allocated: Any = "[UNKNOWN]"
                 total: Any = ""
                 slabs: Any = ""
+                ssize: Any = ""
             else:
-                allocated = usage.active_objs
-                total = usage.num_objs
-                slabs = usage.num_slabs
-            ssize = prog["PAGE_SIZE"].value_() << slab_cache_order(cache)
-            ssize_cell = CellFormat(f"{ssize // 1024}k", ">")
+                ssize = CellFormat(
+                    f"{(prog['PAGE_SIZE'].value_() << order) // 1024}k", ">"
+                )
+                # SLUB without SLUB_DEBUG supports slab_cache_order() but not
+                # slab_cache_usage().
+                try:
+                    usage = slab_cache_usage(cache)
+                except ValueError:
+                    allocated = "[UNKNOWN]"
+                    total = ""
+                    slabs = ""
+                except (FaultError, ValidationError):
+                    allocated = "[CORRUPTED]"
+                    total = ""
+                    slabs = ""
+                else:
+                    allocated = usage.active_objs
+                    total = usage.num_objs
+                    slabs = usage.num_slabs
             rows.append(
                 (
                     CellFormat(cache.value_(), "<x"),
@@ -1356,7 +1382,7 @@ if cache:
                     allocated,
                     total,
                     slabs,
-                    ssize_cell,
+                    ssize,
                     escape_ascii_string(cache.name.string_(), escape_backslash=True),
                 )
             )
@@ -1548,9 +1574,15 @@ def _kmem_identify(
                         print(
                             f"kmem: ignoring pre-selected slab caches for address: {address:x}"
                         )
-                    _kmem_slab(
-                        prog, False, ignore=ignore_slab_caches, identified=identified
-                    )
+                    if identified.slab_object_info.address:
+                        _kmem_slab(
+                            prog,
+                            False,
+                            ignore=ignore_slab_caches,
+                            identified=identified,
+                        )
+                    else:
+                        print(f"kmem: address is from SLOB: {address:x}")
 
         if not found_vmap and mode == "vmalloc":
             print_divider()

@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import re
 import tempfile
-import unittest
 
 from drgn import Object
 from drgn.commands import CommandArgumentError
@@ -17,11 +16,8 @@ from tests.linux_kernel.crash_commands import CrashCommandTestCase
 from tests.linux_kernel.helpers.test_slab import fallback_slab_cache_names
 from util import KernelVersion
 
-skip_unless_kmem_s_supported = unittest.skipUnless(
-    # Good enough approximation for kmem -s support.
-    Path("/proc/slabinfo").exists(),
-    "kmem -s requires CONFIG_SLUB_DEBUG/!CONFIG_SLOB",
-)
+# Good enough approximation for full kmem -s support.
+have_full_kmem_s_support = Path("/proc/slabinfo").exists()
 
 
 class TestKmem(CrashCommandTestCase):
@@ -382,91 +378,92 @@ class TestKmem(CrashCommandTestCase):
         for variable in ("mapping", "private", "_refcount", "lru", "flags"):
             self.assertIsInstance(drgn_option_globals[variable], Object)
 
-    def _test_s_common(self, cmd):
+    def check_kmem_s(self, options, check_common=True):
+        cmd = self.check_crash_command("kmem -s " + options)
         self.assertEqual(
             cmd.drgn_option.globals["cache"].type_.type_name(), "struct kmem_cache *"
         )
-        for variable in (
-            "objsize",
-            "usage",
-            "allocated",
-            "total",
-            "slabs",
-            "ssize",
-            "name",
-        ):
-            self.assertIn(variable, cmd.drgn_option.globals)
+        if check_common:
+            for variable in (
+                "objsize",
+                "name",
+            ):
+                self.assertIn(variable, cmd.drgn_option.globals)
+            if have_full_kmem_s_support:
+                for variable in (
+                    "usage",
+                    "allocated",
+                    "total",
+                    "slabs",
+                    "ssize",
+                    "name",
+                ):
+                    self.assertIn(variable, cmd.drgn_option.globals)
+        return cmd
 
-    @skip_unless_kmem_s_supported
     def test_s(self):
-        cmd = self.check_crash_command("kmem -s")
+        cmd = self.check_kmem_s("")
 
         for name in fallback_slab_cache_names(self.prog):
-            self.assertRegex(cmd.stdout, rf"\b{re.escape(name.decode())}\b")
+            if have_full_kmem_s_support:
+                self.assertRegex(cmd.stdout, rf"[0-9]+k\s+{re.escape(name.decode())}\b")
+            else:
+                self.assertRegex(cmd.stdout, rf"\b{re.escape(name.decode())}\b")
 
         self.assertIn("for_each_slab_cache(", cmd.drgn_option.stdout)
-        self._test_s_common(cmd)
 
-    @skip_unless_kmem_s_supported
     def test_s_match_one(self):
         names = sorted(name.decode() for name in fallback_slab_cache_names(self.prog))
-        cmd = self.check_crash_command(f"kmem -s {names[0]}")
+        cmd = self.check_kmem_s(names[0])
 
-        self.assertRegex(cmd.stdout, rf"\b{re.escape(names[0])}\b")
+        if have_full_kmem_s_support:
+            self.assertRegex(cmd.stdout, rf"[0-9]+k\s+{re.escape(names[0])}\b")
+        else:
+            self.assertRegex(cmd.stdout, rf"\b{re.escape(names[0])}\b")
         self.assertNotRegex(cmd.stdout, rf"\b{re.escape(names[1])}\b")
 
         self.assertIn('find_slab_cache("', cmd.drgn_option.stdout)
-        self._test_s_common(cmd)
 
-    @skip_unless_kmem_s_supported
     def test_s_match_multiple(self):
         names = sorted(name.decode() for name in fallback_slab_cache_names(self.prog))
-        cmd = self.check_crash_command(f"kmem -s {' '.join(names)}")
+        cmd = self.check_kmem_s(" ".join(names))
 
         for name in names:
-            self.assertRegex(cmd.stdout, rf"\b{re.escape(name)}\b")
+            if have_full_kmem_s_support:
+                self.assertRegex(cmd.stdout, rf"[0-9]+k\s+{re.escape(name)}\b")
+            else:
+                self.assertRegex(cmd.stdout, rf"\b{re.escape(name)}\b")
 
         self.assertIn("find_slab_cache(search_name)", cmd.drgn_option.stdout)
-        self._test_s_common(cmd)
 
-    @skip_unless_kmem_s_supported
     def test_s_ignore_one(self):
         ignore = min(fallback_slab_cache_names(self.prog)).decode()
-        cmd = self.check_crash_command(f"kmem -s -I {ignore}")
+        cmd = self.check_kmem_s(f"-I {ignore}")
 
         self.assertRegex(cmd.stdout, rf"\[IGNORED\].*\b{re.escape(ignore)}\b")
 
         self.assertIn("for_each_slab_cache(", cmd.drgn_option.stdout)
         self.assertRegex(cmd.drgn_option.stdout, rf"== .*\b{re.escape(ignore)}\b")
-        self._test_s_common(cmd)
 
-    @skip_unless_kmem_s_supported
     def test_s_ignore_multiple(self):
         names = sorted(name.decode() for name in fallback_slab_cache_names(self.prog))
-        cmd = self.check_crash_command(f"kmem -s -I {','.join(names)}")
+        cmd = self.check_kmem_s(f"-I {','.join(names)}", check_common=False)
 
         for name in names:
             self.assertRegex(cmd.stdout, rf"\[IGNORED\].*\b{re.escape(name)}\b")
 
         self.assertIn("for_each_slab_cache(", cmd.drgn_option.stdout)
         self.assertIn(" in ignore:", cmd.drgn_option.stdout)
-        self.assertEqual(
-            cmd.drgn_option.globals["cache"].type_.type_name(), "struct kmem_cache *"
-        )
 
-    @skip_unless_kmem_s_supported
     def test_s_match_and_ignore(self):
         names = sorted(name.decode() for name in fallback_slab_cache_names(self.prog))
-        cmd = self.check_crash_command(f"kmem -s {names[0]} -I {names[0]}")
+        cmd = self.check_kmem_s(f"{names[0]} -I {names[0]}", check_common=False)
 
         self.assertRegex(cmd.stdout, rf"\[IGNORED\].*\b{re.escape(names[0])}\b")
         self.assertNotRegex(cmd.stdout, rf"\b{re.escape(names[1])}\b")
 
         self.assertIn("find_slab_cache(", cmd.drgn_option.stdout)
         self.assertRegex(cmd.drgn_option.stdout, rf"== .*\b{re.escape(names[0])}\b")
-        self.assertEqual(
-            cmd.drgn_option.globals["cache"].type_.type_name(), "struct kmem_cache *"
-        )
 
     def test_g_value(self):
         value = (1 << self.prog["PG_locked"].value_()) | (
@@ -551,8 +548,13 @@ class TestKmem(CrashCommandTestCase):
         for option in ("", " -s"):
             with self.subTest(option=option):
                 cmd = self.run_crash_command(f"kmem{option} {address + 1:x}")
-                self.assertIn("drgn_test_small", cmd.stdout)
-                self.assertIn(f"[{address:x}]", cmd.stdout)
+                if self.prog["drgn_test_slob"]:
+                    self.assertIn(
+                        f"kmem: address is from SLOB: {address + 1:x}", cmd.stdout
+                    )
+                else:
+                    self.assertIn("drgn_test_small", cmd.stdout)
+                    self.assertIn(f"[{address:x}]", cmd.stdout)
 
     @skip_unless_have_test_kmod
     def test_identify_not_slab(self):
@@ -566,16 +568,22 @@ class TestKmem(CrashCommandTestCase):
         address = self.prog["drgn_test_small_slab_objects"][0].value_()
         cmd = self.run_crash_command(f"kmem -s drgn_test_big {address + 1:x}")
         self.assertIn("ignoring pre-selected slab caches for address", cmd.stdout)
-        self.assertIn("drgn_test_small", cmd.stdout)
-        self.assertIn(f"[{address:x}]", cmd.stdout)
+        if self.prog["drgn_test_slob"]:
+            self.assertIn(f"kmem: address is from SLOB: {address + 1:x}", cmd.stdout)
+        else:
+            self.assertIn("drgn_test_small", cmd.stdout)
+            self.assertIn(f"[{address:x}]", cmd.stdout)
 
     @skip_unless_have_test_kmod
     def test_identify_slab_ignored(self):
         address = self.prog["drgn_test_small_slab_objects"][0].value_()
         cmd = self.run_crash_command(f"kmem -s -I drgn_test_small {address + 1:x}")
-        self.assertIn("drgn_test_small", cmd.stdout)
-        self.assertIn("[IGNORED]", cmd.stdout)
-        self.assertNotIn(f"[{address:x}]", cmd.stdout)
+        if self.prog["drgn_test_slob"]:
+            self.assertIn(f"kmem: address is from SLOB: {address + 1:x}", cmd.stdout)
+        else:
+            self.assertIn("drgn_test_small", cmd.stdout)
+            self.assertIn("[IGNORED]", cmd.stdout)
+            self.assertNotIn(f"[{address:x}]", cmd.stdout)
 
     @skip_unless_have_test_kmod
     def test_identify_multiple(self):
@@ -586,8 +594,9 @@ class TestKmem(CrashCommandTestCase):
         self.assertIn("VMAP_AREA", cmd.stdout)
         self.assertIn(f"{vmalloc_address:x}", cmd.stdout)
 
-        self.assertIn("drgn_test_small", cmd.stdout)
-        self.assertIn(f"[{slab_address:x}]", cmd.stdout)
+        if not self.prog["drgn_test_slob"]:
+            self.assertIn("drgn_test_small", cmd.stdout)
+            self.assertIn(f"[{slab_address:x}]", cmd.stdout)
 
         self.assertIn("identify_address", cmd.drgn_option.globals)
         self.assertTrue(cmd.drgn_option.globals["identified"])
