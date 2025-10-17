@@ -403,6 +403,35 @@ class Program:
         """
         ...
 
+    def read_c_string(
+        self,
+        address: IntegerLike,
+        physical: bool = False,
+        *,
+        max_size: IntegerLike = ...,
+    ) -> bytes:
+        """
+        Read a null-terminated string starting at *address* in the program.
+
+        >>> prog.read_c_string(0xffffffffbe012b40)
+        b'swapper/0'
+        >>> prog.read_c_string(0xffffffffbe012b40, max_size=4)
+        b'swap'
+        >>> prog.read_c_string(0xffffffffbe012b40, max_size=10)
+        b'swapper/0'
+
+        :param address: Starting address.
+        :param physical: Whether *address* is a physical memory address; see
+            :meth:`read()`.
+        :param max_size: Stop after this many bytes are read, not including the
+            null byte. The default is no limit.
+        :raises FaultError: if an invalid address is accessed before finding a
+            null terminator, or if the type of address (physical or virtual) is
+            not supported by the program
+        :raises ValueError: if *max_size* is negative
+        """
+        ...
+
     def read_u8(self, address: IntegerLike, physical: bool = False) -> int:
         """ """
         ...

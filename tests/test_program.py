@@ -202,6 +202,27 @@ class TestMemory(TestCase):
         self.assertEqual(prog.read(0xFFFF0000, len(data)), data)
         self.assertEqual(prog.read(0xA0, len(data), True), data)
 
+    def test_read_c_string(self):
+        data = b"hello, world"
+        prog = mock_program(
+            segments=[MockMemorySegment(data + b"\0", 0xFFFF0000, 0xA0)]
+        )
+        self.assertEqual(prog.read_c_string(0xFFFF0000), data)
+        self.assertEqual(prog.read_c_string(0xA0, True), data)
+
+    def test_read_c_string_max_size(self):
+        for data in (b"hello, world", b"hell", b"he"):
+            with self.subTest(data=data):
+                prog = mock_program(
+                    segments=[
+                        MockMemorySegment(
+                            data + (b"\0" if len(data) < 4 else b""), 0xFFFF0000, 0xA0
+                        )
+                    ]
+                )
+                self.assertEqual(prog.read_c_string(0xFFFF0000, max_size=4), data[:4])
+                self.assertEqual(prog.read_c_string(0xA0, True, max_size=4), data[:4])
+
     def test_read_unsigned(self):
         data = b"\x01\x02\x03\x04\x05\x06\x07\x08"
         for word_size in [8, 4]:

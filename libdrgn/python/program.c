@@ -1460,6 +1460,34 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 	return_ptr(buf);
 }
 
+static PyObject *Program_read_c_string(Program *self, PyObject *args,
+				       PyObject *kwds)
+{
+	static char *keywords[] = {"address", "physical", "max_size", NULL};
+	struct drgn_error *err;
+	struct index_arg address = {};
+	int physical = 0;
+	Py_ssize_t max_size = PY_SSIZE_T_MAX;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|p$n:read_c_string",
+					 keywords, index_converter, &address,
+					 &physical, &max_size))
+	    return NULL;
+
+	if (max_size < 0) {
+		PyErr_SetString(PyExc_ValueError, "negative max_size");
+		return NULL;
+	}
+	bool clear = set_drgn_in_python();
+	_cleanup_free_ char *str = NULL;
+	err = drgn_program_read_c_string(&self->prog, address.uvalue, physical,
+					 max_size, &str);
+	if (clear)
+		clear_drgn_in_python();
+	if (err)
+		return set_drgn_error(err);
+	return PyBytes_FromString(str);
+}
+
 #define METHOD_READ(x, type)							\
 static PyObject *Program_read_##x(Program *self, PyObject *args,		\
 				  PyObject *kwds)				\
@@ -2008,6 +2036,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program___contains___DOC},
 	{"read", (PyCFunction)Program_read, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_read_DOC},
+	{"read_c_string", (PyCFunction)Program_read_c_string,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_read_c_string_DOC},
 #define METHOD_DEF_READ(x)						\
 	{"read_"#x, (PyCFunction)Program_read_##x,			\
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_read_##x##_DOC}
