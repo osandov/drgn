@@ -498,6 +498,25 @@ class Formatter:
     ) -> List[str]:
         node = resolved.node
 
+        if len(node.signatures) == 1 and node.signatures[0].has_decorator("property"):
+            return self._format_variable(
+                ResolvedNode(
+                    resolved.modules,
+                    resolved.classes,
+                    resolved.name,
+                    Variable(
+                        node.signatures[0].returns,
+                        None,
+                        node.signatures[0].docstring,
+                    ),
+                ),
+                name,
+                context_module,
+                context_class,
+                rst,
+                property=True,
+            )
+
         lines = []
         for i, signature_node in enumerate(
             signature
@@ -544,6 +563,8 @@ class Formatter:
         context_module: Optional[str],
         context_class: Optional[str],
         rst: bool,
+        *,
+        property: bool = False,
     ) -> List[str]:
         node = resolved.node
         assert node.docstring is not None
@@ -558,7 +579,12 @@ class Formatter:
             context_class,
         )
         if rst:
-            directive = "py:attribute" if resolved.classes else "py:data"
+            if property:
+                directive = "py:property"
+            elif resolved.classes:
+                directive = "py:attribute"
+            else:
+                directive = "py:data"
             lines = [f".. {directive}:: {name}"]
             if node.annotation:
                 lines.append(
