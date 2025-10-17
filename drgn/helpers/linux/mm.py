@@ -83,7 +83,6 @@ __all__ = (
     "for_each_valid_pfn_and_page",
     "for_each_vma",
     "for_each_vmap_area",
-    "get_task_rss_info",
     "in_direct_map",
     "memory_block_size_bytes",
     "page_flags",
@@ -96,6 +95,7 @@ __all__ = (
     "pfn_to_virt",
     "phys_to_page",
     "phys_to_virt",
+    "task_rss",
     "totalram_pages",
     "virt_to_page",
     "virt_to_pfn",
@@ -1695,7 +1695,7 @@ def in_direct_map(prog: Program, addr: IntegerLike) -> bool:
 
 class TaskRss(NamedTuple):
     """
-    Represents a task's resident set size in pages. See :func:`get_task_rss_info()`.
+    Represents a task's resident set size in pages. See :func:`task_rss()`.
     """
 
     file: int
@@ -1713,7 +1713,7 @@ class TaskRss(NamedTuple):
 
 
 @takes_program_or_default
-def get_task_rss_info(prog: Program, task: Object) -> TaskRss:
+def task_rss(prog: Program, task: Object) -> TaskRss:
     """
     Return the task's resident set size (RSS) in pages
 

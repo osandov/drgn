@@ -41,7 +41,6 @@ from drgn.helpers.linux.mm import (
     for_each_valid_page_range,
     for_each_vma,
     for_each_vmap_area,
-    get_task_rss_info,
     memory_block_size_bytes,
     page_index,
     page_size,
@@ -52,6 +51,7 @@ from drgn.helpers.linux.mm import (
     pfn_to_virt,
     phys_to_page,
     phys_to_virt,
+    task_rss,
     totalram_pages,
     virt_to_page,
     virt_to_pfn,
@@ -502,10 +502,10 @@ class TestMm(LinuxKernelTestCase):
             delta=1024 * 1024 * 1024,
         )
 
-    def test_get_task_rss_info(self):
+    def test_task_rss(self):
         with fork_and_stop() as pid:
             task = find_task(self.prog, pid)
-            rss_info = get_task_rss_info(self.prog, task)
+            rss_info = task_rss(self.prog, task)
 
             page_size = self.prog["PAGE_SIZE"].value_()
             # Get the relevant RSS counters, converting from kB to pages.
