@@ -26,6 +26,7 @@ from drgn.commands import (
     command,
     custom_command,
 )
+from drgn.helpers.common.format import double_quote_ascii_string
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.sched import task_cpu
@@ -224,6 +225,16 @@ def crash_get_context(
         pass
     prog.config["crash_context"] = task = _crash_get_panic_context(prog)
     return task
+
+
+def print_task_header(task: Object) -> None:
+    """Print basic information about a task in the same format as crash."""
+    print(
+        f"PID: {task.pid.value_():<7}  "
+        f"TASK: {task.value_():x}  "
+        f"CPU: {task_cpu(task)}  "
+        f"COMMAND: {double_quote_ascii_string(task.comm.string_())}"
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -454,6 +465,20 @@ task = Object(prog, "struct task_struct *", address)
         else:
             assert arg[0] == "task"
             self._append_crash_task_context(arg[1])
+
+    def append_task_header(self, indent: str = "") -> None:
+        """Append code for getting basic information about a task."""
+        self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+        self.append(
+            textwrap.indent(
+                """\
+pid = task.pid
+cpu = task_cpu(task)
+command = task.comm
+""",
+                indent,
+            )
+        )
 
     def append_cpuspec(self, cpuspec: Cpuspec, loop_body: str) -> None:
         """
