@@ -6,7 +6,7 @@ import ctypes
 import os
 import re
 import sys
-from typing import NamedTuple
+from typing import NamedTuple, Tuple
 
 from _drgn_util.platform import SYS
 from tests.linux_kernel import _check_ctypes_syscall, _syscall
@@ -259,6 +259,13 @@ BPF_REG_9 = 9
 BPF_REG_10 = 10
 
 MAX_BPF_REG = 11
+
+BPF_PSEUDO_MAP_FD = 1
+BPF_PSEUDO_MAP_IDX = 5
+BPF_PSEUDO_MAP_VALUE = 2
+BPF_PSEUDO_MAP_IDX_VALUE = 6
+BPF_PSEUDO_BTF_ID = 3
+BPF_PSEUDO_FUNC = 4
 
 
 # Instruction encoding.
@@ -617,3 +624,23 @@ def bpf_link_create(prog_fd, target_fd, attach_type, flags=0):
     attr.link_create.attach_type = attach_type
     attr.link_create.flags = flags
     return _bpf(BPF_LINK_CREATE, attr)
+
+
+def BPF_LD_IMM64_RAW(dst: int, src: int, imm: int) -> Tuple[int, int]:
+    # Allow signed and unsigned 64-bit values.
+    if imm < -(2**63) or imm >= 2**64:
+        raise ValueError(f"imm {imm} is out of range")
+    return (
+        bpf_insn(
+            code=BPF_LD | BPF_DW | BPF_IMM,
+            dst_reg=dst,
+            src_reg=src,
+            off=0,
+            imm=imm & 0xFFFFFFFF,
+        ),
+        bpf_insn(code=0, dst_reg=0, src_reg=0, off=0, imm=(imm >> 32) & 0xFFFFFFFF),
+    )
+
+
+def BPF_LD_MAP_FD(dst: int, map_fd: int) -> int:
+    return BPF_LD_IMM64_RAW(dst, BPF_PSEUDO_MAP_FD, map_fd)
