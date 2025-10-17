@@ -392,7 +392,7 @@ class CommandFormatter:
             dest_node = _get_kwarg(node, "dest")
             if dest_node is None:
                 if positional:
-                    arg_names = (option_names[0],)
+                    arg_names: Sequence[str] = (option_names[0],)
                 else:
                     for option_name in option_names:
                         if option_name.startswith("--"):
