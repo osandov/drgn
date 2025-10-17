@@ -1729,12 +1729,14 @@ def task_rss(prog: Program, task: Object) -> TaskRss:
     :returns: the file, anon, and shmem page values
     """
 
+    mm = task.mm.read_()
+
     # Kthreads have a NULL mm, simply skip them, returning 0.
-    if not task.mm:
+    if not mm:
         return TaskRss(0, 0, 0, 0)
 
     prog = task.prog_
-    rss_stat = task.mm.rss_stat
+    rss_stat = mm.rss_stat
 
     MM_FILEPAGES = prog.constant("MM_FILEPAGES").value_()
     MM_ANONPAGES = prog.constant("MM_ANONPAGES").value_()
