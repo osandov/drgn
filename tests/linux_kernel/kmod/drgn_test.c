@@ -1573,6 +1573,11 @@ static struct task_struct *drgn_test_waitq_kthread;
 static wait_queue_head_t drgn_test_waitq;
 static wait_queue_head_t drgn_test_empty_waitq;
 
+struct drgn_test_waitq_container_struct {
+	int x;
+	wait_queue_head_t waitq;
+} drgn_test_waitq_container;
+
 static int drgn_test_waitq_kthread_fn(void *arg)
 {
 	wait_event_interruptible(drgn_test_waitq, kthread_should_stop());
@@ -1583,6 +1588,7 @@ static int drgn_test_waitq_init(void)
 {
 	init_waitqueue_head(&drgn_test_waitq);
 	init_waitqueue_head(&drgn_test_empty_waitq);
+	init_waitqueue_head(&drgn_test_waitq_container.waitq);
 
 	drgn_test_waitq_kthread = kthread_create(drgn_test_waitq_kthread_fn,
 						 NULL,
