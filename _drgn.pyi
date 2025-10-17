@@ -384,15 +384,16 @@ class Program:
         self, address: IntegerLike, size: IntegerLike, physical: bool = False
     ) -> bytes:
         r"""
-        Read *size* bytes of memory starting at *address* in the program. The
-        address may be virtual (the default) or physical if the program
+        Read *size* bytes of memory starting at *address* in the program.
+
+        The address may be virtual (the default) or physical if the program
         supports it.
 
         >>> prog.read(0xffffffffbe012b40, 16)
         b'swapper/0\x00\x00\x00\x00\x00\x00\x00'
 
-        :param address: The starting address.
-        :param size: The number of bytes to read.
+        :param address: Starting address.
+        :param size: Number of bytes to read.
         :param physical: Whether *address* is a physical memory address. If
             ``False``, then it is a virtual memory address. Physical memory can
             usually only be read when the program is an operating system
@@ -433,19 +434,19 @@ class Program:
         ...
 
     def read_u8(self, address: IntegerLike, physical: bool = False) -> int:
-        """ """
+        """"""
         ...
 
     def read_u16(self, address: IntegerLike, physical: bool = False) -> int:
-        """ """
+        """"""
         ...
 
     def read_u32(self, address: IntegerLike, physical: bool = False) -> int:
-        """ """
+        """"""
         ...
 
     def read_u64(self, address: IntegerLike, physical: bool = False) -> int:
-        """ """
+        """"""
         ...
 
     def read_word(self, address: IntegerLike, physical: bool = False) -> int:
