@@ -682,14 +682,16 @@ class CommandFunc(Protocol):
         args: argparse.Namespace,
         /,
         *,
+        parser: argparse.ArgumentParser,
         globals: Dict[str, Any],
     ) -> Any:
         """
         :param prog: Program.
         :param name: Name that the command was invoked as.
         :param args: Parsed arguments as an :class:`argparse.Namespace`.
+        :param parser: Argument parser.
 
-        See :meth:`Command.run()` for keyword parameters.
+        See :meth:`Command.run()` for other keyword parameters.
 
         :return: Anything, but usually ``None``.
         """
@@ -1001,14 +1003,16 @@ class CustomCommandFunc(Protocol):
         args: str,
         /,
         *,
+        parser: argparse.ArgumentParser,
         globals: Dict[str, Any],
     ) -> Any:
         """
         :param prog: Program.
         :param name: Name that the command was invoked as.
         :param args: Command arguments as a string.
+        :param parser: Argument parser.
 
-        See :meth:`Command.run()` for keyword parameters.
+        See :meth:`Command.run()` for other keyword parameters.
 
         :return: Anything, but usually ``None``.
         """
@@ -1060,7 +1064,7 @@ class _ArgparseCommand(_ArgparseCommandMixin):
     def run(self, prog: Program, name: str, args: str, **kwargs: Any) -> Any:
         with _shell_command(args) as parsed:
             parsed_args = self._parser.parse_args(parsed.args)
-            return self._func(prog, name, parsed_args, **kwargs)
+            return self._func(prog, name, parsed_args, **kwargs, parser=self._parser)
 
 
 class _CustomCommand(_ArgparseCommandMixin):
@@ -1072,7 +1076,10 @@ class _CustomCommand(_ArgparseCommandMixin):
         enabled: Optional[Callable[[Program], bool]] = None,
     ) -> None:
         super().__init__(parser, description, enabled)
-        self.run = func
+        self._func = func
+
+    def run(self, prog: Program, name: str, args: str, **kwargs: Any) -> Any:
+        return self._func(prog, name, args, **kwargs, parser=self._parser)
 
 
 # Variant of repr() that prefers double-quoted strings (like Black).
