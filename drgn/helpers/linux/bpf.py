@@ -26,6 +26,7 @@ __all__ = (
     "bpf_prog_for_each",
     "cgroup_bpf_prog_for_each",
     "cgroup_bpf_prog_for_each_effective",
+    "bpf_prog_used_maps",
 )
 
 
@@ -180,3 +181,14 @@ def cgroup_bpf_prog_for_each_effective(
             if not prog:
                 break
             yield prog
+
+
+def bpf_prog_used_maps(bpf_prog: Object) -> Iterator[Object]:
+    """
+    Yield maps used by a BPF program.
+
+    :param bpf_prog: ``struct bpf_prog *``
+    :return: Iterator of ``struct bpf_map *`` objects.
+    """
+    aux = bpf_prog.aux.read_()
+    return iter(aux.used_maps[: aux.used_map_cnt])
