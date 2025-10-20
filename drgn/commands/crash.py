@@ -370,6 +370,9 @@ class Cpuspec:
     all: bool = False
     """Include all possible CPUs."""
 
+    panic: bool = False
+    """Include the panic CPU."""
+
     explicit_cpus: FrozenSet[int] = frozenset()
     """Explicitly listed CPUs."""
 
@@ -388,6 +391,8 @@ class Cpuspec:
             return [task_cpu(crash_get_context(prog))]
         elif self.all:
             return sorted(for_each_possible_cpu(prog))
+        elif self.panic:
+            return [task_cpu(prog.crashed_thread().object)]
         elif self.explicit_cpus:
             possible = set(for_each_possible_cpu(prog))
             if not self.explicit_cpus.issubset(possible):
@@ -663,6 +668,11 @@ command = {variable}.comm
         if cpuspec.current:
             self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
             self.append_crash_context()
+            self.append("cpu = task_cpu(task)\n")
+            return self.begin_block("")
+        elif cpuspec.panic:
+            self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+            self._append_crash_panic_context()
             self.append("cpu = task_cpu(task)\n")
             return self.begin_block("")
 
