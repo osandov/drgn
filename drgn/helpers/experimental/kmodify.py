@@ -427,8 +427,23 @@ class _ReturnIfLastReturnValueNonZero(NamedTuple):
     value: _Integer
 
 
+class _AtomicSetBit(NamedTuple):
+    nr: int
+    address: _Integer
+
+
+class _AtomicClearBit(NamedTuple):
+    nr: int
+    address: _Integer
+
+
 _FunctionBodyNode = Union[
-    _Call, _StoreReturnValue, _Return, _ReturnIfLastReturnValueNonZero
+    _Call,
+    _StoreReturnValue,
+    _Return,
+    _ReturnIfLastReturnValueNonZero,
+    _AtomicSetBit,
+    _AtomicClearBit,
 ]
 
 
@@ -675,6 +690,20 @@ class _CodeGen_x86_64:
         # The destination needs to be fixed up later.
         self._epilogue_jumps.append(len(self.code))
 
+    def atomic_set_bit(self, nr: int, address: _Integer) -> None:
+        # mov $address, %rax
+        self._mov_imm(address, self._rax)
+        # lock; orb $(1 << nr), (%rax)
+        self.code.extend(b"\xf0\x80\x08")
+        self.code.append(1 << nr)
+
+    def atomic_clear_bit(self, nr: int, address: _Integer) -> None:
+        # mov $address, %rax
+        self._mov_imm(address, self._rax)
+        # lock; andb $~(1 << nr), (%rax)
+        self.code.extend(b"\xf0\x80\x20")
+        self.code.append(0xFF ^ (1 << nr))
+
 
 class _Arch_X86_64:
     ELF_MACHINE = 62  # EM_X86_64
@@ -715,6 +744,10 @@ class _Arch_X86_64:
                 code_gen.return_(node.value, last=i == len(func.body) - 1)
             elif isinstance(node, _ReturnIfLastReturnValueNonZero):
                 code_gen.return_if_last_return_value_nonzero(node.value)
+            elif isinstance(node, _AtomicSetBit):
+                code_gen.atomic_set_bit(node.nr, node.address)
+            elif isinstance(node, _AtomicClearBit):
+                code_gen.atomic_clear_bit(node.nr, node.address)
             else:
                 assert_never(node)
 
@@ -965,6 +998,19 @@ class _Kmodify:
                 return 0
 
 
+_COPY_TO_FROM_KERNEL_NOFAULT_NAMES = (
+    # Names used since Linux kernel commit fe557319aa06 ("maccess: rename
+    # probe_kernel_{read,write} to copy_{from,to}_kernel_nofault") (in
+    # v5.8-rc2).
+    ("copy_to_kernel_nofault", "copy_from_kernel_nofault"),
+    # Names used before Linux kernel commit 48c49c0e5f31 ("maccess: remove
+    # various unused weak aliases") (in v5.8-rc1).
+    ("__probe_kernel_write", "__probe_kernel_read"),
+    # Names briefly used between those two commits.
+    ("probe_kernel_write", "probe_kernel_read"),
+)
+
+
 @takes_program_or_default
 def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
     """
@@ -989,17 +1035,10 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
     """
     copy_to_kernel_nofault_address = None
     copy_from_kernel_nofault_address = None
-    for copy_to_kernel_nofault, copy_from_kernel_nofault in (
-        # Names used since Linux kernel commit fe557319aa06 ("maccess: rename
-        # probe_kernel_{read,write} to copy_{from,to}_kernel_nofault") (in
-        # v5.8-rc2).
-        ("copy_to_kernel_nofault", "copy_from_kernel_nofault"),
-        # Names used before Linux kernel commit 48c49c0e5f31 ("maccess: remove
-        # various unused weak aliases") (in v5.8-rc1).
-        ("__probe_kernel_write", "__probe_kernel_read"),
-        # Names briefly used between those two commits.
-        ("probe_kernel_write", "probe_kernel_read"),
-    ):
+    for (
+        copy_to_kernel_nofault,
+        copy_from_kernel_nofault,
+    ) in _COPY_TO_FROM_KERNEL_NOFAULT_NAMES:
         try:
             copy_to_kernel_nofault_address = prog[copy_to_kernel_nofault].address_
             copy_from_kernel_nofault_address = prog[copy_from_kernel_nofault].address_
@@ -1084,6 +1123,77 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
             raise ValueError("module init did not run")
 
 
+def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
+    # This and the codegen representations are all in terms of bytes.
+    assert 0 <= nr < 8
+
+    copy_from_kernel_nofault_address = None
+    for _, copy_from_kernel_nofault in _COPY_TO_FROM_KERNEL_NOFAULT_NAMES:
+        try:
+            copy_from_kernel_nofault_address = prog[copy_from_kernel_nofault].address_
+            break
+        except KeyError:
+            pass
+    if copy_from_kernel_nofault_address is None:
+        raise LookupError("copy_from_kernel_nofault not found")
+    sizeof_int = sizeof(prog.type("int"))
+    sizeof_void_p = sizeof(prog.type("void *"))
+    sizeof_size_t = sizeof(prog.type("size_t"))
+
+    kmodify = _Kmodify(prog)
+    if not kmodify.is_little_endian:
+        # Big-endian needs different calculations. kmodify only supports
+        # little-endian architectures at the moment anyways.
+        raise NotImplementedError("_modify_bit() is only implemented for little-endian")
+    code, code_relocations = kmodify.arch.code_gen(
+        _Function(
+            [
+                _Call(
+                    # Catch invalid addresses instead of crashing. Note that
+                    # this won't catch read-only addresses, unfortunately.
+                    _Symbol(copy_from_kernel_nofault),
+                    [
+                        _Symbol(".data", section=True),
+                        _Integer(sizeof_void_p, address),
+                        _Integer(sizeof_size_t, 1),
+                    ],
+                ),
+                _ReturnIfLastReturnValueNonZero(
+                    _Integer(sizeof_int, -errno.EFAULT),
+                ),
+                (_AtomicSetBit if value else _AtomicClearBit)(
+                    nr, _Integer(sizeof_void_p, address)
+                ),
+                _Return(_Integer(sizeof_int, -errno.EINPROGRESS)),
+            ]
+        )
+    )
+    ret = kmodify.insert(
+        name="set_bit" if value else "clear_bit",
+        code=code,
+        code_relocations=code_relocations,
+        data=b"\0",
+        data_alignment=1,
+        symbols=[
+            _ElfSymbol(
+                name=copy_from_kernel_nofault,
+                value=copy_from_kernel_nofault_address,
+                size=0,
+                type=STT.FUNC,
+                binding=STB.LOCAL,
+                section=SHN.ABS,
+            ),
+        ],
+    )
+    if ret != -errno.EINPROGRESS:
+        if ret == -errno.EFAULT:
+            raise FaultError("could not write to memory", address)
+        elif ret:
+            raise OSError(-ret, os.strerror(-ret))
+        else:
+            raise ValueError("module init did not run")
+
+
 def write_object(
     object: Object, value: Any, *, dereference: Optional[bool] = None
 ) -> None:
@@ -1095,6 +1205,10 @@ def write_object(
     >>> write_object(prog["init_time_ns"].offsets.boottime.tv_sec, 1000000000)
     >>> os.system("uptime -p")
     up 3 decades, 1 year, 37 weeks, 1 hour, 59 minutes
+
+    Bit fields are currently only supported if they are either byte-aligned or
+    a single bit. Writes to a bit field are atomic with respect to other bit
+    fields.
 
     .. warning::
         The warnings about :func:`write_memory()` also apply to
@@ -1113,6 +1227,8 @@ def write_object(
     :raises TypeError: if *object* is a pointer and *dereference* is not given
     :raises TypeError: if *object* is not a pointer and *dereference* is
         ``True``
+    :raises NotImplementedError: if *object* is a bit field that is not
+        byte-aligned or a single bit
     """
     type = object.type_
     if type.unaliased_kind() == TypeKind.POINTER:
@@ -1129,11 +1245,23 @@ def write_object(
     address = object.address_
     if address is None:
         raise ValueError("cannot write to value object")
+
+    bit_field_size = object.bit_field_size_
     if isinstance(value, Object):
-        value = implicit_convert(type, value)
+        value = implicit_convert(type, value, bit_field_size=bit_field_size)
     else:
-        value = Object(object.prog_, type, value)
-    write_memory(object.prog_, address, value.to_bytes_())
+        value = Object(object.prog_, type, value, bit_field_size=bit_field_size)
+
+    if bit_field_size is None:
+        bit_field_size = 0
+    bit_offset: int = object.bit_offset_  # type: ignore[assignment]  # address_ is not None, so bit_offset_ is not, either.
+
+    if bit_field_size % 8 == 0 and bit_offset % 8 == 0:
+        write_memory(object.prog_, address, value.to_bytes_())
+    elif bit_field_size == 1:
+        _modify_bit(object.prog_, bit_offset, address, bool(value))
+    else:
+        raise NotImplementedError("only byte-aligned or 1-bit bit fields are supported")
 
 
 def _default_argument_promotions(obj: Object) -> Object:

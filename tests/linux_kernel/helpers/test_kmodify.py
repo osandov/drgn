@@ -323,3 +323,41 @@ class TestWriteObject(LinuxKernelTestCase):
             0,
             dereference=True,
         )
+
+    def test_bit_field_size_1(self):
+        for i in range(3):
+            with self.subTest(i=i):
+                write_object(self.prog["drgn_kmodify_test_bit_field"].bit, i)
+                self.assertFalse(self.prog["drgn_kmodify_test_bit_field"].expect0_1)
+                self.assertTrue(self.prog["drgn_kmodify_test_bit_field"].expect1_1)
+                self.assertEqual(
+                    self.prog["drgn_kmodify_test_bit_field"].bit.value_(), i % 2
+                )
+                self.assertFalse(self.prog["drgn_kmodify_test_bit_field"].expect0_2)
+                self.assertTrue(self.prog["drgn_kmodify_test_bit_field"].expect1_2)
+
+    def test_byte_aligned_bit_field(self):
+        for i in range(3):
+            with self.subTest(i=i):
+                write_object(self.prog["drgn_kmodify_test_bit_field"].byte_aligned, i)
+                self.assertFalse(self.prog["drgn_kmodify_test_bit_field"].expect0_1)
+                self.assertTrue(self.prog["drgn_kmodify_test_bit_field"].expect1_1)
+                self.assertEqual(
+                    self.prog["drgn_kmodify_test_bit_field"].byte_aligned.value_(), i
+                )
+                self.assertFalse(self.prog["drgn_kmodify_test_bit_field"].expect0_2)
+                self.assertTrue(self.prog["drgn_kmodify_test_bit_field"].expect1_2)
+
+    def test_unsupported_bit_field(self):
+        self.assertRaises(
+            NotImplementedError,
+            write_object,
+            self.prog["drgn_kmodify_test_bit_field"].two_bits,
+            1,
+        )
+        self.assertRaises(
+            NotImplementedError,
+            write_object,
+            self.prog["drgn_kmodify_test_bit_field"].unaligned,
+            1,
+        )

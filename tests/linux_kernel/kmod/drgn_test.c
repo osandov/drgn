@@ -1639,6 +1639,20 @@ char drgn_kmodify_test_memory[16];
 int drgn_kmodify_test_int;
 int *drgn_kmodify_test_int_ptr;
 
+struct {
+	unsigned int expect0_1 : 8;
+	unsigned int byte_aligned : 8;
+	unsigned int expect1_1 : 1;
+	unsigned int bit : 1;
+	unsigned int expect1_2 : 1;
+	unsigned int expect0_2 : 1;
+	unsigned int two_bits : 2;
+	unsigned int unaligned : 8;
+} drgn_kmodify_test_bit_field = {
+	.expect1_1 = 1,
+	.expect1_2 = 1,
+};
+
 #define DEFINE_KMODIFY_TEST_RETURN(name, return_type, return_value)	\
 int drgn_kmodify_test_##name##_called = 0;				\
 return_type drgn_kmodify_test_##name(void);				\
