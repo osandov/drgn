@@ -1780,6 +1780,16 @@ class TestImplicitConvert(MockProgramTestCase):
             Object(self.prog, "_Bool", True),
         )
 
+    def test_to_bool_bit_field(self):
+        self.assertIdentical(
+            implicit_convert("_Bool", Object(self.prog, "int", 0), bit_field_size=1),
+            Object(self.prog, "_Bool", False, bit_field_size=1),
+        )
+        self.assertIdentical(
+            implicit_convert("_Bool", Object(self.prog, "int", 4), bit_field_size=1),
+            Object(self.prog, "_Bool", True, bit_field_size=1),
+        )
+
     def test_to_int(self):
         self.assertIdentical(
             implicit_convert("int", Object(self.prog, "unsigned long", 1234)),
@@ -1798,6 +1808,22 @@ class TestImplicitConvert(MockProgramTestCase):
             Object(self.prog, "int", 2),
         )
 
+    def test_to_int_bit_field(self):
+        self.assertIdentical(
+            implicit_convert(
+                "int", Object(self.prog, "unsigned long", 1234), bit_field_size=3
+            ),
+            Object(self.prog, "int", 2, bit_field_size=3),
+        )
+        self.assertIdentical(
+            implicit_convert(
+                "unsigned int",
+                Object(self.prog, "unsigned long", 1234),
+                bit_field_size=2,
+            ),
+            Object(self.prog, "unsigned int", 2, bit_field_size=2),
+        )
+
     def test_to_float(self):
         self.assertIdentical(
             implicit_convert("double", Object(self.prog, "unsigned long", 1234)),
@@ -1814,6 +1840,16 @@ class TestImplicitConvert(MockProgramTestCase):
         self.assertIdentical(
             implicit_convert("double", Object(self.prog, self.color_type, 2)),
             Object(self.prog, "double", 2.0),
+        )
+
+    def test_to_invalid_bit_field(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "bit field must be integer",
+            implicit_convert,
+            "float",
+            Object(self.prog, "unsigned long", 1234),
+            bit_field_size=3,
         )
 
     def test_to_enum(self):

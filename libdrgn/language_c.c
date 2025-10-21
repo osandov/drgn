@@ -3486,12 +3486,13 @@ static struct drgn_error *c_op_cast(struct drgn_object *res,
 static struct drgn_error *
 c_op_implicit_convert(struct drgn_object *res,
 		      struct drgn_qualified_type qualified_type,
+		      uint64_t bit_field_size,
 		      const struct drgn_object *obj)
 {
 	struct drgn_error *err;
 
 	struct drgn_object_type type;
-	err = drgn_object_type(qualified_type, 0, &type);
+	err = drgn_object_type(qualified_type, bit_field_size, &type);
 	if (err)
 		return err;
 

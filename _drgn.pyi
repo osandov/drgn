@@ -2811,7 +2811,9 @@ def cast(type: Union[str, Type], obj: Object) -> Object:
     """
     ...
 
-def implicit_convert(type: Union[str, Type], obj: Object) -> Object:
+def implicit_convert(
+    type: Union[str, Type], obj: Object, *, bit_field_size: Optional[IntegerLike] = None
+) -> Object:
     """
     Get the value of an object implicitly converted to another type.
 
@@ -2830,6 +2832,8 @@ def implicit_convert(type: Union[str, Type], obj: Object) -> Object:
 
     :param type: Type to convert to.
     :param obj: Object to convert.
+    :param bit_field_size: Size in bits if converting to a bit field.
+        The default is ``None``, which means the result is not a bit field.
     :return: Converted object. This is always a value object.
     :raises TypeError: if converting *obj* to *type* is not allowed
     """

@@ -2890,12 +2890,15 @@ struct drgn_error *drgn_object_cast(struct drgn_object *res,
  *
  * @param[out] res Object to set. Always set to a value object.
  * @param[in] qualified_type New type.
+ * @param[in] bit_field_size If the object should be a bit field, its size in
+ * bits. Otherwise, 0.
  * @param[in] obj Object to convert.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_object_implicit_convert(struct drgn_object *res,
 			     struct drgn_qualified_type qualified_type,
+			     uint64_t bit_field_size,
 			     const struct drgn_object *obj);
 
 /**

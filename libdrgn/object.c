@@ -1395,6 +1395,7 @@ drgn_object_cast(struct drgn_object *res,
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_implicit_convert(struct drgn_object *res,
 			     struct drgn_qualified_type qualified_type,
+			     uint64_t bit_field_size,
 			     const struct drgn_object *obj)
 {
 	const struct drgn_language *lang = drgn_type_language(qualified_type.type);
@@ -1403,7 +1404,8 @@ drgn_object_implicit_convert(struct drgn_object *res,
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "objects are from different programs");
 	}
-	return lang->op_implicit_convert(res, qualified_type, obj);
+	return lang->op_implicit_convert(res, qualified_type, bit_field_size,
+					 obj);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

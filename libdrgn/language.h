@@ -74,6 +74,11 @@ typedef struct drgn_error *drgn_float_literal_fn(struct drgn_object *res,
 typedef struct drgn_error *
 drgn_cast_op(struct drgn_object *res, struct drgn_qualified_type qualified_type,
 	     const struct drgn_object *obj);
+typedef struct drgn_error *
+drgn_implicit_convert_op(struct drgn_object *res,
+			 struct drgn_qualified_type qualified_type,
+			 uint64_t bit_field_size,
+			 const struct drgn_object *obj);
 typedef struct drgn_error *drgn_bool_op(const struct drgn_object *obj, bool *ret);
 typedef struct drgn_error *drgn_cmp_op(const struct drgn_object *lhs,
 				       const struct drgn_object *rhs, int *ret);
@@ -145,7 +150,7 @@ struct drgn_language {
 	 */
 	drgn_float_literal_fn *float_literal;
 	drgn_cast_op *op_cast;
-	drgn_cast_op *op_implicit_convert;
+	drgn_implicit_convert_op *op_implicit_convert;
 	drgn_bool_op *op_bool;
 	drgn_cmp_op *op_cmp;
 	drgn_binary_op *op_add;

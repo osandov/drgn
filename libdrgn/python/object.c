@@ -1764,7 +1764,43 @@ DrgnObject *op(PyObject *self, PyObject *args, PyObject *kwds)			\
 }
 
 DrgnObject_CAST_OP(cast)
-DrgnObject_CAST_OP(implicit_convert)
+
+DrgnObject *implicit_convert(PyObject *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"type", "obj", "bit_field_size", NULL};
+	struct drgn_error *err;
+	PyObject *type_obj;
+	DrgnObject *obj;
+	struct index_arg bit_field_size = { .allow_none = true, .is_none = true };
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO!|$O&:implicit_convert",
+					 keywords, &type_obj, &DrgnObject_type,
+					 &obj, index_converter,
+					 &bit_field_size))
+		return NULL;
+
+	if (!bit_field_size.is_none && bit_field_size.uvalue == 0) {
+		PyErr_SetString(PyExc_ValueError,
+				"bit field size cannot be zero");
+		return NULL;
+	}
+
+	struct drgn_qualified_type qualified_type;
+	if (Program_type_arg(DrgnObject_prog(obj), type_obj, false,
+			     &qualified_type) == -1)
+		return NULL;
+
+	_cleanup_pydecref_ DrgnObject *res =
+		DrgnObject_alloc(DrgnObject_prog(obj));
+	if (!res)
+		return NULL;
+
+	err = drgn_object_implicit_convert(&res->obj, qualified_type,
+					   bit_field_size.uvalue, &obj->obj);
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(res);
+}
+
 DrgnObject_CAST_OP(reinterpret)
 
 #undef DrgnObject_CAST_OP
