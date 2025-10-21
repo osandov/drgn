@@ -2,14 +2,17 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import os
+from pathlib import Path
 import random
 import unittest
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-from drgn import FaultError, Object
+from drgn import NULL, FaultError, Object
 from drgn.helpers.experimental.kmodify import (
     call_function,
+    clear_bit,
     pass_pointer,
+    set_bit,
     write_memory,
     write_object,
 )
@@ -268,6 +271,54 @@ class TestWriteMemory(LinuxKernelTestCase):
 
     def test_fault(self):
         self.assertRaises(FaultError, write_memory, self.prog, 0, b"asdf")
+
+
+@skip_unless_have_test_kmod
+@skip_unless_have_kmodify
+class TestSetClearBit(LinuxKernelTestCase):
+    BITMAP_PATH = Path("/sys/module/drgn_test/parameters/kmodify_bitmap")
+
+    def test_set_bit(self):
+        self.BITMAP_PATH.write_text("11389675720307120785,15873051463709375381\n")
+
+        set_bit(3, self.prog["drgn_kmodify_test_bitmap"])
+        self.assertEqual(
+            self.BITMAP_PATH.read_text().strip(),
+            "11389675720307120793,15873051463709375381",
+        )
+
+        set_bit(125, self.prog["drgn_kmodify_test_bitmap"])
+        self.assertEqual(
+            self.BITMAP_PATH.read_text().strip(),
+            "11389675720307120793,18178894472923069333",
+        )
+
+    def test_clear_bit(self):
+        self.BITMAP_PATH.write_text("11389675720307120785,15873051463709375381\n")
+
+        clear_bit(66, self.prog["drgn_kmodify_test_bitmap"])
+        self.assertEqual(
+            self.BITMAP_PATH.read_text().strip(),
+            "11389675720307120785,15873051463709375377",
+        )
+
+        clear_bit(59, self.prog["drgn_kmodify_test_bitmap"])
+        self.assertEqual(
+            self.BITMAP_PATH.read_text().strip(),
+            "10813214968003697297,15873051463709375377",
+        )
+
+    def test_type_error(self):
+        self.assertRaises(TypeError, set_bit, 3, self.prog["drgn_kmodify_test_memory"])
+        self.assertRaises(
+            TypeError,
+            clear_bit,
+            3,
+            self.prog["drgn_kmodify_test_bitmap"].address_,
+        )
+
+    def test_fault(self):
+        self.assertRaises(FaultError, set_bit, 0, NULL(self.prog, "unsigned long *"))
 
 
 @skip_unless_have_test_kmod

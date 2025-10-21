@@ -1639,6 +1639,10 @@ char drgn_kmodify_test_memory[16];
 int drgn_kmodify_test_int;
 int *drgn_kmodify_test_int_ptr;
 
+unsigned long drgn_kmodify_test_bitmap[2];
+module_param_array_named(kmodify_bitmap, drgn_kmodify_test_bitmap, ulong, NULL,
+			 0600);
+
 struct {
 	unsigned int expect0_1 : 8;
 	unsigned int byte_aligned : 8;

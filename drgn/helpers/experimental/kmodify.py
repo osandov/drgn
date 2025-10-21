@@ -1142,8 +1142,9 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
 
     kmodify = _Kmodify(prog)
     if not kmodify.is_little_endian:
-        # Big-endian needs different calculations. kmodify only supports
-        # little-endian architectures at the moment anyways.
+        # Big-endian needs different calculations for {set,clear}_bit(), and
+        # I'm not sure about bit fields. kmodify only supports little-endian
+        # architectures at the moment anyways.
         raise NotImplementedError("_modify_bit() is only implemented for little-endian")
     code, code_relocations = kmodify.arch.code_gen(
         _Function(
@@ -1194,6 +1195,43 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
             raise ValueError("module init did not run")
 
 
+def _set_or_clear_bit(nr: IntegerLike, bitmap: Object, value: bool) -> None:
+    nr = operator.index(nr)
+    address = implicit_convert("unsigned long *", bitmap).value_() + (nr // 8)
+    nr %= 8
+    _modify_bit(bitmap.prog_, nr, address, value)
+
+
+def set_bit(nr: IntegerLike, bitmap: Object) -> None:
+    """
+    Atomically set a bit in kernel memory.
+
+    .. warning::
+        This attempts to detect bad addresses and raise a
+        :class:`~drgn.FaultError`, but this is best-effort and may still crash
+        the kernel. In particular, this function will crash the kernel if the
+        target address is read-only. Writing an invalid bit can of course also
+        cause a crash when the data is used.
+
+    :param nr: Bit number.
+    :param bitmap: ``unsigned long *``
+    """
+    _set_or_clear_bit(nr, bitmap, True)
+
+
+def clear_bit(nr: IntegerLike, bitmap: Object) -> None:
+    """
+    Atomically clear a bit in kernel memory.
+
+    .. warning::
+        The warnings about :func:`set_bit()` also apply to ``clear_bit()``.
+
+    :param nr: Bit number.
+    :param bitmap: ``unsigned long *``
+    """
+    _set_or_clear_bit(nr, bitmap, False)
+
+
 def write_object(
     object: Object, value: Any, *, dereference: Optional[bool] = None
 ) -> None:
@@ -1211,8 +1249,8 @@ def write_object(
     fields.
 
     .. warning::
-        The warnings about :func:`write_memory()` also apply to
-        ``write_object()``.
+        The warnings about :func:`write_memory()` and :func:`set_bit()` also
+        apply to ``write_object()``.
 
     :param object: Object to write to.
     :param value: Value to write. This may be an :class:`~drgn.Object` or a
