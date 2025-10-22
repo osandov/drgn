@@ -39,6 +39,15 @@ def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
         return "task", int(s, 16)
 
 
+def _addr_or_sym(
+    s: str,
+) -> Union[Tuple[Literal["addr"], int], Tuple[Literal["sym"], str]]:
+    try:
+        return "addr", int(s, 16)
+    except ValueError:
+        return "sym", s
+
+
 def _guess_type(prog: Program, name: str, kind: str = "*") -> Type:
     if kind != "union":
         try:
@@ -94,7 +103,10 @@ class _CrashCommandNamespace(CommandNamespace):
     def __init__(self) -> None:
         super().__init__(
             func_name_prefix="_crash_cmd_",
-            argparse_types=(("pid_or_task", _pid_or_task),),
+            argparse_types=(
+                ("pid_or_task", _pid_or_task),
+                ("addr_or_sym", _addr_or_sym),
+            ),
         )
 
     def _run(self, prog: Program, command: str, **kwargs: Any) -> Any:
