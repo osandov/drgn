@@ -36,6 +36,9 @@ def virt_to_vmap_address(prog, addr):
 
 
 def search_memory(prog, needle):
+    if isinstance(needle, Object):
+        needle = needle.to_bytes_()
+
     KCORE_RAM = prog["KCORE_RAM"]
     CHUNK_SIZE = 1024 * 1024
     PAGE_SIZE = prog["PAGE_SIZE"].value_()
@@ -85,16 +88,26 @@ def search_memory(prog, needle):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Search kernel memory for a byte string"
+        description="Search kernel memory for a value and print the addresses where it is found"
     )
-    parser.add_argument(
-        "bytes",
-        nargs="?",
-        help="hexadecimal bytes to read; if omitted, read byte string from stdin",
+    group = parser.add_argument_group(
+        title="search target",
+        description="If none of these are given, search for a byte string read from standard input.",
+    ).add_mutually_exclusive_group()
+    group.add_argument("--string", help="search for an ASCII/UTF-8 string")
+    group.add_argument("--hex", help="search for a byte string, given in hexadecimal")
+    group.add_argument(
+        "--address", help="search for an address-sized integer, given in hexadecimal"
     )
     args = parser.parse_args()
-    if args.bytes is None:
-        needle = sys.stdin.buffer.read()
+
+    if args.string is not None:
+        needle = args.string.encode()
+    elif args.hex is not None:
+        needle = bytes.fromhex(args.hex)
+    elif args.address is not None:
+        needle = Object(prog, "void *", int(args.address, 16))
     else:
-        needle = bytes.fromhex(args.bytes)
+        needle = sys.stdin.buffer.read()
+
     search_memory(prog, needle)
