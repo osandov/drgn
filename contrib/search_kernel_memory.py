@@ -10,7 +10,7 @@ with CONFIG_PROC_KCORE=y.
 import argparse
 import sys
 
-from drgn import Object
+from drgn import FaultError, Object
 from drgn.helpers.common.memory import identify_address
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.mm import for_each_vmap_area, virt_to_page
@@ -38,15 +38,30 @@ def virt_to_vmap_address(prog, addr):
 def search_memory(prog, needle):
     KCORE_RAM = prog["KCORE_RAM"]
     CHUNK_SIZE = 1024 * 1024
+    PAGE_SIZE = prog["PAGE_SIZE"].value_()
     for kc in list_for_each_entry(
         "struct kcore_list", prog["kclist_head"].address_of_(), "list"
     ):
         if kc.type != KCORE_RAM:
             continue
-        start = kc.addr.value_()
-        end = start + kc.size.value_()
-        for addr in range(start, end, CHUNK_SIZE):
-            buf = prog.read(addr, min(CHUNK_SIZE, end - addr))
+        addr = kc.addr.value_()
+        end = addr + kc.size.value_()
+        while addr < end:
+            try:
+                buf = prog.read(addr, min(CHUNK_SIZE, end - addr))
+            except FaultError:
+                # We start with a large chunk size to reduce the overhead of
+                # reading memory. However, if we're reading from a core dump,
+                # reading with a large chunk size may fault on excluded pages.
+                if CHUNK_SIZE > PAGE_SIZE:
+                    # We faulted with a large chunk size. Fall back to
+                    # page-by-page and retry.
+                    CHUNK_SIZE = PAGE_SIZE
+                else:
+                    # We're already reading page-by-page. Skip this page.
+                    addr += CHUNK_SIZE
+                continue
+
             i = 0
             while i < len(buf):
                 i = buf.find(needle, i)
@@ -64,6 +79,8 @@ def search_memory(prog, needle):
                 else:
                     print(hex(addr + i), identity)
                 i += 1
+
+            addr += CHUNK_SIZE
 
 
 if __name__ == "__main__":
