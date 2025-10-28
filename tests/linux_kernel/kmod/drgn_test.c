@@ -194,6 +194,7 @@ LIST_HEAD(drgn_test_empty_list);
 LIST_HEAD(drgn_test_full_list);
 LIST_HEAD(drgn_test_singular_list);
 LIST_HEAD(drgn_test_corrupted_list);
+LIST_HEAD(drgn_test_cyclic_list);
 
 struct drgn_test_list_entry {
 	struct list_head node;
@@ -203,6 +204,7 @@ struct drgn_test_list_entry {
 struct drgn_test_list_entry drgn_test_list_entries[3];
 struct drgn_test_list_entry drgn_test_singular_list_entry;
 struct drgn_test_list_entry drgn_test_corrupted_list_entries[2];
+struct drgn_test_list_entry drgn_test_cyclic_list_entry;
 
 HLIST_HEAD(drgn_test_empty_hlist);
 HLIST_HEAD(drgn_test_full_hlist);
@@ -254,6 +256,9 @@ static void drgn_test_list_init(void)
 	}
 
 	init_corrupted_list();
+
+	list_add_tail(&drgn_test_cyclic_list_entry.node, &drgn_test_cyclic_list);
+	drgn_test_cyclic_list_entry.node.next = &drgn_test_cyclic_list_entry.node;
 }
 
 // llist

@@ -42,6 +42,7 @@ class TestList(LinuxKernelTestCase):
         cls.singular_entry = cls.prog["drgn_test_singular_list_entry"].address_of_()
         cls.singular_node = cls.singular_entry.node.address_of_()
         cls.corrupted = cls.prog["drgn_test_corrupted_list"].address_of_()
+        cls.cyclic = cls.prog["drgn_test_cyclic_list"].address_of_()
 
     def node(self, n):
         return self.entries[n].node.address_of_()
@@ -176,12 +177,16 @@ class TestList(LinuxKernelTestCase):
         for head in (self.empty, self.full, self.singular):
             validate_list(head)
         self.assertRaises(ValidationError, validate_list, self.corrupted)
+        self.assertRaisesRegex(ValidationError, "cycle", validate_list, self.cyclic)
 
     def test_validate_list_count_nodes(self):
         self.assertEqual(validate_list_count_nodes(self.empty), 0)
         self.assertEqual(validate_list_count_nodes(self.full), self.num_entries)
         self.assertEqual(validate_list_count_nodes(self.singular), 1)
         self.assertRaises(ValidationError, validate_list_count_nodes, self.corrupted)
+        self.assertRaisesRegex(
+            ValidationError, "cycle", validate_list_count_nodes, self.cyclic
+        )
 
     def test_validate_list_for_each(self):
         for head in (self.empty, self.full, self.singular):
@@ -192,6 +197,13 @@ class TestList(LinuxKernelTestCase):
             ValidationError,
             collections.deque,
             validate_list_for_each(self.corrupted),
+            0,
+        )
+        self.assertRaisesRegex(
+            ValidationError,
+            "cycle",
+            collections.deque,
+            validate_list_for_each(self.cyclic),
             0,
         )
 
@@ -210,6 +222,15 @@ class TestList(LinuxKernelTestCase):
             collections.deque,
             validate_list_for_each_entry(
                 "struct drgn_test_list_entry", self.corrupted, "node"
+            ),
+            0,
+        )
+        self.assertRaisesRegex(
+            ValidationError,
+            "cycle",
+            collections.deque,
+            validate_list_for_each_entry(
+                "struct drgn_test_list_entry", self.cyclic, "node"
             ),
             0,
         )

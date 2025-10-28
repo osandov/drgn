@@ -239,6 +239,16 @@ def validate_list_for_each(head: Object) -> Iterator[Object]:
         yield pos
         next = pos.next.read_()
         next_prev = next.prev.read_()
+        # For an unchanging list, the next->prev == pos check below is
+        # sufficient to detect any cycles. However, if we race with the list
+        # being modified, it's possible for a cycle to sneak in. This detects
+        # the most common case of a single-node cycle created when a node is
+        # removed with list_del_init(). Multi-node cycles are theoretically
+        # possible but far less likely.
+        if next == pos:
+            raise ValidationError(
+                f"cycle at {pos.format_(dereference=False, symbolize=False)}"
+            )
         if next_prev != pos:
             raise ValidationError(
                 f"{pos.format_(dereference=False, symbolize=False)}"
