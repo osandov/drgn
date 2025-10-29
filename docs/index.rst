@@ -47,8 +47,6 @@ Table of Contents
 
     api_reference
     helpers
-    commands
-    crash_compatibility
     Man Page <man/drgn>
     support_matrix
     release_highlights
