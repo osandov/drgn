@@ -467,6 +467,7 @@ setup(
     },
     entry_points={
         "console_scripts": ["drgn=drgn.cli:_main"],
+        "drgn.plugins": ["builtin_commands=drgn.commands._builtin"],
     },
     python_requires=">=3.8",
     author="Omar Sandoval",
