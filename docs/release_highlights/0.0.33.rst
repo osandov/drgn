@@ -1,0 +1,198 @@
+0.0.33 (Released October 30th, 2025)
+====================================
+
+These are some of the highlights of drgn 0.0.33. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.0.33>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+.. program:: drgn
+
+Lots of New Helpers
+-------------------
+
+This release adds over 80 new helpers! The majority are for the Linux kernel
+memory management subsystem:
+
+- :func:`~drgn.helpers.common.memory.identify_address_all()`
+- :func:`~drgn.helpers.linux.block.nr_blockdev_pages()`
+- :func:`~drgn.helpers.linux.hugetlb.for_each_hstate()`
+- :func:`~drgn.helpers.linux.hugetlb.huge_page_size()`
+- :func:`~drgn.helpers.linux.hugetlb.hugetlb_total_pages()`
+- :func:`~drgn.helpers.linux.hugetlb.hugetlb_total_usage()`
+- :func:`~drgn.helpers.linux.mm.decode_memory_block_state()`
+- :func:`~drgn.helpers.linux.mm.decode_page_flags_value()`
+- :func:`~drgn.helpers.linux.mm.for_each_memory_block()`
+- :func:`~drgn.helpers.linux.mm.for_each_valid_page_range()`
+- :func:`~drgn.helpers.linux.mm.for_each_valid_pfn_and_page()`
+- :func:`~drgn.helpers.linux.mm.memory_block_size_bytes()`
+- :func:`~drgn.helpers.linux.mm.page_flags()`
+- :func:`~drgn.helpers.linux.mm.page_index()`
+- :func:`~drgn.helpers.linux.mm.task_rss()`
+- :func:`~drgn.helpers.linux.mm.vm_commit_limit()`
+- :func:`~drgn.helpers.linux.mm.vm_memory_committed()`
+- :func:`~drgn.helpers.linux.mmzone.NODE_DATA()`
+- :func:`~drgn.helpers.linux.mmzone.decode_section_flags()`
+- :func:`~drgn.helpers.linux.mmzone.early_section_nr()`
+- :func:`~drgn.helpers.linux.mmzone.early_section()`
+- :func:`~drgn.helpers.linux.mmzone.for_each_online_pgdat()`
+- :func:`~drgn.helpers.linux.mmzone.for_each_present_section()`
+- :func:`~drgn.helpers.linux.mmzone.high_wmark_pages()`
+- :func:`~drgn.helpers.linux.mmzone.low_wmark_pages()`
+- :func:`~drgn.helpers.linux.mmzone.min_wmark_pages()`
+- :func:`~drgn.helpers.linux.mmzone.nr_to_section()`
+- :func:`~drgn.helpers.linux.mmzone.online_section_nr()`
+- :func:`~drgn.helpers.linux.mmzone.online_section()`
+- :func:`~drgn.helpers.linux.mmzone.pfn_to_section_nr()`
+- :func:`~drgn.helpers.linux.mmzone.pfn_to_section()`
+- :func:`~drgn.helpers.linux.mmzone.present_section_nr()`
+- :func:`~drgn.helpers.linux.mmzone.present_section()`
+- :func:`~drgn.helpers.linux.mmzone.section_decode_mem_map()`
+- :func:`~drgn.helpers.linux.mmzone.section_mem_map_addr()`
+- :func:`~drgn.helpers.linux.mmzone.section_nr_to_pfn()`
+- :func:`~drgn.helpers.linux.mmzone.valid_section_nr()`
+- :func:`~drgn.helpers.linux.mmzone.valid_section()`
+- :func:`~drgn.helpers.linux.mmzone.wmark_pages()`
+- :func:`~drgn.helpers.linux.slab.slab_cache_objects_per_slab()`
+- :func:`~drgn.helpers.linux.slab.slab_cache_order()`
+- :func:`~drgn.helpers.linux.slab.slab_cache_pages_per_slab()`
+- :func:`~drgn.helpers.linux.slab.slab_cache_usage()`
+- :func:`~drgn.helpers.linux.slab.slab_total_usage()`
+- :func:`~drgn.helpers.linux.swap.for_each_swap_info()`
+- :func:`~drgn.helpers.linux.swap.swap_file_path()`
+- :func:`~drgn.helpers.linux.swap.swap_is_file()`
+- :func:`~drgn.helpers.linux.swap.swap_total_usage()`
+- :func:`~drgn.helpers.linux.swap.swap_usage_in_pages()`
+- :func:`~drgn.helpers.linux.swap.total_swapcache_pages()`
+- :func:`~drgn.helpers.linux.vmstat.global_node_page_state()`
+- :func:`~drgn.helpers.linux.vmstat.global_numa_event_state()`
+- :func:`~drgn.helpers.linux.vmstat.global_vm_event_state()`
+- :func:`~drgn.helpers.linux.vmstat.global_zone_page_state()`
+- :func:`~drgn.helpers.linux.vmstat.nr_free_pages()`
+- :func:`~drgn.helpers.linux.vmstat.zone_page_state()`
+
+But there are many others for devices, the CPU scheduler, and more:
+
+- :func:`~drgn.helpers.common.format.double_quote_ascii_string()`
+- :func:`~drgn.helpers.common.type.typeof_member()`
+- :func:`~drgn.helpers.linux.device.bus_for_each_dev()`
+- :func:`~drgn.helpers.linux.device.bus_to_subsys()`
+- :func:`~drgn.helpers.linux.device.class_for_each_device()`
+- :func:`~drgn.helpers.linux.device.class_to_subsys()`
+- :func:`~drgn.helpers.linux.device.dev_name()`
+- :func:`~drgn.helpers.linux.fs.super_block_for_each_mount()`
+- :func:`~drgn.helpers.linux.kallsyms.module_kallsyms()`
+- :func:`~drgn.helpers.linux.kernfs.kernfs_children()`
+- :func:`~drgn.helpers.linux.list.validate_list_count_nodes()`
+- :func:`~drgn.helpers.linux.module.module_taints()`
+- :func:`~drgn.helpers.linux.nodemask.nr_node_ids()`
+- :func:`~drgn.helpers.linux.panic.panic_message()`
+- :func:`~drgn.helpers.linux.panic.panic_task()`
+- :func:`~drgn.helpers.linux.panic.tainted()`
+- :func:`~drgn.helpers.linux.percpu.percpu_counter_sum_positive()`
+- :func:`~drgn.helpers.linux.pid.for_each_task_in_group()`
+- :func:`~drgn.helpers.linux.rbtree.rbtree_preorder_for_each_entry()`
+- :func:`~drgn.helpers.linux.rbtree.rbtree_preorder_for_each()`
+- :func:`~drgn.helpers.linux.sched.cpu_rq()`
+- :func:`~drgn.helpers.linux.sched.get_task_state()`
+- :func:`~drgn.helpers.linux.sched.task_on_cpu()`
+- :func:`~drgn.helpers.linux.sched.task_rq()`
+- :func:`~drgn.helpers.linux.sched.task_since_last_arrival_ns()`
+- :func:`~drgn.helpers.experimental.kmodify.set_bit()`
+- :func:`~drgn.helpers.experimental.kmodify.clear_bit()`
+
+Address Identification Improvements
+-----------------------------------
+
+:func:`~drgn.helpers.common.memory.identify_address()` can now identify
+addresses from the kernel memory map (i.e., addresses in a ``struct page``) and
+addresses in a ``struct task_struct``::
+
+    >>> identify_address(pfn_to_page(0))
+    'page: pfn 0'
+    >>> identify_address(find_task(4))
+    'task: 4 (kworker/R-rcu_g)'
+
+The new :func:`~drgn.helpers.common.memory.identify_address_all()` helper
+provides a programmatic interface for identifying addresses:
+
+
+    >>> for identity in identify_address_all(find_task(4)):
+    ...     print(repr(identity))
+    ...
+    IdentifiedTaskStruct(address=18446622477834301568, task=Object(prog, 'struct task_struct *', value=0xffff9168c10cb080))
+    IdentifiedSlabObject(address=18446622477834301568, slab_object_info=SlabObjectInfo(slab_cache=Object(prog, 'struct kmem_cache *', value=0xffff9168c0206c00), slab=Object(prog, 'struct slab *', value=0xffffd26b04043200), address=0xffff9168c10cb080, allocated=True))
+
+Array Slices
+------------
+
+Array and pointer objects can now be sliced. This is especially useful for
+converting a flexible array member or pointer to a fixed-length array::
+
+    >>> poll_list
+    *(struct poll_list *)0xffffad92459a39a0 = {
+            .next = (struct poll_list *)0x0,
+            .len = (unsigned int)2,
+            .entries = (struct pollfd []){},
+    }
+    >>> poll_list.entries[:poll_list.len]
+    (struct pollfd [2]){
+            {
+                    .fd = (int)4,
+                    .events = (short)1,
+                    .revents = (short)0,
+            },
+            {
+                    .fd = (int)9,
+                    .events = (short)1,
+                    .revents = (short)0,
+            },
+    }
+
+More Reliable Interrupt Stack Traces
+------------------------------------
+
+Stephen Brennan improved stack tracing on x86-64 kernels that use the frame
+pointer unwinder (Ubuntu kernels, for example) and AArch64 so that it reliably
+unwinds through interrupts.
+
+Kmodify Bit Field Fix
+---------------------
+
+:func:`drgn.helpers.experimental.kmodify.write_object()` was found to have a
+major bug when writing to bit fields. It didn't take the field's bit offset or
+bit size into account, meaning that it wrote to the wrong bits and overwrote
+additional memory, too.
+
+This release fixes it to handle bit fields of size 1 (atomically) and reject
+larger bit fields. Support for larger bit fields can be added if requested.
+
+Linux 6.17 and 6.18 Support
+---------------------------
+
+A change in Linux 6.17 broke drgn's timekeeping helpers. This error is fixed in
+this release::
+
+    KeyError: 'tk_core'
+
+A change in Linux 6.17 broke ``tools/fsrefs.py --super-block-on-block-device``
+on Btrfs. This error is fixed in this release::
+
+    no filesystem found on /dev/...
+
+A change in Linux 6.18 broke :func:`~drgn.helpers.linux.fs.d_path()` when
+passing only a ``struct dentry *``. This error is fixed in this release::
+
+    AttributeError: '_drgn.Object' object has no attribute 'next'
+
+A change in Linux 6.18 broke
+:func:`~drgn.helpers.linux.net.get_net_ns_by_inode()`. This error is fixed in
+this release::
+
+    AttributeError: 'struct proc_ns_operations' has no member 'type'. Did you mean: 'type_'?
+
+No More Python 3.6 & 3.7 Support
+--------------------------------
+
+As `previously announced <https://github.com/osandov/drgn/issues/467>`_, this
+release dropped support for Python 3.6 and 3.7.
