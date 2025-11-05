@@ -11,6 +11,7 @@
 #include <linux/version.h>
 
 #include <linux/completion.h>
+#include <linux/hrtimer.h>
 #include <linux/io.h>
 #include <linux/irq_work.h>
 #include <linux/kernel.h>
@@ -42,6 +43,7 @@
 #endif
 #include <linux/sysfs.h>
 #include <linux/timekeeping.h>
+#include <linux/timer.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
@@ -1086,6 +1088,72 @@ static void drgn_test_timekeeping_init(void)
 	drgn_test_ktime_ns = ktime_to_ns(drgn_test_ktime);
 }
 
+// timer
+
+static void drgn_test_timer_fn(struct timer_list *timer)
+{
+	mod_timer(timer, jiffies + HZ * 60 * 60 * 24);
+}
+
+// Before Linux kernel commits 1d27e3e2252b ("timer: Remove expires and data
+// arguments from DEFINE_TIMER") and 354b46b1a0ad ("timer: Switch callback
+// prototype to take struct timer_list * argument") (in v4.15), the timer
+// callback took an unsigned long that had to be passed explicitly.
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+DEFINE_TIMER(drgn_test_timer, drgn_test_timer_fn);
+#else
+static void drgn_test_timer_fn_old(unsigned long timer)
+{
+	drgn_test_timer_fn((struct timer_list *)timer);
+}
+
+DEFINE_TIMER(drgn_test_timer, drgn_test_timer_fn_old, 0,
+	     (unsigned long)&drgn_test_timer);
+#endif
+
+#define drgn_test_hrtimer_interval ms_to_ktime(1000 * 60 * 60 * 24)
+
+static enum hrtimer_restart drgn_test_hrtimer_fn(struct hrtimer *hrtimer)
+{
+	hrtimer_forward_now(hrtimer, drgn_test_hrtimer_interval);
+	return HRTIMER_RESTART;
+}
+
+struct hrtimer drgn_test_hrtimer;
+bool drgn_test_hrtimer_started;
+
+static void drgn_test_timer_init(void)
+{
+	drgn_test_timer_fn(&drgn_test_timer);
+	// hrtimer initialization was changed in Linux kernel commit
+	// 908a1d775422 ("hrtimers: Introduce hrtimer_setup() to replace
+	// hrtimer_init()") (in v6.13).
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
+	hrtimer_setup(&drgn_test_hrtimer, drgn_test_hrtimer_fn, CLOCK_MONOTONIC,
+		      HRTIMER_MODE_REL);
+#else
+	hrtimer_init(&drgn_test_hrtimer, CLOCK_MONOTONIC,
+		     HRTIMER_MODE_REL);
+	drgn_test_hrtimer.function = drgn_test_hrtimer_fn;
+#endif
+	hrtimer_start(&drgn_test_hrtimer, drgn_test_hrtimer_interval,
+		      HRTIMER_MODE_REL);
+	drgn_test_hrtimer_started = true;
+}
+
+static void drgn_test_timer_exit(void)
+{
+	// This was renamed in Linux kernel commit 9b13df3fb64e ("timers: Rename
+	// del_timer_sync() to timer_delete_sync()") (in v6.2).
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+	timer_delete_sync(&drgn_test_timer);
+#else
+	del_timer_sync(&drgn_test_timer);
+#endif
+	if (drgn_test_hrtimer_started)
+		hrtimer_cancel(&drgn_test_hrtimer);
+}
+
 // kthread for stack trace
 
 struct task_struct *drgn_test_kthread;
@@ -1987,6 +2055,7 @@ static void drgn_test_exit(void)
 	drgn_test_net_exit();
 	drgn_test_page_pool_exit();
 	drgn_test_stack_trace_exit();
+	drgn_test_timer_exit();
 	drgn_test_radix_tree_exit();
 	drgn_test_xarray_exit();
 	drgn_test_waitq_exit();
@@ -2028,6 +2097,7 @@ static int __init drgn_test_init(void)
 	if (ret)
 		goto out;
 	drgn_test_timekeeping_init();
+	drgn_test_timer_init();
 	ret = drgn_test_xarray_init();
 	if (ret)
 		goto out;
