@@ -14,6 +14,7 @@ from drgn.helpers.linux.timekeeping import (
     ktime_get_coarse_real_ns,
     ktime_get_real_seconds,
     ktime_get_seconds,
+    ktime_to_ns,
     uptime,
     uptime_pretty,
 )
@@ -27,6 +28,12 @@ CLOCK_MONOTONIC_COARSE = getattr(time, "CLOCK_MONOTONIC_COARSE", 6)
 class TestTimekeeping(LinuxKernelTestCase):
     def assert_in_range(self, a, b, c):
         self.assertTrue(a <= b <= c, f"{b} is not in range [{a}, {c}]")
+
+    @skip_unless_have_test_kmod
+    def test_ktime_to_ns(self):
+        self.assertEqual(
+            ktime_to_ns(self.prog["drgn_test_ktime"]), self.prog["drgn_test_ktime_ns"]
+        )
 
     def test_ktime_get_seconds(self):
         t1 = int(time.clock_gettime(CLOCK_MONOTONIC_COARSE))

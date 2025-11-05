@@ -1075,6 +1075,17 @@ static int drgn_test_slab_init(void)
 	return 0;
 }
 
+// timekeeping
+
+ktime_t drgn_test_ktime;
+s64 drgn_test_ktime_ns;
+
+static void drgn_test_timekeeping_init(void)
+{
+	drgn_test_ktime = ktime_get();
+	drgn_test_ktime_ns = ktime_to_ns(drgn_test_ktime);
+}
+
 // kthread for stack trace
 
 struct task_struct *drgn_test_kthread;
@@ -2016,6 +2027,7 @@ static int __init drgn_test_init(void)
 	ret = drgn_test_radix_tree_init();
 	if (ret)
 		goto out;
+	drgn_test_timekeeping_init();
 	ret = drgn_test_xarray_init();
 	if (ret)
 		goto out;

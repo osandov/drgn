@@ -35,9 +35,26 @@ __all__ = (
     "ktime_get_coarse_real_ns",
     "ktime_get_real_seconds",
     "ktime_get_seconds",
+    "ktime_to_ns",
     "uptime",
     "uptime_pretty",
 )
+
+
+def ktime_to_ns(kt: Object) -> Object:
+    """
+    Convert a ``ktime_t`` to nanoseconds.
+
+    :param kt: ``ktime_t``
+    :return: ``s64``
+    """
+    # Since Linux kernel commit 2456e8553544 ("ktime: Get rid of the union")
+    # (in v4.10), ktime_t is a typedef of s64. Before that, it was a dummy
+    # union wrapping an s64.
+    try:
+        return cast("s64", kt)
+    except TypeError:
+        return kt.tv64.read_()
 
 
 def _tk_core(prog: Program) -> Object:
@@ -125,11 +142,8 @@ def _ktime_get_coarse_ns(prog: Program, offs_name: Optional[str]) -> Object:
         from_snapshot = {}
         for name, member in members.items():
             member_type = member.type_
-            # Since Linux kernel commit 2456e8553544 ("ktime: Get rid of the
-            # union") (in v4.10), ktime_t is a typedef of s64. Before that, it
-            # was a dummy union wrapping an s64. In both cases, we actually
-            # want a u64.
             if member_type.type_name() == "ktime_t":
+                # Bypass ktime_to_ns() and interpret ktime_t as u64.
                 member_type = prog.type("u64")
             from_snapshot[name] = functools.partial(
                 Object.from_bytes_,
