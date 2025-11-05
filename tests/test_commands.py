@@ -530,15 +530,15 @@ class TestReprBlack(TestCase):
 
 class TestDrgnCodeBuilder(TestCase):
     def test_empty(self):
-        self.assertEqual(DrgnCodeBuilder().get(), "")
+        self.assertEqual(DrgnCodeBuilder(None).get(), "")
 
     def test_no_imports(self):
-        code = DrgnCodeBuilder()
+        code = DrgnCodeBuilder(None)
         code.append("pass\n")
         self.assertEqual(code.get(), "pass\n")
 
     def test_sort_imports(self):
-        code = DrgnCodeBuilder()
+        code = DrgnCodeBuilder(None)
         code.add_import("sys")
         code.add_import("os")
         self.assertEqual(
@@ -550,7 +550,7 @@ import sys
         )
 
     def test_deduplicate_imports(self):
-        code = DrgnCodeBuilder()
+        code = DrgnCodeBuilder(None)
         code.add_import("os")
         code.add_import("sys")
         code.add_import("os")
@@ -563,7 +563,7 @@ import sys
         )
 
     def test_sort_from_imports(self):
-        code = DrgnCodeBuilder()
+        code = DrgnCodeBuilder(None)
         code.add_import("sys")
         code.add_import("os")
         code.add_from_import("sys", "stdout")
@@ -577,7 +577,7 @@ from sys import stdout
         )
 
     def test_first_party_imports(self):
-        code = DrgnCodeBuilder()
+        code = DrgnCodeBuilder(None)
         code.add_import("os")
         code.add_import("sys")
         code.add_import("drgn")
@@ -592,7 +592,7 @@ import drgn
         )
 
     def test_merge_from_imports(self):
-        code = DrgnCodeBuilder()
+        code = DrgnCodeBuilder(None)
         code.add_from_import("drgn", "Object", "Program")
         code.add_from_import("drgn", "Object")
         code.add_from_import("drgn", "Type")
@@ -604,7 +604,7 @@ from drgn import Object, Program, Type
         )
 
     def test_long_from_imports(self):
-        code = DrgnCodeBuilder()
+        code = DrgnCodeBuilder(None)
         code.add_from_import(
             "os",
             "abort",
@@ -635,7 +635,7 @@ from os import (
         )
 
     def test_imports_and_code(self):
-        code = DrgnCodeBuilder()
+        code = DrgnCodeBuilder(None)
         code.append("pass\n")
         code.add_import("os")
         self.assertEqual(

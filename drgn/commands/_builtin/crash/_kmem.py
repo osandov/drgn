@@ -7,7 +7,6 @@ import argparse
 import functools
 import re
 import sys
-import textwrap
 from typing import AbstractSet, Any, Callable, Iterable, List, Optional, Sequence, Tuple
 
 from drgn import (
@@ -158,28 +157,7 @@ for pgdat in for_each_online_pgdat():
             loop_body = """\
                 num_blocks = validate_list_count_nodes(free_list.address_of_())
 """
-        if prog.flags & ProgramFlags.IS_LIVE:
-            code.add_from_import("drgn", "FaultError")
-            code.add_from_import("drgn.helpers", "ValidationError")
-            code.append(
-                """\
-                # This is racy. Retry a few times if needed.
-                num_attempts = 10
-                for attempt in range(num_attempts):
-                    try:
-"""
-            )
-            loop_body = textwrap.indent(loop_body, "        ")
-        code.append(loop_body)
-        if prog.flags & ProgramFlags.IS_LIVE:
-            code.append(
-                """\
-                        break
-                    except (FaultError, ValidationError):
-                        if attempt == num_attempts - 1:
-                            raise
-"""
-            )
+        code.append_retry_loop_if_live(loop_body, 100)
         code.append(
             """\
                 num_pages = num_blocks << order

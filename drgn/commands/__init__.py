@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 import _drgn_util.argparseformatter
 from _drgn_util.typingutils import copy_method_params
-from drgn import Program
+from drgn import Program, ProgramFlags
 
 _WORD_CHARACTER = r"""[^\s"#&'();<>\\`|]"""
 _WORD_CHARACTER_OR_HASH = _WORD_CHARACTER.replace("#", "")
@@ -1102,7 +1102,8 @@ class DrgnCodeBuilder:
     are deduplicated, sorted, and prepended to the final output.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, prog: Program) -> None:
+        self._prog = prog
         self._code: List[str] = []
         self._imports: Dict[str, Set[str]] = collections.defaultdict(set)
 
@@ -1127,6 +1128,41 @@ class DrgnCodeBuilder:
         :param names: Names to import from *module*.
         """
         self._imports[module].update(names)
+
+    def append_retry_loop_if_live(self, body: str, num_attempts: int) -> None:
+        """
+        Append a code fragment wrapped in a loop that retries on transient
+        :class:`~drgn.FaultError` or :class:`~drgn.helpers.ValidationError`
+        errors if the program is live.
+
+        If the program is not live, the code fragment is appended verbatim.
+
+        :param body: Code to attempt in loop body.
+        :param num_attempts: Maximum number of attempts.
+        """
+        self.append(self.wrap_retry_loop_if_live(body, num_attempts))
+
+    def wrap_retry_loop_if_live(self, body: str, num_attempts: int) -> str:
+        """
+        Like :meth:`append_retry_loop_if_live()`, but return the code fragment
+        instead of appending it.
+        """
+        if not (self._prog.flags & ProgramFlags.IS_LIVE):
+            return body
+        self.add_from_import("drgn", "FaultError")
+        self.add_from_import("drgn.helpers", "ValidationError")
+        # Copy the indentation level.
+        indent = re.match(r"[ \t]*", body).group()  # type: ignore[union-attr]  # This regex always matches.
+        return f"""\
+{indent}# This is racy. Retry a limited number of times.
+{indent}for attempts_remaining in range({num_attempts}, 0, -1):
+{indent}    try:
+{textwrap.indent(body, "        ")}\
+{indent}        break
+{indent}    except (FaultError, ValidationError):
+{indent}        if attempts_remaining == 1:
+{indent}            raise
+"""
 
     def get(self) -> str:
         """Get the output as a string."""

@@ -404,10 +404,6 @@ class CrashDrgnCodeBuilder(DrgnCodeBuilder):
     commands.
     """
 
-    def __init__(self, prog: Program) -> None:
-        super().__init__()
-        self._prog = prog
-
     def _append_crash_panic_context(self) -> None:
         if (self._prog.flags & (ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL)) == (
             ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL
