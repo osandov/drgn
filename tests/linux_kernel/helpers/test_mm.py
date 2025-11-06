@@ -59,6 +59,7 @@ from drgn.helpers.linux.mm import (
     vm_commit_limit,
     vm_memory_committed,
     vma_find,
+    vma_name,
     vmalloc_to_page,
     vmalloc_to_pfn,
 )
@@ -459,6 +460,21 @@ class TestMm(LinuxKernelTestCase):
             self.assertIdentical(
                 vma_find(mm, prev_end), NULL(self.prog, "struct vm_area_struct *")
             )
+
+    def test_vma_name(self):
+        mm = find_task(self.prog, os.getpid()).mm.read_()
+        tested_file_path = False
+        for map in iter_maps():
+            if map.path.startswith("["):
+                vma = vma_find(mm, map.start)
+                if vma:
+                    with self.subTest(vma=map.path):
+                        self.assertEqual(vma_name(vma), map.path)
+            elif not tested_file_path and map.path.startswith("/"):
+                vma = vma_find(mm, map.start)
+                with self.subTest("file"):
+                    self.assertEqual(vma_name(vma), map.path)
+                tested_file_path = True
 
     def test_for_each_vma(self):
         with fork_and_stop() as pid:
