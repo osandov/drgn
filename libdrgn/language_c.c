@@ -519,9 +519,13 @@ c_define_type(struct drgn_qualified_type qualified_type, size_t indent,
 		return c_declare_pointer(qualified_type, NULL, indent, sb);
 	case DRGN_TYPE_ARRAY:
 		return c_declare_array(qualified_type, NULL, indent, sb);
-	case DRGN_TYPE_FUNCTION:
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "function type cannot be formatted");
+	case DRGN_TYPE_FUNCTION: {
+		struct string_callback name_cb = {
+			.fn = c_variable_name,
+			.arg = (void *)"",
+		};
+		return c_declare_function(qualified_type, &name_cb, indent, sb);
+	}
 	default:
 		UNREACHABLE();
 	}
