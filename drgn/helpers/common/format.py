@@ -141,6 +141,7 @@ def decode_flags(
     value: IntegerLike,
     flags: Iterable[Tuple[str, int]],
     bit_numbers: bool = True,
+    aliases: bool = True,
 ) -> str:
     """
     Get a human-readable representation of a bitmask of flags.
@@ -180,22 +181,24 @@ def decode_flags(
     :param flags: List of flag names and their bit numbers or values.
     :param bit_numbers: Whether *flags* specifies the bit numbers (where 0 is
         the least significant bit) or values of the flags.
+    :param aliases: Whether to include multiple names for the same flag. If
+        ``False``, then only the first name is included.
     """
     value = value.__index__()
     if value == 0:
         return "0"
 
     parts = []
-    mask = 0
+    orig_value = value
     for name, flag in flags:
         if bit_numbers:
             flag = 1 << flag
-        if value & flag:
+        if (orig_value if aliases else value) & flag:
             parts.append(name)
-            mask |= flag
+            value &= ~flag
 
-    if value & ~mask:
-        parts.append(hex(value & ~mask))
+    if value:
+        parts.append(hex(value))
 
     return "|".join(parts)
 

@@ -51,6 +51,24 @@ class TestDecodeFlags(TestCase):
             "BIG|LARGE",
         )
 
+    def test_no_aliases(self):
+        self.assertEqual(
+            decode_flags(2, (("SMALL", 0), ("BIG", 1), ("LARGE", 1)), aliases=False),
+            "BIG",
+        )
+
+    def test_no_aliases_all_unknown(self):
+        self.assertEqual(
+            decode_flags(8, (("SMALL", 0), ("BIG", 1), ("LARGE", 1)), aliases=False),
+            "0x8",
+        )
+
+    def test_no_aliases_some_unknown(self):
+        self.assertEqual(
+            decode_flags(10, (("SMALL", 0), ("BIG", 1), ("LARGE", 1)), aliases=False),
+            "BIG|0x8",
+        )
+
     def test_zero(self):
         self.assertDecodeFlags(0, "0")
 
