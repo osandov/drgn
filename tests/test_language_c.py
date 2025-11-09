@@ -770,6 +770,12 @@ typedef struct {
             ),
         )
 
+    def test_function(self):
+        self.assertPrettyPrint(
+            self.prog.function_type(self.prog.int_type("int", 4, True), (), False),
+            "int (void)",
+        )
+
 
 class TestLiteral(MockProgramTestCase):
     def test_int(self):
