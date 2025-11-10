@@ -217,6 +217,25 @@ _PATCHES = (
         name="5.12-arm64-map-_text-_stext-virtual-address-range-non-exe.patch",
         versions=((KernelVersion("5.11"), KernelVersion("5.13")),),
     ),
+    _Patch(
+        name="4.9-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch",
+        versions=((None, KernelVersion("4.14")),),
+    ),
+    _Patch(
+        name="4.14-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch",
+        versions=(
+            (KernelVersion("4.14"), KernelVersion("4.14.329")),
+            (KernelVersion("4.15"), KernelVersion("4.19.298")),
+            (KernelVersion("4.20"), KernelVersion("5.4.203")),
+        ),
+    ),
+    _Patch(
+        name="powerpc-boot-Remove-leading-zero-in-label-in-udelay.patch",
+        versions=(
+            (None, KernelVersion("5.4.299")),
+            (KernelVersion("5.5"), KernelVersion("5.10")),
+        ),
+    ),
 )
 
 
