@@ -58,7 +58,7 @@ def _print_shms(shms: Iterable[Object]) -> None:
             status = ""
         rows.append(
             (
-                CellFormat(shm.value_(), "x"),
+                CellFormat(shm.value_(), "<x"),
                 f"{shm.shm_perm.key.value_():08x}",
                 CellFormat(shm.shm_perm.id.value_(), "<"),
                 CellFormat(kuid_val(shm.shm_perm.uid), "<"),
@@ -100,7 +100,7 @@ def _print_sem_arrays(sem_arrays: Iterable[Object]) -> None:
     for sem_array in sem_arrays:
         rows.append(
             (
-                CellFormat(sem_array.value_(), "x"),
+                CellFormat(sem_array.value_(), "<x"),
                 f"{sem_array.sem_perm.key.value_():08x}",
                 CellFormat(sem_array.sem_perm.id.value_(), "<"),
                 CellFormat(kuid_val(sem_array.sem_perm.uid), "<"),
@@ -142,7 +142,7 @@ def _print_msg_queues(msg_queues: Iterable[Object]) -> None:
     for msg_queue in msg_queues:
         rows.append(
             (
-                CellFormat(msg_queue.value_(), "x"),
+                CellFormat(msg_queue.value_(), "<x"),
                 f"{msg_queue.q_perm.key.value_():08x}",
                 CellFormat(msg_queue.q_perm.id.value_(), "<"),
                 CellFormat(kuid_val(msg_queue.q_perm.uid), "<"),
