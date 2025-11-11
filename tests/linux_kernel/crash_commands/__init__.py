@@ -26,11 +26,12 @@ class CrashCommandTestCase(LinuxKernelTestCase):
             drgn.set_default_prog(old_default_prog)
 
     # Run a crash command and capture its stdout and stderr.
-    def run_crash_command(self, command):
+    @classmethod
+    def run_crash_command(cls, command):
         with contextlib.redirect_stdout(
             io.StringIO()
         ) as stdout, contextlib.redirect_stderr(io.StringIO()) as stderr:
-            CRASH_COMMAND_NAMESPACE.run(self.prog, command)
+            CRASH_COMMAND_NAMESPACE.run(cls.prog, command)
         return types.SimpleNamespace(stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
     # Run a crash command with --drgn. Capture its stdout and check that it
