@@ -10,9 +10,10 @@ Linux devices, including the kernel encoding of ``dev_t``.
 """
 
 import operator
-from typing import Iterable
+from typing import Iterable, Iterator, Tuple
 
-from drgn import NULL, IntegerLike, Object
+from drgn import NULL, IntegerLike, Object, Program, cast
+from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.list import list_for_each_entry
 
 __all__ = (
@@ -24,6 +25,8 @@ __all__ = (
     "class_for_each_device",
     "class_to_subsys",
     "dev_name",
+    "for_each_registered_blkdev",
+    "for_each_registered_chrdev",
 )
 
 
@@ -163,3 +166,53 @@ def class_for_each_device(class_: Object) -> Iterable[Object]:
             yield dev_prv.device.read_()
     else:
         yield from list_for_each_entry("struct device", devices, "knode_class.n_node")
+
+
+@takes_program_or_default
+def for_each_registered_chrdev(
+    prog: Program,
+) -> Iterator[Tuple[int, int, bytes, Object]]:
+    """
+    Iterate over all registered character device number ranges.
+
+    Character device numbers are reserved in ranges, so this returns the first
+    ``dev_t`` value (which includes a major and minor ID) and the size of the
+    range (i.e., the number of consecutive minor IDs starting from the first
+    ``dev_t``).
+
+    :return: Iterator of (first device number, number of consecutive minor IDs,
+        name, ``struct cdev *`` object) tuples. The ``struct cdev *`` may be
+        ``NULL``.
+    """
+    cdev_map_probes = prog["cdev_map"].probes
+    for cd in prog["chrdevs"]:
+        while cd := cd.read_():
+            major = cd.major.value_()
+            dev = MKDEV(major, cd.baseminor)
+            cdev = cd.cdev.read_()
+            if not cdev:
+                probe = cdev_map_probes[major].read_()
+                while next := probe.next.read_():
+                    if probe.dev.value_() == dev:
+                        cdev = cast(cdev.type_, probe.data)
+                        break
+                    probe = next
+
+            yield dev, cd.minorct.value_(), cd.name.string_(), cdev
+            cd = cd.next
+
+
+@takes_program_or_default
+def for_each_registered_blkdev(prog: Program) -> Iterator[Tuple[int, bytes, Object]]:
+    """
+    Iterate over all registered block device numbers.
+
+    Block device numbers are reserved by major ID.
+
+    :return: Iterator of (major ID, name, ``struct blk_major_name *`` object)
+        tuples.
+    """
+    for name in prog["major_names"]:
+        while name := name.read_():
+            yield name.major.value_(), name.name.string_(), name
+            name = name.next
