@@ -737,3 +737,81 @@ def create_socket(*args, **kwds):
             raise unittest.SkipTest("kernel does not support TCP")
         else:
             raise
+
+
+IPC_PRIVATE = 0
+IPC_CREAT = 0o1000
+IPC_EXCL = 0o2000
+IPC_NOWAIT = 0o4000
+
+IPC_RMID = 0
+IPC_SET = 1
+IPC_STAT = 2
+IPC_INFO = 3
+
+_key_t = ctypes.c_int
+
+_ftok = _c.ftok
+_ftok.argtypes = [ctypes.c_char_p, ctypes.c_int]
+_ftok.restype = _key_t
+
+
+def ftok(path, proj_id: int) -> int:
+    return _check_ctypes_syscall(_ftok(os.fsencode(path), proj_id))
+
+
+_msgget = _c.msgget
+_msgget.argtypes = [_key_t, ctypes.c_int]
+_msgget.restype = ctypes.c_int
+
+
+def msgget(key: int, msgflg: int = IPC_CREAT | 0o666) -> int:
+    return _check_ctypes_syscall(_msgget(key, msgflg))
+
+
+_msgctl = _c.msgctl
+_msgctl.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+_msgctl.restype = ctypes.c_int
+
+
+def msgctl(msqid: int, op: int) -> None:
+    _check_ctypes_syscall(_msgctl(msqid, op, 0))
+
+
+_semget = _c.semget
+_semget.argtypes = [_key_t, ctypes.c_int, ctypes.c_int]
+_semget.restype = ctypes.c_int
+
+
+def semget(key: int, nsems: int, semflg: int = IPC_CREAT | 0o666) -> int:
+    return _check_ctypes_syscall(_semget(key, nsems, semflg))
+
+
+_semctl = _c.semctl
+_semctl.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
+_semctl.restype = ctypes.c_int
+
+
+def semctl(semid: int, semnum: int, op: int) -> None:
+    _check_ctypes_syscall(_semctl(semid, semnum, op))
+
+
+SHM_LOCK = 11
+
+
+_shmget = _c.shmget
+_shmget.argtypes = [_key_t, ctypes.c_int, ctypes.c_int]
+_shmget.restype = ctypes.c_int
+
+
+def shmget(key: int, size: int, shmflg: int = IPC_CREAT | 0o666) -> int:
+    return _check_ctypes_syscall(_shmget(key, size, shmflg))
+
+
+_shmctl = _c.shmctl
+_shmctl.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+_shmctl.restype = ctypes.c_int
+
+
+def shmctl(shmid: int, op: int) -> None:
+    _check_ctypes_syscall(_shmctl(shmid, op, 0))
