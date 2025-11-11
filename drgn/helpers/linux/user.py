@@ -12,18 +12,25 @@ in the Linux kernel.
 import operator
 from typing import Iterator, Union
 
-from drgn import NULL, IntegerLike, Object, Program
+from drgn import NULL, IntegerLike, Object, Program, TypeKind
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.list import hlist_for_each_entry
 
 __all__ = (
     "find_user",
     "for_each_user",
+    "kuid_val",
 )
 
 
-def _kuid_val(uid: Union[Object, IntegerLike]) -> int:
-    if isinstance(uid, Object) and uid.type_.type_name() == "kuid_t":
+def kuid_val(uid: Union[Object, IntegerLike]) -> int:
+    """
+    Return the UID value of a ``kuid_t``.
+
+    :param uid: ``kuid_t`` object. May also be an integer, in which case its
+        value is returned.
+    """
+    if isinstance(uid, Object) and uid.type_.unaliased_kind() != TypeKind.INT:
         uid = uid.val
     return operator.index(uid)
 
@@ -50,7 +57,7 @@ def find_user(prog: Program, uid: Union[Object, IntegerLike]) -> Object:
 
         prog.cache["uidhashentry"] = uidhashentry
 
-    uid = _kuid_val(uid)
+    uid = kuid_val(uid)
     for user in hlist_for_each_entry(
         "struct user_struct", uidhashentry(uid), "uidhash_node"
     ):

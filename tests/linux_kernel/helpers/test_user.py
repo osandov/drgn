@@ -4,13 +4,19 @@
 import contextlib
 import os
 
-from drgn.helpers.linux.user import find_user, for_each_user
+from drgn import Object
+from drgn.helpers.linux.user import find_user, for_each_user, kuid_val
 from tests.linux_kernel import LinuxKernelTestCase, fork_and_stop
 
 
 class TestUser(LinuxKernelTestCase):
     # Try a few UIDs in case the the hash function changes in the future.
     UIDS = frozenset({0, 430, 1000, 65537})
+
+    def test_kuid_val(self):
+        self.assertIdentical(kuid_val(self.prog["init_cred"].uid), 0)
+        self.assertIdentical(kuid_val(Object(self.prog, "uid_t", 0)), 0)
+        self.assertIdentical(kuid_val(0), 0)
 
     def test_find_user(self):
         for uid in self.UIDS:
