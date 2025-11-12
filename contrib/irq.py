@@ -13,6 +13,12 @@ from drgn import Program
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_present_cpu
 from drgn.helpers.linux.cpumask import cpumask_to_cpulist
+from drgn.helpers.linux.irq import (
+    for_each_irq_desc,
+    irq_desc_affinity_mask,
+    irq_desc_kstat_cpu,
+    irq_to_desc,
+)
 from drgn.helpers.linux.mapletree import mtree_load
 from drgn.helpers.linux.mapletree import mt_for_each
 from drgn.helpers.linux.percpu import per_cpu_ptr
@@ -20,29 +26,11 @@ from drgn.helpers.linux.radixtree import radix_tree_for_each
 from drgn.helpers.linux.radixtree import radix_tree_lookup
 
 
-def _sparse_irq_supported(prog: Program) -> Tuple[bool, str]:
-    try:
-        # Since Linux kernel commit 721255b9826b ("genirq: Use a maple
-        # tree for interrupt descriptor management") (in v6.5), sparse
-        # irq descriptors are stored in a maple tree.
-        _ = prog["sparse_irqs"]
-        return True, "maple"
-    except KeyError:
-        # Before that, they are in radix tree.
-        try:
-            _ = prog["irq_desc_tree"]
-            return True, "radix"
-        except KeyError:
-            return False, None
-
-
 def _kstat_irqs_cpu(prog: Program, irq: int, cpu: int) -> int:
     desc = irq_to_desc(prog, irq)
     if not desc:
         return 0
-
-    addr = per_cpu_ptr(desc.kstat_irqs, cpu)
-    return Object(prog, "int", address=addr).value_()
+    return irq_desc_kstat_cpu(desc, cpu)
 
 
 def irq_in_use(prog: Program, irq: int) -> bool:
@@ -84,45 +72,8 @@ def for_each_irq(prog: Program) -> Iterator[int]:
 
     :return: Iterator of irq numbers
     """
-    _, tree_type = _sparse_irq_supported(prog)
-
-    if tree_type == "radix":
-        irq_desc_tree = prog["irq_desc_tree"].address_of_()
-        for irq, _ in radix_tree_for_each(irq_desc_tree):
-            yield irq
-    elif tree_type == "maple":
-        irq_desc_tree = prog["sparse_irqs"].address_of_()
-        for irq, _, _ in mt_for_each(irq_desc_tree):
-            yield irq
-    else:
-        count = len(prog["irq_desc"])
-        for irq_num in range(count):
-            yield irq_num
-
-
-def for_each_irq_desc(prog: Program) -> Iterator[Object]:
-    """
-    Iterate through all allocated irq descriptors.
-
-    :param prog: drgn program
-
-    :return: Iterator of ``struct irq_desc *`` objects.
-    """
-    _, tree_type = _sparse_irq_supported(prog)
-    if tree_type == "radix":
-        irq_desc_tree = prog["irq_desc_tree"].address_of_()
-        for _, addr in radix_tree_for_each(irq_desc_tree):
-            irq_desc = Object(prog, "struct irq_desc", address=addr).address_of_()
-            yield irq_desc
-    elif tree_type == "maple":
-        irq_desc_tree = prog["sparse_irqs"].address_of_()
-        for _, _, addr in mt_for_each(irq_desc_tree):
-            irq_desc = Object(prog, "struct irq_desc", address=addr).address_of_()
-            yield irq_desc
-    else:
-        count = len(prog["irq_desc"])
-        for irq_num in range(count):
-            yield (prog["irq_desc"][irq_num]).address_of_()
+    for irq, _ in for_each_irq_desc(prog):
+        yield irq
 
 
 def irq_name_to_desc(prog: Program, name: str) -> Object:
@@ -142,68 +93,6 @@ def irq_name_to_desc(prog: Program, name: str) -> Object:
     return NULL(prog, "void *")
 
 
-def irq_to_desc(prog: Program, irq: int) -> Object:
-    """
-    Get ``struct irq_desc *`` for given irq number
-
-    :param prog: drgn program
-    :param irq: irq number
-
-    :return: ``struct irq_desc *`` object if irq descriptor is found.
-             NULL otherwise
-    """
-    _, tree_type = _sparse_irq_supported(prog)
-
-    if tree_type:
-        if tree_type == "radix":
-            addr = radix_tree_lookup(prog["irq_desc_tree"].address_of_(), irq)
-        else:
-            addr = mtree_load(prog["sparse_irqs"].address_of_(), irq)
-
-        if addr:
-            return Object(prog, "struct irq_desc", address=addr).address_of_()
-        else:
-            return NULL(prog, "void *")
-    else:
-        return (prog["irq_desc"][irq]).address_of_()
-
-
-def get_irq_affinity(prog: Program, irq: int) -> Object:
-    """
-    Get ``struct cpumask`` for given irq's cpu affinity
-
-    :param prog: drgn program
-    :param irq: irq number
-
-    :return: ``struct cpumask`` object if irq descriptor is found.
-             NULL otherwise
-    """
-
-    if not irq_in_use(prog, irq):
-        print("IRQ not in use so affinity data is not reliable")
-
-    irq_desc = irq_to_desc(prog, irq)
-
-    # if CONFIG_CPUMASK_OFFSTACK is enabled then affinity is an array
-    # of cpumask objects otherwise it is pointer to a cpumask object
-    if hasattr(irq_desc, "irq_common_data"):
-        try:
-            _ = len(irq_desc.irq_common_data.affinity)
-            addr = irq_desc.irq_common_data.affinity.address_
-        except TypeError:
-            addr = irq_desc.irq_common_data.affinity.value_()
-    elif hasattr(irq_desc, "irq_data"):
-        try:
-            _ = len(irq_desc.irq_data.affinity)
-            addr = irq_desc.irq_data.affinity.address_
-        except TypeError:
-            addr = irq_desc.irq_data.affinity.value_()
-    else:
-        return None
-
-    return Object(prog, "struct cpumask", address=addr)
-
-
 def get_irq_affinity_list(prog: Program, irq: int) -> Object:
     """
     Get affinity of a given cpu.
@@ -213,12 +102,9 @@ def get_irq_affinity_list(prog: Program, irq: int) -> Object:
 
     :return: range of cpus to which irq is affined to
     """
-
-    affinity = get_irq_affinity(prog, irq)
-    if affinity is not None:
-        return cpumask_to_cpulist(affinity)
-    else:
-        return None
+    if not irq_in_use(prog, irq):
+        print("IRQ not in use so affinity data is not reliable")
+    return cpumask_to_cpulist(irq_desc_affinity_mask(irq_to_desc(prog, irq)))
 
 
 def show_irq_num_stats(prog: Program, irq: int) -> None:
