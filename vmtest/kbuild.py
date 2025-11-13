@@ -187,13 +187,12 @@ _PATCHES = (
         name="4.19-kbuild-Only-add-fno-var-tracking-assignments-for-old.patch",
         versions=((None, KernelVersion("5.1")),),
     ),
-    # For aarch64, some IRQ stacks are mapped in the range [_text, _stext],
-    # which does not get mapped in /proc/vmcore. This patch is in linux-next for
-    # 6.18, and it is needed since e2a073dde9218 ("arm64: omit [_text, _stext)
-    # from permanent kernel mapping") in v5.11.
     _Patch(
         name="6.17-arm64-map-_text-_stext-virtual-address-range-non-exe.patch",
-        versions=((KernelVersion("6.9"), KernelVersion("6.18")),),
+        versions=(
+            (KernelVersion("6.13"), KernelVersion("6.17.4")),
+            (KernelVersion("6.9"), KernelVersion("6.12.54")),
+        ),
     ),
     _Patch(
         name="6.8-arm64-map-_text-_stext-virtual-address-range-non-exe.patch",
