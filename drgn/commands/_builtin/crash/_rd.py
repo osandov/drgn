@@ -62,6 +62,8 @@ def _print_memory(
     format: Literal["x", "d", "u"] = "x",
     endian: Literal["little", "big", None] = None,
     cache: Optional[Dict[Any, Any]] = None,
+    indent: str = "",
+    address_pad: str = "",
 ) -> None:
     """
     Read memory, format, and print output to stdout
@@ -121,7 +123,7 @@ def _print_memory(
     signed = False
     if format == "x":
         width = unit * 2
-        pad = "0"
+        value_pad = "0"
     else:
         # Crash does not correctly align decimal integers in all cases. This
         # seems like a bug: let's accurately determine the max width and get
@@ -136,20 +138,20 @@ def _print_memory(
             # signed integers are intended, set the format code correctly.
             format = "d"
         width = len(str(widest_value))
-        pad = ""
+        value_pad = ""
 
     bytes_per_line = 16
     units_per_line = bytes_per_line // unit
     for offset in range(0, len(mem), unit):
         line_index = (offset % bytes_per_line) // unit
         if line_index == 0:
-            print(f"{offset + address:{word_size * 2}x}: ", end="")
+            print(f"{indent}{offset + address:{address_pad}{word_size * 2}x}: ", end="")
         value = int.from_bytes(mem[offset : offset + unit], byteorder, signed=signed)
         identified = _crash_annotate(prog, value, annotate, cache)
         if identified is not None:
             print(f" {identified:{width}s}", end="")
         else:
-            print(f" {value:{pad}{width}{format}}", end="")
+            print(f" {value:{value_pad}{width}{format}}", end="")
 
         is_end = (line_index + 1 == units_per_line) or offset + unit == len(mem)
         if is_end and show_ascii:
