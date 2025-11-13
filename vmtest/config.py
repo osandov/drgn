@@ -145,6 +145,7 @@ CONFIG_EXT4_FS=m
 CONFIG_XFS_FS=m
 
 # For mm tests.
+CONFIG_ANON_VMA_NAME=y
 CONFIG_HUGETLBFS=y
 CONFIG_MEMORY_HOTPLUG=y
 CONFIG_MEMORY_HOTREMOVE=y
@@ -245,6 +246,9 @@ KERNEL_FLAVORS = {
                 # which was introduced in Linux kernel commit e240e53ae0ab
                 # ("mm, slub: add CONFIG_SLUB_TINY") (in v6.2).
                 CONFIG_SLUB_TINY=y
+                # Cover the case of disabling this feature on kernel versions
+                # that support it.
+                CONFIG_ANON_VMA_NAME=n
                 # CONFIG_PREEMPT_DYNAMIC is not set
                 CONFIG_PREEMPT_NONE=y
                 # !PREEMPTION && !SMP will also select TINY_RCU.
@@ -456,7 +460,7 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     vmtest_kernel_version = [
         # Increment the major version to rebuild every
         # architecture/flavor/version combination.
-        38,
+        39,
         # The minor version makes the default flavor the "latest" version.
         1 if flavor.name == "default" else 0,
     ]
