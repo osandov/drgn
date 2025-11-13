@@ -8,7 +8,7 @@ import tempfile
 
 from drgn import Architecture, FaultError, PlatformFlags
 from drgn.helpers.linux.pid import find_task
-from tests.linux_kernel import skip_if_highmem
+from tests.linux_kernel import skip_if_highmem, skip_unless_have_test_kmod
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 
 
@@ -113,20 +113,35 @@ class TestRd(CrashCommandTestCase):
         cmd = self.check_crash_command(f"rd -s {address:x} 2")
         self.assertRegex(cmd.stdout, rf"^{address:0{self.w}x}:  slab_caches\+0")
 
+    @skip_unless_have_test_kmod
     def test_annotate_slab(self):
-        address = self.prog.symbol("slab_caches").address
-        cmd = self.check_crash_command("rd -S slab_caches 2")
-        self.assertRegex(
-            cmd.stdout, rf"^{address:0{self.w}x}:  \[kmem_cache\] +\[kmem_cache\]"
-        )
+        address = self.prog.symbol("drgn_test_small_slab_objects").address
+        cmd = self.check_crash_command("rd -S drgn_test_small_slab_objects 2")
+        if self.prog["drgn_test_slob"]:
+            self.assertRegex(
+                cmd.stdout,
+                rf"^{address:0{self.w}x}:  \[unknown slab object\] +\[unknown slab object\]",
+            )
+        else:
+            self.assertRegex(
+                cmd.stdout,
+                rf"^{address:0{self.w}x}:  \[drgn_test_small\] +\[drgn_test_small\]",
+            )
 
+    @skip_unless_have_test_kmod
     def test_annotate_slab_verbose(self):
-        address = self.prog.symbol("slab_caches").address
-        cmd = self.check_crash_command("rd -SS slab_caches 2")
-        self.assertRegex(
-            cmd.stdout,
-            rf"^{address:0{self.w}x}:  \[[0-9a-f]+:kmem_cache\] +\[[0-9a-f]+:kmem_cache\]",
-        )
+        address = self.prog.symbol("drgn_test_small_slab_objects").address
+        cmd = self.check_crash_command("rd -SS drgn_test_small_slab_objects 2")
+        if self.prog["drgn_test_slob"]:
+            self.assertRegex(
+                cmd.stdout,
+                rf"^{address:0{self.w}x}:  \[[0-9a-f]+:unknown slab object\] +\[[0-9a-f]+:unknown slab object\]",
+            )
+        else:
+            self.assertRegex(
+                cmd.stdout,
+                rf"^{address:0{self.w}x}:  \[[0-9a-f]+:drgn_test_small\] +\[[0-9a-f]+:drgn_test_small\]",
+            )
 
     def test_reverse(self):
         address = self.prog["init_task"].address_
