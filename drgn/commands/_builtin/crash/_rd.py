@@ -32,15 +32,18 @@ def _crash_annotate(
             "slab",
             "verbose",
         ):
-            slab_cache = identified.slab_object_info.slab_cache
-            if slab_cache:
-                cache_name = escape_ascii_string(slab_cache.name.string_())
-                if level == "slab":
-                    return f"[{cache_name}]"
-                else:
-                    # Crash does not pad the address at all, which can help with
-                    # output alignment on some architectures.
-                    return f"[{addr:x}:{cache_name}]"
+            if identified.slab_object_info.address:
+                cache_name = escape_ascii_string(
+                    identified.slab_object_info.slab_cache.name.string_()
+                )
+            else:  # SLOB
+                cache_name = "unknown slab object"
+            if level == "slab":
+                return f"[{cache_name}]"
+            else:
+                # Crash does not pad the address at all, which can help with
+                # output alignment on some architectures.
+                return f"[{addr:x}:{cache_name}]"
     return None
 
 
