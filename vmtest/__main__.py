@@ -113,6 +113,8 @@ class _TestRunner:
         jobs: Optional[int] = None,
         use_host_rootfs: bool = True,
         skip_build: bool = False,
+        pytest_kernel_args: Optional[str] = None,
+        skip_kdump: bool = False,
     ) -> None:
         self._directory = directory
         if jobs is None:
@@ -147,6 +149,9 @@ class _TestRunner:
             self._color = os.isatty(sys.stderr.fileno())
         except (AttributeError, OSError):
             self._color = False
+
+        self._pytest_kernel_args = pytest_kernel_args
+        self._skip_kdump = skip_kdump
 
     def add_kernel(self, arch: Architecture, pattern: str) -> None:
         self._compilers_to_resolve[arch] = None
@@ -461,13 +466,7 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
         else:
             python_executable = "/usr/bin/python3"
 
-        if kernel.arch is HOST_ARCHITECTURE:
-            mark_expression = ""
-        else:
-            # Skip excessively slow tests when emulating.
-            mark_expression = "-m 'not slow'"
-
-        if _kdump_works(kernel):
+        if _kdump_works(kernel) and not self._skip_kdump:
             kdump_command = """\
     "$PYTHON" -Bm vmtest.enter_kdump
     # We should crash and not reach this.
@@ -475,6 +474,15 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
 """
         else:
             kdump_command = ""
+
+        if self._pytest_kernel_args is not None:
+            pytest_args = self._pytest_kernel_args
+        elif kernel.arch is HOST_ARCHITECTURE:
+            pytest_args = "tests/linux_kernel --ignore tests/linux_kernel/vmcore"
+        else:
+            pytest_args = (
+                "tests/linux_kernel --ignore tests/linux_kernel/vmcore -m 'not slow'"
+            )
 
         test_command = rf"""
 set -e
@@ -485,10 +493,16 @@ if [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm pytest -v tests/linux_kernel/vmcore
 else
     insmod "$DRGN_TEST_KMOD"
-    "$PYTHON" -Bm pytest -v tests/linux_kernel --ignore=tests/linux_kernel/vmcore {mark_expression}
+    "$PYTHON" -Bm pytest -v {pytest_args}
 {kdump_command}
 fi
 """
+
+        # Silence as much boot text as possible if we're specifying tests to run
+        # in the foreground
+        extra_kernel_cmdline = []
+        if self._pytest_kernel_args and self._foreground:
+            extra_kernel_cmdline.append("quiet")
 
         try:
             status = run_in_vm(
@@ -498,6 +512,7 @@ fi
                 self._directory,
                 test_kmod=TestKmodMode.BUILD,
                 outfile=outfile,
+                extra_kernel_cmdline=extra_kernel_cmdline,
             )
             return status == 0
         except (
@@ -579,6 +594,15 @@ if __name__ == "__main__":
         action="store_true",
         help="don't rebuild drgn even if it's out of date",
     )
+    parser.add_argument(
+        "--pytest-args",
+        help="a string of args passed to pytest for kernel tests",
+    )
+    parser.add_argument(
+        "--skip-kdump",
+        action="store_true",
+        help="skip kdump and vmcore tests (useful with --pytest-args)",
+    )
     args = parser.parse_args()
 
     if not hasattr(args, "kernels") and not args.local:
@@ -632,6 +656,8 @@ if __name__ == "__main__":
         jobs=args.jobs,
         use_host_rootfs=args.use_host_rootfs == "auto",
         skip_build=args.skip_build,
+        pytest_kernel_args=args.pytest_args,
+        skip_kdump=args.skip_kdump,
     )
 
     if hasattr(args, "kernels"):
