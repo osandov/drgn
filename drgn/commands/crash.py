@@ -514,3 +514,30 @@ command = task.comm
         else:
             self.append(f"for cpu in {cpuspec.cpus(self._prog)!r}:\n")
         self.append(textwrap.indent(loop_body, "    "))
+
+    def append_cpuspec_list(self, cpuspec: Cpuspec) -> bool:
+        """
+        Append code that creates a variable or list containing the CPUs in a
+        CPU specifier.
+
+        :param cpuspec: CPU specifier parsed by :func:`parse_cpuspec()`.
+        :return: Whether there was potentially more than one CPU, so the code
+            creates a list.
+        """
+        if cpuspec.current:
+            self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+            self.append_crash_context()
+            self.append("cpu = task_cpu(task)\n")
+            return False
+        elif cpuspec.all:
+            self.add_from_import("drgn.helpers.linux.cpumask", "for_each_possible_cpu")
+            self.append("cpus = list(for_each_possible_cpu())\n")
+            return True
+        else:
+            cpus = cpuspec.cpus(self._prog)
+            if len(cpus) > 1:
+                self.append(f"cpus = {cpus!r}\n")
+                return True
+            else:
+                self.append(f"cpu = {cpus[0]}\n")
+                return False
