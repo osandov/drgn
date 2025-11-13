@@ -9,9 +9,10 @@ The ``drgn.helpers.linux.cpumask`` module provides helpers for working with CPU
 masks from :linux:`include/linux/cpumask.h`.
 """
 
+import operator
 from typing import Iterator
 
-from drgn import Object, Program
+from drgn import IntegerLike, Object, Program, cast, sizeof
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.bitmap import bitmap_weight
 from drgn.helpers.linux.bitops import for_each_set_bit
@@ -20,6 +21,7 @@ __all__ = (
     "cpu_online_mask",
     "cpu_possible_mask",
     "cpu_present_mask",
+    "cpumask_of",
     "cpumask_to_cpulist",
     "cpumask_weight",
     "for_each_cpu",
@@ -72,6 +74,21 @@ def cpu_present_mask(prog: Program) -> Object:
         return prog["__cpu_present_mask"].address_of_()
     except KeyError:
         return prog["cpu_present_mask"]
+
+
+@takes_program_or_default
+def cpumask_of(prog: Program, cpu: IntegerLike) -> Object:
+    """
+    Return a mask containing only the given CPU.
+
+    :return: ``struct cpumask *``
+    """
+    BITS_PER_LONG = sizeof(prog.type("unsigned long")) * 8
+    cpu = operator.index(cpu)
+    return cast(
+        "struct cpumask *",
+        prog["cpu_bit_bitmap"][1 + cpu % BITS_PER_LONG] - cpu // BITS_PER_LONG,
+    )
 
 
 def for_each_cpu(mask: Object) -> Iterator[int]:

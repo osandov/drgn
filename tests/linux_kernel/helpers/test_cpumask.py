@@ -4,8 +4,8 @@
 from pathlib import Path
 
 import drgn.helpers.linux.cpumask
-from drgn.helpers.linux.cpumask import cpumask_to_cpulist
-from tests.linux_kernel import LinuxKernelTestCase, parse_range_list
+from drgn.helpers.linux.cpumask import cpumask_of, cpumask_to_cpulist, for_each_cpu
+from tests.linux_kernel import LinuxKernelTestCase, parse_range_list, possible_cpus
 
 CPU_PATH = Path("/sys/devices/system/cpu")
 
@@ -54,3 +54,7 @@ class TestCpuMask(LinuxKernelTestCase):
                     getattr(drgn.helpers.linux.cpumask, f"num_{name}_cpus")(self.prog),
                     len(parse_range_list((CPU_PATH / name).read_text())),
                 )
+
+    def test_cpumask_of(self):
+        cpu = max(possible_cpus())
+        self.assertEqual(list(for_each_cpu(cpumask_of(self.prog, cpu))), [cpu])
