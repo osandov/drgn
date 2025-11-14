@@ -1606,9 +1606,11 @@ def vma_name(vma: Object) -> str:
     ``struct vm_area_struct *`` object, describing what type of memory region
     it represents. It mimics the VMA naming behavior seen in
     ``/proc/<pid>/maps``.
+
     :param vma: ``struct vm_area_struct *``
     :return: File path or descriptive name of the VMA region. Possible return
         values include:
+
         - **File path** (e.g., ``/usr/lib/libc.so.6``):
           For VMAs backed by files (``vma->vm_file`` non-NULL).
         - ``[heap]``:
@@ -1622,9 +1624,7 @@ def vma_name(vma: Object) -> str:
         - ``[anon:<name>]``:
           Kernel versions with ``anon_vma_name`` support.
         - Empty string: anonymous memory.
-
     """
-
     prog = vma.prog_
 
     vm_file = vma.vm_file.read_()
