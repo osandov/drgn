@@ -7,7 +7,7 @@ import argparse
 import functools
 import shutil
 import sys
-from typing import Any, Iterable, List, Optional, Tuple, Union
+from typing import Any, Iterable, List, Literal, Optional, Tuple, Union
 
 from drgn import Object, Program, offsetof, sizeof
 from drgn.commands import CommandError, _repr_black, argument, drgn_argument
@@ -15,14 +15,19 @@ from drgn.commands.crash import (
     Cpuspec,
     CrashDrgnCodeBuilder,
     _guess_type,
+    _parse_members,
     _parse_type_name_and_members,
     _parse_type_offset_arg,
+    _pid_or_task,
     _prefer_object_lookup,
     _sanitize_member_name,
     crash_command,
+    crash_get_context,
     parse_cpuspec,
+    print_task_header,
 )
 from drgn.helpers.linux.percpu import per_cpu_ptr
+from drgn.helpers.linux.sched import task_thread_info
 
 
 # Workaround for https://github.com/python/cpython/issues/80259 from
@@ -470,3 +475,115 @@ def _crash_cmd_asterisk(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
     return _crash_cmd_struct(prog, name, args, **kwargs)
+
+
+@crash_command(
+    description="task_struct and thread_info contents",
+    arguments=(
+        argument(
+            "tasks",
+            metavar="pid|task",
+            nargs="*",
+            help="""
+            display this task, given as either a decimal process ID or a
+            hexadecimal ``task_struct`` address. May be given multiple times.
+            Defaults to the current context
+            """,
+        ),
+        argument(
+            "-R",
+            dest="members",
+            metavar="member[,member]",
+            action="append",
+            help="""
+            display only these ``task_struct`` members, given as a
+            comma-separated list. Each member can be nested and include array
+            subscripts. The **-R** is optional
+            """,
+        ),
+        argument(
+            "-x",
+            dest="integer_base",
+            action="store_const",
+            const=16,
+            help="output integers in hexadecimal format regardless of the default",
+        ),
+        argument(
+            "-d",
+            dest="integer_base",
+            action="store_const",
+            const=10,
+            help="output integers in decimal format regardless of the default",
+        ),
+        drgn_argument,
+    ),
+)
+def _crash_cmd_task(
+    prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
+) -> None:
+    members = []
+    if args.members:
+        for arg in args.members:
+            members.extend(_parse_members(arg))
+
+    task_args: List[Optional[Tuple[Literal["pid", "task"], int]]] = []
+    for arg in args.tasks:
+        try:
+            task_args.append(_pid_or_task(arg))
+        except ValueError:
+            members.extend(_parse_members(arg))
+
+    if not task_args:
+        task_args.append(None)
+
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        if not members:
+            code.add_from_import("drgn.helpers.linux.sched", "task_thread_info")
+        first = True
+        for task_arg in task_args:
+            if first:
+                first = False
+            else:
+                code.append("\n")
+
+            code.append_crash_context(task_arg)
+            code.append_task_header()
+            if members:
+                for member in members:
+                    code.append(f"{_sanitize_member_name(member)} = task.{member}\n")
+            else:
+                code.append("thread_info = task_thread_info(task)\n")
+        return code.print()
+
+    format_options = {
+        "columns": shutil.get_terminal_size().columns,
+        "dereference": False,
+        "integer_base": args.integer_base or prog.config.get("crash_radix", 10),
+    }
+
+    first = True
+    for task_arg in task_args:
+        if first:
+            first = False
+        else:
+            print()
+
+        try:
+            task = crash_get_context(prog, task_arg)
+        except Exception as e:
+            print(e)
+            continue
+
+        print_task_header(task)
+        if members:
+            for member in members:
+                print(
+                    f"  {member} = {task[0].subobject_(member).format_(**format_options)}"
+                )
+        else:
+            print(
+                task[0].format_(**format_options),
+                task_thread_info(task)[0].format_(**format_options),
+                sep="\n\n",
+            )

@@ -1,10 +1,13 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import os
 import re
 
-from drgn import offsetof, reinterpret
+from drgn import Object, offsetof, reinterpret
 from drgn.commands import CommandError, CommandNotFoundError
+from drgn.helpers.linux.pid import find_task
+from drgn.helpers.linux.sched import task_thread_info
 from tests.linux_kernel import possible_cpus, skip_unless_have_test_kmod
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 
@@ -534,3 +537,66 @@ class TestImplicit(CrashCommandTestCase):
         self.assertRaises(
             CommandNotFoundError, self.run_crash_command, "drgn_test_non_existent"
         )
+
+
+class TestTask(CrashCommandTestCase):
+    def test_no_args(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("task")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("(struct task_struct){", cmd.stdout)
+        self.assertIn("(struct thread_info){", cmd.stdout)
+
+        task = find_task(self.prog, os.getpid())
+        self.assertEqual(cmd.drgn_option.globals["task"], task)
+        self.assertIn("pid", cmd.drgn_option.globals)
+        self.assertIn("cpu", cmd.drgn_option.globals)
+        self.assertIn("command", cmd.drgn_option.globals)
+        self.assertEqual(cmd.drgn_option.globals["thread_info"], task_thread_info(task))
+
+    def test_pids(self):
+        cmd = self.check_crash_command("task 1 2")
+        self.assertIn("PID: 1", cmd.stdout)
+        self.assertIn("PID: 2", cmd.stdout)
+        self.assertIn("(struct task_struct){", cmd.stdout)
+        self.assertIn("(struct thread_info){", cmd.stdout)
+
+        task = find_task(self.prog, 2)
+        self.assertEqual(cmd.drgn_option.globals["task"], task)
+        self.assertIn("pid", cmd.drgn_option.globals)
+        self.assertIn("cpu", cmd.drgn_option.globals)
+        self.assertIn("command", cmd.drgn_option.globals)
+        self.assertEqual(cmd.drgn_option.globals["thread_info"], task_thread_info(task))
+
+    def test_members(self):
+        cmd = self.check_crash_command("task 1 -R on_rq,prio")
+        self.assertNotIn("(struct task_struct){", cmd.stdout)
+        self.assertNotIn("(struct thread_info){", cmd.stdout)
+        self.assertIn("on_rq =", cmd.stdout)
+        self.assertIn("prio =", cmd.stdout)
+
+        task = find_task(self.prog, 1)
+        self.assertEqual(cmd.drgn_option.globals["task"], task)
+        self.assertIn("pid", cmd.drgn_option.globals)
+        self.assertIn("cpu", cmd.drgn_option.globals)
+        self.assertIn("command", cmd.drgn_option.globals)
+        self.assertIsInstance(cmd.drgn_option.globals["on_rq"], Object)
+        self.assertIsInstance(cmd.drgn_option.globals["prio"], Object)
+        self.assertNotIn("thread_info", cmd.drgn_option.globals)
+
+    def test_members_without_R(self):
+        cmd = self.check_crash_command("task -R on_rq 1 prio")
+        self.assertNotIn("(struct task_struct){", cmd.stdout)
+        self.assertNotIn("(struct thread_info){", cmd.stdout)
+        self.assertIn("on_rq =", cmd.stdout)
+        self.assertIn("prio =", cmd.stdout)
+
+        task = find_task(self.prog, 1)
+        self.assertEqual(cmd.drgn_option.globals["task"], task)
+        self.assertIn("pid", cmd.drgn_option.globals)
+        self.assertIn("cpu", cmd.drgn_option.globals)
+        self.assertIn("command", cmd.drgn_option.globals)
+        self.assertIsInstance(cmd.drgn_option.globals["on_rq"], Object)
+        self.assertIsInstance(cmd.drgn_option.globals["prio"], Object)
+        self.assertNotIn("thread_info", cmd.drgn_option.globals)
