@@ -4,7 +4,6 @@
 import errno
 import os
 import resource
-import sys
 import unittest
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
@@ -20,10 +19,13 @@ from drgn.helpers.linux.cgroup import cgroup_get_from_path
 from tests.linux_kernel import LinuxKernelTestCase
 from tests.linux_kernel.bpf import (
     BPF_CGROUP_INET_INGRESS,
+    BPF_EXIT_INSN,
     BPF_F_ALLOW_MULTI,
     BPF_MAP_TYPE_HASH,
+    BPF_MOV64_IMM,
     BPF_PROG_TYPE_CGROUP_SKB,
     BPF_PROG_TYPE_SOCKET_FILTER,
+    BPF_REG_0,
     _SYS_bpf,
     bpf_btf_ids,
     bpf_link_create,
@@ -39,13 +41,10 @@ from tests.linux_kernel.helpers.test_cgroup import tmp_cgroups
 
 
 class TestBpf(LinuxKernelTestCase):
-    # BPF instructions for:
-    # r0 = 0
-    # exit
-    if sys.byteorder == "little":
-        INSNS = (0xB7, 0x95)
-    else:
-        INSNS = (0xB700000000000000, 0x9500000000000000)
+    INSNS = (
+        BPF_MOV64_IMM(BPF_REG_0, 0),
+        BPF_EXIT_INSN(),
+    )
 
     @classmethod
     def setUpClass(cls):
