@@ -429,6 +429,23 @@ def mlock(addr, len):
     _check_ctypes_syscall(_mlock(addr, len))
 
 
+_prctl = _c.prctl
+_prctl.argtypes = [ctypes.c_int]
+_prctl.restype = ctypes.c_int
+
+
+def prctl_set_vma_anon_name(addr, size, name):
+    _check_ctypes_syscall(
+        _prctl(
+            ctypes.c_int(0x53564D41),  # PR_SET_VMA
+            ctypes.c_long(0),  # PR_SET_VMA_ANON_NAME,
+            ctypes.c_ulong(addr),
+            ctypes.c_ulong(size),
+            ctypes.c_char_p(None if name is None else os.fsencode(name)),
+        )
+    )
+
+
 CSIGNAL = 0x000000FF
 CLONE_VM = 0x00000100
 CLONE_FS = 0x00000200

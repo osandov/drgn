@@ -3,6 +3,7 @@
 
 import contextlib
 import ctypes
+import errno
 import mmap
 import os
 from pathlib import Path
@@ -70,6 +71,7 @@ from tests.linux_kernel import (
     iter_maps,
     meminfo_field_in_pages,
     mlock,
+    prctl_set_vma_anon_name,
     prng32,
     skip_if_highmem,
     skip_if_highpte,
@@ -462,19 +464,46 @@ class TestMm(LinuxKernelTestCase):
             )
 
     def test_vma_name(self):
-        mm = find_task(self.prog, os.getpid()).mm.read_()
-        tested_file_path = False
-        for map in iter_maps():
-            if map.path.startswith("["):
-                vma = vma_find(mm, map.start)
-                if vma:
-                    with self.subTest(vma=map.path):
+        with mmap.mmap(-1, mmap.PAGESIZE, mmap.MAP_PRIVATE) as private_map, mmap.mmap(
+            -1, mmap.PAGESIZE, mmap.MAP_SHARED
+        ) as shared_map:
+            # Test VMA names if the kernel supports it.
+            try:
+                prctl_set_vma_anon_name(
+                    ctypes.addressof(ctypes.c_char.from_buffer(private_map)),
+                    mmap.PAGESIZE,
+                    "testprivate",
+                )
+            except OSError as e:
+                # PR_SET_VMA_ANON_NAME is only supported since Linux 5.17, and
+                # only if CONFIG_ANON_VMA_NAME=y. Otherwise, it returns EINVAL.
+                if e.errno != errno.EINVAL:
+                    raise
+            try:
+                prctl_set_vma_anon_name(
+                    ctypes.addressof(ctypes.c_char.from_buffer(shared_map)),
+                    mmap.PAGESIZE,
+                    "testshared",
+                )
+            except OSError as e:
+                # Unsupported VMAs return EBADF, and anonymous shared memory is
+                # only supported since Linux 6.2.
+                if e.errno != errno.EINVAL and e.errno != errno.EBADF:
+                    raise
+
+            mm = find_task(self.prog, os.getpid()).mm.read_()
+            tested_file_path = False
+            for map in iter_maps():
+                if map.path.startswith("["):
+                    vma = vma_find(mm, map.start)
+                    if vma:
+                        with self.subTest(vma=map.path):
+                            self.assertEqual(vma_name(vma), map.path)
+                elif not tested_file_path and map.path.startswith("/"):
+                    vma = vma_find(mm, map.start)
+                    with self.subTest("file"):
                         self.assertEqual(vma_name(vma), map.path)
-            elif not tested_file_path and map.path.startswith("/"):
-                vma = vma_find(mm, map.start)
-                with self.subTest("file"):
-                    self.assertEqual(vma_name(vma), map.path)
-                tested_file_path = True
+                    tested_file_path = True
 
     def test_for_each_vma(self):
         with fork_and_stop() as pid:

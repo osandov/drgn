@@ -1621,14 +1621,36 @@ def vma_name(vma: Object) -> str:
           Virtual Dynamic Shared Object area (``mm->context.vdso``).
         - ``[vvar]``, ``[vsyscall]``, etc.:
           Architecture-specific special mappings from ``vm_ops->name``.
-        - ``[anon:<name>]``:
-          Kernel versions with ``anon_vma_name`` support.
+        - ``[anon:<name>]``: private anonymous memory with a name set by
+          `PR_SET_VMA_ANON_NAME
+          <https://man7.org/linux/man-pages/man2/PR_SET_VMA.2const.html>`_.
+        - ``[anon_shmem:<name>]``: shared memory with a name set by
+          `PR_SET_VMA_ANON_NAME
+          <https://man7.org/linux/man-pages/man2/PR_SET_VMA.2const.html>`_.
         - Empty string: anonymous memory.
     """
     prog = vma.prog_
+    mm = vma.vm_mm.read_()
 
     vm_file = vma.vm_file.read_()
     if vm_file:
+        # Since Linux kernel commit d09e8ca6cb93 ("mm: anonymous shared memory
+        # naming") (in v6.2), vma->anon_name exists and is valid iff
+        # CONFIG_ANON_VMA_NAME=y. Between that commit and commit 9a10064f5625
+        # ("mm: add a field to store names for private anonymous memory") (in
+        # v5.17), it exists in a union with vma->shared, so it is only valid
+        # when vma->vm_file is NULL. Before that, it doesn't exist.
+        if mm:
+            try:
+                anon_name = vma.anon_name
+            except AttributeError:
+                pass
+            else:
+                if anon_name.address_ != vma.shared.address_:
+                    anon_name = anon_name.read_()
+                    if anon_name:
+                        return f"[anon_shmem:{os.fsdecode(anon_name.name.string_())}]"
+
         return os.fsdecode(d_path(vm_file.f_path))
 
     vm_ops = vma.vm_ops.read_()
@@ -1641,7 +1663,6 @@ def vma_name(vma: Object) -> str:
                 .decode()
             )
 
-    mm = vma.vm_mm.read_()
     if not mm:
         return "[vdso]"
 
@@ -1659,9 +1680,7 @@ def vma_name(vma: Object) -> str:
     if mm.start_stack and start <= mm.start_stack.value_() <= end:
         return "[stack]"
 
-    # anon_name was added in Linux kernel commit 9a10064f5625 ("mm: add a field
-    # to store names for private anonymous memory") (in v5.17). It also only
-    # exists if CONFIG_ANON_VMA_NAME=y.
+    # See above regarding the existence of vma->anon_name.
     try:
         anon_name = vma.anon_name.read_()
     except AttributeError:
