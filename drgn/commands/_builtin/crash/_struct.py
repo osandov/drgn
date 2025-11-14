@@ -161,7 +161,7 @@ address = prog.symbol({_repr_black(address_or_symbol)}).address{subtract_offset}
 
     object_loop += "".join(
         [
-            f"{members_indent}{_sanitize_member_name(member)} = " f"object.{member}\n"
+            f"{members_indent}{_sanitize_member_name(member)} = object.{member}\n"
             for member in members
         ]
     )
