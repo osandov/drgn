@@ -347,6 +347,15 @@ def _parse_type_name_and_members(arg: str) -> Tuple[str, List[str]]:
     return name, members
 
 
+# Parse one or more comma-separated members.
+def _parse_members(arg: str) -> List[str]:
+    members = arg.split(",")
+    for member in members:
+        if not re.fullmatch(_MEMBER_PATTERN, member):
+            raise ValueError(f"invalid member name: {member}")
+    return members
+
+
 # Sanitize a member name, which can contain "." and "[]" operators, to a name
 # suitable for a variable.
 def _sanitize_member_name(name: str) -> str:

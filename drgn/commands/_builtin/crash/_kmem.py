@@ -5,7 +5,6 @@
 
 import argparse
 import functools
-import re
 import sys
 from typing import AbstractSet, Any, Callable, Iterable, List, Optional, Sequence, Tuple
 
@@ -29,8 +28,8 @@ from drgn.commands import (
 )
 from drgn.commands._builtin.crash._sys import _SysPrinter
 from drgn.commands.crash import (
-    _MEMBER_PATTERN,
     CrashDrgnCodeBuilder,
+    _parse_members,
     _sanitize_member_name,
     crash_command,
 )
@@ -1112,9 +1111,7 @@ for pfn, page in for_each_valid_pfn_and_page():
 """
             )
         else:
-            for member in members.split(","):
-                if not re.fullmatch(_MEMBER_PATTERN, member):
-                    raise ValueError(f"invalid member name: {member}")
+            for member in _parse_members(members):
                 if member == "flags":
                     code.add_from_import("drgn.helpers.linux.mm", "page_flags")
                     code.append("    flags = page_flags(page)\n")
@@ -1160,9 +1157,7 @@ for pfn, page in for_each_valid_pfn_and_page():
     else:
         struct_page = prog.type("struct page")
         integer_base = prog.config.get("crash_radix", 10)
-        for member in members.split(","):
-            if not re.fullmatch(_MEMBER_PATTERN, member):
-                raise ValueError(f"invalid member name: {member}")
+        for member in _parse_members(members):
             header.append(member)
 
             if member == "flags":
