@@ -1667,6 +1667,20 @@ def vma_name(vma: Object) -> str:
         return "[vdso]"
 
     start = vma.vm_start.value_()
+
+    # Before Linux kernel commits c1bab64360e6 ("powerpc/vdso: Move to
+    # _install_special_mapping() and remove arch_vma_name()") and c1bab64360e6
+    # ("powerpc/vdso: Move to _install_special_mapping() and remove
+    # arch_vma_name()") (in v5.11), PowerPC needs a special case for the vdso.
+    if prog.platform.arch == Architecture.PPC64:  # type: ignore[union-attr]  # platform can't be None.
+        try:
+            vdso_base = mm.context.vdso_base
+        except AttributeError:
+            pass
+        else:
+            if start == vdso_base.value_():
+                return "[vdso]"
+
     end = vma.vm_end.value_()
 
     if (
