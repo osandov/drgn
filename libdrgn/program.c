@@ -333,7 +333,6 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 	size_t phnum, i;
 	size_t num_file_segments, j;
 	bool have_phys_addrs = false;
-	bool have_qemu_note = false;
 	const char *vmcoreinfo_note = NULL;
 	size_t vmcoreinfo_size = 0;
 	bool have_nt_taskstruct = false, is_proc_kcore;
@@ -455,10 +454,6 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 					 */
 					have_phys_addrs = true;
 					have_vmcoreinfo = true;
-				} else if (nhdr.n_namesz == sizeof("QEMU") &&
-					   memcmp(name, "QEMU",
-						  sizeof("QEMU")) == 0) {
-					have_qemu_note = true;
 				}
 			}
 		}
@@ -482,7 +477,7 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 		is_proc_kcore = false;
 	}
 
-	if (have_vmcoreinfo && !is_proc_kcore) {
+	if (!is_proc_kcore) { /* libkdumpfile for kernel ELF vmcores */
 		char *env;
 
 		/* Use libkdumpfile for ELF vmcores if it was requested. */
@@ -633,7 +628,7 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 			j++;
 		}
 	}
-	if (vmcoreinfo_note && !prog->vmcoreinfo.raw) {
+	if (vmcoreinfo_note && !prog->vmcoreinfo.raw) { /* override vmcoreinfo from ELF */
 		err = drgn_program_parse_vmcoreinfo(prog, vmcoreinfo_note,
 						    vmcoreinfo_size);
 		if (err)
@@ -653,15 +648,6 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 		prog->core = NULL;
 	} else if (have_vmcoreinfo) {
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
-	} else if (have_qemu_note) {
-		err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					"unrecognized QEMU memory dump; "
-					"for Linux guests, run QEMU with '-device vmcoreinfo', "
-					"compile the kernel with CONFIG_FW_CFG_SYSFS and CONFIG_KEXEC, "
-					"and load the qemu_fw_cfg kernel module "
-					"before dumping the guest memory "
-					"(requires Linux >= 4.17 and QEMU >= 2.11)");
-		goto out_segments;
 	}
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		err = drgn_program_finish_set_kernel(prog);
