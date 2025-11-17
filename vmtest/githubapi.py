@@ -99,6 +99,9 @@ class _GitHubApiBase:
             data=data,
         )
 
+    def delete(self, url: str) -> Any:
+        return self._request("DELETE", url, headers=self._headers)
+
 
 class GitHubApi(_GitHubApiBase):
     def _request(
