@@ -124,8 +124,7 @@ def member_at_offset(type: Type, offset: IntegerLike) -> str:
     """
     bit_offset = operator.index(offset) * 8
 
-    while type.kind == TypeKind.TYPEDEF:
-        type = type.type
+    type = type.unaliased()
     if type.kind not in (
         TypeKind.STRUCT,
         TypeKind.UNION,
@@ -163,7 +162,7 @@ def member_at_offset(type: Type, offset: IntegerLike) -> str:
 
         member, parent_bit_offset, chain_len = stack.pop()
 
-        type = member.type
+        type = member.type.unaliased()
         bit_offset = parent_bit_offset - member.bit_offset
         del chain[chain_len:]
         if member.name is not None:
@@ -174,16 +173,14 @@ def member_at_offset(type: Type, offset: IntegerLike) -> str:
         return True
 
     while True:
-        if type.kind == TypeKind.TYPEDEF:  # type: ignore[comparison-overlap]  # python/mypy#17096
-            type = type.type
-        elif type.kind == TypeKind.ARRAY:
+        if type.kind == TypeKind.ARRAY:
             element_bit_size = sizeof(type.type) * 8
             # Treat incomplete arrays as if they have infinite size.
             if type.length is None or bit_offset < type.length * element_bit_size:
                 i = bit_offset // element_bit_size
                 bit_offset -= i * element_bit_size
                 chain.append(f"[{i}]")
-                type = type.type
+                type = type.type.unaliased()
             else:
                 if bit_offset == type.length * element_bit_size:
                     chain.append("<end>")
@@ -218,7 +215,7 @@ def member_at_offset(type: Type, offset: IntegerLike) -> str:
                         bit_size = sizeof(member.type) * 8
                     except TypeError:
                         # Ignore incomplete members other than arrays.
-                        if member.type.kind != TypeKind.ARRAY:
+                        if member.type.unaliased_kind() != TypeKind.ARRAY:
                             i += step
                             continue
                 if (
@@ -234,7 +231,7 @@ def member_at_offset(type: Type, offset: IntegerLike) -> str:
                             # Set i so that we break on the next iteration.
                             i = end + 1
 
-                        type = member.type
+                        type = member.type.unaliased()
                         bit_offset -= member.bit_offset
                         if member.name is not None:
                             if chain:
