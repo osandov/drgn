@@ -1742,10 +1742,18 @@ static PyObject *Program_source_location(Program *self, PyObject *arg)
 	struct drgn_error *err;
 
 	struct drgn_source_location_list *locs;
-	struct index_arg address = {};
-	if (!index_converter(arg, &address))
-		return NULL;
-	err = drgn_program_source_location(&self->prog, address.uvalue, &locs);
+	if (PyUnicode_Check(arg)) {
+		const char *address_str = PyUnicode_AsUTF8(arg);
+		if (!address_str)
+			return NULL;
+		err = drgn_program_addr2line(&self->prog, address_str, &locs);
+	} else {
+		struct index_arg address = {};
+		if (!index_converter(arg, &address))
+			return NULL;
+		err = drgn_program_source_location(&self->prog, address.uvalue,
+						   &locs);
+	}
 	if (err)
 		return set_drgn_error(err);
 

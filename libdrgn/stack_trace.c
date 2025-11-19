@@ -1537,3 +1537,128 @@ drgn_program_source_location(struct drgn_program *prog, uint64_t address,
 	*ret = (struct drgn_source_location_list *)trace;
 	return NULL;
 }
+
+struct drgn_error *drgn_parse_addr2line(const char *address_str,
+					const char **sym_name_ret,
+					size_t *sym_name_len_ret,
+					unsigned long long *offset_ret)
+{
+	const char *p = address_str;
+	while (isspace(*p))
+		p++;
+
+	if (!*p) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "expected symbol name or address");
+	}
+
+	const char *sym_name = p;
+	while (*p && !isspace(*p) && *p != '+')
+		p++;
+	size_t sym_name_len = p - sym_name;
+	if (sym_name_len == 0) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "expected symbol name");
+	}
+
+	while (isspace(*p))
+		p++;
+
+	unsigned long long offset = 0;
+	char *end;
+	if (*p == '+') {
+		p++;
+		while (isspace(*p))
+			p++;
+
+		if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+			p += 2;
+			if (!isxdigit(*p)) {
+				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+							 "expected symbol offset");
+			}
+			errno = 0;
+			offset = strtoull(p, &end, 16);
+		} else {
+			if (!isdigit(*p)) {
+				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+							 "expected symbol offset");
+			}
+			errno = 0;
+			offset = strtoull(p, &end, 10);
+		}
+		if (errno == ERANGE) {
+			return drgn_error_create(DRGN_ERROR_OVERFLOW,
+						 "symbol offset out of range");
+		} else if (errno) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "invalid symbol offset");
+		} else if (end == p) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "expected symbol offset");
+		}
+		p = end;
+
+		while (isspace(*p))
+			p++;
+
+		if (*p) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "unexpected input after symbol offset");
+		}
+	} else if (*p) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "unexpected input after symbol name or address");
+	}
+
+	if (sym_name[0] == '0' && (sym_name[1] == 'x' || sym_name[1] == 'X')
+	    && isxdigit(sym_name[2])) {
+		errno = 0;
+		unsigned long long address = strtoull(sym_name + 2, &end, 16);
+		if (end == sym_name + sym_name_len) {
+			if (errno == ERANGE) {
+				return drgn_error_create(DRGN_ERROR_OVERFLOW,
+							 "address out of range");
+			} else if (!errno) {
+				sym_name = NULL;
+				sym_name_len = 0;
+				offset += address;
+			}
+		}
+	}
+
+	*sym_name_ret = sym_name;
+	*sym_name_len_ret = sym_name_len;
+	*offset_ret = offset;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_addr2line(struct drgn_program *prog,
+		       const char *address_str,
+		       struct drgn_source_location_list **ret)
+{
+	struct drgn_error *err;
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	err = drgn_parse_addr2line(address_str, &sym_name, &sym_name_len,
+				   &offset);
+	if (err)
+		return err;
+
+	uint64_t address = 0;
+	if (sym_name_len) {
+		_cleanup_free_ char *sym_name_copy = strndup(sym_name, sym_name_len);
+		if (!sym_name_copy)
+			return &drgn_enomem;
+
+		_cleanup_symbol_ struct drgn_symbol *sym = NULL;
+		err = drgn_program_find_symbol_by_name(prog, sym_name_copy, &sym);
+		if (err)
+			return err;
+		address = drgn_symbol_address(sym);
+	}
+
+	return drgn_program_source_location(prog, address + offset, ret);
+}

@@ -1,0 +1,306 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include "test_util.h"
+#include "../error.h"
+#include "../stack_trace.h"
+
+#suite parse_addr2line
+
+#test symbol_name
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("my_symbol", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("my_symbol"));
+	ck_assert_mem_eq(sym_name, "my_symbol", strlen("my_symbol"));
+	ck_assert_uint_eq(offset, 0);
+}
+
+#test symbol_name_with_punctuation
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("my_symbol.cold", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("my_symbol.cold"));
+	ck_assert_mem_eq(sym_name, "my_symbol.cold", strlen("my_symbol.cold"));
+	ck_assert_uint_eq(offset, 0);
+}
+
+#test symbol_name_with_whitespace
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("  my_symbol\t", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("my_symbol"));
+	ck_assert_mem_eq(sym_name, "my_symbol", strlen("my_symbol"));
+	ck_assert_uint_eq(offset, 0);
+}
+
+#test symbol_name_starting_with_0x
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("0xfoobar", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("0xfoobar"));
+	ck_assert_mem_eq(sym_name, "0xfoobar", strlen("0xfoobar"));
+	ck_assert_uint_eq(offset, 0);
+
+	drgn_ck_no_err(drgn_parse_addr2line("0Xnotaddress", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("0Xnotaddress"));
+	ck_assert_mem_eq(sym_name, "0Xnotaddress", strlen("0Xnotaddress"));
+	ck_assert_uint_eq(offset, 0);
+}
+
+#test symbol_name_with_hex_offset
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("my_symbol+0x10", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("my_symbol"));
+	ck_assert_mem_eq(sym_name, "my_symbol", strlen("my_symbol"));
+	ck_assert_uint_eq(offset, 16);
+}
+
+#test symbol_name_with_hex_offset_and_whitespace
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line(" my_symbol +  0X10 ", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("my_symbol"));
+	ck_assert_mem_eq(sym_name, "my_symbol", strlen("my_symbol"));
+	ck_assert_uint_eq(offset, 16);
+}
+
+#test symbol_name_with_hex_offset_overflow
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+0x10000000000000000", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_OVERFLOW, "symbol offset out of range");
+}
+
+#test symbol_name_with_decimal_offset
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("my_symbol+10", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("my_symbol"));
+	ck_assert_mem_eq(sym_name, "my_symbol", strlen("my_symbol"));
+	ck_assert_uint_eq(offset, 10);
+}
+
+#test symbol_name_with_decimal_offset_leading_zero
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("my_symbol+010", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("my_symbol"));
+	ck_assert_mem_eq(sym_name, "my_symbol", strlen("my_symbol"));
+	ck_assert_uint_eq(offset, 10); // NB: not octal.
+}
+
+#test symbol_name_with_decimal_offset_overflow
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+18446744073709551616", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_OVERFLOW, "symbol offset out of range");
+}
+
+#test symbol_name_with_decimal_offset_and_whitespace
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line(" my_symbol +  10 ", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, strlen("my_symbol"));
+	ck_assert_mem_eq(sym_name, "my_symbol", strlen("my_symbol"));
+	ck_assert_uint_eq(offset, 10);
+}
+
+#test symbol_name_with_garbage
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("my_symbol foo", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT,
+		    "unexpected input after symbol name or address");
+}
+
+#test symbol_name_with_only_plus
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT, "expected symbol offset");
+}
+
+#test symbol_name_with_plus_and_non_numeric
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+foo", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT, "expected symbol offset");
+}
+
+#test symbol_name_with_plus_and_0x
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+0x", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT, "expected symbol offset");
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+0X", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT, "expected symbol offset");
+}
+
+#test symbol_name_with_garbage_hex_offset
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+0xz", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT, "expected symbol offset");
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+0Xz", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT, "expected symbol offset");
+}
+
+#test symbol_name_with_garbage_after_offset
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+1foo", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT,
+		    "unexpected input after symbol offset");
+}
+
+#test symbol_name_with_whitespace_and_garbage_after_offset
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("my_symbol+1 foo", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT,
+		    "unexpected input after symbol offset");
+}
+
+#test address
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("0x1234", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, 0);
+	ck_assert_uint_eq(offset, 0x1234);
+}
+
+#test address_with_whitespace
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("\t0x1234  ", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, 0);
+	ck_assert_uint_eq(offset, 0x1234);
+}
+
+#test address_with_hex_offset
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("0x1234+0x10", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, 0);
+	ck_assert_uint_eq(offset, 0x1244);
+}
+
+#test address_with_decimal_offset
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_no_err(drgn_parse_addr2line("0x1234+10", &sym_name,
+					    &sym_name_len, &offset));
+	ck_assert_uint_eq(sym_name_len, 0);
+	ck_assert_uint_eq(offset, 0x123e);
+}
+
+#test address_overflow
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("0x10000000000000000", &sym_name,
+					 &sym_name_len, &offset),
+		    DRGN_ERROR_OVERFLOW, "address out of range");
+}
+
+#test address_with_garbage
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("0x1234 foo", &sym_name, &sym_name_len,
+					 &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT,
+		    "unexpected input after symbol name or address");
+}
+
+#test empty
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("", &sym_name, &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT,
+		    "expected symbol name or address");
+}
+
+#test all_whitespace
+{
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	drgn_ck_err(drgn_parse_addr2line("  ", &sym_name, &sym_name_len, &offset),
+		    DRGN_ERROR_INVALID_ARGUMENT,
+		    "expected symbol name or address");
+}

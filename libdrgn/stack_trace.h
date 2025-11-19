@@ -40,6 +40,12 @@ struct drgn_stack_trace {
 	struct drgn_stack_frame frames[];
 };
 
+// This is only exposed for tests.
+struct drgn_error *drgn_parse_addr2line(const char *address_str,
+					const char **sym_name_ret,
+					size_t *sym_name_len_ret,
+					unsigned long long *offset_ret);
+
 /** @} */
 
 #endif /* DRGN_STACK_TRACE_H */

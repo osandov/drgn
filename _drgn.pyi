@@ -305,10 +305,23 @@ class Program:
         """
         ...
 
-    def source_location(self, address: IntegerLike, /) -> SourceLocationList:
+    def source_location(
+        self, address: Union[IntegerLike, str], /
+    ) -> SourceLocationList:
         """
         Find the source code location containing a code address.
 
+        The address may be given as an integer or a string. A string argument
+        must be a symbol name or hexadecimal address, optionally followed by a
+        ``+`` character and a decimal or hexadecimal offset. Hexadecimal
+        numbers must be prefixed with "0x" or "0X". Whitespace between tokens
+        is ignored.
+
+        >>> prog.source_location("__schedule")
+        __schedule at kernel/sched/core.c:6646:1
+        >>> prog.source_location("__schedule+0x2b6")
+        #0  context_switch at kernel/sched/core.c:5381:9
+        #1  __schedule at kernel/sched/core.c:6765:8
         >>> prog.source_location(0xffffffffb64d70a6)
         #0  context_switch at kernel/sched/core.c:5381:9
         #1  __schedule at kernel/sched/core.c:6765:8

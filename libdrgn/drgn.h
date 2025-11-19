@@ -4255,6 +4255,19 @@ struct drgn_error *
 drgn_program_source_location(struct drgn_program *prog, uint64_t address,
 			     struct drgn_source_location_list **ret);
 
+/**
+ * Find the source code location containing a code address given as a symbol
+ * name or hexadecimal address, optionally followed by a `+` character and a
+ * decimal or hexadecimal offset
+ *
+ * @param[in] address Code address.
+ * @param[out] ret Returned source location list.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_program_addr2line(struct drgn_program *prog, const char *address,
+		       struct drgn_source_location_list **ret);
+
 /** @} */
 
 /**

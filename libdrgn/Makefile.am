@@ -275,6 +275,7 @@ check_PROGRAMS = tests/binary_search \
 		 tests/hexlify \
 		 tests/language_c \
 		 tests/lexer \
+		 tests/parse_addr2line \
 		 tests/path \
 		 tests/recursion_guard \
 		 tests/serialize
@@ -311,6 +312,9 @@ tests_language_c_LDADD = $(test_ldadd)
 tests_lexer_CFLAGS = $(test_cflags)
 tests_lexer_CPPFLAGS = $(test_cppflags)
 tests_lexer_LDADD = $(test_ldadd)
+tests_parse_addr2line_CFLAGS = $(test_cflags)
+tests_parse_addr2line_CPPFLAGS = $(test_cppflags)
+tests_parse_addr2line_LDADD = $(test_ldadd)
 tests_path_CFLAGS = $(test_cflags)
 tests_path_CPPFLAGS = $(test_cppflags)
 tests_path_LDADD = $(test_ldadd)

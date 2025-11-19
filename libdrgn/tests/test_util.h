@@ -9,6 +9,14 @@
 #include "../drgn_internal.h"
 #include "../pp.h"
 
+#define drgn_ck_err(err, code, message) drgn_ck_err_impl(err, PP_UNIQUE(_err), code, message)
+#define drgn_ck_err_impl(err, unique_err, _code, _message) do {			\
+	struct drgn_error *unique_err = (err);					\
+	ck_assert_msg(unique_err, "Assertion '%s != NULL' failed", #err);	\
+	ck_assert_int_eq(unique_err->code, (_code));				\
+	ck_assert_str_eq(unique_err->message, (_message));			\
+} while (0)
+
 #define drgn_ck_no_err(err) drgn_ck_no_err_impl(err, PP_UNIQUE(_err))
 #define drgn_ck_no_err_impl(err, unique_err) do {				\
 	struct drgn_error *unique_err = (err);					\

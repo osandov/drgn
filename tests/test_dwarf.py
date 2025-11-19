@@ -8890,10 +8890,29 @@ class TestSourceLocation(TestCase):
             ),
         )
 
-        locs = prog.source_location(0x104)
-        self.assertEqual(len(locs), 1)
-        self.assertEqual(tuple(locs[0]), ("/usr/src/main.S", 4, 1))
-        self.assertEqual(locs[0].name(), "asm_func")
+        with self.subTest("address"):
+            locs = prog.source_location(0x104)
+            self.assertEqual(len(locs), 1)
+            self.assertEqual(tuple(locs[0]), ("/usr/src/main.S", 4, 1))
+            self.assertEqual(locs[0].name(), "asm_func")
+
+        with self.subTest("address_str"):
+            locs = prog.source_location("0x104")
+            self.assertEqual(len(locs), 1)
+            self.assertEqual(tuple(locs[0]), ("/usr/src/main.S", 4, 1))
+            self.assertEqual(locs[0].name(), "asm_func")
+
+        with self.subTest("symbol_name"):
+            locs = prog.source_location("asm_func")
+            self.assertEqual(len(locs), 1)
+            self.assertEqual(tuple(locs[0]), ("/usr/src/main.S", 2, 1))
+            self.assertEqual(locs[0].name(), "asm_func")
+
+        with self.subTest("symbol_name+offset"):
+            locs = prog.source_location("asm_func+0x8")
+            self.assertEqual(len(locs), 1)
+            self.assertEqual(tuple(locs[0]), ("/usr/src/main.S", 3, 1))
+            self.assertEqual(locs[0].name(), "asm_func")
 
     def test_module_not_found(self):
         self.assertRaisesRegex(
