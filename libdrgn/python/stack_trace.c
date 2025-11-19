@@ -216,7 +216,8 @@ static PyObject *StackFrame_source(StackFrame *self)
 				"source code location not available");
 		return NULL;
 	}
-	return Py_BuildValue("sii", filename, line, column);
+	return SourceLocation_wrap(filename, line, column,
+				   (PyObject *)self->trace, self->i);
 }
 
 static PyObject *StackFrame_symbol(StackFrame *self)

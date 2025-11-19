@@ -226,6 +226,54 @@ drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret
 	return NULL;
 }
 
+static struct drgn_error *
+drgn_format_stack_frame_source_impl(struct drgn_stack_trace *trace, size_t frame,
+				    struct string_builder *sb)
+{
+	struct drgn_error *err;
+
+	{
+		_cleanup_free_ char *name = NULL;
+		err = drgn_stack_frame_source_name(trace, frame, &name);
+		if (err)
+			return err;
+
+		if (!string_builder_append(sb, name ? name : "???"))
+			return &drgn_enomem;
+	}
+
+	int line, column;
+	const char *filename = drgn_stack_frame_source(trace, frame, &line,
+						       &column);
+	if (filename && column) {
+		if (!string_builder_appendf(sb, " at %s:%d:%d", filename, line,
+					    column))
+			return &drgn_enomem;
+	} else if (filename) {
+		if (!string_builder_appendf(sb, " at %s:%d", filename, line))
+			return &drgn_enomem;
+	} else {
+		if (!string_builder_append(sb, " at ??:?"))
+			return &drgn_enomem;
+	}
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_format_stack_frame_source(struct drgn_stack_trace *trace, size_t frame,
+			       char **ret)
+{
+	struct drgn_error *err;
+	STRING_BUILDER(sb);
+	err = drgn_format_stack_frame_source_impl(trace, frame, &sb);
+	if (err)
+		return err;
+	if (!string_builder_null_terminate(&sb))
+		return &drgn_enomem;
+	*ret = string_builder_steal(&sb);
+	return NULL;
+}
+
 LIBDRGN_PUBLIC
 struct drgn_error *drgn_stack_frame_name(struct drgn_stack_trace *trace,
 					 size_t frame, char **ret)
@@ -269,6 +317,38 @@ const char *drgn_stack_frame_function_name(struct drgn_stack_trace *trace,
 	if (function_scope >= num_scopes)
 		return NULL;
 	return dwarf_diename(&scopes[function_scope]);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_source_name(struct drgn_stack_trace *trace, size_t frame,
+			     char **ret)
+{
+	struct drgn_error *err;
+	char *name = NULL;
+	const char *function_name = drgn_stack_frame_function_name(trace, frame);
+	if (function_name) {
+		name = strdup(function_name);
+		if (!name)
+			return &drgn_enomem;
+	} else {
+		struct drgn_register_state *regs = trace->frames[frame].regs;
+		struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+		if (pc.has_value) {
+			_cleanup_symbol_ struct drgn_symbol *sym = NULL;
+			err = drgn_program_find_symbol_by_address_internal(trace->prog,
+									   pc.value - !regs->interrupted,
+									   &sym);
+			if (err)
+				return err;
+			if (sym) {
+				name = strdup(sym->name);
+				if (!name)
+					return &drgn_enomem;
+			}
+		}
+	}
+	*ret = name;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC bool drgn_stack_frame_is_inline(struct drgn_stack_trace *trace,

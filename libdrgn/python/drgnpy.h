@@ -208,6 +208,15 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	PyObject *filename;
+	PyObject *line;
+	PyObject *column;
+	PyObject *obj;
+	size_t i;
+} SourceLocation;
+
+typedef struct {
+	PyObject_HEAD
 	struct drgn_stack_trace *trace;
 } StackTrace;
 
@@ -301,6 +310,7 @@ extern PyTypeObject Program_type;
 extern PyTypeObject Register_type;
 extern PyTypeObject RelocatableModule_type;
 extern PyTypeObject SharedLibraryModule_type;
+extern PyTypeObject SourceLocation_type;
 extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject SymbolIndex_type;
@@ -382,6 +392,9 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds);
 Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
+
+PyObject *SourceLocation_wrap(const char *filename, int line, int column,
+			      PyObject *obj, size_t i);
 
 PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj);
 PyObject *Symbol_list_wrap(struct drgn_symbol **symbols, size_t count,

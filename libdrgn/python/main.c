@@ -312,6 +312,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &Platform_type) ||
 	    add_type(m, &Program_type) ||
 	    add_type(m, &Register_type) ||
+	    add_type(m, &SourceLocation_type) ||
 	    add_type(m, &StackFrame_type) ||
 	    add_type(m, &StackTrace_type) ||
 	    add_type(m, &Symbol_type) ||

@@ -3189,11 +3189,10 @@ class StackFrame:
         """
         ...
 
-    def source(self) -> Tuple[str, int, int]:
+    def source(self) -> SourceLocation:
         """
         Get the source code location of this frame.
 
-        :return: Location as a ``(filename, line, column)`` triple.
         :raises LookupError: if the source code location is not available
         """
         ...
@@ -3224,6 +3223,46 @@ class StackFrame:
         """
         Get the values of all available registers at this stack frame as a
         dictionary with the register names as keys.
+        """
+        ...
+
+    def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
+
+# This isn't really a NamedTuple, but it's the best approximation since we
+# allow unpacking the attributes.
+class SourceLocation(NamedTuple):
+    """
+    File, line, and column location in source code.
+
+    The attributes can be accessed by name:
+
+    >>> filename = loc.filename
+    >>> line = loc.line
+    >>> column = loc.column
+
+    or unpacked:
+
+    >>> filename, line, column = loc
+
+    :class:`str() <str>` returns a pretty-printed location:
+
+    >>> loc
+    context_switch at kernel/sched/core.c:5381:9
+    """
+
+    filename: str
+    """Source file name, or empty string if unknown."""
+
+    line: int
+    """Source line number, or 0 if unknown."""
+
+    column: int
+    """Source column, or 0 if unknown."""
+
+    def name(self) -> Optional[str]:
+        """
+        Get the name of the function or symbol at this source location, or
+        ``None`` if it could not be determined.
         """
         ...
 

@@ -20,7 +20,7 @@ from tests.linux_kernel import (
 
 @skip_unless_have_stack_tracing
 class LinuxKernelStackTraceTestCase(LinuxKernelTestCase):
-    def _test_drgn_test_kthread_trace(self, trace):
+    def _test_drgn_test_kthread_trace(self, trace, test_source=True):
         for i, frame in enumerate(trace):
             if frame.name == "drgn_test_kthread_fn3":
                 break
@@ -28,6 +28,16 @@ class LinuxKernelStackTraceTestCase(LinuxKernelTestCase):
             self.fail("Couldn't find drgn_test_kthread_fn3 frame")
         self.assertEqual(trace[i + 1].name, "drgn_test_kthread_fn2")
         self.assertEqual(trace[i + 2].name, "drgn_test_kthread_fn")
+
+        if test_source:
+            source = frame.source()
+            self.assertRegex(source.filename, r"\bdrgn_test\.c$")
+            self.assertIsInstance(source.line, int)
+            self.assertIsInstance(source.column, int)
+            self.assertEqual(
+                tuple(source), (source.filename, source.line, source.column)
+            )
+            self.assertEqual(source.name(), "drgn_test_kthread_fn3")
 
 
 class TestStackTrace(LinuxKernelStackTraceTestCase):
@@ -112,7 +122,9 @@ class TestStackTrace(LinuxKernelStackTraceTestCase):
             # We must set drgn's log level manually, beacuse it won't log messages
             # to the logger if it isn't enabled for them.
             with self.assertLogs("drgn", logging.DEBUG) as log:
-                self._test_drgn_test_kthread_trace(prog.stack_trace(pid))
+                self._test_drgn_test_kthread_trace(
+                    prog.stack_trace(pid), test_source=False
+                )
 
             self._check_logged_orc_message(log, "drgn_test")
 

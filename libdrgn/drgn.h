@@ -3997,6 +3997,17 @@ struct drgn_error *drgn_format_stack_frame(struct drgn_stack_trace *trace,
 					   size_t frame, char **ret);
 
 /**
+ * Format the source code location of a stack frame as a string.
+ *
+ * @param[out] ret Returned string. On success, it must be freed with @c free().
+ * On error, it is not modified.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_format_stack_frame_source(struct drgn_stack_trace *trace, size_t frame,
+			       char **ret);
+
+/**
  * Get the best available name for a stack frame.
  *
  * @param[out] ret Returned name. On success, it must be freed with @c free().
@@ -4014,6 +4025,17 @@ struct drgn_error *drgn_stack_frame_name(struct drgn_stack_trace *trace,
  */
 const char *drgn_stack_frame_function_name(struct drgn_stack_trace *trace,
 					   size_t frame);
+
+/**
+ * Get the name of the function or symbol at a stack frame's source code
+ * location.
+ *
+ * @param[out] ret Returned name, or @c NULL if not found. On success, it must
+ * be freed with @c free(). On error, it is not modified.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_stack_frame_source_name(struct drgn_stack_trace *trace,
+						size_t frame, char **ret);
 
 /** Return whether a stack frame is for an inlined call. */
 bool drgn_stack_frame_is_inline(struct drgn_stack_trace *trace, size_t frame);
