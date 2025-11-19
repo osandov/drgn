@@ -217,7 +217,7 @@ static PyObject *StackFrame_source(StackFrame *self)
 		return NULL;
 	}
 	return SourceLocation_wrap(filename, line, column,
-				   (PyObject *)self->trace, self->i);
+				   (PyObject *)self->trace, self->i, true);
 }
 
 static PyObject *StackFrame_symbol(StackFrame *self)

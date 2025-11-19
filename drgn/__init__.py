@@ -77,6 +77,7 @@ from _drgn import (
     RelocatableModule,
     SharedLibraryModule,
     SourceLocation,
+    SourceLocationList,
     StackFrame,
     StackTrace,
     SupplementaryFileKind,
@@ -152,6 +153,7 @@ __all__ = (
     "RelocatableModule",
     "SharedLibraryModule",
     "SourceLocation",
+    "SourceLocationList",
     "StackFrame",
     "StackTrace",
     "SupplementaryFileKind",
@@ -184,6 +186,7 @@ __all__ = (
     "reinterpret",
     "set_default_prog",
     "sizeof",
+    "source_location",
     "stack_trace",
 )
 
@@ -312,3 +315,23 @@ def stack_trace(thread: Union[Object, IntegerLike]) -> StackTrace:
         return thread.prog_.stack_trace(thread)
     else:
         return get_default_prog().stack_trace(thread)
+
+
+def source_location(address: IntegerLike, /) -> SourceLocationList:
+    """
+    Find the source code location containing a code address, similarly to
+    :manpage:`addr2line(1)`, using the :ref:`default program argument
+    <default-program>`.
+
+    >>> source_location(0xffffffffb64d70a6)
+    #0  context_switch at kernel/sched/core.c:5381:9
+    #1  __schedule at kernel/sched/core.c:6765:8
+
+    See :meth:`Program.source_location()` for more details.
+
+    :param address: Code address.
+    """
+    if isinstance(address, Object):
+        return address.prog_.source_location(address)
+    else:
+        return get_default_prog().source_location(address)

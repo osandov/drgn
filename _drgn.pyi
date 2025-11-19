@@ -305,6 +305,28 @@ class Program:
         """
         ...
 
+    def source_location(self, address: IntegerLike, /) -> SourceLocationList:
+        """
+        Find the source code location containing a code address.
+
+        >>> prog.source_location(0xffffffffb64d70a6)
+        #0  context_switch at kernel/sched/core.c:5381:9
+        #1  __schedule at kernel/sched/core.c:6765:8
+
+        Because of function inlining, a code address may actually correspond to
+        multiple source code locations. So, this returns a sequence of
+        locations, where the first item corresponds to the innermost inlined
+        function, the second item is its caller, etc.
+
+        .. note::
+
+            This is similar to :manpage:`addr2line(1)`.
+
+        :param address: Code address.
+        :raises LookupError: if the source code location is not found
+        """
+        ...
+
     @overload
     def type(self, name: str, filename: Optional[str] = None) -> Type:
         """
@@ -3266,6 +3288,39 @@ class SourceLocation(NamedTuple):
         """
         ...
 
+    def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
+
+class SourceLocationList:
+    """
+    A :ref:`sequence <python:typesseq-common>` of :class:`SourceLocation`.
+
+    This is a read-only list of source code locations:
+
+    >>> locs = prog.source_location(0xffffffffb64d70a6)
+    >>> print(repr(locs))
+    <_drgn.SourceLocationList object at 0x7fb5d1f8e0e0>
+    >>> print(repr(locs[0]))
+    <_drgn.SourceLocation object at 0x7fb5d1feb8d0>
+    >>> print(repr(locs[1]))
+    <_drgn.SourceLocation object at 0x7fb5d1feb880>
+
+    For code address lookups where the address is in an inlined function, the
+    first item corresponds to the innermost inlined function, the second item
+    is its caller, etc.
+
+    :class:`str() <str>` returns a pretty-printed list of locations:
+
+    >>> locs
+    #0  context_switch at kernel/sched/core.c:5381:9
+    #1  __schedule at kernel/sched/core.c:6765:8
+    """
+
+    prog: Final[Program]
+    """Program that this source location list is from."""
+
+    def __getitem__(self, idx: IntegerLike) -> SourceLocation: ...
+    def __len__(self) -> int: ...
+    def __iter__(self) -> Iterator[SourceLocation]: ...
     def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
 class Type:

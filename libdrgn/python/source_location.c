@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "drgnpy.h"
+#include "../util.h"
 
 PyObject *SourceLocation_wrap(const char *filename, int line, int column,
-			      PyObject *obj, size_t i)
+			      PyObject *obj, size_t i, bool is_stack_trace)
 {
 	SourceLocation *ret = call_tp_alloc(SourceLocation);
 	if (!ret)
@@ -21,6 +22,7 @@ PyObject *SourceLocation_wrap(const char *filename, int line, int column,
 	Py_INCREF(obj);
 	ret->obj = obj;
 	ret->i = i;
+	ret->is_stack_trace = is_stack_trace;
 	return (PyObject *)ret;
 }
 
@@ -48,8 +50,15 @@ static PyObject *SourceLocation_str(SourceLocation *self)
 {
 	struct drgn_error *err;
 	_cleanup_free_ char *str = NULL;
-	StackTrace *trace = (StackTrace *)self->obj;
-	err = drgn_format_stack_frame_source(trace->trace, self->i, &str);
+	if (self->is_stack_trace) {
+		StackTrace *trace = (StackTrace *)self->obj;
+		err = drgn_format_stack_frame_source(trace->trace, self->i,
+						     &str);
+	} else {
+		SourceLocationList *locs = (SourceLocationList *)self->obj;
+		err = drgn_format_source_location_list_at(locs->locs, self->i,
+							  &str);
+	}
 	if (err)
 		return set_drgn_error(err);
 	return PyUnicode_FromString(str);
@@ -59,8 +68,14 @@ static PyObject *SourceLocation_name(SourceLocation *self)
 {
 	struct drgn_error *err;
 	_cleanup_free_ char *str = NULL;
-	StackTrace *trace = (StackTrace *)self->obj;
-	err = drgn_stack_frame_source_name(trace->trace, self->i, &str);
+	if (self->is_stack_trace) {
+		StackTrace *trace = (StackTrace *)self->obj;
+		err = drgn_stack_frame_source_name(trace->trace, self->i, &str);
+	} else {
+		SourceLocationList *locs = (SourceLocationList *)self->obj;
+		err = drgn_source_location_list_name_at(locs->locs, self->i,
+							&str);
+	}
 	if (err)
 		return set_drgn_error(err);
 	if (!str)
@@ -127,4 +142,111 @@ PyTypeObject SourceLocation_type = {
 	.tp_traverse = (traverseproc)SourceLocation_traverse,
 	.tp_methods = SourceLocation_methods,
 	.tp_members = SourceLocation_members,
+};
+
+PyObject *SourceLocationList_wrap(struct drgn_source_location_list *locs)
+{
+	SourceLocationList *ret = call_tp_alloc(SourceLocationList);
+	if (!ret)
+		return NULL;
+	Py_INCREF(container_of(drgn_source_location_list_program(locs), Program,
+			       prog));
+	ret->locs = locs;
+	return (PyObject *)ret;
+}
+
+static void SourceLocationList_dealloc(SourceLocationList *self)
+{
+	PyObject_GC_UnTrack(self);
+	if (self->locs) {
+		struct drgn_program *prog =
+			drgn_source_location_list_program(self->locs);
+		drgn_source_location_list_destroy(self->locs);
+		Py_DECREF(container_of(prog, Program, prog));
+	}
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int SourceLocationList_traverse(SourceLocationList *self,
+				       visitproc visit, void *arg)
+{
+	if (self->locs) {
+		Py_VISIT(container_of(drgn_source_location_list_program(self->locs),
+				      Program, prog));
+	}
+	return 0;
+}
+
+static Program *SourceLocationList_get_prog(SourceLocationList *self, void *arg)
+{
+	Program *prog =
+		container_of(drgn_source_location_list_program(self->locs),
+			     Program, prog);
+	Py_INCREF(prog);
+	return prog;
+}
+
+static PyObject *SourceLocationList_str(SourceLocationList *self)
+{
+	struct drgn_error *err;
+	_cleanup_free_ char *str = NULL;
+	err = drgn_format_source_location_list(self->locs, &str);
+	if (err)
+		return set_drgn_error(err);
+	return PyUnicode_FromString(str);
+}
+
+static Py_ssize_t SourceLocationList_length(SourceLocationList *self)
+{
+	return drgn_source_location_list_length(self->locs);
+}
+
+static PyObject *SourceLocationList_item(SourceLocationList *self, Py_ssize_t i)
+{
+	if (i < 0 || i >= drgn_source_location_list_length(self->locs)) {
+		PyErr_SetString(PyExc_IndexError,
+				"source location list index out of range");
+		return NULL;
+	}
+	int line, column;
+	const char *filename = drgn_source_location_list_source_at(self->locs,
+								   i, &line,
+								   &column);
+	if (!filename) {
+		filename = "";
+		line = column = 0;
+	}
+	return SourceLocation_wrap(filename, line, column, (PyObject *)self, i,
+				   false);
+}
+
+static PyMethodDef SourceLocationList_methods[] = {
+	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
+	 METH_VARARGS | METH_KEYWORDS},
+	{},
+};
+
+static PySequenceMethods SourceLocationList_as_sequence = {
+	.sq_length = (lenfunc)SourceLocationList_length,
+	.sq_item = (ssizeargfunc)SourceLocationList_item,
+};
+
+static PyGetSetDef SourceLocationList_getset[] = {
+	{"prog", (getter)SourceLocationList_get_prog, NULL,
+	 drgn_SourceLocationList_prog_DOC},
+	{},
+};
+
+PyTypeObject SourceLocationList_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "_drgn.SourceLocationList",
+	.tp_basicsize = sizeof(SourceLocationList),
+	.tp_dealloc = (destructor)SourceLocationList_dealloc,
+	.tp_as_sequence = &SourceLocationList_as_sequence,
+	.tp_str = (reprfunc)SourceLocationList_str,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_doc = drgn_SourceLocationList_DOC,
+	.tp_traverse = (traverseproc)SourceLocationList_traverse,
+	.tp_methods = SourceLocationList_methods,
+	.tp_getset = SourceLocationList_getset,
 };

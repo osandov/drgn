@@ -129,9 +129,12 @@ Stack traces are retrieved with :func:`stack_trace()`,
 Source Locations
 ----------------
 
-Source locations are obtained from :meth:`StackFrame.source()`.
+Source locations are obtained from :func:`source_location()`,
+:meth:`Program.source_location()`, or :meth:`StackFrame.source()`.
 
+.. drgndoc:: source_location
 .. drgndoc:: SourceLocation
+.. drgndoc:: SourceLocationList
 
 .. _api-reference-types:
 

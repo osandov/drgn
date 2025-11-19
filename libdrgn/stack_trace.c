@@ -2,13 +2,16 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <assert.h>
+#include <ctype.h>
 #include <elf.h>
 #include <elfutils/libdw.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "cfi.h"
+#include "cleanup.h"
 #include "debug_info.h"
 #include "drgn_internal.h"
 #include "dwarf_constants.h"
@@ -1414,4 +1417,123 @@ drgn_thread_stack_trace(struct drgn_thread *thread,
 				    ? &thread->object : NULL,
 				    thread->prstatus.str ? &thread->prstatus : NULL,
 				    ret);
+}
+
+// struct drgn_source_location_list is a lie. struct drgn_stack_trace already
+// tracks everything we need for it, so we cast it to a fake type and provide
+// functions that operate on that fake type (which mainly wrap stack trace
+// functions).
+static struct drgn_stack_trace *
+locs_to_trace(struct drgn_source_location_list *locs)
+{
+	return (struct drgn_stack_trace *)locs;
+}
+
+LIBDRGN_PUBLIC
+void drgn_source_location_list_destroy(struct drgn_source_location_list *locs)
+{
+	drgn_stack_trace_destroy(locs_to_trace(locs));
+}
+
+LIBDRGN_PUBLIC struct drgn_program *
+drgn_source_location_list_program(struct drgn_source_location_list *locs)
+{
+	return drgn_stack_trace_program(locs_to_trace(locs));
+}
+
+LIBDRGN_PUBLIC
+size_t drgn_source_location_list_length(struct drgn_source_location_list *locs)
+{
+	return locs_to_trace(locs)->num_frames;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_format_source_location_list(struct drgn_source_location_list *locs,
+				 char **ret)
+{
+	struct drgn_error *err;
+	struct drgn_stack_trace *trace = locs_to_trace(locs);
+	STRING_BUILDER(sb);
+	for (size_t frame = 0; frame < trace->num_frames; frame++) {
+		if (trace->num_frames > 1
+		    && !string_builder_appendf(&sb, "#%-2zu ", frame))
+			return &drgn_enomem;
+
+		err = drgn_format_stack_frame_source_impl(trace, frame, &sb);
+		if (err)
+			return err;
+
+		if (frame != trace->num_frames - 1
+		    && !string_builder_appendc(&sb, '\n'))
+			return &drgn_enomem;
+	}
+	if (!string_builder_null_terminate(&sb))
+		return &drgn_enomem;
+	*ret = string_builder_steal(&sb);
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_format_source_location_list_at(struct drgn_source_location_list *locs,
+				    size_t i, char **ret)
+{
+	struct drgn_error *err;
+	STRING_BUILDER(sb);
+	err = drgn_format_stack_frame_source_impl(locs_to_trace(locs), i, &sb);
+	if (err)
+		return err;
+	if (!string_builder_null_terminate(&sb))
+		return &drgn_enomem;
+	*ret = string_builder_steal(&sb);
+	return NULL;
+}
+
+LIBDRGN_PUBLIC const char *
+drgn_source_location_list_source_at(struct drgn_source_location_list *locs,
+				    size_t i, int *line_ret, int *column_ret)
+{
+	return drgn_stack_frame_source(locs_to_trace(locs), i, line_ret,
+				       column_ret);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_source_location_list_name_at(struct drgn_source_location_list *locs,
+				  size_t i, char **ret)
+{
+	return drgn_stack_frame_source_name(locs_to_trace(locs), i, ret);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_source_location(struct drgn_program *prog, uint64_t address,
+			     struct drgn_source_location_list **ret)
+{
+	struct drgn_error *err;
+	size_t trace_capacity = 1;
+	struct drgn_stack_trace *trace =
+		malloc_flexible_array(struct drgn_stack_trace, frames,
+				      trace_capacity);
+	if (!trace)
+		return &drgn_enomem;
+
+	trace->prog = prog;
+	trace->num_frames = 0;
+
+	struct drgn_register_state *regs =
+		drgn_register_state_create_impl(0, 0, true);
+	drgn_register_state_set_pc(prog, regs, address);
+	err = drgn_stack_trace_add_frames(&trace, &trace_capacity, regs);
+	if (err) {
+		drgn_stack_trace_destroy(trace);
+		return err;
+	}
+
+	if (!trace->frames[0].num_scopes) {
+		drgn_stack_trace_destroy(trace);
+		return drgn_error_create(DRGN_ERROR_LOOKUP,
+					 "source code location not found");
+	}
+
+	drgn_stack_trace_shrink_to_fit(&trace, trace_capacity);
+	*ret = (struct drgn_source_location_list *)trace;
+	return NULL;
 }

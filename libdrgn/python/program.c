@@ -1737,6 +1737,24 @@ static PyObject *Program_stack_trace_from_pcs(Program *self, PyObject *args,
 	return ret;
 }
 
+static PyObject *Program_source_location(Program *self, PyObject *arg)
+{
+	struct drgn_error *err;
+
+	struct drgn_source_location_list *locs;
+	struct index_arg address = {};
+	if (!index_converter(arg, &address))
+		return NULL;
+	err = drgn_program_source_location(&self->prog, address.uvalue, &locs);
+	if (err)
+		return set_drgn_error(err);
+
+	PyObject *ret = SourceLocationList_wrap(locs);
+	if (!ret)
+		drgn_source_location_list_destroy(locs);
+	return ret;
+}
+
 static PyObject *Program_symbols(Program *self, PyObject *args)
 {
 	struct drgn_error *err;
@@ -2061,6 +2079,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_stack_trace_DOC},
 	{"stack_trace_from_pcs", (PyCFunction)Program_stack_trace_from_pcs,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_stack_trace_from_pcs_DOC},
+	{"source_location", (PyCFunction)Program_source_location, METH_O,
+	 drgn_Program_source_location_DOC},
 	{"symbols", (PyCFunction)Program_symbols, METH_VARARGS,
 	 drgn_Program_symbols_DOC},
 	{"symbol", (PyCFunction)Program_symbol, METH_O,

@@ -4168,6 +4168,96 @@ struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
 /** @} */
 
 /**
+ * @defgroup SourceLocations Source locations
+ *
+ * Source code locations.
+ *
+ * @{
+ */
+
+/**
+ * @struct drgn_source_location_list
+ *
+ * List of source code locations.
+ */
+struct drgn_source_location_list; // IWYU pragma: export
+
+/** Destroy a @ref drgn_source_location_list. */
+void drgn_source_location_list_destroy(struct drgn_source_location_list *locs);
+
+/**
+ * Get the @ref drgn_program that a @ref drgn_source_location_list came from.
+ */
+struct drgn_program *
+drgn_source_location_list_program(struct drgn_source_location_list *locs);
+
+/** Get the number of locations in a source location list. */
+size_t drgn_source_location_list_length(struct drgn_source_location_list *locs);
+
+/**
+ * Format a source location list as a string.
+ *
+ * @param[out] ret Returned string. On success, it must be freed with @c free().
+ * On error, it is not modified.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_format_source_location_list(struct drgn_source_location_list *locs,
+				 char **ret);
+
+/**
+ * Format a single location in a source location list as a string.
+ *
+ * @param[out] ret Returned string. On success, it must be freed with @c free().
+ * On error, it is not modified.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_format_source_location_list_at(struct drgn_source_location_list *locs,
+				    size_t i, char **ret);
+
+/**
+ * Get the filename, line number, and column number at a single location in a
+ * source location list.
+ *
+ * @param[out] line_ret Returned line number. Returned as 0 if unknown. May be
+ * @c NULL if not needed.
+ * @param[out] column_ret Returned column number. Returned as 0 if unknown. May
+ * be @c NULL if not needed.
+ * @return Filename. This is valid until the source location list is destroyed;
+ * it should not be freed. @c NULL if the location could not be determined (in
+ * which case `*line_ret` and `*column_ret` are not modified).
+ */
+const char *
+drgn_source_location_list_source_at(struct drgn_source_location_list *locs,
+				    size_t i, int *line_ret, int *column_ret);
+
+/**
+ * Get the name of the function or symbol at a single location in a source
+ * location list.
+ *
+ * @param[out] ret Returned name, or @c NULL if not found. On success, it must
+ * be freed with @c free(). On error, it is not modified.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_source_location_list_name_at(struct drgn_source_location_list *locs,
+				  size_t i, char **ret);
+
+/**
+ * Find the source code location containing a code address.
+ *
+ * @param[in] address Code address.
+ * @param[out] ret Returned source location list.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_program_source_location(struct drgn_program *prog, uint64_t address,
+			     struct drgn_source_location_list **ret);
+
+/** @} */
+
+/**
  * @defgroup Threads Threads
  *
  * Threads in a program.

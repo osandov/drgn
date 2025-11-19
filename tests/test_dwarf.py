@@ -8,6 +8,7 @@ import os.path
 import re
 import tempfile
 
+from _drgn_util.elf import PT, SHF, SHT, STB, STT
 import drgn
 from drgn import (
     AbsenceReason,
@@ -51,7 +52,9 @@ from tests.dwarfwriter import (
     DwarfUnit,
     compile_dwarf,
     create_dwarf_file,
+    create_dwarf_lnp,
 )
+from tests.elfwriter import ElfSection, ElfSymbol
 
 bool_die = DwarfDie(
     DW_TAG.base_type,
@@ -205,8 +208,10 @@ labeled_unsigned_int_die = (DwarfLabel("unsigned_int_die"), unsigned_int_die)
 labeled_float_die = (DwarfLabel("float_die"), float_die)
 
 
-def add_extra_dwarf(prog, path, supplementary_path=None):
+def add_extra_dwarf(prog, path, address_range=None, supplementary_path=None):
     module = prog.extra_module(path, create=True)
+    if address_range is not None:
+        module.address_range = address_range
     module.try_file(path, force=True)
     if module.debug_file_status == drgn.ModuleFileStatus.WANT_SUPPLEMENTARY:
         module.try_file(supplementary_path)
@@ -215,7 +220,9 @@ def add_extra_dwarf(prog, path, supplementary_path=None):
     assert not module.wants_debug_file()
 
 
-def dwarf_program(*args, segments=None, gnu_debugaltlink=None, **kwds):
+def dwarf_program(
+    *args, segments=None, address_range=None, gnu_debugaltlink=None, **kwds
+):
     prog = Program()
     with tempfile.NamedTemporaryFile() as f:
         f.write(create_dwarf_file(*args, gnu_debugaltlink=gnu_debugaltlink, **kwds))
@@ -223,6 +230,7 @@ def dwarf_program(*args, segments=None, gnu_debugaltlink=None, **kwds):
         add_extra_dwarf(
             prog,
             f.name,
+            address_range=address_range,
             supplementary_path=(
                 None if gnu_debugaltlink is None else gnu_debugaltlink[0]
             ),
@@ -8773,3 +8781,135 @@ class TestImportedUnit(TestCase):
                     ),
                     gnu_debugaltlink=(alt_f.name, self.alt_build_id),
                 )
+
+
+class TestSourceLocation(TestCase):
+    @staticmethod
+    def dwarf_lnp_program(*, dies=(), lnp, low_pc, high_pc, **kwds):
+        return dwarf_program(
+            DwarfUnit(
+                DW_UT.compile,
+                die=DwarfDie(
+                    DW_TAG.compile_unit,
+                    (
+                        DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, low_pc),
+                        DwarfAttrib(DW_AT.high_pc, DW_FORM.addr, high_pc),
+                    ),
+                    dies,
+                ),
+                lnp=lnp,
+            ),
+            sections=(
+                ElfSection(
+                    name=".text",
+                    sh_type=SHT.PROGBITS,
+                    p_type=PT.LOAD,
+                    vaddr=low_pc,
+                    memsz=high_pc - low_pc,
+                    sh_flags=SHF.ALLOC,
+                ),
+            ),
+            address_range=(low_pc, high_pc),
+            **kwds,
+        )
+
+    def test_inlined(self):
+        locs = self.dwarf_lnp_program(
+            dies=(
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "caller"),
+                        DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, 0x100),
+                        DwarfAttrib(DW_AT.high_pc, DW_FORM.addr, 0x108),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.inlined_subroutine,
+                            (
+                                DwarfAttrib(
+                                    DW_AT.abstract_origin, DW_FORM.ref4, "callee_die"
+                                ),
+                                DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, 0x104),
+                                DwarfAttrib(DW_AT.high_pc, DW_FORM.addr, 0x108),
+                                DwarfAttrib(DW_AT.call_file, DW_FORM.udata, "main.c"),
+                                DwarfAttrib(DW_AT.call_line, DW_FORM.udata, 2),
+                                DwarfAttrib(DW_AT.call_column, DW_FORM.udata, 2),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfLabel("callee_die"),
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "callee"),),
+                ),
+            ),
+            lnp=create_dwarf_lnp(
+                (
+                    (0x100, "main.c", 1, 1),
+                    (0x104, "main.c", 6, 4),
+                    (0x108, "main.c", 10, 1),
+                    (0x10C, None, None, None),
+                ),
+                comp_dir="/usr/src",
+                file_name="main.c",
+            ),
+            low_pc=0x100,
+            high_pc=0x10C,
+        ).source_location(0x104)
+        self.assertEqual(len(locs), 2)
+        self.assertEqual(tuple(locs[0]), ("/usr/src/main.c", 6, 4))
+        self.assertEqual(locs[0].name(), "callee")
+        self.assertEqual(tuple(locs[1]), ("/usr/src/main.c", 2, 2))
+        self.assertEqual(locs[1].name(), "caller")
+
+    def test_assembly(self):
+        prog = self.dwarf_lnp_program(
+            lnp=create_dwarf_lnp(
+                (
+                    (0x100, "main.S", 2, 1),
+                    (0x104, "main.S", 4, 1),
+                    (0x108, "main.S", 3, 1),
+                    (0x10C, None, None, None),
+                ),
+                comp_dir="/usr/src",
+                file_name="main.S",
+            ),
+            low_pc=0x100,
+            high_pc=0x10C,
+            symbols=(
+                ElfSymbol(
+                    name="asm_func",
+                    value=0x100,
+                    size=0xC,
+                    type=STT.FUNC,
+                    binding=STB.GLOBAL,
+                    shindex=1,
+                ),
+            ),
+        )
+
+        locs = prog.source_location(0x104)
+        self.assertEqual(len(locs), 1)
+        self.assertEqual(tuple(locs[0]), ("/usr/src/main.S", 4, 1))
+        self.assertEqual(locs[0].name(), "asm_func")
+
+    def test_module_not_found(self):
+        self.assertRaisesRegex(
+            LookupError,
+            "source code location not found",
+            dwarf_program(()).source_location,
+            0x100,
+        )
+
+    def test_cu_not_found(self):
+        self.assertRaisesRegex(
+            LookupError,
+            "source code location not found",
+            dwarf_program(
+                (),
+                address_range=(0x100, 0x10C),
+            ).source_location,
+            0x100,
+        )

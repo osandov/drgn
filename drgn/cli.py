@@ -39,6 +39,7 @@ _DRGN_GLOBALS = [
     "offsetof",
     "reinterpret",
     "sizeof",
+    "source_location",
     "stack_trace",
 ]
 
@@ -189,6 +190,7 @@ def _displayhook(value: Any) -> None:
         value,
         (
             drgn.SourceLocation,
+            drgn.SourceLocationList,
             drgn.StackFrame,
             drgn.StackTrace,
             drgn.Type,
