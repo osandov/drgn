@@ -359,6 +359,7 @@ def run_in_vm(
             f"rootflags={_9pfs_mount_options}",
             "ro",
             f"console={kernel.arch.qemu_console},115200",
+            "oops=panic",
             "panic=-1",
             "crashkernel=256M",
             *extra_kernel_cmdline,
