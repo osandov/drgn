@@ -2958,6 +2958,7 @@ next_unit:;
 			goto next_unit;
 		}
 		/* There are no more units. */
+		dwarf_die_vector_pop(&it->dies);
 		return &drgn_stop;
 	} else {
 		return drgn_error_libdw();
