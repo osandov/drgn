@@ -1,14 +1,13 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from collections import OrderedDict
 import os.path
 from typing import Any, Dict, NamedTuple, Optional, Sequence, Union
 import zlib
 
 from _drgn_util.elf import ET, SHF, SHT
 from tests.assembler import _append_sleb128, _append_uleb128
-from tests.dwarf import DW_AT, DW_FORM, DW_LNCT, DW_TAG, DW_UT
+from tests.dwarf import DW_AT, DW_FORM, DW_LNCT, DW_LNE, DW_LNS, DW_TAG, DW_UT
 from tests.elfwriter import ElfSection, create_elf_file
 
 
@@ -28,6 +27,13 @@ class DwarfDie(NamedTuple):
     children: Sequence[Union["DwarfDie", DwarfLabel]] = ()
 
 
+class DwarfLnp(NamedTuple):
+    instructions: Sequence[Sequence[Any]]
+    comp_dir: str
+    file_names: Sequence[str]
+    default_is_stmt: bool = True
+
+
 class DwarfUnit(NamedTuple):
     type: DW_UT
     die: DwarfDie
@@ -35,6 +41,44 @@ class DwarfUnit(NamedTuple):
     dwo_id: Optional[int] = None
     type_signature: Optional[int] = None
     type_offset: Optional[str] = None
+    lnp: Optional[DwarfLnp] = None
+
+
+def create_dwarf_lnp(rows, comp_dir: str, file_name: str) -> DwarfLnp:
+    instructions = []
+    file_names = {file_name: 1}
+    current_pc = 0
+    current_file = 1
+    current_line = 1
+    current_column = 0
+    for pc, file_name, line, column in rows:
+        if pc > current_pc:
+            instructions.append((DW_LNS.advance_pc, pc - current_pc))
+        else:
+            assert pc == 0 and current_pc == 0
+
+        if file_name is None:
+            assert line is None
+            assert column is None
+            instructions.append((DW_LNE.end_sequence,))
+        else:
+            file = file_names.setdefault(file_name, len(file_names) + 1)
+            if file != current_file:
+                instructions.append((DW_LNS.set_file, file))
+            if line != current_line:
+                instructions.append((DW_LNS.advance_line, line - current_line))
+            if column != current_column:
+                instructions.append((DW_LNS.set_column, column))
+            instructions.append((DW_LNS.copy,))
+        current_pc = pc
+        current_file = file
+        current_line = line
+        current_column = column
+    assert instructions[-1] == (DW_LNE.end_sequence,)
+
+    return DwarfLnp(
+        instructions=instructions, comp_dir=comp_dir, file_names=list(file_names)
+    )
 
 
 def _compile_debug_abbrev(units, use_dw_form_indirect):
@@ -66,14 +110,15 @@ def _compile_debug_abbrev(units, use_dw_form_indirect):
     return buf
 
 
-def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirect):
+def _compile_debug_info(
+    units, little_endian, bits, version, file_names, use_dw_form_indirect
+):
     offset_size = 4  # We only emit the 32-bit format for now.
     byteorder = "little" if little_endian else "big"
     labels = {}
     references = []
     unit_references = []
     code = 1
-    decl_file = 1
 
     def aux(buf, die, depth):
         if isinstance(die, DwarfLabel):
@@ -82,15 +127,14 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
             labels[die.name] = len(buf)
             return
 
-        nonlocal code, decl_file
+        nonlocal code
         _append_uleb128(buf, code)
         code += 1
         for attrib in die.attribs:
             if use_dw_form_indirect:
                 _append_uleb128(buf, attrib.form)
-            if attrib.name == DW_AT.decl_file:
-                value = decl_file
-                decl_file += 1
+            if attrib.name == DW_AT.decl_file or attrib.name == DW_AT.call_file:
+                value = file_names[attrib.value]
             else:
                 value = attrib.value
             if attrib.form == DW_FORM.addr:
@@ -176,7 +220,6 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
     debug_types = bytearray()
     for unit in units:
         unit_references.clear()
-        decl_file = 1
         if version == 4 and unit.type in (DW_UT.type, DW_UT.split_type):
             buf = debug_types
         else:
@@ -228,13 +271,23 @@ def _compile_debug_line(units, little_endian, bits, version):
 
     buf = bytearray()
     for unit in units:
+        lnp = unit.lnp
+        if lnp is None:
+            lnp = DwarfLnp(
+                instructions=(),
+                comp_dir="/usr/src",
+                file_names=("main.c",),
+            )
+
         unit.die.attribs.append(
             DwarfAttrib(DW_AT.stmt_list, DW_FORM.sec_offset, len(buf))
         )
         if unit.type in (DW_UT.compile, DW_UT.partial, DW_UT.skeleton):
-            unit.die.attribs.append(DwarfAttrib(DW_AT.name, DW_FORM.string, "main.c"))
             unit.die.attribs.append(
-                DwarfAttrib(DW_AT.comp_dir, DW_FORM.string, "/usr/src")
+                DwarfAttrib(DW_AT.name, DW_FORM.string, lnp.file_names[0])
+            )
+            unit.die.attribs.append(
+                DwarfAttrib(DW_AT.comp_dir, DW_FORM.string, lnp.comp_dir)
             )
 
         unit_length_start = len(buf)
@@ -249,32 +302,55 @@ def _compile_debug_line(units, little_endian, bits, version):
         header_length_end = len(buf)
         buf.append(1)  # minimum_instruction_length
         buf.append(1)  # maximum_operations_per_instruction
-        buf.append(1)  # default_is_stmt
+        buf.append(lnp.default_is_stmt)  # default_is_stmt
         buf.append(1)  # line_base
         buf.append(1)  # line_range
-        buf.append(1)  # opcode_base
-        # Don't need standard_opcode_lengths
+        buf.append(13)  # opcode_base
+        buf.extend([0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1])  # standard_opcode_lengths
         if version >= 5:
             buf.append(1)  # directory_entry_format_count
             # directory_entry_format
             _append_uleb128(buf, DW_LNCT.path)
             _append_uleb128(buf, DW_FORM.string)
 
-        directories = OrderedDict([("/usr/src", 0)])
+        directories = {lnp.comp_dir: 0}
+        file_names = {}
+        file_name_entries = []
 
-        def collect_directories(die):
+        for file_name in lnp.file_names:
+            assert file_name not in file_names
+
+            file_names[file_name] = len(file_names) + 1
+
+            dirname, basename = os.path.split(file_name)
+            if dirname:
+                directory_index = directories.setdefault(dirname, len(directories))
+            else:
+                directory_index = 0
+            file_name_entries.append((basename, directory_index))
+
+        def collect_file_names(die):
             if isinstance(die, DwarfLabel):
                 return
             for attrib in die.attribs:
-                if attrib.name != DW_AT.decl_file:
+                if attrib.name not in (DW_AT.decl_file, DW_AT.call_file):
                     continue
-                dirname = os.path.dirname(attrib.value)
-                if dirname:
-                    directories.setdefault(dirname, len(directories))
-            for child in die.children:
-                collect_directories(child)
 
-        collect_directories(unit.die)
+                if attrib.value in file_names:
+                    continue
+
+                file_names[attrib.value] = len(file_names) + 1
+
+                dirname, basename = os.path.split(attrib.value)
+                if dirname:
+                    directory_index = directories.setdefault(dirname, len(directories))
+                else:
+                    directory_index = 0
+                file_name_entries.append((basename, directory_index))
+            for child in die.children:
+                collect_file_names(child)
+
+        collect_file_names(unit.die)
 
         if version >= 5:
             _append_uleb128(buf, len(directories))  # directories_count
@@ -295,27 +371,12 @@ def _compile_debug_line(units, little_endian, bits, version):
             _append_uleb128(buf, DW_LNCT.directory_index)
             _append_uleb128(buf, DW_FORM.udata)
 
-        file_names = [("main.c", 0)]
-
-        def collect_file_names(die):
-            if isinstance(die, DwarfLabel):
-                return
-            for attrib in die.attribs:
-                if attrib.name != DW_AT.decl_file:
-                    continue
-                dirname, basename = os.path.split(attrib.value)
-                directory_index = directories[dirname] if dirname else 0
-                file_names.append((basename, directory_index))
-            for child in die.children:
-                collect_file_names(child)
-
-        collect_file_names(unit.die)
-
         if version >= 5:
+            file_name_entries.insert(0, file_name_entries[0])
             _append_uleb128(buf, len(file_names))  # file_names_count
 
         # file_names
-        for path, directory_index in file_names[0 if version >= 5 else 1 :]:
+        for path, directory_index in file_name_entries:
             # path
             buf.extend(path.encode("ascii"))
             buf.append(0)
@@ -327,13 +388,34 @@ def _compile_debug_line(units, little_endian, bits, version):
         if version < 5:
             buf.append(0)
 
-        buf[unit_length_start:unit_length_end] = (len(buf) - unit_length_end).to_bytes(
-            unit_length_end - unit_length_start, byteorder
-        )
         buf[header_length_start:header_length_end] = (
             len(buf) - header_length_end
         ).to_bytes(header_length_end - header_length_start, byteorder)
-    return buf
+
+        for instruction in lnp.instructions:
+            opcode = instruction[0]
+            buf.append(opcode)
+            if opcode in {DW_LNS.copy, DW_LNE.end_sequence}:
+                assert len(instruction) == 1
+            elif opcode == DW_LNS.advance_pc:
+                assert len(instruction) == 2
+                _append_uleb128(buf, instruction[1])
+            elif opcode == DW_LNS.advance_line:
+                assert len(instruction) == 2
+                _append_sleb128(buf, instruction[1])
+            elif opcode == DW_LNS.set_file:
+                assert len(instruction) == 2
+                _append_uleb128(buf, instruction[1])
+            elif opcode == DW_LNS.set_column:
+                assert len(instruction) == 2
+                _append_uleb128(buf, instruction[1])
+            else:
+                assert False, opcode
+
+        buf[unit_length_start:unit_length_end] = (len(buf) - unit_length_end).to_bytes(
+            unit_length_end - unit_length_start, byteorder
+        )
+    return buf, file_names
 
 
 _UNIT_TAGS = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit, DW_TAG.partial_unit})
@@ -392,11 +474,15 @@ def compile_dwarf(
     # We don't have any test cases yet that use line number information from a
     # split file, but when we do, we'll have to add a way to include the split
     # file's line number information in the skeleton file.
-    if not split:
-        debug_line = _compile_debug_line(units, little_endian, bits, version)
+    if split:
+        file_names = {}
+    else:
+        debug_line, file_names = _compile_debug_line(
+            units, little_endian, bits, version
+        )
 
     debug_info, debug_types, labels = _compile_debug_info(
-        units, little_endian, bits, version, use_dw_form_indirect
+        units, little_endian, bits, version, file_names, use_dw_form_indirect
     )
 
     def debug_section(name, data):
