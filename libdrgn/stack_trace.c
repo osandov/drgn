@@ -351,11 +351,14 @@ drgn_stack_frame_source(struct drgn_stack_trace *trace, size_t frame,
 		Dwarf_Line *line = dwarf_getsrc_die(&cu_die, pc.value);
 		if (!line)
 			return NULL;
-		if (line_ret)
-			dwarf_lineno(line, line_ret);
-		if (column_ret)
-			dwarf_linecol(line, column_ret);
-		return dwarf_linesrc(line, NULL, NULL);
+		const char *filename = dwarf_linesrc(line, NULL, NULL);
+		if (filename) {
+			if (line_ret)
+				dwarf_lineno(line, line_ret);
+			if (column_ret)
+				dwarf_linecol(line, column_ret);
+		}
+		return filename;
 	} else {
 		return NULL;
 	}

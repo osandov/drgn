@@ -4027,7 +4027,7 @@ bool drgn_stack_frame_is_inline(struct drgn_stack_trace *trace, size_t frame);
  * be @c NULL if not needed.
  * @return Filename. This is valid until the stack trace is destroyed; it should
  * not be freed. @c NULL if the location could not be determined (in which case
- * `*line_ret` and `*column_ret` are undefined).
+ * `*line_ret` and `*column_ret` are not modified).
  */
 const char *drgn_stack_frame_source(struct drgn_stack_trace *trace,
 				    size_t frame, int *line_ret,
