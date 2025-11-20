@@ -8,6 +8,7 @@ import struct
 from drgn import (
     AbsenceReason,
     FaultError,
+    NoDefaultProgramError,
     Object,
     ObjectAbsentError,
     OutOfBoundsError,
@@ -19,9 +20,11 @@ from drgn import (
 )
 from tests import (
     MockMemorySegment,
+    MockObject,
     MockProgramTestCase,
     assertReprPrettyEqualsStr,
     mock_program,
+    with_default_prog,
 )
 
 
@@ -2336,6 +2339,12 @@ class TestGenericOperators(MockProgramTestCase):
                     integer_base=integer_base,
                 )
         self.assertRaises(TypeError, obj.format_, integer_base="hex")
+
+    def test_sizeof_default_prog(self):
+        self.objects.append(MockObject("foo", self.prog.int_type("int", 4, True), 1))
+        self.assertRaises(NoDefaultProgramError, sizeof, "foo")
+        with with_default_prog(self.prog):
+            self.assertEqual(sizeof("foo"), 4)
 
 
 class TestSpecialMethods(MockProgramTestCase):

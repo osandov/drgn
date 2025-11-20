@@ -4,6 +4,7 @@
 from drgn import (
     Architecture,
     Language,
+    NoDefaultProgramError,
     Object,
     Platform,
     PrimitiveType,
@@ -24,6 +25,7 @@ from tests import (
     TestCase,
     assertReprPrettyEqualsStr,
     mock_program,
+    with_default_prog,
 )
 
 
@@ -1118,6 +1120,19 @@ class TestType(MockProgramTestCase):
                 (TypeParameter(lambda: mock_program().int_type("int", 4, True)),),
             ).parameters[0].type
 
+    def test_sizeof_default_prog(self):
+        self.assertRaises(NoDefaultProgramError, sizeof, "int")
+        with with_default_prog(self.prog):
+            self.assertEqual(sizeof("int"), 4)
+            self.assertRaises(LookupError, sizeof, "foo")
+
+    def test_offsetof_default_prog(self):
+        self.types.append(self.point_type)
+        self.assertRaises(NoDefaultProgramError, offsetof, "struct point", "y")
+        with with_default_prog(self.prog):
+            self.assertEqual(offsetof("struct point", "y"), 4)
+            self.assertRaises(LookupError, offsetof, "struct foo", "y")
+
 
 class TestTypeEnumerator(MockProgramTestCase):
     def test_init(self):
@@ -1389,3 +1404,9 @@ class TestAlignof(TestCase):
     def test_cycle(self):
         type = self.prog.struct_type(None, 8, (TypeMember(lambda: type, "foo"),))
         self.assertRaises(RecursionError, alignof, type)
+
+    def test_default_prog(self):
+        self.assertRaises(NoDefaultProgramError, alignof, "int")
+        with with_default_prog(self.prog):
+            self.assertEqual(alignof("int"), 4)
+            self.assertRaises(LookupError, alignof, "struct foo")

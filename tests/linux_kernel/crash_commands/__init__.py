@@ -7,23 +7,12 @@ import os
 import sys
 import types
 
-import drgn
 from drgn.commands.crash import CRASH_COMMAND_NAMESPACE
+from tests import with_default_prog
 from tests.linux_kernel import LinuxKernelTestCase
 
 
 class CrashCommandTestCase(LinuxKernelTestCase):
-    @contextlib.contextmanager
-    def with_default_prog(self):
-        try:
-            old_default_prog = drgn.get_default_prog()
-        except drgn.NoDefaultProgramError:
-            old_default_prog = None
-        try:
-            drgn.set_default_prog(self.prog)
-            yield
-        finally:
-            drgn.set_default_prog(old_default_prog)
 
     # Run a crash command and capture its stdout and stderr.
     @classmethod
@@ -68,7 +57,7 @@ class CrashCommandTestCase(LinuxKernelTestCase):
 
         if mode == "exec":
             ret.globals = {"prog": self.prog}
-            with self.with_default_prog():
+            with with_default_prog(self.prog):
                 exec(ret.stdout, ret.globals)
 
         return ret

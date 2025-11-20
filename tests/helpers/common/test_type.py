@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 
-from drgn import TypeMember
+from drgn import NoDefaultProgramError, TypeMember
 from drgn.helpers.common.type import member_at_offset, typeof_member
-from tests import TestCase, mock_program
+from tests import TestCase, mock_program, with_default_prog
 
 
 class TestMemberAtOffset(TestCase):
@@ -451,6 +451,25 @@ class TestMemberAtOffset(TestCase):
         self.assertEqual(member_at_offset(line_segment_type, 8), "b.x")
         self.assertEqual(member_at_offset(line_segment_type, 12), "b.y")
 
+    def test_default_prog(self):
+        self.assertRaises(NoDefaultProgramError, member_at_offset, "struct point", 0)
+
+        types = []
+        prog = mock_program(types=types)
+        types.append(
+            prog.struct_type(
+                "point",
+                8,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "x", 0),
+                    TypeMember(prog.int_type("int", 4, True), "y", 32),
+                ),
+            )
+        )
+        with with_default_prog(prog):
+            self.assertIdentical(member_at_offset("struct point", 0), "x")
+            self.assertRaises(LookupError, member_at_offset, "struct foo", 0)
+
 
 class TestTypeofMember(TestCase):
     def test_simple(self):
@@ -466,3 +485,24 @@ class TestTypeofMember(TestCase):
         self.assertIdentical(
             typeof_member(point_type, "x"), prog.int_type("int", 4, True)
         )
+
+    def test_default_prog(self):
+        self.assertRaises(NoDefaultProgramError, typeof_member, "struct point", "x")
+
+        types = []
+        prog = mock_program(types=types)
+        types.append(
+            prog.struct_type(
+                "point",
+                8,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "x", 0),
+                    TypeMember(prog.int_type("int", 4, True), "y", 32),
+                ),
+            )
+        )
+        with with_default_prog(prog):
+            self.assertIdentical(
+                typeof_member("struct point", "x"), prog.int_type("int", 4, True)
+            )
+            self.assertRaises(LookupError, typeof_member, "struct foo", "x")

@@ -11,6 +11,7 @@ from drgn.commands import CommandArgumentError
 from drgn.commands.crash import CRASH_COMMAND_NAMESPACE
 from drgn.helpers.linux.mm import PageUsage
 from drgn.helpers.linux.slab import SlabTotalUsage
+from tests import with_default_prog
 from tests.linux_kernel import possible_cpus, skip_unless_have_test_kmod
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 from tests.linux_kernel.helpers.test_slab import fallback_slab_cache_names
@@ -343,7 +344,7 @@ class TestKmem(CrashCommandTestCase):
 
         drgn_option = self.run_crash_command_drgn_option("kmem -p", mode="capture")
         drgn_option_globals = {"prog": self.prog}
-        with self.with_default_prog():
+        with with_default_prog(self.prog):
             exec(drgn_option.stdout + "\n    break", drgn_option_globals)
         for variable in ("physical", "mapping", "index", "cnt", "flags"):
             self.assertIsInstance(drgn_option_globals[variable], Object)
@@ -375,7 +376,7 @@ class TestKmem(CrashCommandTestCase):
             f"kmem -m {members}", mode="capture"
         )
         drgn_option_globals = {"prog": self.prog}
-        with self.with_default_prog():
+        with with_default_prog(self.prog):
             exec(drgn_option.stdout + "\n    break", drgn_option_globals)
         for variable in ("mapping", "private", "_refcount", "lru", "flags"):
             self.assertIsInstance(drgn_option_globals[variable], Object)

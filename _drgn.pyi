@@ -3882,17 +3882,19 @@ class Qualifiers(enum.Flag):
     ATOMIC = ...
     """Atomic type."""
 
-def sizeof(__type_or_obj: Union[Type, Object]) -> int:
+def sizeof(type_or_obj: Union[Type, Object, str], /) -> int:
     """
     Get the size of a :class:`Type` or :class:`Object` in bytes.
 
-    :param type_or_obj: Entity to get the size of.
+    :param type_or_obj: Entity to get the size of. If given as a string, it is
+        looked up (first as a type, then as an object) in the
+        :ref:`default-program <default program>`.
     :raises TypeError: if the type does not have a size (e.g., because it is
         incomplete or void)
     """
     ...
 
-def alignof(__type: Type) -> int:
+def alignof(type: Union[Type, str], /) -> int:
     """
     Get the alignment requirement (in bytes) of a :class:`Type`.
 
@@ -3901,11 +3903,13 @@ def alignof(__type: Type) -> int:
     .. |alignof()| replace:: ``_Alignof()``
     .. _alignof(): https://en.cppreference.com/w/c/language/_Alignof
 
+    :param type: Type. If given as a string, it is looked up in the
+        :ref:`default-program <default program>`.
     :raises TypeError: if *type* is a function type or an incomplete type
     """
     ...
 
-def offsetof(type: Type, member: str) -> int:
+def offsetof(type: Union[Type, str], member: str) -> int:
     """
     Get the offset (in bytes) of a member in a :class:`Type`.
 
@@ -3914,7 +3918,8 @@ def offsetof(type: Type, member: str) -> int:
     .. |offsetof()| replace:: ``offsetof()``
     .. _offsetof(): https://en.cppreference.com/w/c/types/offsetof
 
-    :param type: Structure, union, or class type.
+    :param type: Structure, union, or class type. If given as a string, it is
+        looked up in the :ref:`default-program <default program>`.
     :param member: Name of member. May include one or more member references
         and zero or more array subscripts.
     :raises TypeError: if *type* is not a structure, union, or class type

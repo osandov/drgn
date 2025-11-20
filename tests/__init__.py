@@ -16,6 +16,7 @@ from drgn import (
     Architecture,
     FindObjectFlags,
     Language,
+    NoDefaultProgramError,
     Object,
     Platform,
     PlatformFlags,
@@ -27,6 +28,8 @@ from drgn import (
     TypeMember,
     TypeParameter,
     TypeTemplateParameter,
+    get_default_prog,
+    set_default_prog,
 )
 
 try:
@@ -448,3 +451,16 @@ def drgn_log_level(level: int):
         yield
     finally:
         logger.setLevel(old_level)
+
+
+@contextlib.contextmanager
+def with_default_prog(prog):
+    try:
+        old_default_prog = get_default_prog()
+    except NoDefaultProgramError:
+        old_default_prog = None
+    try:
+        set_default_prog(prog)
+        yield
+    finally:
+        set_default_prog(old_default_prog)

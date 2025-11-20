@@ -4,6 +4,7 @@
 #include <elfutils/libdwfl.h>
 
 #include "drgnpy.h"
+#include "../error.h"
 #include "../path.h"
 
 /* Basically PyModule_AddType(), which is only available since Python 3.9. */
@@ -38,7 +39,7 @@ static PyObject *NoDefaultProgramError;
 PyObject *ObjectAbsentError;
 PyObject *OutOfBoundsError;
 
-static _Thread_local PyObject *default_prog;
+static _Thread_local Program *default_prog;
 
 static PyObject *get_default_prog(PyObject *self, PyObject *_)
 {
@@ -47,7 +48,7 @@ static PyObject *get_default_prog(PyObject *self, PyObject *_)
 		return NULL;
 	}
 	Py_INCREF(default_prog);
-	return default_prog;
+	return (PyObject *)default_prog;
 }
 
 static PyObject *set_default_prog(PyObject *self, PyObject *arg)
@@ -56,7 +57,7 @@ static PyObject *set_default_prog(PyObject *self, PyObject *arg)
 		Py_CLEAR(default_prog);
 	} else if (PyObject_TypeCheck(arg, &Program_type)) {
 		Py_INCREF(arg);
-		Py_XSETREF(default_prog, arg);
+		Py_XSETREF(default_prog, (Program *)arg);
 	} else {
 		PyErr_SetString(PyExc_TypeError,
 				"prog must be Program or None");
@@ -106,9 +107,35 @@ static PyObject *sizeof_(PyObject *self, PyObject *arg)
 		err = drgn_type_sizeof(((DrgnType *)arg)->type, &size);
 	} else if (PyObject_TypeCheck(arg, &DrgnObject_type)) {
 		err = drgn_object_sizeof(&((DrgnObject *)arg)->obj, &size);
+	} else if (PyUnicode_Check(arg)) {
+		if (!default_prog) {
+			PyErr_SetString(NoDefaultProgramError,
+					"no default program");
+			return NULL;
+		}
+
+		const char *name = PyUnicode_AsUTF8(arg);
+		if (!name)
+			return NULL;
+
+		drgn_in_python_guard();
+		struct drgn_qualified_type qualified_type;
+		err = drgn_program_find_type(&default_prog->prog, name, NULL,
+					     &qualified_type);
+		if (!err) {
+			err = drgn_type_sizeof(qualified_type.type, &size);
+		} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+			DRGN_OBJECT(obj, &default_prog->prog);
+			err = drgn_program_find_object(&default_prog->prog,
+						       name, NULL,
+						       DRGN_FIND_OBJECT_ANY,
+						       &obj);
+			if (!err)
+				err = drgn_object_sizeof(&obj, &size);
+		}
 	} else {
 		return PyErr_Format(PyExc_TypeError,
-				    "expected Type or Object, not %s",
+				    "expected Type, Object, or str, not %s",
 				    Py_TYPE(arg)->tp_name);
 	}
 	if (err)
@@ -116,17 +143,46 @@ static PyObject *sizeof_(PyObject *self, PyObject *arg)
 	return PyLong_FromUint64(size);
 }
 
+static bool
+default_prog_find_type(PyObject *arg, struct drgn_qualified_type *ret)
+{
+	struct drgn_error *err;
+
+	if (!default_prog) {
+		PyErr_SetString(NoDefaultProgramError, "no default program");
+		return false;
+	}
+
+	const char *name = PyUnicode_AsUTF8(arg);
+	if (!name)
+		return false;
+
+	bool clear = set_drgn_in_python();
+	err = drgn_program_find_type(&default_prog->prog, name, NULL, ret);
+	if (clear)
+		clear_drgn_in_python();
+	if (err) {
+		set_drgn_error(err);
+		return false;
+	}
+	return true;
+}
+
 static PyObject *alignof_(PyObject *self, PyObject *arg)
 {
 	struct drgn_error *err;
-	if (!PyObject_TypeCheck(arg, &DrgnType_type)) {
-		return PyErr_Format(PyExc_TypeError, "expected Type not %s",
+	struct drgn_qualified_type qualified_type;
+	if (PyObject_TypeCheck(arg, &DrgnType_type)) {
+		qualified_type.type = ((DrgnType *)arg)->type;
+		qualified_type.qualifiers = ((DrgnType *)arg)->qualifiers;
+	} else if (PyUnicode_Check(arg)) {
+		if (!default_prog_find_type(arg, &qualified_type))
+			return NULL;
+	} else {
+		return PyErr_Format(PyExc_TypeError,
+				    "expected Type or str, not %s",
 				    Py_TYPE(arg)->tp_name);
 	}
-	struct drgn_qualified_type qualified_type = {
-		.type = ((DrgnType *)arg)->type,
-		.qualifiers = ((DrgnType *)arg)->qualifiers,
-	};
 	uint64_t size;
 	err = drgn_type_alignof(qualified_type, &size);
 	if (err)
@@ -139,13 +195,28 @@ static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
 	struct drgn_error *err;
 
 	static char *keywords[] = {"type", "member", NULL};
-	DrgnType *type;
+	PyObject *arg;
 	const char *member;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!s:offsetof", keywords,
-					 &DrgnType_type, &type, &member))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "Os:offsetof", keywords,
+					 &arg, &member))
 		return NULL;
+
+	struct drgn_type *type;
+	if (PyObject_TypeCheck(arg, &DrgnType_type)) {
+		type = ((DrgnType *)arg)->type;
+	} else if (PyUnicode_Check(arg)) {
+		struct drgn_qualified_type qualified_type;
+		if (!default_prog_find_type(arg, &qualified_type))
+			return NULL;
+		type = qualified_type.type;
+	} else {
+		return PyErr_Format(PyExc_TypeError,
+				    "expected Type or str, not %s",
+				    Py_TYPE(arg)->tp_name);
+	}
+
 	uint64_t offset;
-	err = drgn_type_offsetof(type->type, member, &offset);
+	err = drgn_type_offsetof(type, member, &offset);
 	if (err)
 		return set_drgn_error(err);
 	return PyLong_FromUint64(offset);

@@ -346,6 +346,17 @@ int init_logging(void);
 
 bool set_drgn_in_python(void);
 void clear_drgn_in_python(void);
+
+static inline void drgn_in_python_cleanup(bool *clearp)
+{
+	if (*clearp)
+		clear_drgn_in_python();
+}
+
+#define drgn_in_python_guard()							\
+	__attribute__((__cleanup__(drgn_in_python_cleanup), __unused__))	\
+	bool PP_UNIQUE(clear) = set_drgn_in_python()
+
 struct drgn_error *drgn_error_from_python(void);
 void *set_drgn_error(struct drgn_error *err);
 void *set_error_type_name(const char *format,
