@@ -19,6 +19,7 @@ from drgn.helpers.linux.net import (
     netdev_for_each_tx_queue,
     netdev_get_by_index,
     netdev_get_by_name,
+    netdev_name,
     netdev_priv,
     sk_fullsock,
     skb_shinfo,
@@ -47,9 +48,19 @@ class TestNet(LinuxKernelTestCase):
             sk = cast("struct socket *", file.private_data).sk.read_()
             self.assertTrue(sk_fullsock(sk))
 
+    def test_for_each_netdev(self):
+        self.assertCountEqual(
+            [netdev_name(dev) for dev in for_each_netdev(self.net)],
+            [name.encode() for _, name in socket.if_nameindex()],
+        )
+
     @skip_unless_have_test_kmod
     def test_for_each_netdev_init_net(self):
         self.assertIn(self.prog["drgn_test_netdev"], for_each_netdev(self.prog))
+
+    @skip_unless_have_test_kmod
+    def test_netdev_name(self):
+        self.assertEqual(netdev_name(self.prog["drgn_test_netdev"]), b"lo")
 
     def test_netdev_get_by_index(self):
         for index, name in socket.if_nameindex():

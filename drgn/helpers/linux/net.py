@@ -31,6 +31,7 @@ __all__ = (
     "netdev_for_each_tx_queue",
     "netdev_get_by_index",
     "netdev_get_by_name",
+    "netdev_name",
     "netdev_priv",
     "sk_fullsock",
     "sk_nulls_for_each",
@@ -147,6 +148,18 @@ def for_each_netdev(prog: Program, net: Optional[Object]) -> Iterator[Object]:
     return list_for_each_entry(
         "struct net_device", net.dev_base_head.address_of_(), "dev_list"
     )
+
+
+def netdev_name(dev: Object) -> bytes:
+    """
+    Get the name of a network device.
+
+    >>> netdev_name(dev)
+    b'lo'
+
+    :param dev: ``struct net_device *``
+    """
+    return dev.name.string_()
 
 
 _NETDEV_HASHBITS = 8
