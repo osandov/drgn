@@ -207,28 +207,9 @@ def netdev_get_by_name(
     if isinstance(name, str):
         name = name.encode()
 
-    # Since Linux kernel commit ff92741270bf ("net: introduce name_node struct
-    # to be used in hashlist") (in v5.5), the device name hash table contains
-    # struct netdev_name_node entries. Before that, it contained the struct
-    # net_device directly.
-    try:
-        entry_type = prog.type("struct netdev_name_node")
-        member = "hlist"
-        entry_is_name_node = True
-    except LookupError:
-        entry_type = prog.type("struct net_device")
-        member = "name_hlist"
-        entry_is_name_node = False
-
-    for i in range(_NETDEV_HASHENTRIES):
-        head = net.dev_name_head[i]
-        for entry in hlist_for_each_entry(entry_type, head, member):
-            if entry.name.string_() == name:
-                if entry_is_name_node:
-                    return entry.dev
-                else:
-                    return entry
-
+    for dev in for_each_netdev(net):
+        if netdev_name(dev) == name:
+            return dev
     return NULL(prog, "struct net_device *")
 
 
