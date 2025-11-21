@@ -119,6 +119,11 @@ struct drgn_elf_file {
 	 * `.debug_str` section data.
 	 */
 	Elf_Data *alt_debug_str_data;
+	/**
+	 * For relocatable files, a bitmap of which sections have their address
+	 * set.
+	 */
+	unsigned long *sections_with_address;
 };
 
 /**

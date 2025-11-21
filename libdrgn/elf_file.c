@@ -218,6 +218,7 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 void drgn_elf_file_destroy(struct drgn_elf_file *file)
 {
 	if (file) {
+		free(file->sections_with_address);
 		dwarf_end(file->_dwarf);
 		elf_end(file->elf);
 		if (file->fd >= 0)

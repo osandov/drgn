@@ -27,6 +27,7 @@
 #include "array.h"
 #include "binary_buffer.h"
 #include "binary_search.h"
+#include "bitmap.h"
 #include "cleanup.h"
 #include "crc32.h"
 #include "debug_info.h"
@@ -1167,26 +1168,38 @@ drgn_module_set_wanted_gnu_debugaltlink(struct drgn_module *module,
 	return NULL;
 }
 
-static bool
-drgn_module_copy_section_addresses(struct drgn_module *module, Elf *elf)
+static struct drgn_error *
+drgn_module_copy_section_addresses(struct drgn_module *module,
+				   struct drgn_elf_file *file)
 {
+	if (!file->is_relocatable)
+		return NULL;
+
+	size_t shdrnum;
+	if (elf_getshdrnum(file->elf, &shdrnum))
+		return drgn_error_libelf();
+
+	file->sections_with_address = drgn_bitmap_create(shdrnum);
+	if (!file->sections_with_address)
+		return &drgn_enomem;
+
 	if (drgn_module_section_address_map_empty(&module->section_addresses))
-		return true;
+		return NULL;
 
 	size_t shstrndx;
-	if (elf_getshdrstrndx(elf, &shstrndx))
-		return false;
+	if (elf_getshdrstrndx(file->elf, &shstrndx))
+		return drgn_error_libelf();
 
 	Elf_Scn *scn = NULL;
-	while ((scn = elf_nextscn(elf, scn))) {
+	while ((scn = elf_nextscn(file->elf, scn))) {
 		GElf_Shdr *shdr, shdr_mem;
 		shdr = gelf_getshdr(scn, &shdr_mem);
 		if (!shdr)
-			return false;
+			return drgn_error_libelf();
 
-		char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+		char *scnname = elf_strptr(file->elf, shstrndx, shdr->sh_name);
 		if (!scnname)
-			return false;
+			return drgn_error_libelf();
 
 		struct drgn_module_section_address_map_iterator it =
 			drgn_module_section_address_map_search(&module->section_addresses,
@@ -1196,9 +1209,11 @@ drgn_module_copy_section_addresses(struct drgn_module *module, Elf *elf)
 
 		shdr->sh_addr = it.entry->value;
 		if (!gelf_update_shdr(scn, shdr))
-			return false;
+			return drgn_error_libelf();
+		drgn_bitmap_set_bit(file->sections_with_address,
+				    elf_ndxscn(scn));
 	}
-	return true;
+	return NULL;
 }
 
 static bool elf_main_bias(struct drgn_program *prog, Elf *elf, uint64_t *ret)
@@ -1417,11 +1432,17 @@ drgn_module_maybe_use_elf_file(struct drgn_module *module,
 		}
 	}
 
-	if (file != module->loaded_file && file != module->debug_file
-	    && !drgn_module_copy_section_addresses(module, file->elf)) {
-		drgn_log_debug(prog, "%s: %s", file->path, elf_errmsg(-1));
-		err = NULL;
-		goto unused;
+	if (file != module->loaded_file && file != module->debug_file) {
+		err = drgn_module_copy_section_addresses(module, file);
+		if (err) {
+			if (!drgn_error_is_fatal(err)) {
+				drgn_error_log_debug(prog, err, "%s: ",
+						     file->path);
+				drgn_error_destroy(err);
+				err = NULL;
+			}
+			goto unused;
+		}
 	}
 
 	uint64_t bias;

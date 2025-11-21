@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "bitmap.h"
 #include "cleanup.h"
 #include "debug_info.h"
 #include "elf_file.h"
@@ -393,6 +394,15 @@ static bool elf_symbol_address(struct drgn_elf_symbol_table *symtab,
 		    && (shndx < SHN_LORESERVE || shndx > SHN_HIRESERVE)) {
 			Elf_Scn *scn = elf_getscn(symtab->file->elf, shndx);
 			if (!scn)
+				return false;
+			// If the section's address is not known, then the
+			// symbol is essentially undefined, so ignore it. This
+			// filters out things like symbols from the .init*
+			// sections in Linux kernel modules which are unloaded
+			// after initialization.
+			// NB: shndx is bounds-checked by elf_getscn().
+			if (!drgn_bitmap_test_bit(symtab->file->sections_with_address,
+						  shndx))
 				return false;
 			GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn,
 								 &shdr_mem);
