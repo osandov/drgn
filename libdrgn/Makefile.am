@@ -50,6 +50,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    binary_buffer.h \
 			    binary_search.h \
 			    binary_search_tree.h \
+			    bitmap.h \
 			    bitops.h \
 			    c_keywords.inc \
 			    c_lexer.h \
@@ -270,6 +271,7 @@ examples_load_debug_info_LDADD = $(libdrgn_libs)
 TESTS = $(check_PROGRAMS)
 
 check_PROGRAMS = tests/binary_search \
+		 tests/bitmap \
 		 tests/cityhash \
 		 tests/crc32 \
 		 tests/hexlify \
@@ -297,6 +299,9 @@ test_ldadd = $(check_LIBS) $(libdrgn_libs)
 tests_binary_search_CFLAGS = $(test_cflags)
 tests_binary_search_CPPFLAGS = $(test_cppflags)
 tests_binary_search_LDADD = $(test_ldadd)
+tests_bitmap_CFLAGS = $(test_cflags)
+tests_bitmap_CPPFLAGS = $(test_cppflags)
+tests_bitmap_LDADD = $(test_ldadd)
 tests_cityhash_CFLAGS = $(test_cflags)
 tests_cityhash_CPPFLAGS = $(test_cppflags)
 tests_cityhash_LDADD = $(test_ldadd)

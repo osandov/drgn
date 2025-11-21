@@ -1,0 +1,51 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include "../bitmap.h"
+#include "../cleanup.h"
+
+#suite bitmap
+
+#test bitmap_set_bit
+{
+	_cleanup_free_ unsigned long *bitmap = drgn_bitmap_create(9);
+	ck_assert_ptr_nonnull(bitmap);
+
+	drgn_bitmap_set_bit(bitmap, 0);
+	drgn_bitmap_set_bit(bitmap, 1);
+	drgn_bitmap_set_bit(bitmap, 2);
+	drgn_bitmap_set_bit(bitmap, 3);
+	drgn_bitmap_set_bit(bitmap, 5);
+	drgn_bitmap_set_bit(bitmap, 8);
+
+	ck_assert(drgn_bitmap_test_bit(bitmap, 0));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 1));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 2));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 3));
+	ck_assert(!drgn_bitmap_test_bit(bitmap, 4));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 5));
+	ck_assert(!drgn_bitmap_test_bit(bitmap, 6));
+	ck_assert(!drgn_bitmap_test_bit(bitmap, 7));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 8));
+}
+
+#test bitmap_clear_bit
+{
+	_cleanup_free_ unsigned long *bitmap = drgn_bitmap_create(9);
+	ck_assert_ptr_nonnull(bitmap);
+
+	bitmap[0] = ~0UL;
+	drgn_bitmap_clear_bit(bitmap, 4);
+	drgn_bitmap_clear_bit(bitmap, 6);
+	drgn_bitmap_clear_bit(bitmap, 7);
+
+	ck_assert(drgn_bitmap_test_bit(bitmap, 0));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 1));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 2));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 3));
+	ck_assert(!drgn_bitmap_test_bit(bitmap, 4));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 5));
+	ck_assert(!drgn_bitmap_test_bit(bitmap, 6));
+	ck_assert(!drgn_bitmap_test_bit(bitmap, 7));
+	ck_assert(drgn_bitmap_test_bit(bitmap, 8));
+}
