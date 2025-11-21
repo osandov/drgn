@@ -25,6 +25,7 @@ __all__ = (
     "SOCK_INODE",
     "SOCKET_I",
     "for_each_net",
+    "for_each_netdev",
     "get_net_ns_by_inode",
     "get_net_ns_by_fd",
     "netdev_for_each_tx_queue",
@@ -130,6 +131,22 @@ def netdev_for_each_tx_queue(dev: Object) -> Iterator[Object]:
     """
     for i in range(dev.num_tx_queues):
         yield dev._tx + i
+
+
+@takes_object_or_program_or_default
+def for_each_netdev(prog: Program, net: Optional[Object]) -> Iterator[Object]:
+    """
+    Iterate over all network devices in a namespace.
+
+    :param net: ``struct net *``. Defaults to the initial network namespace if
+        given a :class:`~drgn.Program` or :ref:`omitted <default-program>`.
+    :return: Iterator of ``struct net_device *`` objects.
+    """
+    if net is None:
+        net = prog["init_net"]
+    return list_for_each_entry(
+        "struct net_device", net.dev_base_head.address_of_(), "dev_list"
+    )
 
 
 _NETDEV_HASHBITS = 8
