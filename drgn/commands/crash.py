@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
-from typing import Any, FrozenSet, List, Literal, Optional, Set, Tuple, Union
+from typing import Any, FrozenSet, Iterator, List, Literal, Optional, Set, Tuple, Union
 
 from _drgn_util.typingutils import copy_func_params
 from drgn import Object, Program, ProgramFlags, Type, TypeKind, offsetof
@@ -29,7 +29,7 @@ from drgn.commands import (
 from drgn.helpers.common.format import double_quote_ascii_string
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
-from drgn.helpers.linux.sched import task_cpu
+from drgn.helpers.linux.sched import cpu_curr, task_cpu
 
 
 def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
@@ -286,6 +286,55 @@ class Cpuspec:
             return sorted(self.explicit_cpus)
         else:
             return []
+
+
+@dataclasses.dataclass(frozen=True)
+class Taskspec:
+    """A set of selected tasks for a command to operate on"""
+
+    cpuspec: Optional[Cpuspec] = None
+    """Include the tasks on-CPU from the given cpu spec"""
+
+    current: bool = False
+    """The current context thread"""
+
+    panic: bool = False
+    """Only the crashed/panic thread"""
+
+    explicit_tasks: Tuple[Tuple[Literal["pid", "task"], int], ...] = ()
+    """Only explicitly listed tasks"""
+
+    def __post_init__(self) -> None:
+        if (
+            bool(self.cpuspec) + self.current + self.panic + bool(self.explicit_tasks)
+            > 1
+        ):
+            raise ValueError(
+                "at most one of cpuspec, current, panic, or explicit_tasks may be given"
+            )
+        if self.cpuspec and self.cpuspec.current:
+            raise ValueError(
+                "Use Taskspec.current rather than Cpuspec.current when using Taskspec"
+            )
+
+    def tasks(self, prog: Program) -> Iterator[Object]:
+        if self.cpuspec:
+            for cpu in self.cpuspec.cpus(prog):
+                yield cpu_curr(prog, cpu)
+        elif self.current:
+            # We could just let Cpuspec.current handle this, but for live
+            # programs it will return the CPU number. By the time we would
+            # convert that back to a task, it may no longer match the original
+            # one.
+            yield crash_get_context(prog)
+        elif self.panic:
+            yield prog.crashed_thread().object
+        else:
+            for kind, value in self.explicit_tasks:
+                if kind == "pid":
+                    yield find_task(prog, value)
+                else:
+                    yield Object(prog, "struct task_struct *", value=value)
 
 
 def parse_cpuspec(spec: str) -> Cpuspec:
@@ -550,3 +599,54 @@ command = task.comm
             else:
                 self.append(f"cpu = {cpus[0]}\n")
                 return False
+
+    def append_taskspec(self, taskspec: Taskspec, loop_body: str) -> None:
+        """
+        Append code to be executed for each CPU in a CPU specifier.
+
+        The variables "cpu" and "task" are guaranteed to be available for
+        loop_body to use.
+
+        :param taskspec: Task specifier
+        :param loop_body: Code to add for each CPU. Will be indented if
+            needed.
+        """
+        if taskspec.cpuspec:
+            # We need a "task" variable which is not already present
+            self.add_from_import("drgn.helpers.linux.sched", "cpu_curr")
+            loop_body = "task = cpu_curr(cpu)\n" + loop_body
+            self.append_cpuspec(taskspec.cpuspec, loop_body)
+        elif taskspec.current:
+            self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+            self.append_crash_context()
+            self.append("cpu = task_cpu(task)\n")
+            self.append(loop_body)
+        elif taskspec.panic:
+            self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+            self.append(
+                """\
+task = prog.crashed_thread().object
+cpu = task_cpu(task)
+"""
+            )
+            self.append(loop_body)
+        elif len(taskspec.explicit_tasks) == 1:
+            self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+            self.append_crash_context(taskspec.explicit_tasks[0])
+            self.append("cpu = task_cpu(task)\n")
+            self.append(loop_body)
+        else:
+            self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+            self.append("tasks = [\n")
+            for kind, val in taskspec.explicit_tasks:
+                if kind == "pid":
+                    self.add_from_import("drgn.helpers.linux.pid", "find_task")
+                    self.append(f"    find_task({val}),\n")
+                else:
+                    self.add_from_import("drgn", "Object")
+                    self.append(
+                        f'    Object(prog, "struct task_struct *", value={val}),\n'
+                    )
+            self.append("]\n")
+            self.append("for task in tasks:\n    cpu = task_cpu(task)\n")
+            self.append(textwrap.indent(loop_body, "    "))
