@@ -12,7 +12,7 @@ etc.
 
 
 import itertools
-from typing import Iterator
+from typing import Iterator, Tuple
 
 from drgn import IntegerLike, Object, Program, cast
 from drgn.helpers.common.prog import takes_program_or_default
@@ -26,6 +26,9 @@ __all__ = (
     "bpf_prog_for_each",
     "cgroup_bpf_prog_for_each",
     "cgroup_bpf_prog_for_each_effective",
+    "bpf_prog_used_maps",
+    "bpf_prog_trampoline_progs",
+    "bpf_prog_subprogs",
 )
 
 
@@ -180,3 +183,59 @@ def cgroup_bpf_prog_for_each_effective(
             if not prog:
                 break
             yield prog
+
+
+def bpf_prog_used_maps(bpf_prog: Object) -> Iterator[Object]:
+    """Yield maps used by a BPF program."""
+    for i in range(bpf_prog.aux.used_map_cnt.value_()):
+        yield bpf_prog.aux.used_maps[i]
+
+
+def bpf_prog_trampoline_progs(bpf_prog: Object) -> Iterator[Object]:
+    """
+    This helper checks both `dst_trampoline` and `trampoline` fields
+    in bpf_prog->aux, and yields the trampoline programs attached to it.
+    """
+
+    tr = None
+    try:
+        tr = bpf_prog.aux.member_("dst_trampoline")
+    except LookupError:
+        pass
+
+    if not tr:
+        try:
+            tr = bpf_prog.aux.member_("trampoline")
+        except LookupError:
+            pass
+
+    if not tr:
+        return
+
+    if hasattr(tr, "extension_prog") and tr.extension_prog:
+        yield tr.extension_prog
+        return
+
+    try:
+        for head in tr.progs_hlist:
+            for tramp_aux in hlist_for_each_entry(
+                "struct bpf_prog_aux", head, "tramp_hlist"
+            ):
+                yield tramp_aux.prog
+    except LookupError:
+        pass
+
+
+def bpf_prog_subprogs(bpf_prog: Object) -> Iterator[Tuple[int, Object]]:
+    """
+    Yield subprograms (funcs) for a given BPF program.
+
+    Each BPF program can contain multiple subprograms (functions)
+    referenced by bpf_prog->aux->func[] with count bpf_prog->aux->func_cnt.
+    """
+    func_cnt = bpf_prog.aux.func_cnt.value_()
+    for i in range(func_cnt):
+        try:
+            yield i, bpf_prog.aux.func[i]
+        except LookupError:
+            continue
