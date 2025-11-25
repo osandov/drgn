@@ -126,7 +126,7 @@ def member_at_offset(type: Union[Type, str], offset: IntegerLike) -> str:
     '<past end>'
 
     :param type: Type to check. If given as a string, it is looked up in the
-        :ref:`default-program <default program>`.
+        :ref:`default program <default-program>`.
     :param offset: Offset in bytes.
     :raises TypeError: if *type* is not a structure, union, class, or array
         type (or a typedef of one of those)
@@ -309,7 +309,7 @@ def typeof_member(type: Union[Type, str], member: str) -> Type:
     and other projects.
 
     :param type: Structure, union, or class type. If given as a string, it is
-        looked up in the :ref:`default-program <default program>`.
+        looked up in the :ref:`default program <default-program>`.
     :param member: Name of member. May include one or more member references
         and zero or more array subscripts.
     :raises TypeError: if *type* is not a structure, union, or class type

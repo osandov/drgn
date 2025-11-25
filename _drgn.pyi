@@ -3888,7 +3888,7 @@ def sizeof(type_or_obj: Union[Type, Object, str], /) -> int:
 
     :param type_or_obj: Entity to get the size of. If given as a string, it is
         looked up (first as a type, then as an object) in the
-        :ref:`default-program <default program>`.
+        :ref:`default program <default-program>`.
     :raises TypeError: if the type does not have a size (e.g., because it is
         incomplete or void)
     """
@@ -3904,7 +3904,7 @@ def alignof(type: Union[Type, str], /) -> int:
     .. _alignof(): https://en.cppreference.com/w/c/language/_Alignof
 
     :param type: Type. If given as a string, it is looked up in the
-        :ref:`default-program <default program>`.
+        :ref:`default program <default-program>`.
     :raises TypeError: if *type* is a function type or an incomplete type
     """
     ...
@@ -3919,7 +3919,7 @@ def offsetof(type: Union[Type, str], member: str) -> int:
     .. _offsetof(): https://en.cppreference.com/w/c/types/offsetof
 
     :param type: Structure, union, or class type. If given as a string, it is
-        looked up in the :ref:`default-program <default program>`.
+        looked up in the :ref:`default program <default-program>`.
     :param member: Name of member. May include one or more member references
         and zero or more array subscripts.
     :raises TypeError: if *type* is not a structure, union, or class type
