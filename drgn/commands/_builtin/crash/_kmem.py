@@ -5,8 +5,19 @@
 
 import argparse
 import functools
+import operator
 import sys
-from typing import AbstractSet, Any, Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import (
+    AbstractSet,
+    Any,
+    Callable,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+)
 
 from drgn import (
     NULL,
@@ -70,11 +81,13 @@ from drgn.helpers.linux.mm import (
     decode_page_flags_value,
     follow_pfn,
     for_each_memory_block,
+    for_each_page,
     for_each_valid_pfn_and_page,
     for_each_vmap_area,
     memory_block_size_bytes,
     page_flags,
     page_index,
+    page_to_pfn,
     page_to_virt,
     pfn_to_page,
     totalram_pages,
@@ -1043,38 +1056,160 @@ for hstate in for_each_hstate(prog):
     print_table(rows)
 
 
-def _page_flags_and_decoded_flags(pfn: int, page: Object) -> str:
+def _page_flags_and_decoded_flags(page: Object) -> str:
     flags = page_flags(page).read_()
     decoded_flags = decode_page_flags_value(flags).replace("|", ",").replace("PG_", "")
     return f"{flags.value_():x} {decoded_flags}"
 
 
-def _page_flags_member(pfn: int, page: Object) -> str:
+def _page_flags_member(page: Object) -> str:
     flags = page_flags(page)
     return f"{flags.value_():0{sizeof(flags) * 2}x}"
 
 
-def _page_list_head_member(member: str, pfn: int, page: Object) -> str:
+def _page_list_head_member(member: str, page: Object) -> str:
     node = page[0].subobject_(member)
     next = node.next
     prev = node.prev
     return f"{next.value_():0{sizeof(next) * 2}x},{prev.value_():0{sizeof(prev) * 2}x}"
 
 
-def _page_callback_head_member(member: str, pfn: int, page: Object) -> str:
+def _page_callback_head_member(member: str, page: Object) -> str:
     head = page[0].subobject_(member)
     next = head.next
     func = head.func
     return f"{next.value_():0{sizeof(next) * 2}x},{func.value_():0{sizeof(func) * 2}x}"
 
 
-def _page_decimal_member(member: str, pfn: int, page: Object) -> str:
+def _page_decimal_member(member: str, page: Object) -> str:
     return str(page[0].subobject_(member).value_())
 
 
-def _page_hex_member(member: str, pfn: int, page: Object) -> str:
+def _page_hex_member(member: str, page: Object) -> str:
     object = page[0].subobject_(member)
     return f"{object.value_():0{sizeof(object) * 2}x}"
+
+
+_T = TypeVar("_T")
+
+
+def _print_pages_default_members(
+    prog: Program,
+    iterable: Iterable[_T],
+    *,
+    get_page: Callable[[_T], Object],
+    get_physical: Optional[Callable[[_T], int]] = None,
+    get_mapping: Optional[Callable[[_T], int]] = None,
+    get_index: Optional[Callable[[_T], int]] = None,
+) -> None:
+    address_size = prog.address_size()
+    PAGE_SHIFT = prog["PAGE_SHIFT"].value_()
+
+    # print_table() requires having all rows available ahead of time. With a
+    # row per page, this would take too much time and memory. Instead, we
+    # compute the column widths and print each row manually.
+    widths = [
+        address_size * 2,
+        len(hex(prog["max_pfn"].value_() << PAGE_SHIFT)) - 2,
+        address_size * 2,
+        12,
+        3,
+        5,
+    ]
+
+    first = True
+    for item in iterable:
+        if first:
+            _print_table_row(
+                (
+                    CellFormat("PAGE", "^"),
+                    CellFormat("PHYSICAL", ">"),
+                    CellFormat("MAPPING", "^"),
+                    CellFormat("INDEX", ">"),
+                    CellFormat("CNT", ">"),
+                    "FLAGS",
+                ),
+                widths=widths,
+            )
+            first = False
+
+        page = get_page(item)
+        _print_table_row(
+            (
+                f"{page.value_():0{address_size * 2}x}",
+                CellFormat(
+                    (
+                        page_to_pfn(page).value_() << PAGE_SHIFT
+                        if get_physical is None
+                        else get_physical(item)
+                    ),
+                    "x",
+                ),
+                CellFormat(
+                    page.mapping.value_() if get_mapping is None else get_mapping(item),
+                    "x",
+                ),
+                CellFormat(
+                    page_index(page).value_() if get_index is None else get_index(item),
+                    "x",
+                ),
+                CellFormat(page._refcount.counter.value_(), "x"),
+                _page_flags_and_decoded_flags(page),
+            ),
+            widths=widths,
+        )
+
+
+def _print_pages_members(
+    prog: Program,
+    members: str,
+    pages: Iterable[Object],
+) -> None:
+    address_size = prog.address_size()
+    header: List[Any] = [CellFormat("PAGE", "^")]
+    widths = [address_size * 2]
+    getters: List[Callable[[Object], Any]] = [
+        lambda page: f"{page.value_():0{address_size * 2}x}"
+    ]
+
+    struct_page = prog.type("struct page")
+    integer_base = prog.config.get("crash_radix", 10)
+    for member in _parse_members(members):
+        header.append(member)
+
+        if member == "flags":
+            widths.append(address_size * 2)
+            getters.append(_page_flags_member)
+            continue
+
+        member_type = typeof_member(struct_page, member)
+        member_type_kind = member_type.unaliased_kind()
+        member_type_name = member_type.type_name()
+        if member_type_name == "struct list_head":
+            widths.append(max(address_size * 4 + 1, len(member)))
+            getters.append(functools.partial(_page_list_head_member, member))
+        elif member_type_name == "struct callback_head":
+            widths.append(max(address_size * 4 + 1, len(member)))
+            getters.append(functools.partial(_page_callback_head_member, member))
+        elif member_type_name == "atomic_t" or member_type_name == "atomic_long_t":
+            widths.append(max(12, len(member)))
+            getters.append(functools.partial(_page_decimal_member, member + ".counter"))
+        elif (
+            member_type_kind == TypeKind.INT and integer_base == 16
+        ) or member_type_kind == TypeKind.POINTER:
+            widths.append(max(sizeof(member_type) * 2, len(member)))
+            getters.append(functools.partial(_page_hex_member, member))
+        elif member_type_kind == TypeKind.INT:
+            widths.append(max(12, len(member)))
+            getters.append(functools.partial(_page_decimal_member, member))
+        else:
+            raise NotImplementedError(
+                f"formatting {member_type_name!r} not implemented"
+            )
+
+    _print_table_row(header, widths=widths)
+    for page in pages:
+        _print_table_row([getter(page) for getter in getters], widths=widths)
 
 
 def _kmem_pages(
@@ -1084,24 +1219,20 @@ def _kmem_pages(
     members: Optional[str] = None,
     identified: Optional[IdentifiedPage] = None,
 ) -> None:
-    if drgn_arg:
-        code = CrashDrgnCodeBuilder(prog)
-        code.add_from_import("drgn.helpers.linux.mm", "for_each_valid_pfn_and_page")
-        code.append(
-            """\
-for pfn, page in for_each_valid_pfn_and_page():
-"""
-        )
-        if members is None:
+    if members is None:
+        if drgn_arg:
+            code = CrashDrgnCodeBuilder(prog)
             code.add_from_import(
                 "drgn.helpers.linux.mm",
                 "PFN_PHYS",
                 "decode_page_flags_value",
+                "for_each_valid_pfn_and_page",
                 "page_flags",
                 "page_index",
             )
             code.append(
                 """\
+for pfn, page in for_each_valid_pfn_and_page():
     physical = PFN_PHYS(pfn)
     mapping = page.mapping
     index = page_index(page)
@@ -1110,7 +1241,24 @@ for pfn, page in for_each_valid_pfn_and_page():
     decoded_flags = decode_page_flags_value(flags)
 """
             )
-        else:
+            return code.print()
+
+        PAGE_SHIFT = prog["PAGE_SHIFT"].value_()
+        _print_pages_default_members(
+            prog,
+            (
+                for_each_valid_pfn_and_page(prog)
+                if identified is None
+                else ((identified.pfn, identified.page),)
+            ),
+            get_page=operator.itemgetter(1),
+            get_physical=lambda item: item[0] << PAGE_SHIFT,
+        )
+    else:
+        if drgn_arg:
+            code = CrashDrgnCodeBuilder(prog)
+            code.add_from_import("drgn.helpers.linux.mm", "for_each_page")
+            code.append("for page in for_each_page():\n")
             for member in _parse_members(members):
                 if member == "flags":
                     code.add_from_import("drgn.helpers.linux.mm", "page_flags")
@@ -1119,92 +1267,13 @@ for pfn, page in for_each_valid_pfn_and_page():
                     code.append(
                         f"    {_sanitize_member_name(member)} = " f"page.{member}\n"
                     )
-        code.print()
-        return
+            return code.print()
 
-    address_size = prog.address_size()
-    PAGE_SHIFT = prog["PAGE_SHIFT"].value_()
-
-    # print_table() requires having all rows available ahead of time. With a
-    # row per page, this would take too much time and memory. Instead, we
-    # compute the column widths and print each row manually.
-    header: List[Any] = [CellFormat("PAGE", "^")]
-    widths = [address_size * 2]
-    getters: List[Callable[[int, Object], Any]] = [
-        lambda pfn, page: f"{page.value_():0{address_size * 2}x}"
-    ]
-
-    if members is None:
-        header.append(CellFormat("PHYSICAL", ">"))
-        widths.append(len(hex(prog["max_pfn"].value_() << PAGE_SHIFT)) - 2)
-        getters.append(lambda pfn, page: CellFormat(pfn << PAGE_SHIFT, "x"))
-
-        header.append(CellFormat("MAPPING", "^"))
-        widths.append(address_size * 2)
-        getters.append(lambda pfn, page: CellFormat(page.mapping.value_(), "x"))
-
-        header.append(CellFormat("INDEX", ">"))
-        widths.append(12)
-        getters.append(lambda pfn, page: CellFormat(page_index(page).value_(), "x"))
-
-        header.append(CellFormat("CNT", ">"))
-        widths.append(3)
-        getters.append(lambda pfn, page: page._refcount.counter.value_())
-
-        header.append("FLAGS")
-        widths.append(5)
-        getters.append(_page_flags_and_decoded_flags)
-    else:
-        struct_page = prog.type("struct page")
-        integer_base = prog.config.get("crash_radix", 10)
-        for member in _parse_members(members):
-            header.append(member)
-
-            if member == "flags":
-                widths.append(address_size * 2)
-                getters.append(_page_flags_member)
-                continue
-
-            member_type = typeof_member(struct_page, member)
-            member_type_kind = member_type.unaliased_kind()
-            member_type_name = member_type.type_name()
-            if member_type_name == "struct list_head":
-                widths.append(max(address_size * 4 + 1, len(member)))
-                getters.append(functools.partial(_page_list_head_member, member))
-            elif member_type_name == "struct callback_head":
-                widths.append(max(address_size * 4 + 1, len(member)))
-                getters.append(functools.partial(_page_callback_head_member, member))
-            elif member_type_name == "atomic_t" or member_type_name == "atomic_long_t":
-                widths.append(max(12, len(member)))
-                getters.append(
-                    functools.partial(_page_decimal_member, member + ".counter")
-                )
-            elif (
-                member_type_kind == TypeKind.INT and integer_base == 16
-            ) or member_type_kind == TypeKind.POINTER:
-                widths.append(max(sizeof(member_type) * 2, len(member)))
-                getters.append(functools.partial(_page_hex_member, member))
-            elif member_type_kind == TypeKind.INT:
-                widths.append(max(12, len(member)))
-                getters.append(functools.partial(_page_decimal_member, member))
-            else:
-                raise NotImplementedError(
-                    f"formatting {member_type_name!r} not implemented"
-                )
-
-    if identified is None:
-
-        def pfn_page_iter() -> Iterable[Tuple[int, Object]]:
-            return for_each_valid_pfn_and_page(prog)
-
-    else:
-
-        def pfn_page_iter() -> Iterable[Tuple[int, Object]]:
-            yield identified.pfn, identified.page
-
-    _print_table_row(header, widths=widths)
-    for pfn, page in pfn_page_iter():
-        _print_table_row([getter(pfn, page) for getter in getters], widths=widths)
+        _print_pages_members(
+            prog,
+            members,
+            for_each_page(prog) if identified is None else (identified.page,),
+        )
 
 
 def _kmem_slab(
