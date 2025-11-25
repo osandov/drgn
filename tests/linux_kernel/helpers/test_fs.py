@@ -3,10 +3,14 @@
 
 import os
 import os.path
+from pathlib import Path
+import socket
+import stat
 import tempfile
 
 from drgn.helpers.linux.fs import (
     d_path,
+    decode_file_type,
     dentry_path,
     fget,
     for_each_file,
@@ -117,3 +121,46 @@ class TestFs(LinuxKernelTestCase):
                 {fd for fd, file in for_each_file(task)},
                 {int(entry.name) for entry in dir},
             )
+
+    def test_decode_file_type(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_dir = Path(tmp_dir)
+
+            with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+                sock.bind(bytes(tmp_dir / "sock"))
+                self.assertEqual(
+                    decode_file_type((tmp_dir / "sock").stat().st_mode), "SOCK"
+                )
+
+            (tmp_dir / "lnk").symlink_to("/dev/null")
+            self.assertEqual(
+                decode_file_type(
+                    os.stat(tmp_dir / "lnk", follow_symlinks=False).st_mode
+                ),
+                "LNK",
+            )
+
+            (tmp_dir / "reg").touch()
+            self.assertEqual(decode_file_type((tmp_dir / "reg").stat().st_mode), "REG")
+
+            os.mknod(tmp_dir / "blk", stat.S_IFBLK | 0o600, device=os.makedev(0, 0))
+            self.assertEqual(decode_file_type((tmp_dir / "blk").stat().st_mode), "BLK")
+
+            self.assertEqual(decode_file_type(tmp_dir.stat().st_mode), "DIR")
+
+            self.assertEqual(decode_file_type(os.stat("/dev/null").st_mode), "CHR")
+
+            os.mkfifo(tmp_dir / "fifo")
+            self.assertEqual(
+                decode_file_type((tmp_dir / "fifo").stat().st_mode), "FIFO"
+            )
+
+    def test_decode_file_type_unknown(self):
+        self.assertEqual(decode_file_type(0), "000000")
+        self.assertEqual(decode_file_type(0o030000), "030000")
+        self.assertEqual(decode_file_type(0o050000), "050000")
+        self.assertEqual(decode_file_type(0o070000), "070000")
+        self.assertEqual(decode_file_type(0o110000), "110000")
+        self.assertEqual(decode_file_type(0o130000), "130000")
+        self.assertEqual(decode_file_type(0o150000), "150000")
+        self.assertEqual(decode_file_type(0o170000), "170000")
