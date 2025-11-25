@@ -56,6 +56,7 @@ from drgn.helpers.linux.mm import totalram_pages
 from drgn.helpers.linux.panic import panic_message, panic_task
 from drgn.helpers.linux.percpu import per_cpu
 from drgn.helpers.linux.pid import for_each_task
+from drgn.helpers.linux.printk import print_dmesg
 from drgn.helpers.linux.sched import (
     get_task_state,
     loadavg,
@@ -744,3 +745,32 @@ def _crash_cmd_irq(
 
     if len(rows) > 1:
         print_table(rows)
+
+
+@crash_command(
+    description="Dump kernel dmesg",
+    arguments=(
+        mutually_exclusive_group(
+            argument(
+                "-T",
+                dest="timestamps",
+                action="store_const",
+                const="human",
+                default=True,
+                help="Dump kernel dmesg in human readable time",
+            ),
+            argument(
+                "-t",
+                dest="timestamps",
+                action="store_false",
+                default=argparse.SUPPRESS,
+                help="Dump kernel dmesg without timestamp",
+            ),
+        ),
+        drgn_argument,
+    ),
+)
+def _crash_cmd_log(
+    prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
+) -> None:
+    print_dmesg(prog, timestamps=args.timestamps)
