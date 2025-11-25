@@ -1,6 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import ctypes
+import mmap
 import os
 import os.path
 from pathlib import Path
@@ -15,13 +17,14 @@ from drgn.helpers.linux.fs import (
     fget,
     for_each_file,
     for_each_mount,
+    inode_for_each_page,
     inode_path,
     inode_paths,
     mount_dst,
     path_lookup,
 )
 from drgn.helpers.linux.pid import find_task
-from tests.linux_kernel import MS_BIND, LinuxKernelTestCase, mount, umount
+from tests.linux_kernel import MS_BIND, LinuxKernelTestCase, mlock, mount, umount
 
 
 class TestFs(LinuxKernelTestCase):
@@ -82,6 +85,24 @@ class TestFs(LinuxKernelTestCase):
                         or (path1.endswith(paths[1]) and path2.endswith(paths[0]))
                     )
                     self.assertIn(inode_path(inode), paths)
+
+    def test_inode_for_each_page(self):
+        with tempfile.TemporaryFile(dir="/dev/shm") as f:
+            f.write(bytes(2 * mmap.PAGESIZE))
+            f.flush()
+            inode = fget(find_task(self.prog, os.getpid()), f.fileno()).f_inode.read_()
+            with mmap.mmap(f.fileno(), 2 * mmap.PAGESIZE) as map:
+                f.close()
+                address = ctypes.addressof(ctypes.c_char.from_buffer(map))
+                # Make sure the pages are faulted in and stay that way.
+                mlock(address, 2 * mmap.PAGESIZE)
+
+                indices = []
+                i_mapping = inode.i_mapping.read_()
+                for index, page in inode_for_each_page(inode):
+                    indices.append(index)
+                    self.assertEqual(page.mapping, i_mapping)
+                self.assertEqual(indices, [0, 1])
 
     def test_for_each_mount(self):
         with open("/proc/self/mounts", "rb") as f:
