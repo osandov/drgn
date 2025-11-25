@@ -1694,6 +1694,8 @@ class Module:
     This is a sequence of tuples of the start (inclusive) and end (exclusive)
     addresses. For each range, the start address is strictly less than the end
     address. If the module is not loaded in memory, then the sequence is empty.
+    Address ranges may not overlap.
+
     If not known yet, then this is ``None``.
 
     :meth:`Program.loaded_modules()` sets this automatically from the program
