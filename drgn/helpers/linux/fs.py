@@ -23,19 +23,19 @@ from drgn.helpers.linux.list import (
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 __all__ = (
-    "path_lookup",
     "d_path",
     "dentry_path",
-    "inode_path",
-    "inode_paths",
-    "mount_src",
-    "mount_dst",
-    "mount_fstype",
-    "for_each_mount",
-    "print_mounts",
     "fget",
     "for_each_file",
+    "for_each_mount",
+    "inode_path",
+    "inode_paths",
+    "mount_dst",
+    "mount_fstype",
+    "mount_src",
+    "path_lookup",
     "print_files",
+    "print_mounts",
     "super_block_for_each_mount",
 )
 
