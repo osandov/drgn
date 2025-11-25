@@ -539,10 +539,33 @@ LIBDRGN_PUBLIC bool drgn_module_address_range(const struct drgn_module *module,
 	return true;
 }
 
+static struct drgn_error *
+drgn_check_module_address_range_overlap(struct drgn_module *module,
+					uint64_t start, uint64_t end)
+{
+	for (auto it = drgn_module_address_tree_search_le(&module->prog->dbinfo.modules_by_address,
+							  &start);
+	     it.entry && it.entry->start < end;
+	     it = drgn_module_address_tree_next(it)) {
+		if (start < it.entry->end && it.entry->module != module) {
+			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						 "%s [0x%" PRIx64 ", 0x%" PRIx64 ") overlaps "
+						 "%s [0x%" PRIx64 ", 0x%" PRIx64 ")",
+						 module->name, start, end,
+						 it.entry->module->name,
+						 it.entry->start,
+						 it.entry->end);
+		}
+	}
+	return NULL;
+}
+
 LIBDRGN_PUBLIC
 struct drgn_error *drgn_module_set_address_range(struct drgn_module *module,
 						 uint64_t start, uint64_t end)
 {
+	struct drgn_error *err;
+
 	// This is a special case instead of a wrapper around
 	// drgn_module_set_address_ranges() so we can avoid allocating memory.
 	// Since the old address range might be module->single_address_range,
@@ -553,22 +576,31 @@ struct drgn_error *drgn_module_set_address_range(struct drgn_module *module,
 					 "invalid module address range");
 	}
 
+	err = drgn_check_module_address_range_overlap(module, start, end);
+	if (err)
+		return err;
+
 	drgn_module_delete_address_ranges(module);
 
 	module->single_address_range.start = start;
 	module->single_address_range.end = end;
 	module->single_address_range.module = module;
 
-	// We don't bother checking for overlapping address ranges, which
-	// shouldn't happen with well-formed programs and at worst causes
-	// spurious failed lookups. We may need to revisit this if it's a
-	// problem in practice.
-	drgn_module_address_tree_insert(&module->prog->dbinfo.modules_by_address,
-					&module->single_address_range, NULL);
+	int r = drgn_module_address_tree_insert(&module->prog->dbinfo.modules_by_address,
+						&module->single_address_range,
+						NULL);
+	assert(r > 0); // We checked for overlap.
 
 	module->address_ranges = &module->single_address_range;
 	module->num_address_ranges = 1;
 	return NULL;
+}
+
+static int drgn_module_address_range_compare(const void *_a, const void *_b)
+{
+	const struct drgn_module_address_range *a = _a;
+	const struct drgn_module_address_range *b = _b;
+	return (a->start > b->start) - (a->start < b->start);
 }
 
 LIBDRGN_PUBLIC
@@ -576,6 +608,8 @@ struct drgn_error *drgn_module_set_address_ranges(struct drgn_module *module,
 						  uint64_t ranges[][2],
 						  size_t num_ranges)
 {
+	struct drgn_error *err;
+
 	if (num_ranges == 1) {
 		return drgn_module_set_address_range(module, ranges[0][0],
 						     ranges[0][1]);
@@ -592,19 +626,40 @@ struct drgn_error *drgn_module_set_address_ranges(struct drgn_module *module,
 				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 							 "invalid module address range");
 			}
+			err = drgn_check_module_address_range_overlap(module,
+								      ranges[i][0],
+								      ranges[i][1]);
+			if (err)
+				return err;
 			address_ranges[i].start = ranges[i][0];
 			address_ranges[i].end = ranges[i][1];
 			address_ranges[i].module = module;
+		}
+
+		qsort(address_ranges, num_ranges, sizeof(address_ranges[0]),
+		      drgn_module_address_range_compare);
+
+		for (size_t i = 1; i < num_ranges; i++) {
+			if (address_ranges[i].start < address_ranges[i - 1].end) {
+				return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+							 "%s [0x%" PRIx64 ", 0x%" PRIx64 ") overlaps "
+							 "[0x%" PRIx64 ", 0x%" PRIx64 ")",
+							 module->name,
+							 address_ranges[i - 1].start,
+							 address_ranges[i - 1].end,
+							 address_ranges[i].start,
+							 address_ranges[i].end);
+			}
 		}
 	}
 
 	drgn_module_delete_address_ranges(module);
 
 	for (size_t i = 0; i < num_ranges; i++) {
-		// We don't bother checking for overlapping address ranges; see
-		// drgn_module_set_address_range().
-		drgn_module_address_tree_insert(&module->prog->dbinfo.modules_by_address,
-						&address_ranges[i], NULL);
+		int r = drgn_module_address_tree_insert(&module->prog->dbinfo.modules_by_address,
+							&address_ranges[i],
+							NULL);
+		assert(r > 0); // We checked for overlap.
 	}
 
 	if (num_ranges) {

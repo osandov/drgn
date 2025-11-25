@@ -415,6 +415,44 @@ class TestModule(TestCase):
         with self.assertRaisesRegex(ValueError, "invalid module address range"):
             module.address_ranges = ((0, 0),)
 
+    def test_address_range_overlap(self):
+        prog = Program()
+        prog.extra_module("/foo/bar", create=True).address_range = (
+            0x10000000,
+            0x10010000,
+        )
+        with self.assertRaisesRegex(ValueError, "overlaps /foo/bar"):
+            prog.extra_module("/foo/baz", create=True).address_range = (
+                0x10001000,
+                0x10010000,
+            )
+
+    def test_address_ranges_overlap(self):
+        prog = Program()
+        prog.extra_module("/foo/bar", create=True).address_range = (
+            0x10000000,
+            0x10010000,
+        )
+        with self.assertRaisesRegex(ValueError, "overlaps /foo/bar"):
+            prog.extra_module("/foo/baz", create=True).address_ranges = (
+                (0x1000000, 0x10000000),
+                (0x10001000, 0x10010000),
+            )
+
+    def test_address_ranges_self_overlap(self):
+        module = Program().extra_module("/foo/bar", create=True)
+        with self.assertRaisesRegex(ValueError, "overlaps"):
+            module.address_ranges = (
+                (0x10000000, 0x10010000),
+                (0x10001000, 0x10020000),
+            )
+
+    def test_address_range_expand(self):
+        module = Program().extra_module("/foo/bar", create=True)
+        module.address_range = (0x10000000, 0x10010000)
+        module.address_range = (0x1000000, 0x10020000)
+        self.assertEqual(module.address_range, (0x1000000, 0x10020000))
+
     def test_build_id(self):
         module = Program().extra_module("/foo/bar", create=True)
 
