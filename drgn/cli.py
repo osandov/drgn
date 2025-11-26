@@ -21,7 +21,7 @@ from drgn.internal.repl import interact, readline
 from drgn.internal.rlcompleter import Completer
 from drgn.internal.sudohelper import open_via_sudo
 
-__all__ = ("default_globals", "run_interactive", "version_header")
+__all__ = ("DisplayStr", "default_globals", "run_interactive", "version_header")
 
 logger = logging.getLogger("drgn")
 
@@ -176,6 +176,19 @@ def _identify_script(path: str) -> str:
     return "core" if e_type == ET_CORE else "elf"
 
 
+class DisplayStr:
+    """
+    A mixin class that tells drgn to use str() to display instances on the CLI.
+
+    In the drgn CLI, many drgn data structures are formatted using ``str()``
+    rather than ``repr()``. This allows them to present a more user-friendly
+    output on the CLI, while still having a Pythonic ``repr()`` where necessary.
+    Users who would like their own data-structures to opt-in to this behavior
+    can add this as a mixin to their class. Subclasses of this class will also
+    be printed using ``str()``.
+    """
+
+
 def _displayhook(value: Any) -> None:
     if value is None:
         return
@@ -194,6 +207,7 @@ def _displayhook(value: Any) -> None:
             drgn.StackFrame,
             drgn.StackTrace,
             drgn.Type,
+            DisplayStr,
         ),
     ):
         text = str(value)
