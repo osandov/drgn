@@ -5,8 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef WITH_LIBKDUMPFILE
+#include <libkdumpfile/addrxlat.h>
+#endif
 
 #include "linux_kernel.h"
+#include "log.h"
 #include "plugins.h"
 #include "program.h" // IWYU pragma: associated
 #include "util.h"
@@ -125,6 +129,53 @@ static struct drgn_error *drgn_read_kdump(void *buf, uint64_t address,
 	return NULL;
 }
 
+static struct drgn_error *drgn_find_ktext(struct drgn_program *prog, kdump_ctx_t *ctx)
+{
+	struct drgn_error *err;
+	kdump_status ks;
+	addrxlat_sys_t *sys;
+	addrxlat_map_t *map;
+	addrxlat_addr_t addr;
+	const addrxlat_range_t *range;
+	size_t i, n;
+	bool found = false;
+
+	ks = kdump_get_addrxlat(ctx, NULL, &sys);
+	if (ks != KDUMP_OK)
+		return drgn_error_format(DRGN_ERROR_OTHER, "Cannot setup addrxlat");
+
+	map = addrxlat_sys_get_map(sys, ADDRXLAT_SYS_MAP_KV_PHYS);
+	if (!map) {
+		err = drgn_error_format(DRGN_ERROR_OTHER, "Cannot get addrxlat map");
+		goto err;
+	}
+
+	n = addrxlat_map_len(map);
+	addr = 0;
+	range = addrxlat_map_ranges(map);
+	for (i = 0; i < n; ++i) {
+		if (range->meth == ADDRXLAT_SYS_METH_KTEXT) {
+			prog->ktext_mapped = addr;
+			found = true;
+			drgn_log_debug(prog, "addrxlat found ktext at %x", addr);
+			break;
+		}
+
+		addr += range->endoff + 1;
+		++range;
+	}
+	if (!found) {
+		err = drgn_error_format(DRGN_ERROR_OTHER,
+			       "addrxlat cannot locate KTEXT");
+		goto err;
+	}
+	return NULL;
+
+err:
+	addrxlat_sys_decref(sys);
+	return err;
+}
+
 struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 {
 	struct drgn_error *err;
@@ -221,20 +272,19 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 #endif
 	} else {
 #if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 4, 1)
-		char *vmcoreinfo;
+		char *vmcoreinfo = NULL;
 #else
 		const char *vmcoreinfo;
 #endif
 		ks = kdump_vmcoreinfo_raw(ctx, &vmcoreinfo);
-		if (ks != KDUMP_OK) {
-			err = drgn_error_format(DRGN_ERROR_OTHER,
-						"kdump_vmcoreinfo_raw: %s",
-						kdump_get_err(ctx));
-			goto err;
+		if (ks == KDUMP_OK) {
+			err = drgn_program_parse_vmcoreinfo(prog, vmcoreinfo,
+							strlen(vmcoreinfo) + 1);
+		} else {
+			drgn_log_warning(prog, "No vmcoreinfo (%s), relying on addrxlat and debuginfo", kdump_get_err(ctx));
+			err = drgn_find_ktext(prog, ctx);
 		}
 
-		err = drgn_program_parse_vmcoreinfo(prog, vmcoreinfo,
-						strlen(vmcoreinfo) + 1);
 		/*
 		* As of libkdumpfile 0.4.1, the string returned by
 		* kdump_vmcoreinfo_raw() needs to be freed.
