@@ -205,6 +205,19 @@ static int StackFrame_contains(StackFrame *self, PyObject *key)
 	}
 }
 
+static PyObject *StackFrame_source_name(StackFrame *self)
+{
+	_cleanup_free_ char *str = NULL;
+	struct drgn_error *err =
+		drgn_stack_frame_source_name(self->trace->trace, self->i,
+					     &str);
+	if (err)
+		return set_drgn_error(err);
+	if (!str)
+		Py_RETURN_NONE;
+	return PyUnicode_FromString(str);
+}
+
 static PyObject *StackFrame_source(StackFrame *self)
 {
 	int line;
@@ -216,8 +229,15 @@ static PyObject *StackFrame_source(StackFrame *self)
 				"source code location not available");
 		return NULL;
 	}
-	return SourceLocation_wrap(filename, line, column,
-				   (PyObject *)self->trace, self->i, true);
+
+	static PyMethodDef meth = {
+		.ml_name = "name",
+		.ml_meth = (PyCFunction)StackFrame_source_name,
+		.ml_flags = METH_NOARGS,
+	};
+	return PyObject_CallFunction(SourceLocation_type, "siiN", filename,
+				     line, column,
+				     PyCFunction_New(&meth, (PyObject *)self));
 }
 
 static PyObject *StackFrame_symbol(StackFrame *self)

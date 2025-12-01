@@ -3265,8 +3265,6 @@ class StackFrame:
 
     def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
-# This isn't really a NamedTuple, but it's the best approximation since we
-# allow unpacking the attributes.
 class SourceLocation(NamedTuple):
     """
     File, line, and column location in source code.

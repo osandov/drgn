@@ -4,145 +4,61 @@
 #include "drgnpy.h"
 #include "../util.h"
 
-PyObject *SourceLocation_wrap(const char *filename, int line, int column,
-			      PyObject *obj, size_t i, bool is_stack_trace)
-{
-	SourceLocation *ret = call_tp_alloc(SourceLocation);
-	if (!ret)
-		return NULL;
-	ret->filename = PyUnicode_FromString(filename);
-	if (!ret->filename)
-		return NULL;
-	ret->line = PyLong_FromLong(line);
-	if (!ret->line)
-		return NULL;
-	ret->column = PyLong_FromLong(column);
-	if (!ret->column)
-		return NULL;
-	Py_INCREF(obj);
-	ret->obj = obj;
-	ret->i = i;
-	ret->is_stack_trace = is_stack_trace;
-	return (PyObject *)ret;
-}
+PyObject *SourceLocation_type;
 
-static void SourceLocation_dealloc(SourceLocation *self)
+int add_SourceLocation(PyObject *m)
 {
-	PyObject_GC_UnTrack(self);
-	Py_XDECREF(self->obj);
-	Py_XDECREF(self->column);
-	Py_XDECREF(self->line);
-	Py_XDECREF(self->filename);
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
+	_cleanup_pydecref_ PyObject *globals = PyDict_New();
+	if (!globals)
+		return -1;
 
-static int SourceLocation_traverse(SourceLocation *self, visitproc visit,
-				   void *arg)
-{
-	Py_VISIT(self->filename);
-	Py_VISIT(self->line);
-	Py_VISIT(self->column);
-	Py_VISIT(self->obj);
+	_cleanup_pydecref_ PyObject *res = PyRun_String(
+"from typing import Callable, NamedTuple, Optional\n"
+"\n"
+"\n"
+"class SourceLocation(\n"
+"    NamedTuple(\n"
+"        'SourceLocationBase', [('filename', str), ('line', int), ('column', int)]\n"
+"    )\n"
+"):\n"
+"    def __new__(\n"
+"        cls,\n"
+"        filename: str,\n"
+"        line: int,\n"
+"        column: int,\n"
+"        name: Callable[[], Optional[str]] = lambda: None,\n"
+"    ) -> 'Foo':\n"
+"        ret = super().__new__(cls, filename, line, column)\n"
+"        ret.name = name\n"
+"        return ret\n"
+"\n"
+"    # Keep this in sync with drgn_format_stack_frame_source_impl().\n"
+"    def __str__(self) -> str:\n"
+"        name = self.name()\n"
+"        if name is None:\n"
+"            name = '\?\?\?'\n"
+"        if self.filename:\n"
+"            if self.column:\n"
+"                return f'{name} at {self.filename}:{self.line}:{self.column}'\n"
+"            else:\n"
+"                return f'{name} at {self.filename}:{self.line}'\n"
+"        else:\n"
+"            return f'{name} at \?\?:\?'\n"
+, Py_file_input, globals, globals);
+	if (!res)
+		return -1;
+
+	SourceLocation_type = PyDict_GetItemString(globals, "SourceLocation");
+	if (!SourceLocation_type)
+		return -1;
+	Py_INCREF(SourceLocation_type);
+
+	if (PyModule_AddObject(m, "SourceLocation", SourceLocation_type) == -1) {
+		Py_DECREF(SourceLocation_type);
+		return -1;
+	}
 	return 0;
 }
-
-static PyObject *SourceLocation_str(SourceLocation *self)
-{
-	struct drgn_error *err;
-	_cleanup_free_ char *str = NULL;
-	if (self->is_stack_trace) {
-		StackTrace *trace = (StackTrace *)self->obj;
-		err = drgn_format_stack_frame_source(trace->trace, self->i,
-						     &str);
-	} else {
-		SourceLocationList *locs = (SourceLocationList *)self->obj;
-		err = drgn_format_source_location_list_at(locs->locs, self->i,
-							  &str);
-	}
-	if (err)
-		return set_drgn_error(err);
-	return PyUnicode_FromString(str);
-}
-
-static PyObject *SourceLocation_name(SourceLocation *self)
-{
-	struct drgn_error *err;
-	_cleanup_free_ char *str = NULL;
-	if (self->is_stack_trace) {
-		StackTrace *trace = (StackTrace *)self->obj;
-		err = drgn_stack_frame_source_name(trace->trace, self->i, &str);
-	} else {
-		SourceLocationList *locs = (SourceLocationList *)self->obj;
-		err = drgn_source_location_list_name_at(locs->locs, self->i,
-							&str);
-	}
-	if (err)
-		return set_drgn_error(err);
-	if (!str)
-		Py_RETURN_NONE;
-	return PyUnicode_FromString(str);
-}
-
-static Py_ssize_t SourceLocation_length(PyObject *self)
-{
-	return 3;
-}
-
-static PyObject *SourceLocation_item(SourceLocation *self, Py_ssize_t i)
-{
-	switch (i) {
-	case 0:
-		Py_INCREF(self->filename);
-		return self->filename;
-	case 1:
-		Py_INCREF(self->line);
-		return self->line;
-	case 2:
-		Py_INCREF(self->column);
-		return self->column;
-	default:
-		PyErr_SetString(PyExc_IndexError,
-				"SourceLocation index out of range");
-		return NULL;
-	}
-}
-
-static PySequenceMethods SourceLocation_as_sequence = {
-	.sq_length = SourceLocation_length,
-	.sq_item = (ssizeargfunc)SourceLocation_item,
-};
-
-static PyMemberDef SourceLocation_members[] = {
-	{"filename", T_OBJECT, offsetof(SourceLocation, filename), READONLY,
-	 drgn_SourceLocation_filename_DOC},
-	{"line", T_OBJECT, offsetof(SourceLocation, line), READONLY,
-	 drgn_SourceLocation_line_DOC},
-	{"column", T_OBJECT, offsetof(SourceLocation, column), READONLY,
-	 drgn_SourceLocation_column_DOC},
-	{},
-};
-
-static PyMethodDef SourceLocation_methods[] = {
-	{"name", (PyCFunction)SourceLocation_name, METH_NOARGS,
-	 drgn_SourceLocation_name_DOC},
-	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
-	 METH_VARARGS | METH_KEYWORDS},
-	{},
-};
-
-PyTypeObject SourceLocation_type = {
-	PyVarObject_HEAD_INIT(NULL, 0)
-	.tp_name = "_drgn.SourceLocation",
-	.tp_basicsize = sizeof(SourceLocation),
-	.tp_dealloc = (destructor)SourceLocation_dealloc,
-	.tp_str = (reprfunc)SourceLocation_str,
-	.tp_as_sequence = &SourceLocation_as_sequence,
-	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
-	.tp_doc = drgn_SourceLocation_DOC,
-	.tp_traverse = (traverseproc)SourceLocation_traverse,
-	.tp_methods = SourceLocation_methods,
-	.tp_members = SourceLocation_members,
-};
 
 PyObject *SourceLocationList_wrap(struct drgn_source_location_list *locs)
 {
@@ -201,6 +117,23 @@ static Py_ssize_t SourceLocationList_length(SourceLocationList *self)
 	return drgn_source_location_list_length(self->locs);
 }
 
+static PyObject *SourceLocationList_name(PyObject *self)
+{
+	SourceLocationList *locs =
+		(SourceLocationList *)PyTuple_GET_ITEM(self, 0);
+	Py_ssize_t i = PyLong_AsSize_t(PyTuple_GET_ITEM(self, 1));
+	if (i == -1 && PyErr_Occurred())
+		return NULL;
+	_cleanup_free_ char *str = NULL;
+	struct drgn_error *err = drgn_source_location_list_name_at(locs->locs,
+								   i, &str);
+	if (err)
+		return set_drgn_error(err);
+	if (!str)
+		Py_RETURN_NONE;
+	return PyUnicode_FromString(str);
+}
+
 static PyObject *SourceLocationList_item(SourceLocationList *self, Py_ssize_t i)
 {
 	if (i < 0 || i >= drgn_source_location_list_length(self->locs)) {
@@ -216,8 +149,18 @@ static PyObject *SourceLocationList_item(SourceLocationList *self, Py_ssize_t i)
 		filename = "";
 		line = column = 0;
 	}
-	return SourceLocation_wrap(filename, line, column, (PyObject *)self, i,
-				   false);
+
+	static PyMethodDef meth = {
+		.ml_name = "name",
+		.ml_meth = (PyCFunction)SourceLocationList_name,
+		.ml_flags = METH_NOARGS,
+	};
+	_cleanup_pydecref_ PyObject *name_arg = Py_BuildValue("On", self, i);
+	if (!name_arg)
+		return NULL;
+	return PyObject_CallFunction(SourceLocation_type, "siiN", filename,
+				     line, column,
+				     PyCFunction_New(&meth, name_arg));
 }
 
 static PyMethodDef SourceLocationList_methods[] = {
