@@ -12,6 +12,16 @@ int add_SourceLocation(PyObject *m)
 	if (!globals)
 		return -1;
 
+	{
+		_cleanup_pydecref_ PyObject *module_name =
+			PyUnicode_FromString("_drgn");
+		if (!module_name)
+			return -1;
+
+		if (PyDict_SetItemString(globals, "__name__", module_name))
+			return -1;
+	}
+
 	_cleanup_pydecref_ PyObject *res = PyRun_String(
 "from typing import Callable, NamedTuple, Optional\n"
 "\n"
