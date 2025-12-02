@@ -82,6 +82,9 @@ def get_proc_slabinfo_names():
         return [line.split()[0] for line in f]
 
 
+_FALLBACK_SLAB_CACHE = "mnt_cache"
+
+
 def fallback_slab_cache_names(prog):
     # SLOB does not provide /proc/slabinfo. It is also disabled for SLUB if
     # CONFIG_SLUB_DEBUG=n. Before Linux kernel commit 5b36577109be ("mm:
@@ -90,7 +93,7 @@ def fallback_slab_cache_names(prog):
     # In case they were merged into other caches, get their names from the
     # structs rather than just returning the names.
     return {
-        prog["dentry_cache"].name.string_(),
+        prog[_FALLBACK_SLAB_CACHE].name.string_(),
         prog["mm_cachep"].name.string_(),
         prog["uid_cachep"].name.string_(),
     }
@@ -104,7 +107,7 @@ class TestSlab(LinuxKernelTestCase):
                 ValueError,
                 "SLOB is not supported",
                 slab_cache_objects_per_slab,
-                self.prog["dentry_cache"],
+                self.prog[_FALLBACK_SLAB_CACHE],
             )
             return
 
@@ -128,7 +131,7 @@ class TestSlab(LinuxKernelTestCase):
                 ValueError,
                 "SLOB is not supported",
                 slab_cache_pages_per_slab,
-                self.prog["dentry_cache"],
+                self.prog[_FALLBACK_SLAB_CACHE],
             )
             return
 
