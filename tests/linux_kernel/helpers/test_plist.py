@@ -68,5 +68,5 @@ class TestPlist(LinuxKernelTestCase):
             list(
                 plist_for_each_entry("struct drgn_test_plist_entry", self.full, "node")
             ),
-            [self.node(i) for i in range(self.num_entries)],
+            [self.entry(i) for i in range(self.num_entries)],
         )
