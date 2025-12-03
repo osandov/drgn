@@ -198,8 +198,8 @@ LIST_HEAD(drgn_test_singular_list);
 LIST_HEAD(drgn_test_corrupted_list);
 
 struct drgn_test_list_entry {
-	struct list_head node;
 	int value;
+	struct list_head node;
 };
 
 struct drgn_test_list_entry drgn_test_list_entries[3];
@@ -210,8 +210,8 @@ HLIST_HEAD(drgn_test_empty_hlist);
 HLIST_HEAD(drgn_test_full_hlist);
 
 struct drgn_test_hlist_entry {
-	struct hlist_node node;
 	int value;
+	struct hlist_node node;
 };
 
 struct drgn_test_hlist_entry drgn_test_hlist_entries[3];
@@ -265,8 +265,8 @@ LLIST_HEAD(drgn_test_full_llist);
 LLIST_HEAD(drgn_test_singular_llist);
 
 struct drgn_test_llist_entry {
-	struct llist_node node;
 	int value;
+	struct llist_node node;
 };
 
 struct drgn_test_llist_entry drgn_test_llist_entries[3];
@@ -292,8 +292,8 @@ struct plist_node drgn_test_empty_plist_node =
 	PLIST_NODE_INIT(drgn_test_empty_plist_node, 50);
 
 struct drgn_test_plist_entry {
-	struct plist_node node;
 	char c;
+	struct plist_node node;
 };
 
 struct drgn_test_plist_entry drgn_test_plist_entries[3];
