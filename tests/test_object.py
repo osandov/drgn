@@ -2378,7 +2378,6 @@ class TestSpecialMethods(MockProgramTestCase):
         obj = Object(self.prog, "int [4]", value=[0, 1, 2, 3])
         for i, element in enumerate(obj):
             self.assertIdentical(element, Object(self.prog, "int", value=i))
-        self.assertEqual(operator.length_hint(iter(obj)), 4)
         self.assertRaisesRegex(
             TypeError, "'int' is not iterable", iter, Object(self.prog, "int", value=0)
         )
@@ -2388,6 +2387,37 @@ class TestSpecialMethods(MockProgramTestCase):
             iter,
             Object(self.prog, "int []", address=0),
         )
+
+    def test_iter_length_hint(self):
+        it = iter(Object(self.prog, "int [3]", value=[0, 1, 2]))
+        for i in range(3, 0, -1):
+            self.assertEqual(operator.length_hint(it), i)
+            next(it)
+        self.assertEqual(operator.length_hint(it), 0)
+
+    def test_reversed(self):
+        obj = Object(self.prog, "int [4]", value=[0, 1, 2, 3])
+        for i, element in zip(range(3, -1, -1), reversed(obj)):
+            self.assertIdentical(element, Object(self.prog, "int", value=i))
+        self.assertRaisesRegex(
+            TypeError,
+            "'int' is not iterable",
+            reversed,
+            Object(self.prog, "int", value=0),
+        )
+        self.assertRaisesRegex(
+            TypeError,
+            r"'int \[\]' is not iterable",
+            reversed,
+            Object(self.prog, "int []", address=0),
+        )
+
+    def test_reversed_length_hint(self):
+        it = reversed(Object(self.prog, "int [3]", value=[0, 1, 2]))
+        for i in range(3, 0, -1):
+            self.assertEqual(operator.length_hint(it), i)
+            next(it)
+        self.assertEqual(operator.length_hint(it), 0)
 
     def test__repr_pretty_(self):
         obj = Object(self.prog, "int", value=0)

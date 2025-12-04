@@ -1547,7 +1547,7 @@ static DrgnObject *DrgnObject_subscript(DrgnObject *self, PyObject *item)
 	}
 }
 
-static ObjectIterator *DrgnObject_iter(DrgnObject *self)
+static ObjectIterator *DrgnObject_iter_impl(DrgnObject *self, bool reversed)
 {
 	struct drgn_type *underlying_type =
 		drgn_underlying_type(self->obj.type);
@@ -1563,8 +1563,26 @@ static ObjectIterator *DrgnObject_iter(DrgnObject *self)
 		return NULL;
 	it->obj = self;
 	Py_INCREF(self);
-	it->length = drgn_type_length(underlying_type);
+	if (reversed) {
+		it->index = drgn_type_length(underlying_type) - 1;
+		it->end = -1;
+		it->step = -1;
+	} else {
+		it->index = 0;
+		it->end = drgn_type_length(underlying_type);
+		it->step = 1;
+	}
 	return it;
+}
+
+static ObjectIterator *DrgnObject_iter(DrgnObject *self)
+{
+	return DrgnObject_iter_impl(self, false);
+}
+
+static ObjectIterator *DrgnObject_reversed(DrgnObject *self)
+{
+	return DrgnObject_iter_impl(self, true);
 }
 
 static int add_to_dir(PyObject *dir, struct drgn_type *type)
@@ -1662,6 +1680,7 @@ static PyMethodDef DrgnObject_methods[] = {
 	 drgn_Object_from_bytes__DOC},
 	{"format_", (PyCFunction)DrgnObject_format,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Object_format__DOC},
+	{"__reversed__", (PyCFunction)DrgnObject_reversed, METH_NOARGS},
 	{"__round__", (PyCFunction)DrgnObject_round,
 	 METH_VARARGS | METH_KEYWORDS},
 	{"__trunc__", (PyCFunction)DrgnObject_trunc, METH_NOARGS},
@@ -1850,14 +1869,22 @@ static int ObjectIterator_traverse(ObjectIterator *self, visitproc visit,
 
 static DrgnObject *ObjectIterator_next(ObjectIterator *self)
 {
-	if (self->index >= self->length)
+	if (self->index == self->end)
 		return NULL;
-	return DrgnObject_subscript_impl(self->obj, self->index++);
+	DrgnObject *ret = DrgnObject_subscript_impl(self->obj, self->index);
+	if (ret)
+		self->index += self->step;
+	return ret;
 }
 
 static PyObject *ObjectIterator_length_hint(ObjectIterator *self)
 {
-	return PyLong_FromUint64(self->length);
+	uint64_t length;
+	if (self->step == 1)
+		length = self->end - self->index;
+	else
+		length = self->index + 1;
+	return PyLong_FromUint64(length);
 }
 
 static PyMethodDef ObjectIterator_methods[] = {

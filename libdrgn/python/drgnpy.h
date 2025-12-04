@@ -160,7 +160,8 @@ typedef struct {
 typedef struct {
 	PyObject_HEAD
 	DrgnObject *obj;
-	uint64_t length, index;
+	uint64_t index, end;
+	int step;
 } ObjectIterator;
 
 typedef struct {
