@@ -85,7 +85,7 @@ def llist_next_entry(pos: Object, member: str) -> Object:
     """
     Return the next entry in an llist.
 
-    :param pos: ``type*``
+    :param pos: ``type *``
     :param member: Name of ``struct llist_node`` member in entry type.
     :return: ``type *``
     """

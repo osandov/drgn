@@ -123,7 +123,7 @@ def list_next_entry(pos: Object, member: str) -> Object:
     """
     Return the next entry in a list.
 
-    :param pos: ``type*``
+    :param pos: ``type *``
     :param member: Name of list node member in entry type.
     :return: ``type *``
     """
@@ -134,7 +134,7 @@ def list_prev_entry(pos: Object, member: str) -> Object:
     """
     Return the previous entry in a list.
 
-    :param pos: ``type*``
+    :param pos: ``type *``
     :param member: Name of list node member in entry type.
     :return: ``type *``
     """
