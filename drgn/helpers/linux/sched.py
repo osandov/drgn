@@ -115,7 +115,7 @@ def task_state_to_char(task: Object) -> str:
             task_state_name,
         )
     else:
-        task_state = getattr(task, task_state_name)
+        task_state = task.member_(task_state_name)
     task_state = task_state.value_()
     exit_state = task.exit_state.value_()
     state = (task_state | exit_state) & TASK_REPORT

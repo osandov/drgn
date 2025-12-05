@@ -127,7 +127,7 @@ def list_next_entry(pos: Object, member: str) -> Object:
     :param member: Name of list node member in entry type.
     :return: ``type *``
     """
-    return container_of(getattr(pos, member).next, pos.type_.type, member)
+    return container_of(pos.member_(member).next, pos.type_.type, member)
 
 
 def list_prev_entry(pos: Object, member: str) -> Object:
@@ -138,7 +138,7 @@ def list_prev_entry(pos: Object, member: str) -> Object:
     :param member: Name of list node member in entry type.
     :return: ``type *``
     """
-    return container_of(getattr(pos, member).prev, pos.type_.type, member)
+    return container_of(pos.member_(member).prev, pos.type_.type, member)
 
 
 def list_for_each(head: Object) -> Iterator[Object]:

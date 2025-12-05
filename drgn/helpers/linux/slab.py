@@ -467,7 +467,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         # Since Linux kernel commit bb192ed9aa71 ("mm/slub: Convert most struct
         # page to struct slab by spatch") (in v5.17), the number of slabs on
         # the partial list is `->slabs`. Before that, it is `->pages`.
-        nr_slabs_attr = "slabs" if hasattr(partial, "slabs") else "pages"
+        nr_slabs_member = "slabs" if hasattr(partial, "slabs") else "pages"
 
         # This is racy. On live kernels, we retry a limited number of times.
         num_attempts = 1000 if (self._prog.flags & ProgramFlags.IS_LIVE) else 1
@@ -476,7 +476,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             prev_nr_slabs = None
             while partial:
                 try:
-                    nr_slabs = getattr(partial, nr_slabs_attr).value_()
+                    nr_slabs = partial.member_(nr_slabs_member).value_()
                     # We could be stricter and check nr_slabs == prev_nr_slabs - 1, but
                     # the main thing we care about is not getting stuck in a cycle.
                     if prev_nr_slabs is not None and nr_slabs >= prev_nr_slabs:
@@ -520,11 +520,11 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             # struct page to struct slab by spatch") (in v5.17), the current
             # slab for a CPU is `struct slab *slab`. Before that, it is `struct
             # page *page`.
-            cpu_slab_attr = "slab" if hasattr(cpu_slab, "slab") else "page"
+            cpu_slab_member = "slab" if hasattr(cpu_slab, "slab") else "page"
             try:
                 for cpu in for_each_online_cpu(self._prog):
                     this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
-                    slab = getattr(this_cpu_slab, cpu_slab_attr).read_()
+                    slab = this_cpu_slab.member_(cpu_slab_member).read_()
                     if slab and slab.slab_cache == self._slab_cache:
                         freelists |= self._slub_get_freelist(
                             lambda: f"cpu {cpu}", this_cpu_slab.freelist
