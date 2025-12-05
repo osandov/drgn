@@ -17,6 +17,1150 @@ from tests.linux_kernel import skip_unless_have_test_kmod
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 
 
+@skip_unless_have_test_kmod
+class TestList(CrashCommandTestCase):
+    def test_null_terminated(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_custom_list_entry.next drgn_test_custom_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_custom_list'].address_:x}\n",
+                    *(
+                        f"{entry.address_:x}\n"
+                        for entry in self.prog["drgn_test_custom_list_entries"]
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_custom_list"]', cmd.drgn_option.stdout)
+        self.assertIn("entry.next", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_custom_list_entry *",
+        )
+
+    def test_end(self):
+        end = self.prog["drgn_test_custom_list_entries"][1].address_
+        cmd = self.check_crash_command(
+            f"list -o drgn_test_custom_list_entry.next -e {end:#x} drgn_test_custom_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_custom_list'].address_:x}\n",
+                    *(
+                        f"{entry.address_:x}\n"
+                        for entry in self.prog["drgn_test_custom_list_entries"][:1]
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_custom_list"]', cmd.drgn_option.stdout)
+        self.assertIn("entry.next", cmd.drgn_option.stdout)
+        self.assertIn(f"= {end:#x}", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_custom_list_entry *",
+        )
+
+    def test_no_offset(self):
+        cmd = self.check_crash_command("list drgn_test_full_list")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_full_list'].address_:x}\n",
+                    *(
+                        f"{entry.node.address_:x}\n"
+                        for entry in self.prog["drgn_test_list_entries"]
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn(
+            'prog.symbol("drgn_test_full_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("prog.read_word(ptr)", cmd.drgn_option.stdout)
+        self.assertIsInstance(cmd.drgn_option.globals["ptr"], int)
+
+    def test_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_custom_list_entry"), "next")
+        cmd = self.check_crash_command(f"list -o {offset} drgn_test_custom_list")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_custom_list'].address_:x}\n",
+                    *(
+                        f"{entry.address_:x}\n"
+                        for entry in self.prog["drgn_test_custom_list_entries"]
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn(
+            'prog.symbol("drgn_test_custom_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("prog.read_word(ptr + next_offset)", cmd.drgn_option.stdout)
+        self.assertIsInstance(cmd.drgn_option.globals["ptr"], int)
+
+    def test_circular(self):
+        address = self.prog["drgn_test_custom_list_cycle"][2].address_
+        cmd = self.check_crash_command(
+            f"list -o drgn_test_custom_list_entry.next {address:#x}"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in self.prog["drgn_test_custom_list_cycle"][2:]
+                ]
+            ),
+        )
+
+        self.assertIn(
+            f'Object(prog, "struct drgn_test_custom_list_entry *", {address:#x})',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("entry.next", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_custom_list_entry *",
+        )
+
+    def test_circular_next(self):
+        address = self.prog["drgn_test_custom_list_cycle"][1].address_
+        cmd = self.run_crash_command(
+            f"list -o drgn_test_custom_list_entry.next {address:#x}"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in self.prog["drgn_test_custom_list_cycle"][1:]
+                ]
+            ),
+        )
+
+    def test_duplicate(self):
+        cmd = self.run_crash_command(
+            "list -o drgn_test_custom_list_entry.next drgn_test_custom_list_cycle"
+        )
+        expected_lines = [
+            f"{entry.address_:x}\n"
+            for entry in self.prog["drgn_test_custom_list_cycle"]
+        ]
+        expected_lines.append(expected_lines[2])
+        expected_lines.append("\nlist: duplicate list entry: " + expected_lines[-1])
+        self.assertEqual(cmd.stdout, "".join(expected_lines))
+
+    def test_self_cycle(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_custom_list_entry.next drgn_test_custom_list_self_cycle"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in self.prog["drgn_test_custom_list_self_cycle"]
+                ]
+            ),
+        )
+
+        # drgn_test_custom_list_self_cycle is an array, not a struct
+        # drgn_test_custom_list_entry, so --drgn falls back to a symbol lookup.
+        self.assertIn(
+            'prog.symbol("drgn_test_custom_list_self_cycle").address',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("entry.next", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_custom_list_entry *",
+        )
+
+    def test_struct(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_custom_list_entry.next -s drgn_test_custom_list_entry drgn_test_custom_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(
+            [
+                self.prog["drgn_test_custom_list"],
+                *self.prog["drgn_test_custom_list_entries"],
+            ],
+            1,
+        ):
+            regex.append(
+                rf"{entry.address_:x}\n\(struct drgn_test_custom_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn('prog["drgn_test_custom_list"]', cmd.drgn_option.stdout)
+        self.assertIn("entry.next", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_custom_list_entry *",
+        )
+
+    def test_struct_member(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_custom_list_entry.next -s drgn_test_custom_list_entry.value drgn_test_custom_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(
+            [
+                self.prog["drgn_test_custom_list"],
+                *self.prog["drgn_test_custom_list_entries"],
+            ],
+            1,
+        ):
+            regex.append(rf"{entry.address_:x}\n\s*value = \(int\){i}\n")
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn('prog["drgn_test_custom_list"]', cmd.drgn_option.stdout)
+        self.assertIn("entry.next", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_custom_list_entry *",
+        )
+        self.assertIsInstance(cmd.drgn_option.globals["value"], Object)
+
+    def test_struct_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_custom_list_entry"), "next")
+        cmd = self.check_crash_command(
+            f"list -o {offset} -s drgn_test_custom_list_entry drgn_test_custom_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(
+            [
+                self.prog["drgn_test_custom_list"],
+                *self.prog["drgn_test_custom_list_entries"],
+            ],
+            1,
+        ):
+            regex.append(
+                rf"{entry.address_:x}\n\(struct drgn_test_custom_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn(
+            'prog.symbol("drgn_test_custom_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("prog.read_word(ptr + next_offset)", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_custom_list_entry *",
+        )
+
+    def test_struct_member_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_custom_list_entry"), "next")
+        cmd = self.check_crash_command(
+            f"list -o {offset} -s drgn_test_custom_list_entry.value drgn_test_custom_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(
+            [
+                self.prog["drgn_test_custom_list"],
+                *self.prog["drgn_test_custom_list_entries"],
+            ],
+            1,
+        ):
+            regex.append(rf"{entry.address_:x}\n\s*value = \(int\){i}\n")
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn(
+            'prog.symbol("drgn_test_custom_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("prog.read_word(ptr + next_offset)", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_custom_list_entry *",
+        )
+        self.assertIsInstance(cmd.drgn_option.globals["value"], Object)
+
+    def test_list_head_empty(self):
+        cmd = self.run_crash_command("list -H drgn_test_empty_list")
+        self.assertEqual(cmd.stdout, "(empty)\n")
+
+    def test_list_head_full(self):
+        cmd = self.check_crash_command("list -H drgn_test_full_list")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in self.prog["drgn_test_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_full_list"]', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_list_head_address(self):
+        address = self.prog["drgn_test_full_list"].address_
+        cmd = self.check_crash_command(f"list -H {address:#x}")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in self.prog["drgn_test_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn(
+            f'Object(prog, "struct list_head *", {address:#x})', cmd.drgn_option.stdout
+        )
+        self.assertIn("list_for_each(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_list_head_reverse(self):
+        cmd = self.check_crash_command("list -r -H drgn_test_full_list")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in reversed(self.prog["drgn_test_list_entries"])
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_full_list"]', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_reverse(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_list_head_cycle1(self):
+        cmd = self.run_crash_command("list -H drgn_test_list_cycle1")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in self.prog["drgn_test_list_cycle1_entries"]
+                ]
+            ),
+        )
+
+    def test_list_head_cycle2(self):
+        cmd = self.run_crash_command("list -H drgn_test_list_cycle2")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in self.prog["drgn_test_list_cycle2_entries"]
+                ]
+            ),
+        )
+
+    def test_list_head_cycle3(self):
+        cmd = self.run_crash_command("list -H drgn_test_list_cycle3")
+        expected_lines = [
+            f"{entry.node.address_:x}\n"
+            for entry in self.prog["drgn_test_list_cycle3_entries"]
+        ]
+        expected_lines.append(expected_lines[2])
+        expected_lines.append("\nlist: duplicate list entry: " + expected_lines[-1])
+        self.assertEqual(cmd.stdout, "".join(expected_lines))
+
+    def test_list_head_o(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_list_entry.node -H drgn_test_full_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in self.prog["drgn_test_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_full_list"]', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_list_head_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(f"list -o {offset} -H drgn_test_full_list")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in self.prog["drgn_test_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn(
+            'prog.symbol("drgn_test_full_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("prog.read_word(start)", cmd.drgn_option.stdout)
+        self.assertIn("entry_ptr = ptr - list_head_offset\n", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["list_head_offset"], offset)
+        self.assertIn("while ptr != start:", cmd.drgn_option.stdout)
+        self.assertNotIn("not next_ptr", cmd.drgn_option.stdout)
+
+    def test_list_head_reverse_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(f"list -o {offset} -r -H drgn_test_full_list")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in reversed(self.prog["drgn_test_list_entries"])
+                ]
+            ),
+        )
+
+        self.assertIn(
+            'prog.symbol("drgn_test_full_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("prog.read_word(start + prev_offset)", cmd.drgn_option.stdout)
+        self.assertIn("while ptr != start:", cmd.drgn_option.stdout)
+        self.assertNotIn("not prev_ptr", cmd.drgn_option.stdout)
+
+    def test_list_head_struct(self):
+        cmd = self.check_crash_command(
+            "list -s drgn_test_list_entry -l drgn_test_list_entry.node -H drgn_test_full_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(self.prog["drgn_test_list_entries"], 1):
+            regex.append(
+                rf"{entry.node.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn('prog["drgn_test_full_list"]', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_list_head_struct_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(
+            f"list -s drgn_test_list_entry -l {offset} -H drgn_test_full_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(self.prog["drgn_test_list_entries"], 1):
+            regex.append(
+                rf"{entry.node.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn(
+            'prog.symbol("drgn_test_full_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("prog.read_word(start)", cmd.drgn_option.stdout)
+        self.assertIn(
+            'entry = Object(prog, "struct drgn_test_list_entry *", ptr - entry_offset)',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("while ptr != start:", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["entry_offset"], offset)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_list_head_struct_o(self):
+        cmd = self.check_crash_command(
+            "list -s drgn_test_list_entry -o drgn_test_list_entry.node -H drgn_test_full_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(self.prog["drgn_test_list_entries"], 1):
+            regex.append(
+                rf"{entry.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn('prog["drgn_test_full_list"]', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_list_head_struct_o_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(
+            f"list -s drgn_test_list_entry -o {offset} -H drgn_test_full_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(self.prog["drgn_test_list_entries"], 1):
+            regex.append(
+                rf"{entry.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn(
+            'prog.symbol("drgn_test_full_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("prog.read_word(start)", cmd.drgn_option.stdout)
+        self.assertIn(
+            'entry = Object(prog, "struct drgn_test_list_entry *", ptr - list_head_offset)',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("while ptr != start:", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["list_head_offset"], offset)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_list_head_struct_reverse(self):
+        cmd = self.check_crash_command(
+            "list -s drgn_test_list_entry -l drgn_test_list_entry.node -r -H drgn_test_full_list"
+        )
+        regex = [r"^"]
+        for i, entry in reversed(
+            list(enumerate(self.prog["drgn_test_list_entries"], 1))
+        ):
+            regex.append(
+                rf"{entry.node.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn('prog["drgn_test_full_list"]', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_entry_reverse(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_list_head_struct_reverse_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(
+            f"list -s drgn_test_list_entry -l {offset} -r -H drgn_test_full_list"
+        )
+        regex = [r"^"]
+        for i, entry in reversed(
+            list(enumerate(self.prog["drgn_test_list_entries"], 1))
+        ):
+            regex.append(
+                rf"{entry.node.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn(
+            'prog.symbol("drgn_test_full_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("prog.read_word(start + prev_offset)", cmd.drgn_option.stdout)
+        self.assertIn(
+            'entry = Object(prog, "struct drgn_test_list_entry *", ptr - entry_offset)',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("while ptr != start:", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["entry_offset"], offset)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_embedded_list_head(self):
+        cmd = self.check_crash_command("list -h drgn_test_full_list")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_full_list'].address_:x}\n",
+                    *(
+                        f"{entry.node.address_:x}\n"
+                        for entry in self.prog["drgn_test_list_entries"]
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_full_list"]', cmd.drgn_option.stdout)
+        self.assertIn("node = node.next", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_embedded_list_head_address(self):
+        address = self.prog["drgn_test_full_list"].address_
+        cmd = self.check_crash_command(f"list -h {address:#x}")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_full_list'].address_:x}\n",
+                    *(
+                        f"{entry.node.address_:x}\n"
+                        for entry in self.prog["drgn_test_list_entries"]
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn(
+            f'Object(prog, "struct list_head *", {address:#x})', cmd.drgn_option.stdout
+        )
+        self.assertIn("node = node.next", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_embedded_list_head_o(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_list_entry.node -h drgn_test_circular_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_circular_list'].address_:x}\n",
+                    *(
+                        f"{entry.address_:x}\n"
+                        for entry in self.prog["drgn_test_circular_list_entries"]
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_circular_list"]', cmd.drgn_option.stdout)
+        self.assertIn("entry = list_next_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_embedded_list_head_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(f"list -o {offset} -h drgn_test_circular_list")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_circular_list'].address_:x}\n",
+                    *(
+                        f"{entry.address_:x}\n"
+                        for entry in self.prog["drgn_test_circular_list_entries"]
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn(
+            'prog.symbol("drgn_test_circular_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("entry_ptr = ptr - list_head_offset\n", cmd.drgn_option.stdout)
+        self.assertIn("prog.read_word(ptr)", cmd.drgn_option.stdout)
+        self.assertNotIn("not next_ptr", cmd.drgn_option.stdout)
+
+    def test_embedded_list_head_address_o(self):
+        address = self.prog["drgn_test_circular_list"].address_
+        cmd = self.check_crash_command(
+            f"list -o drgn_test_list_entry.node -h {address:#x}"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_circular_list'].address_:x}\n",
+                    *(
+                        f"{entry.address_:x}\n"
+                        for entry in self.prog["drgn_test_circular_list_entries"]
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn(
+            f'Object(prog, "struct drgn_test_list_entry *", {address:#x})',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("entry = list_next_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_embedded_list_head_reverse(self):
+        for h in ("-h ", ""):
+            with self.subTest("explicit" if h else "implicit"):
+                cmd = self.check_crash_command(f"list -r {h}drgn_test_full_list")
+                self.assertEqual(
+                    cmd.stdout,
+                    "".join(
+                        [
+                            f"{self.prog['drgn_test_full_list'].address_:x}\n",
+                            *(
+                                f"{entry.node.address_:x}\n"
+                                for entry in reversed(
+                                    self.prog["drgn_test_list_entries"]
+                                )
+                            ),
+                        ]
+                    ),
+                )
+
+                self.assertIn('prog["drgn_test_full_list"]', cmd.drgn_option.stdout)
+                self.assertIn("node = node.prev", cmd.drgn_option.stdout)
+                self.assertEqual(
+                    cmd.drgn_option.globals["node"].type_.type_name(),
+                    "struct list_head *",
+                )
+
+    def test_embedded_list_head_reverse_o(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_list_entry.node -r -h drgn_test_circular_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_circular_list'].address_:x}\n",
+                    *(
+                        f"{entry.address_:x}\n"
+                        for entry in reversed(
+                            self.prog["drgn_test_circular_list_entries"]
+                        )
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_circular_list"]', cmd.drgn_option.stdout)
+        self.assertIn("entry = list_prev_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_embedded_list_head_reverse_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(
+            f"list -o {offset} -r -h drgn_test_circular_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{self.prog['drgn_test_circular_list'].address_:x}\n",
+                    *(
+                        f"{entry.address_:x}\n"
+                        for entry in reversed(
+                            self.prog["drgn_test_circular_list_entries"]
+                        )
+                    ),
+                ]
+            ),
+        )
+
+        self.assertIn(
+            'prog.symbol("drgn_test_circular_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn("entry_ptr = ptr - list_head_offset\n", cmd.drgn_option.stdout)
+        self.assertIn("prog.read_word(ptr + prev_offset)", cmd.drgn_option.stdout)
+        self.assertNotIn("not prev_ptr", cmd.drgn_option.stdout)
+
+    def test_embedded_list_head_struct(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_list_entry.node -s drgn_test_list_entry -h drgn_test_circular_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(
+            [
+                self.prog["drgn_test_circular_list"],
+                *self.prog["drgn_test_circular_list_entries"],
+            ],
+            1,
+        ):
+            regex.append(
+                rf"{entry.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn('prog["drgn_test_circular_list"]', cmd.drgn_option.stdout)
+        self.assertIn("entry = list_next_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_embedded_list_head_member(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_list_entry.node -s drgn_test_list_entry.value -h drgn_test_circular_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(
+            [
+                self.prog["drgn_test_circular_list"],
+                *self.prog["drgn_test_circular_list_entries"],
+            ],
+            1,
+        ):
+            regex.append(rf"{entry.address_:x}\n\s*value = \(int\){i}\n")
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn('prog["drgn_test_circular_list"]', cmd.drgn_option.stdout)
+        self.assertIn("entry = list_next_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+        self.assertIsInstance(cmd.drgn_option.globals["value"], Object)
+
+    def test_embedded_list_head_struct_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(
+            f"list -o {offset} -s drgn_test_list_entry -h drgn_test_circular_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(
+            [
+                self.prog["drgn_test_circular_list"],
+                *self.prog["drgn_test_circular_list_entries"],
+            ],
+            1,
+        ):
+            regex.append(
+                rf"{entry.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn(
+            'prog.symbol("drgn_test_circular_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn(
+            'entry = Object(prog, "struct drgn_test_list_entry *", ptr - list_head_offset)',
+            cmd.drgn_option.stdout,
+        )
+        self.assertEqual(cmd.drgn_option.globals["list_head_offset"], offset)
+        self.assertIn("prog.read_word(ptr)", cmd.drgn_option.stdout)
+        self.assertNotIn("not next_ptr", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_embedded_list_head_member_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(
+            f"list -o {offset} -s drgn_test_list_entry.value -h drgn_test_circular_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(
+            [
+                self.prog["drgn_test_circular_list"],
+                *self.prog["drgn_test_circular_list_entries"],
+            ],
+            1,
+        ):
+            regex.append(rf"{entry.address_:x}\n\s*value = \(int\){i}\n")
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn(
+            'prog.symbol("drgn_test_circular_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn(
+            'entry = Object(prog, "struct drgn_test_list_entry *", ptr - list_head_offset)',
+            cmd.drgn_option.stdout,
+        )
+        self.assertEqual(cmd.drgn_option.globals["list_head_offset"], offset)
+        self.assertIn("prog.read_word(ptr)", cmd.drgn_option.stdout)
+        self.assertNotIn("not next_ptr", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+        self.assertIsInstance(cmd.drgn_option.globals["value"], Object)
+
+    def test_head_node_offset(self):
+        cmd = self.check_crash_command(
+            "list -O drgn_test_list_anchor.list -h drgn_test_anchored_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in self.prog["drgn_test_anchored_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_anchored_list"].list', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_head_node_integer_offset(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_anchor"), "list")
+        cmd = self.check_crash_command(f"list -O {offset} -h drgn_test_anchored_list")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in self.prog["drgn_test_anchored_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn(
+            'prog.symbol("drgn_test_anchored_list").address', cmd.drgn_option.stdout
+        )
+        self.assertEqual(cmd.drgn_option.globals["offset"], offset)
+        self.assertIn(
+            'Object(prog, "struct list_head *", address + offset)',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("list_for_each(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_head_node_offset_address(self):
+        address = self.prog["drgn_test_anchored_list"].address_
+        cmd = self.check_crash_command(
+            f"list -O drgn_test_list_anchor.list -h {address:#x}"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in self.prog["drgn_test_anchored_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn(
+            f'Object(prog, "struct drgn_test_list_anchor", address={address:#x}).list',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("list_for_each(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_head_node_integer_offset_address(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_anchor"), "list")
+        address = self.prog["drgn_test_anchored_list"].address_
+        cmd = self.check_crash_command(f"list -O {offset} -h {address:#x}")
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in self.prog["drgn_test_anchored_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertEqual(cmd.drgn_option.globals["offset"], offset)
+        self.assertIn(
+            f'Object(prog, "struct list_head *", {address:#x} + offset)',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("list_for_each(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_head_node_offset_o(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_list_entry.node -O drgn_test_list_anchor.list -h drgn_test_anchored_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in self.prog["drgn_test_anchored_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_anchored_list"].list', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_head_node_offset_and_integer_o(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        cmd = self.check_crash_command(
+            f"list -o {offset} -O drgn_test_list_anchor.list -h drgn_test_anchored_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in self.prog["drgn_test_anchored_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn(
+            'prog.symbol("drgn_test_anchored_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn(
+            'start += offsetof("struct drgn_test_list_anchor", "list")',
+            cmd.drgn_option.stdout,
+        )
+        self.assertIn("prog.read_word(start)", cmd.drgn_option.stdout)
+        self.assertIn("entry_ptr = ptr - list_head_offset\n", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["list_head_offset"], offset)
+        self.assertNotIn("not next_ptr", cmd.drgn_option.stdout)
+
+    def test_head_node_integer_offset_and_integer_o(self):
+        offset = offsetof(self.prog.type("struct drgn_test_list_entry"), "node")
+        head_node_offset = offsetof(
+            self.prog.type("struct drgn_test_list_anchor"), "list"
+        )
+        cmd = self.check_crash_command(
+            f"list -o {offset} -O {head_node_offset} -h drgn_test_anchored_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in self.prog["drgn_test_anchored_list_entries"]
+                ]
+            ),
+        )
+
+        self.assertIn(
+            'prog.symbol("drgn_test_anchored_list").address', cmd.drgn_option.stdout
+        )
+        self.assertIn(f"start += {head_node_offset}", cmd.drgn_option.stdout)
+        self.assertIn("prog.read_word(start)", cmd.drgn_option.stdout)
+        self.assertIn("entry_ptr = ptr - list_head_offset\n", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["list_head_offset"], offset)
+        self.assertNotIn("not next_ptr", cmd.drgn_option.stdout)
+
+    def test_head_node_offset_struct(self):
+        cmd = self.check_crash_command(
+            "list -l drgn_test_list_entry.node -s drgn_test_list_entry -O drgn_test_list_anchor.list -h drgn_test_anchored_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(self.prog["drgn_test_anchored_list_entries"], 1):
+            regex.append(
+                rf"{entry.node.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn('prog["drgn_test_anchored_list"].list', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_head_node_offset_struct_o(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_list_entry.node -s drgn_test_list_entry -O drgn_test_list_anchor.list -h drgn_test_anchored_list"
+        )
+        regex = [r"^"]
+        for i, entry in enumerate(self.prog["drgn_test_anchored_list_entries"], 1):
+            regex.append(
+                rf"{entry.address_:x}\n\(struct drgn_test_list_entry\)(?s:.)*\.value = \(int\){i},(?s:.)*"
+            )
+        regex.append("$")
+        self.assertRegex(cmd.stdout, "".join(regex))
+
+        self.assertIn('prog["drgn_test_anchored_list"].list', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_entry(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+    def test_head_node_offset_reverse(self):
+        cmd = self.check_crash_command(
+            "list -O drgn_test_list_anchor.list -r -h drgn_test_anchored_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.node.address_:x}\n"
+                    for entry in reversed(self.prog["drgn_test_anchored_list_entries"])
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_anchored_list"].list', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_reverse(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["node"].type_.type_name(), "struct list_head *"
+        )
+
+    def test_head_node_offset_reverse_o(self):
+        cmd = self.check_crash_command(
+            "list -o drgn_test_list_entry.node -O drgn_test_list_anchor.list -r -h drgn_test_anchored_list"
+        )
+        self.assertEqual(
+            cmd.stdout,
+            "".join(
+                [
+                    f"{entry.address_:x}\n"
+                    for entry in reversed(self.prog["drgn_test_anchored_list_entries"])
+                ]
+            ),
+        )
+
+        self.assertIn('prog["drgn_test_anchored_list"].list', cmd.drgn_option.stdout)
+        self.assertIn("list_for_each_entry_reverse(", cmd.drgn_option.stdout)
+        self.assertEqual(
+            cmd.drgn_option.globals["entry"].type_.type_name(),
+            "struct drgn_test_list_entry *",
+        )
+
+
 class TestFindTreeType(TestCase):
     def test_full(self):
         self.assertEqual(_find_tree_type("rbtree"), "rbtree")

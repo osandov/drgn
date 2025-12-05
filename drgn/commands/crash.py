@@ -419,7 +419,9 @@ def _resolve_type_offset_arg(
 
 # For commands that do a symbol lookup, return whether an object lookup would
 # be preferred for the sake of making --drgn output more idiomatic.
-def _prefer_object_lookup(prog: Program, type_name: str, symbol_name: str) -> bool:
+def _prefer_object_lookup(
+    prog: Program, type_name: str, symbol_name: str, *, strict_type_name: bool = True
+) -> bool:
     try:
         symbol_address = prog.symbol(symbol_name).address
     except LookupError:
@@ -434,7 +436,19 @@ def _prefer_object_lookup(prog: Program, type_name: str, symbol_name: str) -> bo
 
     # If both a symbol and an object are found, prefer an object lookup iff the
     # addresses are the same and the object has the desired type.
-    return object.type_.type_name() == type_name and object.address_ == symbol_address
+    if object.address_ != symbol_address:
+        return False
+
+    type = object.type_
+    while True:
+        if type.type_name() == type_name or (
+            not strict_type_name and getattr(type, "tag", None) == type_name
+        ):
+            return True
+
+        if type.kind != TypeKind.TYPEDEF:
+            return False
+        type = type.type
 
 
 class CrashDrgnCodeBuilder(DrgnCodeBuilder):

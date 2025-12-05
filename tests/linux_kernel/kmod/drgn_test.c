@@ -196,15 +196,46 @@ LIST_HEAD(drgn_test_empty_list);
 LIST_HEAD(drgn_test_full_list);
 LIST_HEAD(drgn_test_singular_list);
 LIST_HEAD(drgn_test_corrupted_list);
+// Corrupted list where entry 1 points back to entry 0.
+LIST_HEAD(drgn_test_list_cycle1);
+// Corrupted list where entry 2 points back to entry 1.
+LIST_HEAD(drgn_test_list_cycle2);
+// Corrupted list where entry 3 points back to entry 2.
+LIST_HEAD(drgn_test_list_cycle3);
+// Corrupted list where entry 2 points to itself.
+LIST_HEAD(drgn_test_list_self_cycle);
+// Corrupted list where entry 0 points to NULL.
+LIST_HEAD(drgn_test_list_null);
 
 struct drgn_test_list_entry {
 	int value;
 	struct list_head node;
 };
 
+struct drgn_test_list_entry drgn_test_circular_list = {
+	.value = 1,
+	.node = LIST_HEAD_INIT(drgn_test_circular_list.node),
+};
+
+struct drgn_test_list_anchor {
+	long x, y;
+	struct list_head list;
+} drgn_test_anchored_list = {
+	.x = 101,
+	.y = 13,
+	.list = LIST_HEAD_INIT(drgn_test_anchored_list.list),
+};
+
 struct drgn_test_list_entry drgn_test_list_entries[3];
 struct drgn_test_list_entry drgn_test_singular_list_entry;
+struct drgn_test_list_entry drgn_test_circular_list_entries[2];
 struct drgn_test_list_entry drgn_test_corrupted_list_entries[2];
+struct drgn_test_list_entry drgn_test_list_cycle1_entries[2];
+struct drgn_test_list_entry drgn_test_list_cycle2_entries[3];
+struct drgn_test_list_entry drgn_test_list_cycle3_entries[4];
+struct drgn_test_list_entry drgn_test_list_self_cycle_entries[3];
+struct drgn_test_list_entry drgn_test_list_null_entry;
+struct drgn_test_list_entry drgn_test_anchored_list_entries[3];
 
 HLIST_HEAD(drgn_test_empty_hlist);
 HLIST_HEAD(drgn_test_full_hlist);
@@ -215,6 +246,18 @@ struct drgn_test_hlist_entry {
 };
 
 struct drgn_test_hlist_entry drgn_test_hlist_entries[3];
+
+struct drgn_test_custom_list_entry {
+	int value;
+	struct drgn_test_custom_list_entry *next;
+};
+
+struct drgn_test_custom_list_entry drgn_test_custom_list;
+struct drgn_test_custom_list_entry drgn_test_custom_list_entries[2];
+// Custom list where entry 4 points back to entry 2.
+struct drgn_test_custom_list_entry drgn_test_custom_list_cycle[5];
+// Custom list where entry 2 points to itself.
+struct drgn_test_custom_list_entry drgn_test_custom_list_self_cycle[3];
 
 // Emulate a race condition between two threads calling list_add() at the same
 // time.
@@ -245,6 +288,7 @@ static void drgn_test_list_init(void)
 	size_t i;
 
 	for (i = 0; i < ARRAY_SIZE(drgn_test_list_entries); i++) {
+		drgn_test_list_entries[i].value = i + 1;
 		list_add_tail(&drgn_test_list_entries[i].node,
 			      &drgn_test_full_list);
 	}
@@ -255,7 +299,73 @@ static void drgn_test_list_init(void)
 			       &drgn_test_full_hlist);
 	}
 
+	for (i = 0; i < ARRAY_SIZE(drgn_test_circular_list_entries); i++) {
+		drgn_test_circular_list_entries[i].value = i + 2;
+		list_add_tail(&drgn_test_circular_list_entries[i].node,
+			      &drgn_test_circular_list.node);
+	}
+
 	init_corrupted_list();
+
+#define init_list_cycle(n)							\
+	do {									\
+		for (i = 0; i < ARRAY_SIZE(drgn_test_list_cycle##n##_entries); i++) {\
+			list_add_tail(&drgn_test_list_cycle##n##_entries[i].node,\
+				      &drgn_test_list_cycle##n);		\
+		}								\
+		drgn_test_list_cycle##n##_entries[ARRAY_SIZE(drgn_test_list_cycle##n##_entries) - 1].node.next =\
+			&drgn_test_list_cycle##n##_entries[ARRAY_SIZE(drgn_test_list_cycle##n##_entries) - 2].node;\
+		drgn_test_list_cycle##n##_entries[ARRAY_SIZE(drgn_test_list_cycle##n##_entries) - 2].node.prev =\
+			&drgn_test_list_cycle##n##_entries[ARRAY_SIZE(drgn_test_list_cycle##n##_entries) - 1].node;\
+	} while (0)
+
+	init_list_cycle(1);
+	init_list_cycle(2);
+	init_list_cycle(3);
+#undef init_list_cycle
+
+	for (i = 0; i < ARRAY_SIZE(drgn_test_list_self_cycle_entries); i++) {
+		list_add_tail(&drgn_test_list_self_cycle_entries[i].node,
+			      &drgn_test_list_self_cycle);
+	}
+	INIT_LIST_HEAD(&drgn_test_list_self_cycle_entries[ARRAY_SIZE(drgn_test_list_self_cycle_entries) - 1].node);
+
+	list_add_tail(&drgn_test_list_null_entry.node, &drgn_test_list_null);
+	drgn_test_list_null_entry.node.next = NULL;
+
+	for (i = 0; i < ARRAY_SIZE(drgn_test_anchored_list_entries); i++) {
+		drgn_test_anchored_list_entries[i].value = i + 1;
+		list_add_tail(&drgn_test_anchored_list_entries[i].node,
+			      &drgn_test_anchored_list.list);
+	}
+
+	drgn_test_custom_list.value = 1;
+	for (i = 0; i < ARRAY_SIZE(drgn_test_custom_list_entries); i++) {
+		drgn_test_custom_list_entries[i].value = i + 2;
+		if (i == 0) {
+			drgn_test_custom_list.next = &drgn_test_custom_list_entries[i];
+		} else {
+			drgn_test_custom_list_entries[i - 1].next =
+				&drgn_test_custom_list_entries[i];
+		}
+	}
+
+	drgn_test_custom_list_cycle[0].value = 1;
+	for (i = 1; i < ARRAY_SIZE(drgn_test_custom_list_cycle); i++) {
+		drgn_test_custom_list_cycle[i].value = i + 1;
+		drgn_test_custom_list_cycle[i - 1].next =
+			&drgn_test_custom_list_cycle[i];
+	}
+	drgn_test_custom_list_cycle[4].next = &drgn_test_custom_list_cycle[2];
+
+	drgn_test_custom_list_self_cycle[0].value = 1;
+	for (i = 1; i < ARRAY_SIZE(drgn_test_custom_list_self_cycle); i++) {
+		drgn_test_custom_list_self_cycle[i].value = i + 1;
+		drgn_test_custom_list_self_cycle[i - 1].next =
+			&drgn_test_custom_list_self_cycle[i];
+	}
+	drgn_test_custom_list_self_cycle[2].next =
+		&drgn_test_custom_list_self_cycle[2];
 }
 
 // llist
