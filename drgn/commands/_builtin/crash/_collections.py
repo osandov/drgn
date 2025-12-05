@@ -367,7 +367,7 @@ def _crash_cmd_tree(
                         f"  {member} = {entry.subobject_(member).format_(**format_options)}"
                     )
             else:
-                print(entry)
+                print(entry.format_(**format_options))
 
     if tree_type == "rbtree":
         node_offset = _resolve_type_offset_arg(prog, node_offset_arg, entry_type)
