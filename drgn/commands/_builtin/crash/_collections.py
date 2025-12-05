@@ -346,7 +346,7 @@ def _crash_cmd_tree(
 
     format_options = _object_format_options(prog, args.integer_base)
 
-    def print_entry(address: Object) -> None:
+    def print_entry(address: int) -> None:
         print(f"{address:x}")
         if entry_type is not None:
             entry = Object(prog, entry_type, address=address)
