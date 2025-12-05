@@ -254,6 +254,21 @@ static int orc_version_from_osrelease(struct drgn_program *prog)
 	long minor = 0;
 	if (*p == '.')
 		minor = strtol(p + 1, NULL, 10);
+
+	// RHEL & derivatives started shipping backported ORC patches without
+	// the ".orc_header" section in 9.6. According to git history this was
+	// introduced in kernel version 5.14.0-517.el9. With those changes, the
+	// kernel's ORC "format" is indeed v3, but we cannot detect that without
+	// the ORC header hash. Add special-case detection for this situation.
+	// If it is fixed by including the ".orc_header" section, this fix will
+	// not be active, but will still be necessary for the already released
+	// kernels.
+	char *rhrelease = NULL;
+	if (major == 5 && minor == 14 && strstr(p, ".el9")
+	    && (rhrelease = strchr(p, '-'))
+	    && strtol(rhrelease + 1, NULL, 10) >= 517)
+		return 3;
+
 	if (major > 6 || (major == 6 && minor >= 4))
 		return 3;
 	else if (major == 6 && minor == 3)
