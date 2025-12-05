@@ -19,6 +19,7 @@ from drgn.commands import CommandArgumentError, _repr_black, argument, drgn_argu
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
     _guess_type,
+    _guess_type_name,
     _object_format_options,
     _parse_type_name_and_members,
     _parse_type_offset_arg,
@@ -153,10 +154,7 @@ def _tree_drgn_option(
     if entry_name is None:
         entry_type_name = None
     else:
-        try:
-            entry_type_name = _guess_type(prog, entry_name).type_name()
-        except LookupError:
-            entry_type_name = "struct " + entry_name
+        entry_type_name = _guess_type_name(prog, entry_name)
 
     have_loop_body = False
 
@@ -165,12 +163,7 @@ def _tree_drgn_option(
             if node_offset_arg[0] == entry_name:
                 for_each_entry_type_name = entry_type_name
             else:
-                try:
-                    for_each_entry_type_name = _guess_type(
-                        prog, node_offset_arg[0]
-                    ).type_name()
-                except LookupError:
-                    for_each_entry_type_name = "struct " + node_offset_arg[0]
+                for_each_entry_type_name = _guess_type_name(prog, node_offset_arg[0])
             helper_name = (
                 "rbtree_inorder_for_each_entry"
                 if args.linear

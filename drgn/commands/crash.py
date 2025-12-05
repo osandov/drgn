@@ -76,6 +76,14 @@ def _guess_type(prog: Program, name: str, kind: str = "*") -> Type:
     raise LookupError(f"{type.type_name()} is not a {kind}")
 
 
+def _guess_type_name(prog: Program, name: str, kind: str = "*") -> str:
+    try:
+        type = _guess_type(prog, name, kind)
+    except LookupError:
+        return f"{'struct' if kind == '*' else kind} {name}"
+    return type.type_name()
+
+
 def _object_format_options(
     prog: Program, integer_base: Optional[int]
 ) -> Dict[str, Any]:
