@@ -4,7 +4,6 @@
 """Crash commands for iterating kernel collection types."""
 
 import argparse
-import shutil
 import sys
 import typing
 from typing import Any, Literal, Optional, Sequence, Tuple, Union
@@ -20,6 +19,7 @@ from drgn.commands import CommandArgumentError, _repr_black, argument, drgn_argu
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
     _guess_type,
+    _object_format_options,
     _parse_type_name_and_members,
     _parse_type_offset_arg,
     _prefer_object_lookup,
@@ -351,11 +351,7 @@ def _crash_cmd_tree(
         prog, root_offset_arg
     )
 
-    format_options = {
-        "columns": shutil.get_terminal_size().columns,
-        "dereference": False,
-        "integer_base": args.integer_base or prog.config.get("crash_radix", 10),
-    }
+    format_options = _object_format_options(prog, args.integer_base)
 
     def print_entry(address: Object) -> None:
         print(f"{address:x}")

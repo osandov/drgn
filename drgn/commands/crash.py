@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
-from typing import Any, FrozenSet, List, Literal, Optional, Set, Tuple, Union
+from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Tuple, Union
 
 from _drgn_util.typingutils import copy_func_params
 from drgn import Object, Program, ProgramFlags, Type, TypeKind, offsetof
@@ -74,6 +74,16 @@ def _guess_type(prog: Program, name: str, kind: str = "*") -> Type:
     if kind == "*":
         kind = "struct or union"
     raise LookupError(f"{type.type_name()} is not a {kind}")
+
+
+def _object_format_options(
+    prog: Program, integer_base: Optional[int]
+) -> Dict[str, Any]:
+    return {
+        "columns": shutil.get_terminal_size().columns,
+        "dereference": False,
+        "integer_base": integer_base or prog.config.get("crash_radix", 10),
+    }
 
 
 def _find_pager(which: Optional[str] = None) -> Optional[List[str]]:

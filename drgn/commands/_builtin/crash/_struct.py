@@ -5,7 +5,6 @@
 
 import argparse
 import functools
-import shutil
 import sys
 from typing import Any, Iterable, List, Literal, Optional, Tuple, Union
 
@@ -15,6 +14,7 @@ from drgn.commands.crash import (
     Cpuspec,
     CrashDrgnCodeBuilder,
     _guess_type,
+    _object_format_options,
     _parse_members,
     _parse_type_name_and_members,
     _parse_type_offset_arg,
@@ -346,11 +346,7 @@ def _crash_cmd_struct(
                 print(f"[{cpu}]: {pcpu_ptr.value_():x}")
                 yield pcpu_ptr[sl]
 
-    format_options = {
-        "columns": shutil.get_terminal_size().columns,
-        "dereference": False,
-        "integer_base": args.integer_base or prog.config.get("crash_radix", 10),
-    }
+    format_options = _object_format_options(prog, args.integer_base)
     for arr in arrays():
         for i, obj in enumerate(arr):
             if i != 0:
@@ -556,11 +552,7 @@ def _crash_cmd_task(
                 code.append("thread_info = task_thread_info(task)\n")
         return code.print()
 
-    format_options = {
-        "columns": shutil.get_terminal_size().columns,
-        "dereference": False,
-        "integer_base": args.integer_base or prog.config.get("crash_radix", 10),
-    }
+    format_options = _object_format_options(prog, args.integer_base)
 
     first = True
     for task_arg in task_args:

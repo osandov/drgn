@@ -6,7 +6,6 @@
 import argparse
 import operator
 import re
-import shutil
 import sys
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -22,6 +21,7 @@ from drgn.commands.crash import (
     _MEMBER_PATTERN,
     _TYPE_NAME_PATTERN,
     CrashDrgnCodeBuilder,
+    _object_format_options,
     crash_command,
     crash_custom_command,
     parse_cpuspec,
@@ -403,11 +403,7 @@ def _crash_cmd_p(
             code.print()
         return
 
-    format_options = {
-        "columns": shutil.get_terminal_size().columns,
-        "dereference": False,
-        "integer_base": args.integer_base or prog.config.get("crash_radix", 10),
-    }
+    format_options = _object_format_options(prog, args.integer_base)
     obj = prog[name]
     if member:
         obj = obj.subobject_(member)
