@@ -53,6 +53,7 @@ from drgn.helpers.linux.mm import (
     phys_to_page,
     phys_to_virt,
     task_rss,
+    task_vsize,
     totalram_pages,
     virt_to_page,
     virt_to_pfn,
@@ -599,6 +600,15 @@ class TestMm(LinuxKernelTestCase):
             # VmRSS is the sum of three counters, so it has triple the error
             # margin.
             self.assertAlmostEqual(rss_info.total, stats["VmRSS"], delta=delta * 3)
+
+    def test_task_vsize(self):
+        with fork_and_stop() as pid:
+            task = find_task(self.prog, pid)
+            vsize = task_vsize(task)
+            text = Path(f"/proc/{pid}/status").read_text()
+            value = re.findall(r"^VmSize:\s*([0-9]+)", text, flags=re.MULTILINE)
+            if value:
+                self.assertEqual(vsize, int(value[0]) * 1024)
 
     @skip_unless_have_memory_hotplug
     def test_for_each_memory_block(self):
