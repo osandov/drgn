@@ -13,6 +13,7 @@ from drgn import Object, cast, container_of
 
 __all__ = (
     "kthread_data",
+    "task_is_kthread",
     "to_kthread",
 )
 
@@ -59,3 +60,15 @@ def kthread_data(task: Object) -> Object:
     :return: ``void *``
     """
     return to_kthread(task).data.read_()
+
+
+def task_is_kthread(task: Object) -> bool:
+    """
+    Return whether a task is a kernel thread.
+
+    :param task: ``struct task_struct *``
+    """
+    # This hasn't changed since Linux kernel commit 246bb0b1deb2 ("kill
+    # PF_BORROWED_MM in favour of PF_KTHREAD") (in v2.6.27).
+    PF_KTHREAD = 0x200000
+    return bool(task.flags.value_() & PF_KTHREAD)
