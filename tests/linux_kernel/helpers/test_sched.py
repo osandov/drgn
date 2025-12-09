@@ -3,6 +3,7 @@
 
 import os
 import signal
+from threading import Condition, Thread
 import time
 
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
@@ -17,6 +18,7 @@ from drgn.helpers.linux.sched import (
     task_since_last_arrival_ns,
     task_state_to_char,
     task_thread_info,
+    thread_group_leader,
 )
 from tests.linux_kernel import (
     LinuxKernelTestCase,
@@ -114,3 +116,23 @@ class TestSched(LinuxKernelTestCase):
                 os.sched_setaffinity(pid, other_affinity)
             task = find_task(self.prog, pid)
             self.assertGreaterEqual(task_since_last_arrival_ns(task), 10000000)
+
+    def test_thread_group_leader(self):
+        condition = Condition()
+
+        def thread_func():
+            with condition:
+                condition.wait()
+
+        thread = Thread(target=thread_func)
+        try:
+            thread.start()
+
+            self.assertTrue(thread_group_leader(find_task(self.prog, os.getpid())))
+            self.assertFalse(
+                thread_group_leader(find_task(self.prog, thread.native_id))
+            )
+        finally:
+            with condition:
+                condition.notify_all()
+            thread.join()
