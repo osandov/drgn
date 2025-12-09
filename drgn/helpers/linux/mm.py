@@ -100,6 +100,7 @@ __all__ = (
     "phys_to_page",
     "phys_to_virt",
     "task_rss",
+    "task_vsize",
     "totalram_pages",
     "virt_to_page",
     "virt_to_pfn",
@@ -1915,6 +1916,18 @@ def task_rss(prog: Program, task: Object) -> TaskRss:
                 shmemrss += rss_stat.count[MM_SHMEMPAGES].value_()
 
     return TaskRss(filerss, anonrss, shmemrss, swapents)
+
+
+def task_vsize(task: Object) -> int:
+    """
+    Return the virtual memory size of a task in bytes.
+
+    :param task: ``struct task_struct *``
+    """
+    mm = task.mm.read_()
+    if not mm:
+        return 0
+    return mm.total_vm.value_() * task.prog_["PAGE_SIZE"].value_()
 
 
 @takes_program_or_default
