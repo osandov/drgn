@@ -21,6 +21,7 @@ from drgn.commands import (
     CommandNamespace,
     CommandNotFoundError,
     CustomCommandFuncDecorator,
+    DrgnCodeBlockContext,
     DrgnCodeBuilder,
     _unquote,
     command,
@@ -534,27 +535,27 @@ command = task.comm
             )
         )
 
-    def append_cpuspec(self, cpuspec: Cpuspec, loop_body: str) -> None:
+    def begin_cpuspec_loop(self, cpuspec: Cpuspec) -> DrgnCodeBlockContext:
         """
-        Append code to be executed for each CPU in a CPU specifier.
+        Begin a loop over each CPU in a CPU specifier.
+
+        This must be paired with
+        :meth:`~drgn.commands.DrgnCodeBuilder.end_block()` or used as a context
+        manager.
 
         :param cpuspec: CPU specifier parsed by :func:`parse_cpuspec()`.
-        :param loop_body: Code to add for each CPU. Will be indented if
-            needed.
         """
         if cpuspec.current:
             self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
             self.append_crash_context()
             self.append("cpu = task_cpu(task)\n")
-            self.append(loop_body)
-            return
+            return self.begin_block("")
 
         if cpuspec.all:
             self.add_from_import("drgn.helpers.linux.cpumask", "for_each_possible_cpu")
-            self.append("for cpu in for_each_possible_cpu():\n")
+            return self.begin_block("for cpu in for_each_possible_cpu():\n")
         else:
-            self.append(f"for cpu in {cpuspec.cpus(self._prog)!r}:\n")
-        self.append(textwrap.indent(loop_body, "    "))
+            return self.begin_block(f"for cpu in {cpuspec.cpus(self._prog)!r}:\n")
 
     def append_cpuspec_list(self, cpuspec: Cpuspec) -> bool:
         """

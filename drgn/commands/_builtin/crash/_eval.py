@@ -399,7 +399,8 @@ def _crash_cmd_p(
             code = CrashDrgnCodeBuilder(prog)
             code.append(f"pcpu_object = prog[{_repr_black(name)}]{member}\n")
             code.add_from_import("drgn.helpers.linux.percpu", "per_cpu")
-            code.append_cpuspec(cpuspec, "object = per_cpu(pcpu_object, cpu)\n")
+            with code.begin_cpuspec_loop(cpuspec):
+                code.append("object = per_cpu(pcpu_object, cpu)\n")
             code.print()
         return
 

@@ -39,9 +39,9 @@ from typing import (
 
 if TYPE_CHECKING:
     if sys.version_info < (3, 11):
-        from typing_extensions import assert_never
+        from typing_extensions import Self, assert_never
     else:
-        from typing import assert_never  # novermin
+        from typing import Self, assert_never  # novermin
     from _typeshed import SupportsWrite
 
 import _drgn_util.argparseformatter
@@ -1106,11 +1106,96 @@ class DrgnCodeBuilder:
         self._prog = prog
         self._code: List[str] = []
         self._imports: Dict[str, Set[str]] = collections.defaultdict(set)
+        self._blocks: List[DrgnCodeBlockContext] = []
 
     def append(self, code: str) -> None:
         """Append a code fragment to the output."""
-        if code:
+        if not code:
+            return
+
+        if not self._blocks:
             self._code.append(code)
+            return
+
+        indent = self._blocks[-1]._indent
+        should_indent = not self._code or self._code[-1].endswith("\n")
+        for line in code.splitlines(keepends=True):
+            if should_indent and line != "\n":
+                self._code.append(indent)
+
+            self._code.append(line)
+            should_indent = True
+
+    def begin_block(self, code: str, end: str = "") -> DrgnCodeBlockContext:
+        """
+        Append a code fragment that begins an indented block.
+
+        This can be used to wrap code that may or may not need to be executed
+        in a conditional or loop.
+
+        Subsequent lines added with :meth:`append()` will be indented
+        accordingly until the block is ended with :meth:`end_block()`:
+
+        .. code-block:: python3
+
+            if condition:
+                code.begin_block(f"if {condition}:\\n")
+            code.append("do_something()\\n")
+            if condition:
+                code.end_block()
+
+        Alternatively, this can be used as a context manager:
+
+        .. code-block:: python3
+
+            with code.begin_block(f"while {condition}:\\n")
+                code.append("do_something()\\n")
+
+        :param code: Code fragment whose last non-whitespace line begins the
+            block (e.g., an ``if`` or ``for`` statement). This can also be
+            empty to begin a "fake" block that doesn't affect indentation but
+            still pairs with a :meth:`end_block()` call.
+        :param end: Code fragment to append when the block is ended. This is
+            useful for ``try`` statements.
+        """
+        if code:
+            match = re.fullmatch(
+                r"""
+                # Skip everything until we find...
+                (?s:.)*
+                # ... the last line that is not only whitespace, and capture
+                # its indentation.
+                ^([ \t]*)\S.*\n
+                # Ignore zero or more trailing lines of only whitespace.
+                (?:\s*\n)?
+                """,
+                code,
+                flags=re.MULTILINE | re.VERBOSE,
+            )
+            if not match:
+                if code.endswith("\n"):
+                    raise ValueError("code is all whitespace")
+                else:
+                    raise ValueError("code does not end with newline")
+            indent = match.group(1) + "    "
+
+            self.append(code)
+        else:
+            indent = ""
+
+        if self._blocks:
+            indent = self._blocks[-1]._indent + indent
+        block = DrgnCodeBlockContext(self, indent, end)
+        self._blocks.append(block)
+        return block
+
+    def end_block(self) -> None:
+        """
+        End the most recently begun indented block.
+
+        See :meth:`begin_block()`.
+        """
+        self._blocks[-1].end()
 
     def add_import(self, module: str) -> None:
         """
@@ -1129,43 +1214,39 @@ class DrgnCodeBuilder:
         """
         self._imports[module].update(names)
 
-    def append_retry_loop_if_live(self, body: str, num_attempts: int) -> None:
+    def begin_retry_loop_if_live(self, num_attempts: int) -> "DrgnCodeBlockContext":
         """
-        Append a code fragment wrapped in a loop that retries on transient
-        :class:`~drgn.FaultError` or :class:`~drgn.helpers.ValidationError`
-        errors if the program is live.
+        Begin a loop that retries on transient :class:`~drgn.FaultError` or
+        :class:`~drgn.helpers.ValidationError` errors if the program is live.
 
-        If the program is not live, the code fragment is appended verbatim.
+        This must be paired with :meth:`end_block()` or used as a context
+        manager.
 
-        :param body: Code to attempt in loop body.
         :param num_attempts: Maximum number of attempts.
         """
-        self.append(self.wrap_retry_loop_if_live(body, num_attempts))
-
-    def wrap_retry_loop_if_live(self, body: str, num_attempts: int) -> str:
-        """
-        Like :meth:`append_retry_loop_if_live()`, but return the code fragment
-        instead of appending it.
-        """
         if not (self._prog.flags & ProgramFlags.IS_LIVE):
-            return body
+            return self.begin_block("")
+
         self.add_from_import("drgn", "FaultError")
         self.add_from_import("drgn.helpers", "ValidationError")
-        # Copy the indentation level.
-        indent = re.match(r"[ \t]*", body).group()  # type: ignore[union-attr]  # This regex always matches.
-        return f"""\
-{indent}# This is racy. Retry a limited number of times.
-{indent}for attempts_remaining in range({num_attempts}, 0, -1):
-{indent}    try:
-{textwrap.indent(body, "        ")}\
-{indent}        break
-{indent}    except (FaultError, ValidationError):
-{indent}        if attempts_remaining == 1:
-{indent}            raise
-"""
+        return self.begin_block(
+            f"""\
+# This is racy. Retry a limited number of times.
+for attempts_remaining in range({num_attempts}, 0, -1):
+    try:
+""",
+            """\
+        break
+    except (FaultError, ValidationError):
+        if attempts_remaining == 1:
+            raise
+""",
+        )
 
     def get(self) -> str:
         """Get the output as a string."""
+        assert not self._blocks
+
         parts: List[str] = []
         first_party_imports: List[str] = []
         for module, names in sorted(self._imports.items()):
@@ -1203,3 +1284,20 @@ class DrgnCodeBuilder:
     def print(self) -> None:
         """Write the output to standard output."""
         sys.stdout.write(self.get())
+
+
+class DrgnCodeBlockContext:
+    def __init__(self, builder: DrgnCodeBuilder, indent: str, end: str) -> None:
+        self._builder = builder
+        self._indent = indent
+        self._end = end
+
+    def end(self) -> None:
+        assert self._builder._blocks[-1] is self
+        self._builder.append(self._builder._blocks.pop()._end)
+
+    def __enter__(self) -> "Self":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.end()

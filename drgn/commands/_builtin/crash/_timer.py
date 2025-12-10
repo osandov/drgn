@@ -68,27 +68,30 @@ def _crash_cmd_timer(
                 "drgn.helpers.linux.timekeeping", "ktime_get_coarse_ns", "ktime_to_ns"
             )
             code.append("now = ktime_get_coarse_ns()\n\n")
-            code.append_cpuspec(
-                cpuspec,
+            with code.begin_cpuspec_loop(cpuspec), code.begin_block(
                 """\
 cpu_base = per_cpu(prog["hrtimer_bases"], cpu)
 
 for clock_base in cpu_base.clock_base:
-    clock = clock_base.index
-    current = now + ktime_to_ns(clock_base.offset)
+"""
+            ):
+                code.append(
+                    """\
+clock = clock_base.index
+current = now + ktime_to_ns(clock_base.offset)
 
 """
-                + code.wrap_retry_loop_if_live(
-                    """\
-    for hrtimer in hrtimer_clock_base_for_each(clock_base.address_of_()):
-        softexpires = ktime_to_ns(hrtimer._softexpires)
-        expires = ktime_to_ns(hrtimer.node.expires)
-        tte = expires - current
-        function = hrtimer.function
-""",
-                    1000,
-                ),
-            )
+                )
+                with code.begin_retry_loop_if_live(1000):
+                    code.append(
+                        """\
+for hrtimer in hrtimer_clock_base_for_each(clock_base.address_of_()):
+    softexpires = ktime_to_ns(hrtimer._softexpires)
+    expires = ktime_to_ns(hrtimer.node.expires)
+    tte = expires - current
+    function = hrtimer.function
+"""
+                    )
             return code.print()
 
         hrtimer_bases = prog["hrtimer_bases"]
@@ -172,19 +175,17 @@ for clock_base in cpu_base.clock_base:
             code.add_from_import(
                 "drgn.helpers.linux.timer", "timer_base_for_each", "timer_base_names"
             )
-            code.append_cpuspec(
-                cpuspec,
+            with code.begin_cpuspec_loop(cpuspec), code.begin_block(
                 'for name, base in zip(timer_base_names(), per_cpu(prog["timer_bases"], cpu)):\n'
-                + code.wrap_retry_loop_if_live(
+            ), code.begin_retry_loop_if_live(1000):
+                code.append(
                     """\
-    for timer in timer_base_for_each(base):
-        expires = timer.expires
-        tte = expires - jiffies
-        function = timer.function
-""",
-                    1000,
-                ),
-            )
+for timer in timer_base_for_each(base):
+    expires = timer.expires
+    tte = expires - jiffies
+    function = timer.function
+"""
+                )
             return code.print()
 
         jiffies = prog["jiffies"].value_()
