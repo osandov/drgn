@@ -133,7 +133,6 @@ address = prog.symbol({_repr_black(address_or_symbol)}).address{subtract_offset}
         code.add_from_import("drgn", "Object")
         code.append(f"{initial_object(hex(address) + subtract_offset)}\n")
 
-    members_indent = ""
     if isinstance(offset_arg, tuple):
         offset_name, offset_member = offset_arg
         after = "[0]" if object_or_pointer == "object" else ""
@@ -151,32 +150,36 @@ address = prog.symbol({_repr_black(address_or_symbol)}).address{subtract_offset}
             f'{pcpu_prefix}{object_or_pointer} = container_of(offset_pointer, "{offset_type_name}", "{offset_member}"){after}\n'
         )
 
-    if args.count == 1:
-        object_loop = ""
-    else:
-        members_indent = "    "
-        loop_body = "" if members else "    ...\n"
+    if cpuspec is not None:
+        code.begin_cpuspec_loop(cpuspec)
+        code.add_from_import("drgn.helpers.linux.percpu", per_cpu_helper)
+        code.append(
+            f"{object_or_pointer} = {per_cpu_helper}({pcpu_prefix}{object_or_pointer}, cpu)\n"
+        )
+
+    if args.count != 1:
         if args.count >= 0:
             slice_str = f":{args.count}"
         else:
             slice_str = f"{args.count + 1}:1"
-        object_loop = f"for object in pointer[{slice_str}]:\n{loop_body}"
+        code.begin_block(f"for object in pointer[{slice_str}]:\n")
 
-    object_loop += "".join(
-        [
-            f"{members_indent}{_sanitize_member_name(member)} = object.{member}\n"
-            for member in members
-        ]
+    code.append(
+        "".join(
+            [
+                f"{_sanitize_member_name(member)} = object.{member}\n"
+                for member in members
+            ]
+        )
     )
 
-    if cpuspec is None:
-        code.append(object_loop)
-    else:
-        code.add_from_import("drgn.helpers.linux.percpu", per_cpu_helper)
-        code.append_cpuspec(
-            cpuspec,
-            f"{object_or_pointer} = {per_cpu_helper}({pcpu_prefix}{object_or_pointer}, cpu)\n{object_loop}",
-        )
+    if args.count != 1:
+        if not members:
+            code.append("...\n")
+        code.end_block()
+
+    if cpuspec is not None:
+        code.end_block()
 
     code.print()
     return

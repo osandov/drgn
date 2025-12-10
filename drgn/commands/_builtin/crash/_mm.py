@@ -149,12 +149,10 @@ def _crash_cmd_ptov(
         # Generate code for per-CPU offsets
         for offset, cpuspec in per_cpu_offsets:
             builder.append(f"\noffset = {offset:#x}\n")
-            builder.append_cpuspec(
-                cpuspec,
-                """
-    virt = per_cpu_ptr(Object(prog, 'void *', offset), cpu)
-                """,
-            )
+            with builder.begin_cpuspec_loop(cpuspec):
+                builder.append(
+                    'virt = per_cpu_ptr(Object(prog, "void *", offset), cpu)\n'
+                )
 
         # Print the generated code once at the end
         builder.print()
