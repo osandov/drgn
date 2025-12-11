@@ -27,6 +27,7 @@ from drgn.commands.crash import (
     Cpuspec,
     CrashDrgnCodeBuilder,
     _crash_get_panic_context,
+    _format_seconds_duration,
     crash_command,
     crash_get_context,
     parse_cpuspec,
@@ -200,22 +201,7 @@ offline_cpus = cpus - num_online_cpus()
         self.code.append("uptime_ = uptime()\n")
 
     def _get_uptime(self) -> str:
-        seconds = ktime_get_boottime_seconds(self.prog).value_()
-
-        if seconds >= 24 * 60 * 60:
-            days = seconds // (24 * 60 * 60)
-            seconds -= days * (24 * 60 * 60)
-            days_str = f"{days} days, "
-        else:
-            days_str = ""
-
-        hours = seconds // (60 * 60)
-        seconds -= hours * (60 * 60)
-
-        minutes = seconds // 60
-        seconds %= 60
-
-        return f"{days_str}{hours:02}:{minutes:02}:{seconds:02}"
+        return _format_seconds_duration(ktime_get_boottime_seconds(self.prog).value_())
 
     def _append_load_average(self) -> None:
         self.code.add_from_import("drgn.helpers.linux.sched", "loadavg")
