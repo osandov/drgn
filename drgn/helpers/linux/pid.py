@@ -18,8 +18,10 @@ from _drgn import (
 )
 from drgn import IntegerLike, Object, Program, cast, container_of
 from drgn.helpers.common.prog import takes_object_or_program_or_default
+from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.idr import idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
+from drgn.helpers.linux.sched import idle_task
 
 __all__ = (
     "find_pid",
@@ -87,15 +89,23 @@ def find_task(prog: Program, ns: Optional[Object], pid: IntegerLike) -> Object:
 
 
 @takes_object_or_program_or_default
-def for_each_task(prog: Program, ns: Optional[Object]) -> Iterator[Object]:
+def for_each_task(
+    prog: Program, ns: Optional[Object], *, idle: bool = False
+) -> Iterator[Object]:
     """
     Iterate over all of the tasks visible in a namespace.
 
     :param ns: ``struct pid_namespace *``. Defaults to the initial PID
         namespace if given a :class:`~drgn.Program` or :ref:`omitted
         <default-program>`.
+    :param idle: Whether to include the idle threads (PID 0, a.k.a swapper) for
+        each CPU.
     :return: Iterator of ``struct task_struct *`` objects.
     """
+    if idle:
+        for cpu in for_each_online_cpu(prog):
+            yield idle_task(prog, cpu)
+
     PIDTYPE_PID = prog["PIDTYPE_PID"].value_()
     for pid in for_each_pid(prog if ns is None else ns):
         task = pid_task(pid, PIDTYPE_PID)

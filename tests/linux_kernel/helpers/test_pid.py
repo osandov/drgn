@@ -49,12 +49,18 @@ class TestPid(LinuxKernelTestCase):
             for proc in procs:
                 self.assertIn(proc.pid, pids)
             self.assertIn(os.getpid(), pids)
+            self.assertNotIn(0, pids)
             barrier.wait()
         except BaseException:
             barrier.abort()
             for proc in procs:
                 proc.terminate()
             raise
+
+    def test_for_each_task_idle(self):
+        self.assertTrue(
+            any(task.pid.value_() == 0 for task in for_each_task(self.prog, idle=True))
+        )
 
     def test_for_each_task_in_group(self):
         NUM_THREADS = 12
