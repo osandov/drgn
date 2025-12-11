@@ -22,7 +22,7 @@ from typing import (
 )
 
 from drgn import Architecture, Object, Program
-from drgn.commands import argument, drgn_argument, mutually_exclusive_group
+from drgn.commands import _repr_black, argument, drgn_argument, mutually_exclusive_group
 from drgn.commands.crash import (
     Cpuspec,
     CrashDrgnCodeBuilder,
@@ -773,4 +773,18 @@ def _crash_cmd_irq(
 def _crash_cmd_log(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import("drgn.helpers.linux.printk", "get_dmesg")
+        code.append(
+            """\
+# Or print_dmesg() if you just want to print it.
+dmesg = get_dmesg("""
+        )
+        if isinstance(args.timestamps, str):
+            code.append(f"timestamps={_repr_black(args.timestamps)}")
+        elif not args.timestamps:
+            code.append("timestamps=False")
+        code.append(")\n")
+        return code.print()
     print_dmesg(prog, timestamps=args.timestamps)

@@ -242,3 +242,29 @@ class TestIrq(CrashCommandTestCase):
         self.assertIsInstance(cmd.drgn_option.globals["names"], list)
         self.assertIn("chip_name", cmd.drgn_option.globals)
         self.assertIsInstance(cmd.drgn_option.globals["count"], int)
+
+
+class TestLog(CrashCommandTestCase):
+    def test_no_args(self):
+        cmd = self.check_crash_command("log")
+
+        self.assertRegex(cmd.stdout, r"^\[\s*[0-9]+\.[0-9]+\] .")
+
+        self.assertIn("get_dmesg()", cmd.drgn_option.stdout)
+        self.assertIsInstance(cmd.drgn_option.globals["dmesg"], bytes)
+
+    def test_t(self):
+        cmd = self.check_crash_command("log -t")
+
+        self.assertRegex(cmd.stdout, r"^[^[]")
+
+        self.assertIn("get_dmesg(timestamps=False)", cmd.drgn_option.stdout)
+        self.assertIsInstance(cmd.drgn_option.globals["dmesg"], bytes)
+
+    def test_T(self):
+        cmd = self.check_crash_command("log -T")
+
+        self.assertRegex(cmd.stdout, r"^\[[A-Z]")
+
+        self.assertIn('get_dmesg(timestamps="human")', cmd.drgn_option.stdout)
+        self.assertIsInstance(cmd.drgn_option.globals["dmesg"], bytes)
