@@ -16,6 +16,15 @@ from drgn.helpers.linux.pci import (
 from tests.linux_kernel import LinuxKernelTestCase
 
 
+def _pci_root_bus_paths():
+    for path in Path("/sys/class/pci_bus").iterdir():
+        real_device_path = (path / "device").resolve()
+        # For root buses, the device name is "pciDDDD:BB". For other buses, it
+        # is the bridge device name (DDDD:BB:dd.F).
+        if real_device_path.name.startswith("pci"):
+            yield real_device_path
+
+
 def _pcie_type(config_path) -> int:
     with open(config_path, "rb") as f:
         f.seek(0x34)
@@ -48,11 +57,11 @@ class TestPci(LinuxKernelTestCase):
         # This also tests pci_bus_name().
         self.assertCountEqual(
             [pci_bus_name(bus) for bus in for_each_pci_root_bus(self.prog)],
-            [path.name[3:] for path in Path("/sys/devices").glob("pci[0-9]*")],
+            [path.name[3:] for path in _pci_root_bus_paths()],
         )
 
     def test_pci_bus_for_each_child(self):
-        bus_path = next(Path("/sys/devices").glob("pci[0-9]*"))
+        bus_path = next(_pci_root_bus_paths())
         bus_name = bus_path.name[3:]
         for bus in for_each_pci_root_bus(self.prog):
             if pci_bus_name(bus) == bus_name:
@@ -66,7 +75,7 @@ class TestPci(LinuxKernelTestCase):
         )
 
     def test_pci_bus_for_each_dev(self):
-        bus_path = next(Path("/sys/devices").glob("pci[0-9]*"))
+        bus_path = next(_pci_root_bus_paths())
         bus_name = bus_path.name[3:]
         for bus in for_each_pci_root_bus(self.prog):
             if pci_bus_name(bus) == bus_name:
