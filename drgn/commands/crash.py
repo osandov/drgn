@@ -95,6 +95,16 @@ def _object_format_options(
     }
 
 
+def _format_seconds_duration(seconds: int) -> str:
+    days, seconds = divmod(seconds, 86400)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+    if days:
+        return f"{days} days, {hours:02}:{minutes:02}:{seconds:02}"
+    else:
+        return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+
 def _find_pager(which: Optional[str] = None) -> Optional[List[str]]:
     if which is None or which == "less":
         less = shutil.which("less")
@@ -260,10 +270,14 @@ def crash_get_context(
 
 def print_task_header(task: Object) -> None:
     """Print basic information about a task in the same format as crash."""
+    _print_task_header(task, cpu=task_cpu(task))
+
+
+def _print_task_header(task: Object, *, cpu: int) -> None:
     print(
         f"PID: {task.pid.value_():<7}  "
         f"TASK: {task.value_():x}  "
-        f"CPU: {task_cpu(task)}  "
+        f"CPU: {cpu}  "
         f"COMMAND: {double_quote_ascii_string(task.comm.string_())}"
     )
 
@@ -521,15 +535,15 @@ task = Object(prog, "struct task_struct *", address)
             assert arg[0] == "task"
             self._append_crash_task_context(arg[1])
 
-    def append_task_header(self, indent: str = "") -> None:
+    def append_task_header(self, indent: str = "", *, variable: str = "task") -> None:
         """Append code for getting basic information about a task."""
         self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
         self.append(
             textwrap.indent(
-                """\
-pid = task.pid
-cpu = task_cpu(task)
-command = task.comm
+                f"""\
+pid = {variable}.pid
+cpu = task_cpu({variable})
+command = {variable}.comm
 """,
                 indent,
             )
