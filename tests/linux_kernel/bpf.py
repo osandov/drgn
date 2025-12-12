@@ -4,6 +4,7 @@
 import array
 import ctypes
 import os
+import re
 from typing import NamedTuple
 
 from _drgn_util.platform import SYS
@@ -293,6 +294,18 @@ def bpf_prog_load(prog_type, insns, license, expected_attach_type=0):
     attr.log_size = _LOG_BUF_SIZE
     log_buf = ctypes.create_string_buffer(_LOG_BUF_SIZE)
     attr.log_buf = ctypes.addressof(log_buf)
+
+    if prog_type == BPF_PROG_TYPE_KPROBE:
+        # Before Linux kernel commit 6c4fc209fcf9 ("bpf: remove useless version
+        # check for prog load") (in v5.0), for BPF_PROG_TYPE_KPROBE,
+        # kern_version must match the kernel's LINUX_VERSION_CODE.
+        match = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)", os.uname().release)
+        if match:
+            attr.kern_version = (
+                (int(match.group(1)) << 16)
+                | (int(match.group(2)) << 8)
+                | min(int(match.group(3)), 255)
+            )
 
     attr.expected_attach_type = expected_attach_type
 
