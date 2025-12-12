@@ -3,6 +3,7 @@
 
 import array
 import ctypes
+import os
 from typing import NamedTuple
 
 from _drgn_util.platform import SYS
@@ -268,6 +269,18 @@ def bpf_map_create(map_type, key_size, value_size, max_entries):
     return _bpf(BPF_MAP_CREATE, attr)
 
 
+_LOG_BUF_SIZE = 65536
+
+
+class BpfVerifierError(OSError):
+    def __init__(self, *args, log) -> None:
+        super().__init__(*args)
+        self.log = log
+
+    def __str__(self) -> str:
+        return f"{super().__str__()}\n{self.log}"
+
+
 def bpf_prog_load(prog_type, insns, license, expected_attach_type=0):
     attr = _bpf_attr()
     attr.prog_type = prog_type
@@ -275,8 +288,25 @@ def bpf_prog_load(prog_type, insns, license, expected_attach_type=0):
     attr.insns, attr.insn_cnt = insns_array.buffer_info()
     ctypes_license = ctypes.c_char_p(license)
     attr.license = ctypes.cast(ctypes_license, ctypes.c_void_p).value
+
+    attr.log_level = 1
+    attr.log_size = _LOG_BUF_SIZE
+    log_buf = ctypes.create_string_buffer(_LOG_BUF_SIZE)
+    attr.log_buf = ctypes.addressof(log_buf)
+
     attr.expected_attach_type = expected_attach_type
-    return _bpf(BPF_PROG_LOAD, attr)
+
+    ret = _syscall(
+        _SYS_bpf, ctypes.c_int(BPF_PROG_LOAD), ctypes.byref(attr), _sizeof_bpf_attr
+    )
+    if ret == -1:
+        errno = ctypes.get_errno()
+        log = log_buf.value
+        if log:
+            raise BpfVerifierError(errno, os.strerror(errno), log=log.decode())
+        else:
+            raise OSError(errno, os.strerror(errno))
+    return ret
 
 
 def bpf_prog_attach(target_fd, attach_bpf_fd, attach_type, attach_flags=0):
