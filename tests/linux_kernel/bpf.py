@@ -537,6 +537,79 @@ def bpf_prog_get_info_by_fd(bpf_fd):
     return BpfProgInfo(type=info.type, id=info.id, tag=bytes(info.tag))
 
 
+class _bpf_map_info(ctypes.Structure):
+    _fields_ = (
+        ("type", ctypes.c_uint32),
+        ("id", ctypes.c_uint32),
+        ("key_size", ctypes.c_uint32),
+        ("value_size", ctypes.c_uint32),
+        ("max_entries", ctypes.c_uint32),
+        ("map_flags", ctypes.c_uint32),
+        ("name", ctypes.c_char * _BPF_OBJ_NAME_LEN),
+        ("ifindex", ctypes.c_uint32),
+        ("btf_vmlinux_value_type_id", ctypes.c_uint32),
+        ("netns_dev", ctypes.c_uint64),
+        ("netns_ino", ctypes.c_uint64),
+        ("btf_id", ctypes.c_uint32),
+        ("btf_key_type_id", ctypes.c_uint32),
+        ("btf_value_type_id", ctypes.c_uint32),
+        ("btf_vmlinux_id", ctypes.c_uint32),
+        ("map_extra", ctypes.c_uint64),
+        ("hash", ctypes.c_uint64),
+        ("hash_size", ctypes.c_uint32),
+    )
+
+
+class BpfMapInfo(NamedTuple):
+    type: int
+    id: int
+    key_size: int
+    value_size: int
+    max_entries: int
+    map_flags: int
+    name: bytes
+    ifindex: int
+    btf_vmlinux_value_type_id: int
+    netns_dev: int
+    netns_ino: int
+    btf_id: int
+    btf_key_type_id: int
+    btf_value_type_id: int
+    btf_vmlinux_id: int
+    map_extra: int
+    hash: int
+    hash_size: int
+
+
+def bpf_map_get_info_by_fd(bpf_fd):
+    attr = _bpf_attr()
+    attr.bpf_fd = bpf_fd
+    info = _bpf_map_info()
+    attr.info_len = ctypes.sizeof(info)
+    attr.info = ctypes.addressof(info)
+    _bpf(BPF_OBJ_GET_INFO_BY_FD, attr)
+    return BpfMapInfo(
+        type=info.type,
+        id=info.id,
+        key_size=info.key_size,
+        value_size=info.value_size,
+        max_entries=info.max_entries,
+        map_flags=info.map_flags,
+        name=info.name,
+        ifindex=info.ifindex,
+        btf_vmlinux_value_type_id=info.btf_vmlinux_value_type_id,
+        netns_dev=info.netns_dev,
+        netns_ino=info.netns_ino,
+        btf_id=info.btf_id,
+        btf_key_type_id=info.btf_key_type_id,
+        btf_value_type_id=info.btf_value_type_id,
+        btf_vmlinux_id=info.btf_vmlinux_id,
+        map_extra=info.map_extra,
+        hash=info.hash,
+        hash_size=info.hash_size,
+    )
+
+
 def bpf_link_create(prog_fd, target_fd, attach_type, flags=0):
     attr = _bpf_attr()
     attr.link_create.prog_fd = prog_fd
