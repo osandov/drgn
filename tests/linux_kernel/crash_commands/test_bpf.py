@@ -7,10 +7,8 @@ import os
 from unittest import SkipTest
 
 from tests.linux_kernel.bpf import (
-    BPF_EXIT_INSN,
     BPF_LD_MAP_FD,
     BPF_MAP_TYPE_HASH,
-    BPF_MOV64_IMM,
     BPF_PROG_TYPE_KPROBE,
     BPF_PROG_TYPE_SOCKET_FILTER,
     BPF_REG_0,
@@ -21,10 +19,10 @@ from tests.linux_kernel.bpf import (
     bpf_prog_load,
 )
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
+from tests.linux_kernel.helpers.test_bpf import BpfTestCase
 
 
-class TestBpf(CrashCommandTestCase):
-
+class TestBpf(CrashCommandTestCase, BpfTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -40,11 +38,6 @@ class TestBpf(CrashCommandTestCase):
             if e.errno != errno.EINVAL:
                 raise
             raise SkipTest("This kernel version doesn't support BPF object IDs")
-
-    INSNS = (
-        BPF_MOV64_IMM(BPF_REG_0, 0),
-        BPF_EXIT_INSN(),
-    )
 
     def test_bpf(self):
         with contextlib.ExitStack() as exit_stack:

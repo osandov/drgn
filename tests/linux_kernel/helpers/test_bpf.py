@@ -46,7 +46,7 @@ from tests.linux_kernel.bpf import (
 from tests.linux_kernel.helpers.test_cgroup import tmp_cgroups
 
 
-class TestBpf(LinuxKernelTestCase):
+class BpfTestCase(LinuxKernelTestCase):
     INSNS = (
         BPF_MOV64_IMM(BPF_REG_0, 0),
         BPF_EXIT_INSN(),
@@ -83,6 +83,8 @@ class TestBpf(LinuxKernelTestCase):
                 "kernel does not support bpf syscall (CONFIG_BPF_SYSCALL)"
             )
 
+
+class TestBpf(BpfTestCase):
     def test_bpf_btf_for_each(self):
         # BTF was added in Linux kernel commit 69b693f0aefa ("bpf: btf:
         # Introduce BPF Type Format (BTF)") (in v4.18) and had IDs from the
