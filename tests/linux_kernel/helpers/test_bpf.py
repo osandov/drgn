@@ -1,26 +1,32 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import contextlib
 import errno
 import os
 import resource
 import unittest
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
+from drgn import cast
 from drgn.helpers.linux.bpf import (
     bpf_btf_for_each,
     bpf_link_for_each,
     bpf_map_for_each,
     bpf_prog_for_each,
+    bpf_prog_used_maps,
     cgroup_bpf_prog_for_each,
     cgroup_bpf_prog_for_each_effective,
 )
 from drgn.helpers.linux.cgroup import cgroup_get_from_path
+from drgn.helpers.linux.fs import fget
+from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import LinuxKernelTestCase
 from tests.linux_kernel.bpf import (
     BPF_CGROUP_INET_INGRESS,
     BPF_EXIT_INSN,
     BPF_F_ALLOW_MULTI,
+    BPF_LD_MAP_FD,
     BPF_MAP_TYPE_HASH,
     BPF_MOV64_IMM,
     BPF_PROG_TYPE_CGROUP_SKB,
@@ -207,6 +213,30 @@ class TestBpf(LinuxKernelTestCase):
         finally:
             for fd in fds:
                 os.close(fd)
+
+    def test_bpf_prog_used_maps(self):
+        with contextlib.ExitStack() as exit_stack:
+            map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 8, 8, 8)
+            exit_stack.callback(os.close, map_fd)
+
+            prog_fd = bpf_prog_load(
+                BPF_PROG_TYPE_SOCKET_FILTER,
+                BPF_LD_MAP_FD(BPF_REG_0, map_fd) + self.INSNS,
+                b"GPL",
+            )
+            exit_stack.callback(os.close, prog_fd)
+
+            bpf_prog = cast(
+                "struct bpf_prog *",
+                fget(find_task(self.prog, os.getpid()), prog_fd).private_data,
+            )
+
+            bpf_map = cast(
+                "struct bpf_map *",
+                fget(find_task(self.prog, os.getpid()), map_fd).private_data,
+            )
+
+            self.assertEqual(list(bpf_prog_used_maps(bpf_prog)), [bpf_map])
 
     def test_cgroup_bpf_prog_for_each(self):
         with tmp_cgroups() as (parent_cgroup, child_cgroup):

@@ -260,13 +260,6 @@ BPF_REG_10 = 10
 
 MAX_BPF_REG = 11
 
-BPF_PSEUDO_MAP_FD = 1
-BPF_PSEUDO_MAP_IDX = 5
-BPF_PSEUDO_MAP_VALUE = 2
-BPF_PSEUDO_MAP_IDX_VALUE = 6
-BPF_PSEUDO_BTF_ID = 3
-BPF_PSEUDO_FUNC = 4
-
 
 # Instruction encoding.
 def bpf_insn(*, code: int, dst_reg: int, src_reg: int, off: int, imm: int) -> int:
@@ -308,6 +301,34 @@ def BPF_MOV64_IMM(dst: int, imm: int) -> int:
         off=0,
         imm=imm,
     )
+
+
+BPF_PSEUDO_MAP_FD = 1
+BPF_PSEUDO_MAP_IDX = 5
+BPF_PSEUDO_MAP_VALUE = 2
+BPF_PSEUDO_MAP_IDX_VALUE = 6
+BPF_PSEUDO_BTF_ID = 3
+BPF_PSEUDO_FUNC = 4
+
+
+def BPF_LD_IMM64_RAW(dst: int, src: int, imm: int) -> Tuple[int, int]:
+    # Allow signed and unsigned 64-bit values.
+    if imm < -(2**63) or imm >= 2**64:
+        raise ValueError(f"imm {imm} is out of range")
+    return (
+        bpf_insn(
+            code=BPF_LD | BPF_DW | BPF_IMM,
+            dst_reg=dst,
+            src_reg=src,
+            off=0,
+            imm=imm & 0xFFFFFFFF,
+        ),
+        bpf_insn(code=0, dst_reg=0, src_reg=0, off=0, imm=(imm >> 32) & 0xFFFFFFFF),
+    )
+
+
+def BPF_LD_MAP_FD(dst: int, map_fd: int) -> int:
+    return BPF_LD_IMM64_RAW(dst, BPF_PSEUDO_MAP_FD, map_fd)
 
 
 def BPF_EXIT_INSN() -> int:
@@ -624,23 +645,3 @@ def bpf_link_create(prog_fd, target_fd, attach_type, flags=0):
     attr.link_create.attach_type = attach_type
     attr.link_create.flags = flags
     return _bpf(BPF_LINK_CREATE, attr)
-
-
-def BPF_LD_IMM64_RAW(dst: int, src: int, imm: int) -> Tuple[int, int]:
-    # Allow signed and unsigned 64-bit values.
-    if imm < -(2**63) or imm >= 2**64:
-        raise ValueError(f"imm {imm} is out of range")
-    return (
-        bpf_insn(
-            code=BPF_LD | BPF_DW | BPF_IMM,
-            dst_reg=dst,
-            src_reg=src,
-            off=0,
-            imm=imm & 0xFFFFFFFF,
-        ),
-        bpf_insn(code=0, dst_reg=0, src_reg=0, off=0, imm=(imm >> 32) & 0xFFFFFFFF),
-    )
-
-
-def BPF_LD_MAP_FD(dst: int, map_fd: int) -> int:
-    return BPF_LD_IMM64_RAW(dst, BPF_PSEUDO_MAP_FD, map_fd)
