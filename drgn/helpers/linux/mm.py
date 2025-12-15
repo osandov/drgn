@@ -72,6 +72,7 @@ __all__ = (
     "compound_nr",
     "compound_order",
     "decode_memory_block_state",
+    "decode_memory_block_state_value",
     "decode_page_flags",
     "decode_page_flags_value",
     "environ",
@@ -1942,8 +1943,19 @@ def for_each_memory_block(prog: Program) -> Iterable[Object]:
         yield container_of(dev, memory_block_type, "dev")
 
 
-# These are macros that haven't changed since they were introduced.
-_MEMORY_BLOCK_STATE = {
+def decode_memory_block_state(mem: Object) -> str:
+    """
+    Get a human-readable representation of the state of a memory hotplug block.
+
+    >>> decode_memory_block_state(mem)
+    'MEM_ONLINE'
+
+    :param mem: ``struct memory_block *``
+    """
+    return decode_memory_block_state_value(mem.state)
+
+
+_OLD_MEMORY_BLOCK_STATE = {
     # Added in Linux kernel commit 3947be1969a9 ("[PATCH] memory hotplug: sysfs
     # and add/remove functions") (in v2.6.15).
     (1 << 0): "MEM_ONLINE",
@@ -1955,22 +1967,37 @@ _MEMORY_BLOCK_STATE = {
     (1 << 4): "MEM_CANCEL_ONLINE",
     (1 << 5): "MEM_CANCEL_OFFLINE",
     # Added in Linux kernel commit c5f1e2d18909 ("mm/memory_hotplug: introduce
-    # MEM_PREPARE_ONLINE/MEM_FINISH_OFFLINE notifiers") (in v6.5).
+    # MEM_PREPARE_ONLINE/MEM_FINISH_OFFLINE notifiers") (in v6.5), removed in
+    # 300709fbefd1 ("mm/memory_hotplug: Remove
+    # MEM_PREPARE_ONLINE/MEM_FINISH_OFFLINE notifiers") (in v6.19).
     (1 << 6): "MEM_PREPARE_ONLINE",
     (1 << 7): "MEM_FINISH_OFFLINE",
 }
 
 
-def decode_memory_block_state(mem: Object) -> str:
+@takes_program_or_default
+def decode_memory_block_state_value(prog: Program, state: IntegerLike) -> str:
     """
-    Get a human-readable representation of the state of a memory hotplug block.
+    Get a human-readable representation of a memory hotplug block state value.
 
-    >>> decode_memory_block_state(mem)
+    >>> decode_memory_block_state_value(mem.state)
     'MEM_ONLINE'
 
-    :param mem: ``struct memory_block *``
+    :param mem: ``enum memory_block_state`` or ``unsigned long``
     """
-    return _MEMORY_BLOCK_STATE[mem.state.value_()]
+    # Since Linux kernel commit 1a4f70f6851a ("mm: convert memory block states
+    # (MEM_*) macros to enum") (in v6.19), the states are in an enum. Before
+    # that, we have to hard-code them.
+    try:
+        memory_block_state_type = prog.type("enum memory_block_state")
+    except LookupError:
+        return _OLD_MEMORY_BLOCK_STATE[operator.index(state)]
+    else:
+        if isinstance(state, Object):
+            state = cast(memory_block_state_type, state)
+        else:
+            state = Object(prog, memory_block_state_type, state)
+        return state.format_(type_name=False)
 
 
 @takes_program_or_default
