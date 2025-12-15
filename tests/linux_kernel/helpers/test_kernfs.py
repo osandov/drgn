@@ -119,7 +119,9 @@ class TestKernfs(LinuxKernelTestCase):
             )
 
             for child in kernfs_children(kn):
-                child_fd = os.open(b"/sys/" + kernfs_path(child), os.O_RDONLY)
+                child_fd = os.open(
+                    b"/sys/" + kernfs_path(child), os.O_PATH | os.O_NOFOLLOW
+                )
                 try:
                     child_kn = self.kernfs_node_from_fd(child_fd)
                     if child_kn:
