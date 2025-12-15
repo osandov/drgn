@@ -113,6 +113,7 @@ class TestKernfs(LinuxKernelTestCase):
         path = b"/sys/kernel"
         fd = os.open(path, os.O_RDONLY)
         try:
+            parent_dev = os.fstat(fd).st_dev
             kn = self.kernfs_node_from_fd(fd)
             self.assertCountEqual(
                 [kernfs_name(child) for child in kernfs_children(kn)], os.listdir(path)
@@ -123,9 +124,8 @@ class TestKernfs(LinuxKernelTestCase):
                     b"/sys/" + kernfs_path(child), os.O_PATH | os.O_NOFOLLOW
                 )
                 try:
-                    child_kn = self.kernfs_node_from_fd(child_fd)
-                    if child_kn:
-                        self.assertEqual(child, child_kn)
+                    if os.fstat(child_fd).st_dev == parent_dev:
+                        self.assertEqual(child, self.kernfs_node_from_fd(child_fd))
                 finally:
                     os.close(child_fd)
         finally:
