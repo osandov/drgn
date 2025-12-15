@@ -13,6 +13,7 @@ from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
 SUPPORTED_KERNEL_VERSIONS = (
+    "6.19",
     "6.18",
     "6.17",
     "6.16",
