@@ -248,29 +248,23 @@ def module_taints(module: Object) -> str:
     if not mask:
         return ""
 
+    # Before Linux kernel commit 37ade54f386c ("taint/module: remove
+    # unnecessary taint_flag.module field") (in v6.19), there was a distinction
+    # between what taint flags could and couldn't be set on a module. The
+    # distinction is unnecessary for us since we don't need a statically-sized
+    # buffer.
     parts = []
     try:
         taint_flags = module.prog_["taint_flags"]
     except ObjectNotFoundError:
         # Before Linux kernel commit 7fd8329ba502 ("taint/module: Clean up
-        # global and module taint flags handling") (in v4.10), the array had a
-        # different name and didn't include which flags apply to modules. The
-        # flags are also macros, so we have to hard-code them
-        if mask & 1:
-            parts.append("P")
-        if mask & 4096:
-            parts.append("O")
-        if mask & 2:
-            parts.append("F")
-        if mask & 1024:
-            parts.append("C")
-        if mask & 8192:
-            parts.append("E")
-        if mask & 32768:
-            parts.append("K")
+        # global and module taint flags handling") (in v4.10), the array and
+        # members had different names and the bit number was a member.
+        for t in module.prog_["tnts"]:
+            if mask & (1 << t.bit.value_()):
+                parts.append(chr(t.true))  # type: ignore[arg-type]  # python/typeshed#13494
     else:
         for i, t in enumerate(taint_flags):
-            if t.module and (mask & (1 << i)):
+            if mask & (1 << i):
                 parts.append(chr(t.c_true))  # type: ignore[arg-type]  # python/typeshed#13494
-
     return "".join(parts)
