@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 A = TypeVar("A")
 T = TypeVar("T")
+C = TypeVar("C", bound=Callable[..., Any])
 
 
 # Based on https://github.com/python/cpython/pull/121693.
@@ -28,6 +29,13 @@ def copy_func_params(
 ) -> Callable[[Callable[..., T]], Callable[P, T]]:
     def decorator(func: Callable[..., T]) -> Callable[P, T]:
         return cast("Callable[P, T]", func)
+
+    return decorator
+
+
+def copy_func_signature(source: C) -> Callable[[Callable[..., Any]], C]:
+    def decorator(func: Callable[..., Any]) -> C:
+        return cast(C, func)
 
     return decorator
 

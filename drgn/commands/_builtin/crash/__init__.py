@@ -9,14 +9,14 @@ from drgn import Program
 from drgn.commands import Command, CommandNotFoundError, _write_command_error, argument
 from drgn.commands._builtin.crash._sys import _SysPrinter
 from drgn.commands.crash import CRASH_COMMAND_NAMESPACE, crash_command
-from drgn.commands.linux import linux_kernel_custom_command
+from drgn.commands.linux import linux_kernel_raw_command
 
 
 def _crash_interactive_onerror(e: Exception) -> None:
     _write_command_error(sys.stderr, e, prefix="drgn: crash")
 
 
-@linux_kernel_custom_command(
+@linux_kernel_raw_command(
     description="run a crash command",
     usage="**crash** [*command*]",
     long_description="""
@@ -74,7 +74,7 @@ Try "help <command>" for help with a specific command.
     )
 
 
-def _print_help(name: str, command: Command) -> None:
+def _print_help(name: str, command: Command[Any]) -> None:
     print(
         f"""\
 NAME

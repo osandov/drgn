@@ -31,7 +31,7 @@ def _show_scroll_option(prog: Program) -> None:
     on = "on" if prog.config.get("crash_scroll", True) else "off"
     pager = _get_pager(prog)
     if pager:
-        print(f"scroll: {on} ({' '.join(pager)})")
+        print(f"scroll: {on} ({pager})")
     else:
         print("scroll: off (pager not found)")
 

@@ -15,13 +15,13 @@ from drgn.commands import (
     CommandNamespace,
     CommandNotFoundError,
     DrgnCodeBuilder,
-    _parse_shell_command,
-    _ParsedShellCommand,
+    ParsedCommand,
     _repr_black,
     _sanitize_rst,
     argument,
     command,
-    custom_command,
+    parse_shell_command,
+    raw_command,
 )
 from tests import TestCase
 
@@ -29,10 +29,8 @@ from tests import TestCase
 class TestParseShellCommand(TestCase):
     def assert_parses_to(self, source, *, args, redirections=[], pipeline=None):
         self.assertEqual(
-            _parse_shell_command(source),
-            _ParsedShellCommand(
-                args=args, redirections=redirections, pipeline=pipeline
-            ),
+            parse_shell_command(source),
+            ParsedCommand(args=args, redirections=redirections, pipeline=pipeline),
         )
 
     def test_one_arg(self):
@@ -245,7 +243,7 @@ class TestParseShellCommand(TestCase):
 
     def test_pipeline_empty(self):
         self.assertRaisesRegex(
-            SyntaxError, "unexpected end of input", _parse_shell_command, "foo | "
+            SyntaxError, "unexpected end of input", parse_shell_command, "foo | "
         )
 
     def test_pipe_after_redirect(self):
@@ -255,7 +253,7 @@ class TestParseShellCommand(TestCase):
             "foo >> |",
         ):
             self.assertRaisesRegex(
-                SyntaxError, r"unexpected '\|'", _parse_shell_command, source
+                SyntaxError, r"unexpected '\|'", parse_shell_command, source
             )
 
     def test_nothing_before_pipe(self):
@@ -263,21 +261,21 @@ class TestParseShellCommand(TestCase):
 
     def test_redirect_after_redirect(self):
         self.assertRaisesRegex(
-            SyntaxError, "unexpected '<'", _parse_shell_command, "foo < <"
+            SyntaxError, "unexpected '<'", parse_shell_command, "foo < <"
         )
         self.assertRaisesRegex(
-            SyntaxError, "unexpected '>'", _parse_shell_command, "foo < >"
+            SyntaxError, "unexpected '>'", parse_shell_command, "foo < >"
         )
         self.assertRaisesRegex(
-            SyntaxError, "unexpected '>>'", _parse_shell_command, "foo < >>"
+            SyntaxError, "unexpected '>>'", parse_shell_command, "foo < >>"
         )
 
     def test_nothing_after_redirect(self):
         self.assertRaisesRegex(
-            SyntaxError, "unexpected end of input", _parse_shell_command, ">"
+            SyntaxError, "unexpected end of input", parse_shell_command, ">"
         )
         self.assertRaisesRegex(
-            SyntaxError, "unexpected end of input", _parse_shell_command, "foo >"
+            SyntaxError, "unexpected end of input", parse_shell_command, "foo >"
         )
 
     def test_comment(self):
@@ -318,7 +316,7 @@ def _cmd_tac(prog, name, args, **kwargs):
     sys.stdout.writelines(lines)
 
 
-@custom_command(
+@raw_command(
     description="call ast.literal_eval()",
     usage="literal expr",
     long_description="",
@@ -482,7 +480,7 @@ class TestRunCommand(TestCase):
 
         self.assertRaises(ZeroDivisionError, self.run_command, "asdf", onerror=onerror)
 
-    def test_custom(self):
+    def test_raw(self):
         self.assertEqual(self.run_command("literal (1, 2)"), (1, 2))
 
     def test_argument_error(self):

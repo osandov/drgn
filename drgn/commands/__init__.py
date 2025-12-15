@@ -13,6 +13,8 @@ from __future__ import annotations
 import argparse
 import collections
 import contextlib
+import dataclasses
+import functools
 import re
 import subprocess
 import sys
@@ -22,6 +24,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Generic,
     Iterable,
     Iterator,
     List,
@@ -33,6 +36,7 @@ from typing import (
     Sequence,
     Set,
     Tuple,
+    TypeVar,
     Union,
     overload,
 )
@@ -47,6 +51,11 @@ if TYPE_CHECKING:
 import _drgn_util.argparseformatter
 from _drgn_util.typingutils import copy_method_params
 from drgn import Program, ProgramFlags
+
+T = TypeVar("T")
+T_co = TypeVar("T_co", covariant=True)
+T_contra = TypeVar("T_contra", contravariant=True)
+
 
 _WORD_CHARACTER = r"""[^\s"#&'();<>\\`|]"""
 _WORD_CHARACTER_OR_HASH = _WORD_CHARACTER.replace("#", "")
@@ -88,73 +97,10 @@ def _unquote(s: str) -> str:
     return re.sub(_ESCAPED_OR_QUOTED_WORD, _unquote_repl, s)
 
 
-_RedirectOp = Literal["<", ">", ">>"]
-
-
-class _ShellRedirection(NamedTuple):
-    fd: int
-    op: _RedirectOp
-    path: str
-
-
-class _ParsedShellCommand(NamedTuple):
-    args: Sequence[str]
-    redirections: Sequence[_ShellRedirection]
-    pipeline: Optional[str]
-
-
-def _parse_shell_command(source: str) -> _ParsedShellCommand:
-    args: List[str] = []
-    redirections: List[_ShellRedirection] = []
-    pipeline = None
-    redirection = None
-
-    for match in _SHELL_TOKEN_REGEX.finditer(source):
-        kind = match.lastgroup
-        value = match.group()
-        if kind == "WORD":
-            value = _unquote(value)
-            if redirection is None:
-                args.append(value)
-            else:
-                redirections.append(
-                    _ShellRedirection(fd=redirection[0], op=redirection[1], path=value)
-                )
-                redirection = None
-        elif kind == "PIPELINE":
-            # NB: since this is called with the substring after the command
-            # name, unlike sh, we allow a string starting with '|'.
-            if redirection is not None:
-                raise SyntaxError("unexpected '|'")
-            pipeline = value[1:].strip()
-            if not pipeline:
-                raise SyntaxError("unexpected end of input")
-        elif kind == "REDIRECT":
-            if redirection is not None:
-                raise SyntaxError(f"unexpected {value!r}")
-            redirect_op: _RedirectOp = match.group("redirect_op")  # type: ignore[assignment]
-            if match.group("redirect_fd"):
-                redirect_fd = int(match.group("redirect_fd"))
-            elif redirect_op == "<":
-                redirect_fd = 0
-            elif redirect_op == ">" or redirect_op == ">>":
-                redirect_fd = 1
-            else:
-                assert_never(redirect_op)
-            redirection = (redirect_fd, redirect_op)
-        elif kind in ("WHITESPACE", "COMMENT"):
-            pass
-        else:
-            raise SyntaxError(f"unexpected {value!r}")
-    if redirection is not None:
-        raise SyntaxError("unexpected end of input")
-    return _ParsedShellCommand(args, redirections, pipeline)
-
-
 @contextlib.contextmanager
-def _shell_command(source: str) -> Iterator[_ParsedShellCommand]:
-    parsed = _parse_shell_command(source)
-
+def _redirect_and_pipe(
+    redirections: Sequence[ShellRedirection], pipeline: Optional[str]
+) -> Iterator[None]:
     saved = {
         "stdin": sys.stdin,
         "stdout": sys.stdout,
@@ -163,9 +109,9 @@ def _shell_command(source: str) -> Iterator[_ParsedShellCommand]:
     pipe_process = None
     exceptions = []
     try:
-        if parsed.pipeline is not None:
+        if pipeline is not None:
             pipe_process = subprocess.Popen(
-                parsed.pipeline,
+                pipeline,
                 shell=True,
                 stdin=subprocess.PIPE,
                 stdout=sys.stdout,
@@ -173,7 +119,7 @@ def _shell_command(source: str) -> Iterator[_ParsedShellCommand]:
             )
             sys.stdout = pipe_process.stdin
 
-        for fd, op, path in parsed.redirections:
+        for fd, op, path in redirections:
             if op == "<":
                 if fd != 0:
                     raise NotImplementedError(
@@ -206,7 +152,7 @@ def _shell_command(source: str) -> Iterator[_ParsedShellCommand]:
             setattr(sys, attr, open(path, mode))
 
         try:
-            yield parsed
+            yield
         except BrokenPipeError:
             pass
     except Exception as e:
@@ -342,21 +288,22 @@ class CommandNamespace:
         Create a command namespace.
 
         :param func_name_prefix: Function name prefix expected by
-            :func:`command()` and :func:`custom_command()`.
+            :func:`command()`, :func:`custom_command()`, and
+            :func:`raw_command()`.
         :param argparse_types: ``(name, callable)`` tuples to register as
             argparse types for commands in this namespace. See
             :meth:`argparse.ArgumentParser.register()`.
         """
 
-        self._commands: Dict[str, Command] = {}
+        self._commands: Dict[str, Command[object]] = {}
         self._func_name_prefix = func_name_prefix
         self._argparse_types = argparse_types
 
-    def register(self, name: str, command: Command) -> None:
+    def register(self, name: str, command: Command[Any]) -> None:
         """Register a command in this namespace."""
         self._commands[name] = command
 
-    def lookup(self, prog: Program, name: str) -> Command:
+    def lookup(self, prog: Program, name: str) -> Command[object]:
         """
         Find a command in this namespace.
 
@@ -368,7 +315,7 @@ class CommandNamespace:
             raise CommandNotFoundError(name)
         return command
 
-    def enabled(self, prog: Program) -> Iterable[Tuple[str, Command]]:
+    def enabled(self, prog: Program) -> Iterable[Tuple[str, Command[object]]]:
         """
         Get all enabled commands in this namespace.
 
@@ -378,18 +325,6 @@ class CommandNamespace:
             (name, command)
             for name, command in self._commands.items()
             if command.enabled(prog)
-        )
-
-    def _run(self, prog: Program, command: str, *, globals: Dict[str, Any]) -> Any:
-        command = command.lstrip()
-        match = _SHELL_TOKEN_REGEX.match(command)
-        if not match or match.lastgroup != "WORD":
-            raise SyntaxError("expected command name")
-
-        command_name = _unquote(match.group())
-        args = command[match.end() :].lstrip()
-        return self.lookup(prog, command_name).run(
-            prog, command_name, args, globals=globals
         )
 
     def run(
@@ -409,7 +344,26 @@ class CommandNamespace:
             globals = sys._getframe(1).f_globals
 
         try:
-            return self._run(prog, command, globals=globals)
+            kwargs = {"globals": globals}
+            name, tail, command_obj, pager = self._resolve(prog, command, kwargs)
+            parsed = command_obj.parse(tail)
+
+            pipeline = parsed.pipeline
+            if (
+                pipeline is None
+                and not any(redirection.fd == 1 for redirection in parsed.redirections)
+                and pager is not None
+            ):
+                # We can only pipe to a pager if stdout is a file descriptor.
+                try:
+                    sys.stdout.fileno()
+                except (AttributeError, OSError):
+                    pass
+                else:
+                    pipeline = pager
+
+            with _redirect_and_pipe(parsed.redirections, pipeline):
+                return command_obj.run(prog, name, parsed.args, **kwargs)
         except Exception as e:
             if onerror is None:
                 raise
@@ -421,18 +375,29 @@ class CommandNamespace:
             else:
                 onerror(e)
 
+    def _resolve(
+        self, prog: Program, command: str, kwargs: Dict[str, Any]
+    ) -> Tuple[str, str, Command[object], Optional[str]]:
+        command = command.lstrip()
+        match = _SHELL_TOKEN_REGEX.match(command)
+        if not match or match.lastgroup != "WORD":
+            raise SyntaxError("expected command name")
+
+        name = _unquote(match.group())
+        return name, command[match.end() :].lstrip(), self.lookup(prog, name), None
+
 
 DEFAULT_COMMAND_NAMESPACE: CommandNamespace = CommandNamespace()
 """Default command namespace used by the drgn CLI."""
 
 
-class Command(Protocol):
+class Command(Protocol[T]):
     """
     Command implementation.
 
-    Commands can usually be defined with :func:`command()` or
-    :func:`custom_command()`, but this can be used when even more control is
-    needed.
+    Commands can usually be defined with :func:`command()`,
+    :func:`custom_command()`, or :func:`raw_command()`, but this can be used
+    when even more control is needed.
     """
 
     def description(self) -> str:
@@ -457,11 +422,22 @@ class Command(Protocol):
         """
         ...
 
+    def parse(self, source: str, /) -> ParsedCommand[T]:
+        """
+        Parse the command string after the command name.
+
+        This must separate redirections and pipes from arguments.
+
+        :param source: Command string after command name (arguments,
+            redirections, pipes, etc.).
+        """
+        ...
+
     def run(
         self,
         prog: Program,
         name: str,
-        args: str,
+        args: T,
         /,
         *,
         globals: Dict[str, Any],
@@ -471,7 +447,8 @@ class Command(Protocol):
 
         :param prog: Program.
         :param name: Name that the command was invoked as.
-        :param args: Command arguments as a string.
+        :param args: Command arguments returned in :attr:`ParsedCommand.args`
+            by :meth:`parse()`.
 
         Additional keyword arguments may also be passed. To allow for future
         extensions, implementations of this method should add a variable
@@ -482,7 +459,9 @@ class Command(Protocol):
 
             class MyCommand:
                 ...
-                def run(self, prog: Program, name: str, args: str, **kwargs: Any) -> None:
+                def run(
+                    self, prog: Program, name: str, args: Sequence[str], **kwargs: Any
+                ) -> None:
                     ...
 
         The current keyword parameters are:
@@ -492,6 +471,90 @@ class Command(Protocol):
         :return: Anything, but usually ``None``.
         """
         ...
+
+
+@dataclasses.dataclass(frozen=True)
+class ParsedCommand(Generic[T]):
+    """Parsed command string."""
+
+    args: T
+    """Arguments."""
+
+    redirections: Sequence[ShellRedirection] = ()
+    """Shell redirections."""
+
+    pipeline: Optional[str] = None
+    """Pipeline."""
+
+
+class ShellRedirection(NamedTuple):
+    """Shell redirection."""
+
+    fd: int
+    """File descriptor to redirect."""
+
+    op: RedirectOp
+    """Redirection operator (``"<"``, ``">"``, etc.)."""
+
+    path: str
+    """Path to redirect to."""
+
+
+RedirectOp = Literal["<", ">", ">>"]
+
+
+def parse_shell_command(source: str) -> ParsedCommand[Sequence[str]]:
+    """
+    Parse a shell command string.
+
+    :param source: Command string after command name (arguments,
+        redirections, pipes, etc.).
+    """
+    args: List[str] = []
+    redirections: List[ShellRedirection] = []
+    pipeline = None
+    redirection = None
+
+    for match in _SHELL_TOKEN_REGEX.finditer(source):
+        kind = match.lastgroup
+        value = match.group()
+        if kind == "WORD":
+            value = _unquote(value)
+            if redirection is None:
+                args.append(value)
+            else:
+                redirections.append(
+                    ShellRedirection(fd=redirection[0], op=redirection[1], path=value)
+                )
+                redirection = None
+        elif kind == "PIPELINE":
+            # NB: since this is called with the substring after the command
+            # name, unlike sh, we allow a string starting with '|'.
+            if redirection is not None:
+                raise SyntaxError("unexpected '|'")
+            pipeline = value[1:].strip()
+            if not pipeline:
+                raise SyntaxError("unexpected end of input")
+        elif kind == "REDIRECT":
+            if redirection is not None:
+                raise SyntaxError(f"unexpected {value!r}")
+            redirect_op: RedirectOp = match.group("redirect_op")  # type: ignore[assignment]
+            if match.group("redirect_fd"):
+                redirect_fd = int(match.group("redirect_fd"))
+            elif redirect_op == "<":
+                redirect_fd = 0
+            elif redirect_op == ">" or redirect_op == ">>":
+                redirect_fd = 1
+            else:
+                assert_never(redirect_op)
+            redirection = (redirect_fd, redirect_op)
+        elif kind in ("WHITESPACE", "COMMENT"):
+            pass
+        else:
+            raise SyntaxError(f"unexpected {value!r}")
+    if redirection is not None:
+        raise SyntaxError("unexpected end of input")
+    return ParsedCommand(args, redirections, pipeline)
 
 
 @overload
@@ -588,6 +651,10 @@ def _create_parser(
     return parser
 
 
+def _always_enabled(prog: Program) -> bool:
+    return True
+
+
 def command(
     *,
     name: Optional[str] = None,
@@ -596,15 +663,15 @@ def command(
     long_description: Optional[str] = None,
     epilog: Optional[str] = None,
     arguments: Sequence[Union[argument, argument_group, mutually_exclusive_group]] = (),
-    enabled: Optional[Callable[[Program], bool]] = None,
+    enabled: Callable[[Program], bool] = _always_enabled,
     namespace: CommandNamespace = DEFAULT_COMMAND_NAMESPACE,
 ) -> CommandFuncDecorator:
     """
     Decorator to register a command.
 
     Commands registered with this decorator parse options specified in
-    *arguments* using :mod:`argparse`. See :func:`custom_command()` for an
-    alternative that doesn't use :mod:`argparse`.
+    *arguments* using :mod:`argparse`. See :func:`custom_command()` and
+    :func:`raw_command()` for alternatives that doesn't use :mod:`argparse`.
 
     See :class:`CommandFunc` for the signature of the command function.
 
@@ -915,9 +982,10 @@ def custom_command(
     arguments: Optional[
         Sequence[Union[argument, argument_group, mutually_exclusive_group]]
     ] = None,
-    enabled: Optional[Callable[[Program], bool]] = None,
+    parse: Callable[[str], ParsedCommand[T]],
+    enabled: Callable[[Program], bool] = _always_enabled,
     namespace: CommandNamespace = DEFAULT_COMMAND_NAMESPACE,
-) -> CustomCommandFuncDecorator:
+) -> CustomCommandFuncDecorator[T]:
     """
     Decorator to register a command with its own custom syntax (instead of
     command line options).
@@ -927,10 +995,20 @@ def custom_command(
     .. code-block:: python3
 
         import ast
+        import dataclasses
+        import re
         from typing import Any
 
         from drgn import Program
-        from drgn.commands import custom_command
+        from drgn.commands import ParsedCommand, custom_command, parse_shell_command
+
+
+        def _parse_literal_eval(source: str) -> ParsedCommand[str]:
+            match = re.fullmatch(r"([^<>|]*)(.*)", source)
+            parsed = parse_shell_command(match.group(2))
+            if parsed.args:
+                raise SyntaxError("arguments after redirections are not supported")
+            return dataclasses.replace(parsed, args=match.group(1))
 
 
         @custom_command(
@@ -938,6 +1016,7 @@ def custom_command(
             usage="**literal_eval** *EXPR*",
             long_description="This evaluates and returns a Python literal"
             " (for example, a string, integer, list, etc.).",
+            parse=_parse_literal_eval,
         )
         def _cmd_literal_eval(
             prog: Program, name: str, args: str, **kwargs: Any
@@ -957,6 +1036,8 @@ def custom_command(
         output.
     :param arguments: Arguments, argument groups, and mutually exclusive groups
         accepted by the command. Used **only** for generating help output.
+    :param parse: Callback to parse the command string after the command name.
+        This must separate redirections and pipes from arguments.
     :param enabled: Callback returning whether the command should be enabled
         for a given program. Defaults to always enabled.
     :param namespace: Namespace to register command to.
@@ -969,7 +1050,7 @@ def custom_command(
             raise TypeError("long_description is mandatory if arguments not given")
         arguments = ()
 
-    def decorator(func: CustomCommandFunc) -> CustomCommandFunc:
+    def decorator(func: CustomCommandFunc[Any]) -> CustomCommandFunc[Any]:
         command_name = _command_name(name, func, namespace)
 
         parser = _create_parser(
@@ -984,7 +1065,11 @@ def custom_command(
         namespace.register(
             command_name,
             _CustomCommand(
-                func=func, parser=parser, description=description, enabled=enabled
+                func=func,
+                parser=parser,
+                description=description,
+                parse=parse,
+                enabled=enabled,
             ),
         )
 
@@ -993,14 +1078,14 @@ def custom_command(
     return decorator
 
 
-class CustomCommandFunc(Protocol):
+class CustomCommandFunc(Protocol[T_contra]):
     """Signature of a custom command function for :func:`custom_command()`."""
 
     def __call__(
         self,
         prog: Program,
         name: str,
-        args: str,
+        args: T_contra,
         /,
         *,
         parser: argparse.ArgumentParser,
@@ -1009,7 +1094,8 @@ class CustomCommandFunc(Protocol):
         """
         :param prog: Program.
         :param name: Name that the command was invoked as.
-        :param args: Command arguments as a string.
+        :param args: Command arguments parsed by *parse* argument to
+            :func:`custom_command()`.
         :param parser: Argument parser.
 
         See :meth:`Command.run()` for other keyword parameters.
@@ -1019,19 +1105,51 @@ class CustomCommandFunc(Protocol):
         ...
 
 
-CustomCommandFuncDecorator = Callable[[CustomCommandFunc], CustomCommandFunc]
+CustomCommandFuncDecorator = Callable[[CustomCommandFunc[T]], CustomCommandFunc[T]]
 
 
-class _ArgparseCommandMixin:
+raw_command = functools.partial(custom_command, parse=ParsedCommand)
+"""
+Special case of :class:`custom_command()` where the arguments are the command
+string verbatim.
+
+Note that this cannot support redirections or pipes.
+
+.. code-block:: python3
+
+    from typing import Any
+
+    from drgn import Program
+    from drgn.commands import argument, raw_command
+
+
+    @raw_command(
+        description="display text verbatim",
+        arguments=(
+            argument("text", help="text to display"),
+        ),
+    )
+    def _cmd_echo(
+        prog: Program, name: str, args: str, **kwargs: Any
+    ) -> Any:
+        print(args)
+"""
+
+
+class _CustomCommand(Generic[T]):
     def __init__(
         self,
+        func: CustomCommandFunc[T],
         parser: argparse.ArgumentParser,
         description: str,
-        enabled: Optional[Callable[[Program], bool]] = None,
+        parse: Callable[[str], ParsedCommand[T]],
+        enabled: Callable[[Program], bool],
     ) -> None:
+        self._func = func
         self._parser = parser
         self._description = description
-        self.enabled = (lambda prog: True) if enabled is None else enabled
+        self.parse = parse
+        self.enabled = enabled
 
     def description(self) -> str:
         return self._description
@@ -1049,37 +1167,34 @@ class _ArgparseCommandMixin:
             help = help[len(usage) :].lstrip()
         return textwrap.indent(help, indent).rstrip()
 
+    def run(self, prog: Program, name: str, args: T, **kwargs: Any) -> Any:
+        return self._func(prog, name, args, **kwargs, parser=self._parser)
 
-class _ArgparseCommand(_ArgparseCommandMixin):
+
+class _ArgparseCommand(_CustomCommand[Sequence[str]]):
     def __init__(
         self,
         func: CommandFunc,
         parser: argparse.ArgumentParser,
         description: str,
-        enabled: Optional[Callable[[Program], bool]] = None,
+        enabled: Callable[[Program], bool],
     ) -> None:
-        super().__init__(parser, description, enabled)
-        self._func = func
+        super().__init__(
+            self._run_argparse, parser, description, parse_shell_command, enabled
+        )
+        self._argparse_func = func
 
-    def run(self, prog: Program, name: str, args: str, **kwargs: Any) -> Any:
-        with _shell_command(args) as parsed:
-            parsed_args = self._parser.parse_args(parsed.args)
-            return self._func(prog, name, parsed_args, **kwargs, parser=self._parser)
-
-
-class _CustomCommand(_ArgparseCommandMixin):
-    def __init__(
+    def _run_argparse(
         self,
-        func: CustomCommandFunc,
+        prog: Program,
+        name: str,
+        args: Sequence[str],
         parser: argparse.ArgumentParser,
-        description: str,
-        enabled: Optional[Callable[[Program], bool]] = None,
-    ) -> None:
-        super().__init__(parser, description, enabled)
-        self._func = func
-
-    def run(self, prog: Program, name: str, args: str, **kwargs: Any) -> Any:
-        return self._func(prog, name, args, **kwargs, parser=self._parser)
+        **kwargs: Any,
+    ) -> Any:
+        return self._argparse_func(
+            prog, name, parser.parse_args(args), **kwargs, parser=parser
+        )
 
 
 # Variant of repr() that prefers double-quoted strings (like Black).

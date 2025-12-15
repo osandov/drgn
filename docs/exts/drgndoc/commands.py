@@ -178,17 +178,20 @@ class CommandFormatter:
                 if (
                     name == "drgn.commands.command"
                     or name == "drgn.commands.custom_command"
+                    or name == "drgn.commands.raw_command"
                 ):
                     namespace = ""
                 elif (
                     name == "drgn.commands.linux_kernel_command"
                     or name == "drgn.commands.linux_kernel_custom_command"
+                    or name == "drgn.commands.linux_kernel_raw_command"
                 ):
                     namespace = ""
                     enabled = "linux"
                 elif (
                     name == "drgn.commands.crash.crash_command"
                     or name == "drgn.commands.crash.crash_custom_command"
+                    or name == "drgn.commands.crash.crash_raw_command"
                 ):
                     namespace = "crash"
                 else:

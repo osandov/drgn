@@ -5,14 +5,9 @@
 
 from typing import Any, Dict
 
-from _drgn_util.typingutils import copy_func_params
+from _drgn_util.typingutils import copy_func_signature
 from drgn import Program, ProgramFlags
-from drgn.commands import (
-    CommandFuncDecorator,
-    CustomCommandFuncDecorator,
-    command,
-    custom_command,
-)
+from drgn.commands import command, custom_command, raw_command
 
 
 def _program_is_linux_kernel(prog: Program) -> bool:
@@ -29,8 +24,8 @@ def _set_enabled_if_linux_kernel(kwargs: Dict[str, Any]) -> None:
         kwargs["enabled"] = _program_is_linux_kernel
 
 
-@copy_func_params(command)
-def linux_kernel_command(*args: Any, **kwargs: Any) -> CommandFuncDecorator:
+@copy_func_signature(command)
+def linux_kernel_command(*args: Any, **kwargs: Any) -> Any:
     """
     Like :func:`~drgn.commands.command()`, but only enables the command when
     debugging the Linux kernel.
@@ -42,13 +37,21 @@ def linux_kernel_command(*args: Any, **kwargs: Any) -> CommandFuncDecorator:
     return command(*args, **kwargs)
 
 
-@copy_func_params(custom_command)
-def linux_kernel_custom_command(
-    *args: Any, **kwargs: Any
-) -> CustomCommandFuncDecorator:
+@copy_func_signature(custom_command)
+def linux_kernel_custom_command(*args: Any, **kwargs: Any) -> Any:
     """
     Like :func:`linux_kernel_command()` but for
     :func:`~drgn.commands.custom_command()`.
     """
     _set_enabled_if_linux_kernel(kwargs)
     return custom_command(*args, **kwargs)
+
+
+@copy_func_signature(raw_command)
+def linux_kernel_raw_command(*args: Any, **kwargs: Any) -> Any:
+    """
+    Like :func:`linux_kernel_command()` but for
+    :func:`~drgn.commands.raw_command()`.
+    """
+    _set_enabled_if_linux_kernel(kwargs)
+    return raw_command(*args, **kwargs)

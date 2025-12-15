@@ -4,6 +4,7 @@
 """Crash commands for evaluating and printing values."""
 
 import argparse
+import dataclasses
 import operator
 import re
 import sys
@@ -12,10 +13,11 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from drgn import Object, Program, Type
 from drgn.commands import (
     CommandArgumentError,
+    ParsedCommand,
     _repr_black,
-    _shell_command,
     argument,
     drgn_argument,
+    parse_shell_command,
 )
 from drgn.commands.crash import (
     _MEMBER_PATTERN,
@@ -130,6 +132,31 @@ def _append_operand(
         code.append(f" * {_UNITS[unit]})")
 
 
+def _parse_eval(args: str) -> ParsedCommand[str]:
+    # This command allows redirection and pipelines. To avoid ambiguity with
+    # the <<, >>, and | operators, those operators must be parenthesized.
+    # Split the arguments from any redirections/pipelines. We count nested
+    # parentheses even though the expression syntax currently doesn't support
+    # nesting.
+    parens = 0
+    for i, c in enumerate(args):
+        if c == "(":
+            parens += 1
+        elif parens:
+            if c == ")":
+                parens -= 1
+        elif c in "<>|":
+            break
+    else:
+        i = len(args)
+
+    parsed = parse_shell_command(args[i:])
+    if parsed.args:
+        # Don't allow extra arguments to be mixed in with redirections.
+        raise SyntaxError("eval does not support arguments after redirections")
+    return dataclasses.replace(parsed, args=args[:i])  # type: ignore[return-value]
+
+
 @crash_custom_command(
     description="evaluate an expression",
     usage="**eval** [**-b**] [**-l**] [**--drgn**] (*expression*)",
@@ -174,171 +201,147 @@ def _append_operand(
         ),
         drgn_argument,
     ),
+    parse=_parse_eval,
 )
 def _crash_cmd_eval(prog: Program, name: str, args: str, **kwargs: Any) -> None:
-    # This command allows redirection and pipelines. To avoid ambiguity with
-    # the <<, >>, and | operators, those operators must be parenthesized.
-    # First, split the arguments from any redirections/pipelines. We count
-    # nested parentheses even though the expression syntax currently doesn't
-    # support nesting.
-    parens = 0
-    for i, c in enumerate(args):
-        if c == "(":
-            parens += 1
-        elif parens:
-            if c == ")":
-                parens -= 1
-        elif c in "<>|":
-            break
-    else:
-        i = len(args)
+    # Handle (and remove) the --drgn flag after the expression.
+    expr, n = re.subn(r"((^|\s+)--drgn)+\s*$", "", args)
+    drgn_arg = n > 0
 
-    # Execute any redirections/pipelines.
-    with _shell_command(args[i:]) as parsed:
-        if parsed.args:
-            # Don't allow extra arguments to be mixed in with redirections.
-            raise CommandArgumentError(
-                "eval does not support arguments after redirections"
-            )
+    # Handle (and remove) command line flags (-b, -l, and --drgn) before
+    # the expression.
+    show_bits_set = False
+    long_long = False
 
-        # Handle (and remove) the --drgn flag after the expression.
-        expr, n = re.subn(r"((^|\s+)--drgn)+\s*$", "", args[:i])
-        drgn_arg = n > 0
-
-        # Handle (and remove) command line flags (-b, -l, and --drgn) before
-        # the expression.
-        show_bits_set = False
-        long_long = False
-
-        i = 0
-        pattern = re.compile(
-            r"""
-            \s*
-            (?:
-                # -l and --drgn are unambiguous.
-                (-[bl]*l[bl]*|--drgn)(?:\s|$)
-                |
-                # -b could be a flag or an expression (equivalent to -0xb).
-                # Crash treats it as a flag unless it is the last argument, so
-                # we do the same.
-                (-b)\s+\S
-            )
-            """,
-            flags=re.VERBOSE,
+    i = 0
+    pattern = re.compile(
+        r"""
+        \s*
+        (?:
+            # -l and --drgn are unambiguous.
+            (-[bl]*l[bl]*|--drgn)(?:\s|$)
+            |
+            # -b could be a flag or an expression (equivalent to -0xb).
+            # Crash treats it as a flag unless it is the last argument, so
+            # we do the same.
+            (-b)\s+\S
         )
-        while match := pattern.match(expr, pos=i):
-            flags = match.group(match.lastindex)  # type: ignore[arg-type]  # lastindex cannot be None
-            if flags == "--drgn":
-                drgn_arg = True
-            else:
-                show_bits_set |= "b" in flags
-                long_long |= "l" in flags
-            i = match.end(match.lastindex)  # type: ignore[arg-type]  # lastindex cannot be None
-        expr = expr[i:]
+        """,
+        flags=re.VERBOSE,
+    )
+    while match := pattern.match(expr, pos=i):
+        flags = match.group(match.lastindex)  # type: ignore[arg-type]  # lastindex cannot be None
+        if flags == "--drgn":
+            drgn_arg = True
+        else:
+            show_bits_set |= "b" in flags
+            long_long |= "l" in flags
+        i = match.end(match.lastindex)  # type: ignore[arg-type]  # lastindex cannot be None
+    expr = expr[i:]
 
-        match = re.fullmatch(_EVAL_PATTERN, expr, flags=re.VERBOSE)
-        if not match:
-            raise CommandArgumentError("bad expression")
+    match = re.fullmatch(_EVAL_PATTERN, expr, flags=re.VERBOSE)
+    if not match:
+        raise CommandArgumentError("bad expression")
 
-        type_name = "unsigned long long" if long_long else "unsigned long"
-        op = match.group("operator")
+    type_name = "unsigned long long" if long_long else "unsigned long"
+    op = match.group("operator")
 
-        if drgn_arg:
-            code = CrashDrgnCodeBuilder(prog)
-            code.add_from_import("drgn", "Object", "cast")
-            code.add_from_import("drgn.helpers.common.format", "number_in_binary_units")
-            if op is None:
-                code.append("value = ")
-                _append_operand(
-                    code,
-                    type_name,
-                    match.group("unary1"),
-                    match.group("number1"),
-                    match.group("unit1"),
-                )
-                code.append("\n")
-            else:
-                code.append("lhs = ")
-                _append_operand(
-                    code,
-                    type_name,
-                    match.group("unary1"),
-                    match.group("number1"),
-                    match.group("unit1"),
-                )
-                code.append("\nrhs = ")
-                _append_operand(
-                    code,
-                    type_name,
-                    match.group("unary2"),
-                    match.group("number2"),
-                    match.group("unit2"),
-                )
-                code.append(f"\nvalue = lhs {op} rhs\n")
-            code.append(
-                f"""
+    if drgn_arg:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import("drgn", "Object", "cast")
+        code.add_from_import("drgn.helpers.common.format", "number_in_binary_units")
+        if op is None:
+            code.append("value = ")
+            _append_operand(
+                code,
+                type_name,
+                match.group("unary1"),
+                match.group("number1"),
+                match.group("unit1"),
+            )
+            code.append("\n")
+        else:
+            code.append("lhs = ")
+            _append_operand(
+                code,
+                type_name,
+                match.group("unary1"),
+                match.group("number1"),
+                match.group("unit1"),
+            )
+            code.append("\nrhs = ")
+            _append_operand(
+                code,
+                type_name,
+                match.group("unary2"),
+                match.group("number2"),
+                match.group("unit2"),
+            )
+            code.append(f"\nvalue = lhs {op} rhs\n")
+        code.append(
+            f"""
 signed = cast("{type_name.replace("unsigned ", "")}", value)
 in_units = number_in_binary_units(value)
 in_hex = hex(value)
 in_octal = oct(value)
 in_binary = bin(value)
 """
-            )
-            if show_bits_set:
-                code.add_from_import("drgn", "sizeof")
-                code.append(
-                    """\
+        )
+        if show_bits_set:
+            code.add_from_import("drgn", "sizeof")
+            code.append(
+                """\
 bits_set = [
-    i for i in range(sizeof(value) * 8) if value & (1 << i)
+i for i in range(sizeof(value) * 8) if value & (1 << i)
 ]
 """
-                )
-            code.print()
-            return
+            )
+        code.print()
+        return
 
-        type = prog.type(type_name)
-        bit_size = type.size * 8  # type: ignore[operator]  # type.size cannot be None.
+    type = prog.type(type_name)
+    bit_size = type.size * 8  # type: ignore[operator]  # type.size cannot be None.
 
-        obj = _eval_operand(
-            type, match.group("unary1"), match.group("number1"), match.group("unit1")
+    obj = _eval_operand(
+        type, match.group("unary1"), match.group("number1"), match.group("unit1")
+    )
+    if op is not None:
+        rhs = _eval_operand(
+            type,
+            match.group("unary2"),
+            match.group("number2"),
+            match.group("unit2"),
         )
-        if op is not None:
-            rhs = _eval_operand(
-                type,
-                match.group("unary2"),
-                match.group("number2"),
-                match.group("unit2"),
-            )
-            obj = _BINARY_OPS[op](obj, rhs)
+        obj = _BINARY_OPS[op](obj, rhs)
 
-        value = obj.value_()
+    value = obj.value_()
 
-        with_units = ""
-        if value % (1024 * 1024 * 1024) == 0:
-            with_units = f"  ({value // (1024 * 1024 * 1024)}GB)"
-        elif value % (1024 * 1024) == 0:
-            with_units = f"  ({value // (1024 * 1024)}MB)"
-        elif value % 1024 == 0:
-            with_units = f"  ({value // 1024}KB)"
+    with_units = ""
+    if value % (1024 * 1024 * 1024) == 0:
+        with_units = f"  ({value // (1024 * 1024 * 1024)}GB)"
+    elif value % (1024 * 1024) == 0:
+        with_units = f"  ({value // (1024 * 1024)}MB)"
+    elif value % 1024 == 0:
+        with_units = f"  ({value // 1024}KB)"
 
-        signed = ""
-        if value & (1 << (bit_size - 1)):
-            signed = f"  ({value - (1 << bit_size)})"
+    signed = ""
+    if value & (1 << (bit_size - 1)):
+        signed = f"  ({value - (1 << bit_size)})"
 
-        bits_set = ""
-        if show_bits_set:
-            bits_set = "\n   bits set:" + "".join(
-                [f" {i}" for i in range(bit_size - 1, -1, -1) if value & (1 << i)]
-            )
+    bits_set = ""
+    if show_bits_set:
+        bits_set = "\n   bits set:" + "".join(
+            [f" {i}" for i in range(bit_size - 1, -1, -1) if value & (1 << i)]
+        )
 
-        sys.stdout.write(
-            f"""\
+    sys.stdout.write(
+        f"""\
 hexadecimal: {value:x}{with_units}
     decimal: {value}{signed}
       octal: {value:o}
      binary: {value:0{bit_size}b}{bits_set}
 """
-        )
+    )
 
 
 def _parse_name_and_optional_member(s: str) -> Tuple[str, str]:

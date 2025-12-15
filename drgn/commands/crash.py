@@ -3,26 +3,25 @@
 
 """Functions for porting commands from :doc:`crash <crash_compatibility>`."""
 
-import contextlib
 import dataclasses
+import functools
 import os
 import re
+import shlex
 import shutil
-import subprocess
-import sys
 import textwrap
 from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Tuple, Union
 
-from _drgn_util.typingutils import copy_func_params
 from drgn import Object, Program, ProgramFlags, Type, TypeKind, offsetof
 from drgn.commands import (
     _SHELL_TOKEN_REGEX,
-    CommandFuncDecorator,
+    DEFAULT_COMMAND_NAMESPACE,
+    Command,
     CommandNamespace,
     CommandNotFoundError,
-    CustomCommandFuncDecorator,
     DrgnCodeBlockContext,
     DrgnCodeBuilder,
+    ParsedCommand,
     _unquote,
     command,
     custom_command,
@@ -105,21 +104,23 @@ def _format_seconds_duration(seconds: int) -> str:
         return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
-def _find_pager(which: Optional[str] = None) -> Optional[List[str]]:
+def _find_pager(which: Optional[str] = None) -> Optional[str]:
     if which is None or which == "less":
         less = shutil.which("less")
         if less:
-            return [less, "-E", "-X"]
+            return f"{shlex.quote(less)} -E -X"
 
     if which is None or which == "more":
         more = shutil.which("more")
         if more:
-            return [more]
+            return shlex.quote(more)
 
     return None
 
 
-def _get_pager(prog: Program) -> Optional[List[str]]:
+def _get_pager(prog: Program) -> Optional[str]:
+    if not prog.config.get("crash_scroll", True):
+        return None
     try:
         return prog.config["crash_pager"]
     except KeyError:
@@ -138,96 +139,80 @@ class _CrashCommandNamespace(CommandNamespace):
             ),
         )
 
-    def _run(self, prog: Program, command: str, **kwargs: Any) -> Any:
+    def _resolve(
+        self, prog: Program, command: str, kwargs: Dict[str, Any]
+    ) -> Tuple[str, str, Command[object], Optional[str]]:
         command = command.lstrip()
         if command.startswith("!"):
-            args = command[1:].lstrip()
-            if args:
-                return subprocess.call(["sh", "-c", "--", args])
-            else:
-                return subprocess.call(["sh", "-i"])
+            return (
+                "!",
+                command[1:].lstrip(),
+                DEFAULT_COMMAND_NAMESPACE.lookup(prog, "sh"),
+                None,
+            )
 
         if command.startswith("*"):
-            command_name = "*"
+            name = "*"
             command_obj = self.lookup(prog, "*")
-            args = command[1:].lstrip()
+            tail = command[1:].lstrip()
         else:
             match = _SHELL_TOKEN_REGEX.match(command)
             if not match or match.lastgroup != "WORD":
                 raise SyntaxError("expected command name")
 
-            command_name = _unquote(match.group())
+            name = _unquote(match.group())
             try:
-                command_obj = self.lookup(prog, command_name)
+                command_obj = self.lookup(prog, name)
             except CommandNotFoundError as e:
                 try:
                     # Smuggle the type into the command function.
-                    kwargs["type"] = _guess_type(prog, command_name.partition(".")[0])
+                    kwargs["type"] = _guess_type(prog, name.partition(".")[0])
                 except LookupError:
                     raise e
                 else:
-                    command_name = "*"
+                    name = "*"
                     command_obj = self.lookup(prog, "*")
-                    args = command
+                    tail = command
             else:
-                args = command[match.end() :].lstrip()
+                tail = command[match.end() :].lstrip()
 
-        return command_obj.run(prog, command_name, args, **kwargs)
-
-    def run(self, prog: Program, command: str, **kwargs: Any) -> Any:
-        if prog.config.get("crash_scroll", True):
-            pager = _get_pager(prog)
-            if pager:
-                # If stdout isn't a file descriptor, we can't actually pipe it
-                # to a pager.
-                try:
-                    stdout_fileno = sys.stdout.fileno()
-                except (AttributeError, OSError):
-                    pager = None
-        else:
-            pager = None
-
-        if not pager:
-            return super().run(prog, command, **kwargs)
-
-        with subprocess.Popen(
-            pager, stdin=subprocess.PIPE, stdout=stdout_fileno, text=True
-        ) as pager_process, contextlib.redirect_stdout(pager_process.stdin):
-            ret = super().run(prog, command, **kwargs)
-            pager_process.stdin.close()  # type: ignore[union-attr]
-        return ret
+        return name, tail, command_obj, _get_pager(prog)
 
 
 CRASH_COMMAND_NAMESPACE: CommandNamespace = _CrashCommandNamespace()
 """Command namespace used for crash commands."""
 
 
-@copy_func_params(command)
-def crash_command(*args: Any, **kwargs: Any) -> CommandFuncDecorator:
-    """
-    Decorator to register a :doc:`crash command <crash_compatibility>`.
+crash_command = functools.partial(command, namespace=CRASH_COMMAND_NAMESPACE)
+"""
+Decorator to register a :doc:`crash command <crash_compatibility>`.
 
-    This is the same as :func:`~drgn.commands.command()` other than the
-    following:
+This is the same as :func:`~drgn.commands.command()` other than the following:
 
-    1. The command is only available as a subcommand of the
-       :drgncommand:`crash` command.
-    2. If *name* is not given, then the name of the decorated function must
-       begin with ``_crash_cmd_`` instead of ``_cmd_``.
-    3. The command may use the ``"pid_or_task"`` argparse type to parse a task
-       context argument to a ``(type, value)`` tuple, where ``type`` is either
-       ``"pid"`` or ``"task"`` and ``value`` is an :class:`int`.
-    """
-    return command(*args, **kwargs, namespace=CRASH_COMMAND_NAMESPACE)
+1. The command is only available as a subcommand of the :drgncommand:`crash`
+   command.
+2. If *name* is not given, then the name of the decorated function must begin
+   with ``_crash_cmd_`` instead of ``_cmd_``.
+3. The command may use the ``"pid_or_task"`` argparse type to parse a task
+   context argument to a ``(type, value)`` tuple, where ``type`` is either
+   ``"pid"`` or ``"task"`` and ``value`` is an :class:`int`.
+"""
 
+crash_custom_command = functools.partial(
+    custom_command, namespace=CRASH_COMMAND_NAMESPACE
+)
+"""
+Like :func:`crash_command()` but for :func:`~drgn.commands.custom_command()`.
+"""
 
-@copy_func_params(custom_command)
-def crash_custom_command(*args: Any, **kwargs: Any) -> CustomCommandFuncDecorator:
-    """
-    Like :func:`crash_command()` but for
-    :func:`~drgn.commands.custom_command()`.
-    """
-    return custom_command(*args, **kwargs, namespace=CRASH_COMMAND_NAMESPACE)
+# mypy doesn't handle functools.partial(functools.partial(...), ...) very well,
+# so we wrap custom_command() directly instead of raw_command().
+crash_raw_command = functools.partial(
+    custom_command, parse=ParsedCommand, namespace=CRASH_COMMAND_NAMESPACE
+)
+"""
+Like :func:`crash_command()` but for :func:`~drgn.commands.raw_command()`.
+"""
 
 
 def _crash_get_panic_context(prog: Program) -> Object:
