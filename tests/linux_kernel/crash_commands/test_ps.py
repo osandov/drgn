@@ -182,6 +182,33 @@ class TestPs(CrashCommandTestCase):
         self.assertIn("continue", cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
 
+    def test_backslash_command_name(self):
+        with fork_and_stop(Path("/proc/self/comm").write_bytes, b"drgn_test_ps") as (
+            pid,
+            _,
+        ):
+            cmd = self.check_crash_command(r"ps -H \drgn_test_ps")
+
+        self.assertRegex(cmd.stdout, rf"(?m)^>?\s*{pid}\b")
+
+        self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
+        self.assertIn('comm_string != "drgn_test_ps"', cmd.drgn_option.stdout)
+        self.assertIn("continue", cmd.drgn_option.stdout)
+        self._test_drgn_common(cmd)
+
+    def test_command_name_regex(self):
+        cmd = self.check_crash_command(r"ps -H 'drgn_test_ps[0-9]'")
+
+        for pid in [thread.native_id for thread in self.threads]:
+            self.assertRegex(cmd.stdout, rf"(?m)^>?\s*{pid}\b")
+
+        self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
+        self.assertIn(
+            're.search("drgn_test_ps[0-9]", comm_string)', cmd.drgn_option.stdout
+        )
+        self.assertIn("continue", cmd.drgn_option.stdout)
+        self._test_drgn_common(cmd)
+
     def test_pid_and_command_name(self):
         cmd = self.check_crash_command(f"ps -H {_quoted_comm()} 1")
 

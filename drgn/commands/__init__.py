@@ -84,21 +84,6 @@ _SHELL_TOKEN_REGEX = re.compile(
 )
 
 
-def _unquote_repl(match: "re.Match[str]") -> str:
-    s = match.group()
-    if s[0] == "\\":
-        return s[1]
-    elif s[0] == '"':
-        return re.sub(r'\\([$`"\\\n])', r"\1", s[1:-1])
-    else:
-        assert s[0] == "'"
-        return s[1:-1]
-
-
-def _unquote(s: str) -> str:
-    return re.sub(_ESCAPED_OR_QUOTED_WORD, _unquote_repl, s)
-
-
 @contextlib.contextmanager
 def _redirect_and_pipe(
     redirections: Sequence[ShellRedirection], pipeline: Optional[str]
@@ -385,7 +370,7 @@ class CommandNamespace:
         if not match or match.lastgroup != "WORD":
             raise SyntaxError("expected command name")
 
-        name = _unquote(match.group())
+        name = unquote_shell_word(match.group())
         return name, command[match.end() :].lstrip(), self.lookup(prog, name), None
 
 
@@ -505,12 +490,15 @@ class ShellRedirection(NamedTuple):
 RedirectOp = Literal["<", ">", ">>"]
 
 
-def parse_shell_command(source: str) -> ParsedCommand[Sequence[str]]:
+def parse_shell_command(
+    source: str, unquote: bool = True
+) -> ParsedCommand[Sequence[str]]:
     """
     Parse a shell command string.
 
     :param source: Command string after command name (arguments,
         redirections, pipes, etc.).
+    :param unquote: Whether to unquote/unescape arguments.
     """
     args: List[str] = []
     redirections: List[ShellRedirection] = []
@@ -521,12 +509,17 @@ def parse_shell_command(source: str) -> ParsedCommand[Sequence[str]]:
         kind = match.lastgroup
         value = match.group()
         if kind == "WORD":
-            value = _unquote(value)
             if redirection is None:
+                if unquote:
+                    value = unquote_shell_word(value)
                 args.append(value)
             else:
                 redirections.append(
-                    ShellRedirection(fd=redirection[0], op=redirection[1], path=value)
+                    ShellRedirection(
+                        fd=redirection[0],
+                        op=redirection[1],
+                        path=unquote_shell_word(value),
+                    )
                 )
                 redirection = None
         elif kind == "PIPELINE":
@@ -557,6 +550,27 @@ def parse_shell_command(source: str) -> ParsedCommand[Sequence[str]]:
     if redirection is not None:
         raise SyntaxError("unexpected end of input")
     return ParsedCommand(args, redirections, pipeline)
+
+
+def _unquote_repl(match: "re.Match[str]") -> str:
+    s = match.group()
+    if s[0] == "\\":
+        return s[1]
+    elif s[0] == '"':
+        return re.sub(r'\\([$`"\\\n])', r"\1", s[1:-1])
+    else:
+        assert s[0] == "'"
+        return s[1:-1]
+
+
+def unquote_shell_word(word: str) -> str:
+    r"""
+    Unquote/unescape a quoted and/or escaped word in shell syntax.
+
+    >>> print(unquote_shell_word(r"f'o'o\ bar"))
+    foo bar
+    """
+    return re.sub(_ESCAPED_OR_QUOTED_WORD, _unquote_repl, word)
 
 
 @overload

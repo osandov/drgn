@@ -22,9 +22,9 @@ from drgn.commands import (
     DrgnCodeBlockContext,
     DrgnCodeBuilder,
     ParsedCommand,
-    _unquote,
     command,
     custom_command,
+    unquote_shell_word,
 )
 from drgn.helpers.common.format import double_quote_ascii_string
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
@@ -160,7 +160,7 @@ class _CrashCommandNamespace(CommandNamespace):
             if not match or match.lastgroup != "WORD":
                 raise SyntaxError("expected command name")
 
-            name = _unquote(match.group())
+            name = unquote_shell_word(match.group())
             try:
                 command_obj = self.lookup(prog, name)
             except CommandNotFoundError as e:

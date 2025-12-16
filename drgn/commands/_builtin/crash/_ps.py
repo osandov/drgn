@@ -11,6 +11,7 @@ in the system.
 
 import argparse
 import collections
+import functools
 import re
 import sys
 from typing import (
@@ -36,13 +37,15 @@ from drgn.commands import (
     argument,
     drgn_argument,
     mutually_exclusive_group,
+    parse_shell_command,
+    unquote_shell_word,
 )
 from drgn.commands.crash import (
     Cpuspec,
     CrashDrgnCodeBuilder,
     _format_seconds_duration,
     _print_task_header,
-    crash_command,
+    crash_custom_command,
     parse_cpuspec,
     print_task_header,
 )
@@ -759,7 +762,7 @@ for state, num in counter.items():
         print(f"  {state}: {num}")
 
 
-@crash_command(
+@crash_custom_command(
     description="process information",
     long_description="display process status information",
     arguments=(
@@ -916,19 +919,38 @@ for state, num in counter.items():
             metavar="pid|task|command",
             type=_pid_or_task_or_command,
             nargs="*",
-            help="pid is a process PID. task is hexadecimal task_struct pointer. command is a command name.",
+            help=r"""
+            display only this task, given as a decimal process ID, hexadecimal
+            ``task_struct``, single quoted ("'") regular expression matching
+            command names, or a literal command name (optionally prefixed with
+            "\" to disambiguate it). May be given multiple times
+            """,
         ),
         drgn_argument,
     ),
+    parse=functools.partial(parse_shell_command, unquote=False),
 )
 def _crash_cmd_ps(
     prog: Program,
     name: str,
-    args: argparse.Namespace,
+    quoted_args: Sequence[str],
     *,
     parser: argparse.ArgumentParser,
     **kwargs: Any,
 ) -> None:
+    args = parser.parse_args(
+        # Arguments starting with "'" or "\" have special meaning, so we don't
+        # unquote those.
+        [
+            (
+                arg
+                if arg.startswith("'") or arg.startswith("\\")
+                else unquote_shell_word(arg)
+            )
+            for arg in quoted_args
+        ]
+    )
+
     if args.last_arrival_timestamp or args.last_arrival_elapsed:
         cpuspec = None if args.cpu is None else parse_cpuspec(args.cpu)
     elif args.cpu is not None:
