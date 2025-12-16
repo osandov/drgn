@@ -10,6 +10,7 @@ import importlib
 import logging
 import os
 import os.path
+from pathlib import Path
 import pkgutil
 import runpy
 import shutil
@@ -651,6 +652,34 @@ def _main() -> None:
                 exec(args.exec, exec_globals)
 
 
+def _history_file() -> str:
+    # Historically, our history file was directly in ~. However, the May 2021
+    # XDG Base Directory Specification [1] added a dedicated directory for
+    # things like history files: $XDG_STATE_HOME, which defaults to
+    # ~/.local/state.
+    #
+    # We don't move existing history files, but we create new ones in the new
+    # location.
+    #
+    # Note that we use pathlib because it raises an error if a home directory
+    # can't be resolved instead of failing silently like os.path.expanduser().
+    #
+    # [1]: https://specifications.freedesktop.org/basedir/latest/
+    path = Path("~/.drgn_history").expanduser()
+    if path.exists():
+        return str(path)
+    return _state_file("history")
+
+
+def _state_file(name: str) -> str:
+    xdg_state_home = os.getenv("XDG_STATE_HOME")
+    if xdg_state_home is None:
+        path = Path("~/.local/state").expanduser()
+    else:
+        path = Path(xdg_state_home)
+    return str(path / "drgn" / name)
+
+
 def run_interactive(
     prog: drgn.Program,
     banner_func: Optional[Callable[[str], str]] = None,
@@ -710,7 +739,7 @@ For help, type help(drgn).
 
     had_outer_repl = "outer_repl" in prog.config
 
-    histfile = os.path.expanduser("~/.drgn_history")
+    histfile = _history_file()
     try:
         readline.clear_history()
         try:
@@ -735,6 +764,7 @@ For help, type help(drgn).
             interact(init_globals, banner)
         finally:
             try:
+                os.makedirs(os.path.dirname(histfile), exist_ok=True)
                 readline.write_history_file(histfile)
             except OSError as e:
                 logger.warning("could not write history: %s", e)
