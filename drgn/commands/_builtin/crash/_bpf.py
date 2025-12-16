@@ -4,22 +4,35 @@
 # ebpf-related commands.
 
 import argparse
+from datetime import datetime, timedelta
+import mmap
 from typing import Any, List, Sequence
 
 from drgn import Program
-from drgn.commands import drgn_argument
+from drgn.commands import argument, drgn_argument
 from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command
 from drgn.helpers.common.format import CellFormat, print_table
 from drgn.helpers.linux.bpf import (
     bpf_map_for_each,
+    bpf_prog_by_id,
     bpf_prog_for_each,
     bpf_prog_used_maps,
 )
 
 
 @crash_command(
-    description="display all eBPF programs and maps",
-    arguments=(drgn_argument,),
+    description="display loaded eBPF programs and maps",
+    arguments=(
+        argument(
+            "-p",
+            "--program",
+            dest="prog_id",
+            type=int,
+            nargs=1,
+            help="display additional information for the specified BPF program ID",
+        ),
+        drgn_argument,
+    ),
 )
 def _crash_cmd_bpf(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
@@ -54,7 +67,6 @@ for bpf_map in bpf_map_for_each(prog):
         )
         code.print()
         return
-
     prog_rows: List[Sequence[Any]] = [
         (
             CellFormat("ID", "^"),
@@ -65,6 +77,61 @@ for bpf_map in bpf_map_for_each(prog):
             CellFormat("USED_MAPS", "^"),
         )
     ]
+
+    if args.prog_id:
+        bpf_prog = bpf_prog_by_id(prog, args.prog_id[0])
+        if not bpf_prog:
+            print(f"invalid BPF program ID: {args.prog_id[0]}")
+            return
+
+        aux = bpf_prog.aux
+        prog_id = aux.id.value_()
+        prog_type_name = bpf_prog.type.format_(type_name=False).split("BPF_PROG_TYPE_")[
+            -1
+        ]
+        PAGE_SIZE = mmap.PAGESIZE
+        INSN_SIZE = prog.type("struct bpf_insn").size
+
+        tag = bpf_prog.tag
+        prog_tag = "".join(f"{b.value_():02x}" for b in tag)
+
+        used_maps = []
+        for map in bpf_prog_used_maps(bpf_prog):
+            used_maps.append(map.id.value_())
+        used_maps_str = ",".join(str(m) for m in used_maps)
+
+        prog_rows.append(
+            (
+                prog_id,
+                CellFormat(bpf_prog.value_(), "^x"),
+                CellFormat(aux.value_(), "^x"),
+                CellFormat(prog_type_name, "^"),
+                CellFormat(prog_tag, "^"),
+                CellFormat(used_maps_str, "^"),
+            )
+        )
+        print_table(prog_rows)
+
+        print(
+            f"     XLATED: {bpf_prog.len.value_() * INSN_SIZE}  JITED: {bpf_prog.jited_len.value_()}  MEMLOCK: {bpf_prog.pages.value_() * PAGE_SIZE}"
+        )
+
+        load_time_ns = aux.load_time.value_()
+        with open("/proc/uptime") as f:
+            uptime_seconds = float(f.read().split()[0])
+
+        current_time = datetime.now()
+        load_time_seconds = load_time_ns / 1e9
+        seconds_ago = uptime_seconds - load_time_seconds
+        actual_load_time = current_time - timedelta(seconds=seconds_ago)
+
+        print(f"     LOAD_TIME: {actual_load_time.strftime('%a %b %d %H:%M:%S %Y')}")
+
+        gpl_compat = "yes" if bpf_prog.gpl_compatible.value_() else "no"
+        uid = aux.user.uid.value_()["val"]
+        print(f"     GPL_COMPATIBLE: {gpl_compat}  UID: {uid}")
+
+        return
 
     for bpf_prog in bpf_prog_for_each(prog):
         prog_id = bpf_prog.aux.id.value_()
