@@ -6,6 +6,7 @@
 
 import argparse
 import builtins
+import contextlib
 import importlib
 import logging
 import os
@@ -15,7 +16,7 @@ import pkgutil
 import runpy
 import shutil
 import sys
-from typing import IO, Any, Callable, Dict, Optional, Tuple
+from typing import IO, Any, Callable, Dict, Iterator, Optional, Tuple
 
 import drgn
 from drgn.internal.repl import interact, readline
@@ -680,6 +681,69 @@ def _state_file(name: str) -> str:
     return str(path / "drgn" / name)
 
 
+def _read_history(history_file: str) -> None:
+    try:
+        readline.read_history_file(history_file)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.warning("could not read history: %s", e)
+
+
+def _write_history(history_file: str) -> None:
+    try:
+        os.makedirs(os.path.dirname(history_file), exist_ok=True)
+        readline.write_history_file(history_file)
+    except OSError as e:
+        logger.warning("could not write history: %s", e)
+
+
+current_history_file = None
+
+
+@contextlib.contextmanager
+def _setup_readline(
+    history_file: str, completer: Optional[Callable[[str, int], Optional[str]]] = None
+) -> Iterator[None]:
+    global current_history_file
+    old_history_file = current_history_file
+    old_history_length = readline.get_history_length()
+    old_completer = readline.get_completer()
+
+    try:
+        if current_history_file is not None:
+            _write_history(current_history_file)
+        readline.clear_history()
+        _read_history(history_file)
+        current_history_file = history_file
+
+        readline.set_history_length(1000)
+
+        if completer is None:
+            readline.parse_and_bind("tab: self-insert")
+        else:
+            readline.parse_and_bind("tab: complete")
+        readline.set_completer(completer)
+
+        try:
+            yield
+        finally:
+            _write_history(history_file)
+    finally:
+        readline.set_completer(old_completer)
+        if old_completer is None:
+            readline.parse_and_bind("tab: self-insert")
+        else:
+            readline.parse_and_bind("tab: complete")
+
+        readline.set_history_length(old_history_length)
+
+        readline.clear_history()
+        if old_history_file is not None:
+            _read_history(old_history_file)
+        current_history_file = old_history_file
+
+
 def run_interactive(
     prog: drgn.Program,
     banner_func: Optional[Callable[[str], str]] = None,
@@ -730,51 +794,26 @@ For help, type help(drgn).
 
     old_path = list(sys.path)
     old_displayhook = sys.displayhook
-    old_history_length = readline.get_history_length()
-    old_completer = readline.get_completer()
     try:
         old_default_prog = drgn.get_default_prog()
     except drgn.NoDefaultProgramError:
         old_default_prog = None
-
     had_outer_repl = "outer_repl" in prog.config
 
-    histfile = _history_file()
-    try:
-        readline.clear_history()
+    with _setup_readline(_history_file(), Completer(init_globals).complete):
         try:
-            readline.read_history_file(histfile)
-        except OSError as e:
-            if not isinstance(e, FileNotFoundError):
-                logger.warning("could not read history: %s", e)
+            sys.path.insert(0, "")
+            sys.displayhook = _displayhook
 
-        readline.set_history_length(1000)
-        readline.parse_and_bind("tab: complete")
-        readline.set_completer(Completer(init_globals).complete)
+            drgn.set_default_prog(prog)
 
-        sys.path.insert(0, "")
-        sys.displayhook = _displayhook
+            if not had_outer_repl:
+                prog.config["outer_repl"] = "drgn"
 
-        drgn.set_default_prog(prog)
-
-        if not had_outer_repl:
-            prog.config["outer_repl"] = "drgn"
-
-        try:
             interact(init_globals, banner)
         finally:
-            try:
-                os.makedirs(os.path.dirname(histfile), exist_ok=True)
-                readline.write_history_file(histfile)
-            except OSError as e:
-                logger.warning("could not write history: %s", e)
-    finally:
-        if not had_outer_repl:
-            prog.config.pop("outer_repl", None)
-        drgn.set_default_prog(old_default_prog)
-        sys.displayhook = old_displayhook
-        sys.path[:] = old_path
-        readline.set_history_length(old_history_length)
-        readline.parse_and_bind("tab: self-insert")
-        readline.set_completer(old_completer)
-        readline.clear_history()
+            if not had_outer_repl:
+                prog.config.pop("outer_repl", None)
+            drgn.set_default_prog(old_default_prog)
+            sys.displayhook = old_displayhook
+            sys.path[:] = old_path

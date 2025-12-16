@@ -68,20 +68,24 @@ def _cmd_crash(
             elif prog.config["outer_repl"] == "crash":
                 raise _ExitToCrash()
 
-            _SysPrinter(prog, False, context="panic").print()
-            while True:
-                try:
-                    line = input("%crash> ")
-                except EOFError:
-                    break
-                if not line or line.isspace():
-                    continue
-                try:
-                    CRASH_COMMAND_NAMESPACE.run(
-                        prog, line, globals=globals, onerror=_crash_interactive_onerror
-                    )
-                except _ExitToCrash:
-                    continue
+            with drgn.cli._setup_readline(drgn.cli._state_file("crash_history")):
+                _SysPrinter(prog, False, context="panic").print()
+                while True:
+                    try:
+                        line = input("%crash> ")
+                    except EOFError:
+                        break
+                    if not line or line.isspace():
+                        continue
+                    try:
+                        CRASH_COMMAND_NAMESPACE.run(
+                            prog,
+                            line,
+                            globals=globals,
+                            onerror=_crash_interactive_onerror,
+                        )
+                    except _ExitToCrash:
+                        continue
         finally:
             if not had_outer_repl:
                 prog.config.pop("outer_repl", None)
