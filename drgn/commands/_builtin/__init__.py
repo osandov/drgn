@@ -7,22 +7,20 @@ into drgn should be defined in this package.
 """
 
 import argparse
-import dataclasses
 import importlib
 import pkgutil
-import re
 import subprocess
-import traceback
 import types
 from typing import Any, Dict, Union
 
 from drgn import Program, execscript
 from drgn.commands import (
-    ParsedCommand,
+    CommandArgumentError,
+    _parse_py_command,
+    _print_py_command_exception,
     argument,
     command,
     custom_command,
-    parse_shell_command,
     raw_command,
 )
 
@@ -48,44 +46,9 @@ def _cmd_sh(prog: Program, name: str, args: str, **kwargs: Any) -> int:
         return subprocess.call(["sh", "-i"])
 
 
-def _parse_py_command(args: str) -> ParsedCommand[Union[types.CodeType, SyntaxError]]:
-    for match in re.finditer(r"[|<>]", args):
-        try:
-            code = compile(args[: match.start()], "<input>", "single")
-        except SyntaxError:
-            pass
-        else:
-            parsed = parse_shell_command(args[match.start() :])
-            if parsed.args:
-                # Don't allow extra arguments to be mixed in with redirections.
-                raise SyntaxError("py does not support arguments after redirections")
-            return dataclasses.replace(parsed, args=code)  # type: ignore[arg-type,return-value]
-    else:
-        # Fallback for no match: compile all the code as a "single" statement
-        # so exec() still prints out the result. If there is a syntax error,
-        # let the command handle it.
-        try:
-            return ParsedCommand(compile(args, "<input>", "single"))
-        except SyntaxError as e:
-            return ParsedCommand(e)
-
-
-# Print an exception without our own compile() frame, which could confuse the
-# user.
-def _print_exception(exc: BaseException) -> None:
-    # Unfortunately, traceback objects are linked lists and there's no built-in
-    # functionality to drop the last N frames of a traceback while printing.
-    tb = exc.__traceback__
-    count = 0
-    while tb:
-        count += 1
-        tb = tb.tb_next
-    traceback.print_exception(type(exc), exc, exc.__traceback__, limit=1 - count)
-
-
 @custom_command(
     description="execute a python statement and allow shell redirection",
-    usage="**py** [*command*]",
+    usage="**py** *code*",
     long_description="""
     Execute the given code, up to the first shell redirection or pipeline
     statement, as Python code.
@@ -114,13 +77,16 @@ def _print_exception(exc: BaseException) -> None:
 def _cmd_py(
     prog: Program,
     name: str,
-    code: Union[types.CodeType, SyntaxError],
+    code: Union[types.CodeType, SyntaxError, None],
     *,
     globals: Dict[str, Any],
     **kwargs: Any,
 ) -> None:
+    if code is None:
+        raise CommandArgumentError("expected code")
+
     if isinstance(code, SyntaxError):
-        _print_exception(code)
+        _print_py_command_exception(code)
         return
 
     try:
@@ -129,7 +95,7 @@ def _cmd_py(
         # Any exception should be formatted just as the interpreter would. This
         # includes keyboard interrupts, but not things like SystemExit or
         # GeneratorExit.
-        _print_exception(e)
+        _print_py_command_exception(e)
 
 
 @command(

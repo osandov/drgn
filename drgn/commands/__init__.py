@@ -19,6 +19,8 @@ import re
 import subprocess
 import sys
 import textwrap
+import traceback
+import types
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -1416,3 +1418,46 @@ class DrgnCodeBlockContext:
 
     def __exit__(self, *exc_info: object) -> None:
         self.end()
+
+
+def _parse_py_command(
+    args: str,
+) -> ParsedCommand[Union[types.CodeType, SyntaxError, None]]:
+    for match in re.finditer(r"[|<>]", args):
+        try:
+            source = args[: match.start()]
+            if not source or source.isspace():
+                code = None
+            else:
+                code = compile(source, "<input>", "single")
+        except SyntaxError:
+            pass
+        else:
+            parsed = parse_shell_command(args[match.start() :])
+            if parsed.args:
+                # Don't allow extra arguments to be mixed in with redirections.
+                raise SyntaxError("py does not support arguments after redirections")
+            return dataclasses.replace(parsed, args=code)  # type: ignore[arg-type,return-value]
+    else:
+        # Fallback for no match: compile all the code as a "single" statement
+        # so exec() still prints out the result. If there is a syntax error,
+        # let the command handle it.
+        if not args or args.isspace():
+            return ParsedCommand(None)
+        try:
+            return ParsedCommand(compile(args, "<input>", "single"))
+        except SyntaxError as e:
+            return ParsedCommand(e)
+
+
+# Print an exception without our own compile() frame, which could confuse the
+# user.
+def _print_py_command_exception(exc: BaseException) -> None:
+    # Unfortunately, traceback objects are linked lists and there's no built-in
+    # functionality to drop the last N frames of a traceback while printing.
+    tb = exc.__traceback__
+    count = 0
+    while tb:
+        count += 1
+        tb = tb.tb_next
+    traceback.print_exception(type(exc), exc, exc.__traceback__, limit=1 - count)

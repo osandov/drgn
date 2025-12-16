@@ -11,14 +11,6 @@ the :drgncommand:`crash` command::
     >>> %crash sys
     KERNEL: ...
 
-Calling the :drgncommand:`crash` command with no arguments enters an
-interactive prompt where crash commands can be called directly::
-
-    >>> %crash
-    %crash> sys
-    KERNEL: ...
-    %crash>
-
 Most of these commands have an additional ``--drgn`` option instructing them to
 print example drgn code that does the equivalent of the command. This is useful
 for learning about drgn helpers and APIs. It can also be used to generate a
@@ -32,6 +24,35 @@ it:
     >>> %crash mount --drgn > mount.py
     >>> %sh $EDITOR mount.py
     >>> %source mount.py
+
+Calling the :drgncommand:`crash` command with no arguments enters an
+interactive prompt where crash commands can be called directly::
+
+    >>> %crash
+    %crash> sys
+    KERNEL: ...
+    %crash>
+
+The interactive prompt can also be entered directly from a shell with the
+``drgn-crash`` script:
+
+.. code-block:: console
+
+    $ drgn-crash
+    KERNEL: ...
+    %crash>
+
+drgn code can be executed from the interactive crash prompt with the
+:drgncommand:`drgn <crash.drgn>` command::
+
+    %crash> drgn stack_trace(1)[0]["next"].pid
+    (pid_t)0
+
+Calling the :drgncommand:`drgn <crash.drgn>` command with no arguments
+enters/returns to the drgn CLI::
+
+    %crash> drgn
+    >>>
 
 Commands
 --------

@@ -146,6 +146,18 @@ def default_globals(prog: drgn.Program) -> Dict[str, Any]:
     return init_globals
 
 
+def _set_kernel_with_sudo_fallback(prog: drgn.Program) -> None:
+    try:
+        prog.set_kernel()
+        return
+    except PermissionError as e:
+        if shutil.which("sudo") is None:
+            sys.exit(
+                f"{e}\ndrgn debugs the live kernel by default, which requires root"
+            )
+    prog.set_core_dump(open_via_sudo("/proc/kcore", os.O_RDONLY))
+
+
 def _identify_script(path: str) -> str:
     EI_NIDENT = 16
     SIZEOF_E_TYPE = 2
@@ -606,15 +618,7 @@ def _main() -> None:
                     f"{e}\nerror: attaching to live process requires ptrace attach permissions"
                 )
         else:
-            try:
-                prog.set_kernel()
-            except PermissionError as e:
-                if shutil.which("sudo") is None:
-                    sys.exit(
-                        f"{e}\ndrgn debugs the live kernel by default, which requires root"
-                    )
-                else:
-                    prog.set_core_dump(open_via_sudo("/proc/kcore", os.O_RDONLY))
+            _set_kernel_with_sudo_fallback(prog)
     except OSError as e:
         sys.exit(str(e))
     except ValueError as e:
@@ -703,6 +707,9 @@ For help, type help(drgn).
         old_default_prog = drgn.get_default_prog()
     except drgn.NoDefaultProgramError:
         old_default_prog = None
+
+    had_outer_repl = "outer_repl" in prog.config
+
     histfile = os.path.expanduser("~/.drgn_history")
     try:
         readline.clear_history()
@@ -721,6 +728,9 @@ For help, type help(drgn).
 
         drgn.set_default_prog(prog)
 
+        if not had_outer_repl:
+            prog.config["outer_repl"] = "drgn"
+
         try:
             interact(init_globals, banner)
         finally:
@@ -729,6 +739,8 @@ For help, type help(drgn).
             except OSError as e:
                 logger.warning("could not write history: %s", e)
     finally:
+        if not had_outer_repl:
+            prog.config.pop("outer_repl", None)
         drgn.set_default_prog(old_default_prog)
         sys.displayhook = old_displayhook
         sys.path[:] = old_path

@@ -176,7 +176,7 @@ class _CrashCommandNamespace(CommandNamespace):
             else:
                 tail = command[match.end() :].lstrip()
 
-        return name, tail, command_obj, _get_pager(prog)
+        return name, tail, command_obj, None if name == "drgn" else _get_pager(prog)
 
 
 CRASH_COMMAND_NAMESPACE: CommandNamespace = _CrashCommandNamespace()
