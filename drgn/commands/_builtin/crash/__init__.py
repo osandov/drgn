@@ -4,7 +4,7 @@
 import argparse
 import sys
 import types
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 from drgn import Program
 import drgn.cli
@@ -23,6 +23,7 @@ from drgn.commands.crash import (
     crash_custom_command,
 )
 from drgn.commands.linux import linux_kernel_raw_command
+from drgn.internal.repl import readline
 
 
 # These inherit from SystemExit to bypass things that attempt to handle most
@@ -37,6 +38,30 @@ class _ExitCrash(SystemExit):
 
 def _crash_interactive_onerror(e: Exception) -> None:
     _write_command_error(sys.stderr, e, prefix="drgn: crash")
+
+
+class _CrashCompleter:
+    def __init__(self, prog: Program) -> None:
+        self._prog = prog
+
+    def complete(self, text: str, state: int) -> Optional[str]:
+        # Only complete command names at the beginning of a line.
+        begidx = readline.get_begidx()
+        if begidx > 0:
+            if readline.get_line_buffer()[:begidx].strip():
+                return None
+
+        if state == 0:
+            self._matches = [
+                name
+                for name, _ in CRASH_COMMAND_NAMESPACE.enabled(self._prog)
+                if name.startswith(text)
+            ]
+
+        if 0 <= state < len(self._matches):
+            return self._matches[state]
+        else:
+            return None
 
 
 @linux_kernel_raw_command(
@@ -68,7 +93,9 @@ def _cmd_crash(
             elif prog.config["outer_repl"] == "crash":
                 raise _ExitToCrash()
 
-            with drgn.cli._setup_readline(drgn.cli._state_file("crash_history")):
+            with drgn.cli._setup_readline(
+                drgn.cli._state_file("crash_history"), _CrashCompleter(prog).complete
+            ):
                 _SysPrinter(prog, False, context="panic").print()
                 while True:
                     try:
