@@ -1,22 +1,41 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import contextlib
+import ctypes
+import mmap
 import os
 import os.path
+from pathlib import Path
 
 from drgn import Object
 from drgn.helpers.linux.block import (
     bdev_partno,
+    blk_mq_rq_from_pdu,
+    blk_rq_bytes,
+    blk_rq_pos,
     disk_devt,
     disk_name,
     for_each_disk,
     for_each_partition,
     nr_blockdev_pages,
+    op_is_write,
     part_devt,
     part_name,
+    req_op,
+    rq_data_dir,
 )
 from drgn.helpers.linux.device import MAJOR, MINOR
-from tests.linux_kernel import LinuxKernelTestCase, meminfo_field_in_pages
+from tests.linux_kernel import (
+    IOCB_CMD_PWRITE,
+    LinuxKernelTestCase,
+    io_destroy,
+    io_setup,
+    io_submit,
+    iocb,
+    meminfo_field_in_pages,
+    skip_unless_have_test_kmod,
+)
 
 
 class TestBlock(LinuxKernelTestCase):
@@ -68,3 +87,42 @@ class TestBlock(LinuxKernelTestCase):
             meminfo_field_in_pages("Buffers"),
             delta=1024 * 1024 * 1024,
         )
+
+    @skip_unless_have_test_kmod
+    def test_rq_helpers(self):
+        with contextlib.ExitStack() as exit_stack:
+            fd = os.open("/dev/drgntestb0", os.O_RDWR | os.O_DIRECT)
+            exit_stack.callback(os.close, fd)
+
+            map = exit_stack.enter_context(
+                mmap.mmap(-1, mmap.PAGESIZE, mmap.MAP_PRIVATE)
+            )
+
+            iocbs = (iocb * 1)()
+            iocbs[0].aio_lio_opcode = IOCB_CMD_PWRITE
+            iocbs[0].aio_fildes = fd
+            iocbs[0].aio_buf = ctypes.addressof(ctypes.c_char.from_buffer(map))
+            iocbs[0].aio_nbytes = mmap.PAGESIZE
+            iocbs[0].aio_offset = 6 * mmap.PAGESIZE
+
+            ctx_id = io_setup(len(iocbs))
+            exit_stack.callback(io_destroy, ctx_id)
+
+            truant = Path("/sys/block/drgntestb0/truant")
+            truant.write_text("1\n")
+            exit_stack.callback(truant.write_text, "0\n")
+
+            io_submit(ctx_id, iocbs)
+
+            rq = blk_mq_rq_from_pdu(
+                self.prog["drgn_test_blkdevs"][0].loafing_requests.next
+            )
+            self.assertEqual(req_op(rq), self.prog["REQ_OP_WRITE"])
+            self.assertEqual(rq_data_dir(rq), 1)
+            self.assertEqual(blk_rq_pos(rq), (6 * mmap.PAGESIZE) >> 9)
+            self.assertEqual(blk_rq_bytes(rq), mmap.PAGESIZE)
+
+    def test_op_is_write(self):
+        self.assertFalse(op_is_write(self.prog["REQ_OP_READ"]))
+        self.assertTrue(op_is_write(self.prog["REQ_OP_WRITE"]))
+        self.assertTrue(op_is_write(self.prog["REQ_OP_DISCARD"]))
