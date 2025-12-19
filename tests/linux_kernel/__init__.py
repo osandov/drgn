@@ -832,3 +832,65 @@ _shmctl.restype = ctypes.c_int
 
 def shmctl(shmid: int, op: int) -> None:
     _check_ctypes_syscall(_shmctl(shmid, op, 0))
+
+
+_aio_context_t = ctypes.c_ulong
+
+
+def io_setup(nr_events):
+    ctx_id = _aio_context_t()
+    _check_ctypes_syscall(
+        _syscall(SYS["io_setup"], ctypes.c_uint(nr_events), ctypes.byref(ctx_id))
+    )
+    return ctx_id.value
+
+
+def io_destroy(ctx_id):
+    _check_ctypes_syscall(_syscall(SYS["io_destroy"], _aio_context_t(ctx_id)))
+
+
+_aio_key_and_aio_rw_flags = [
+    ("aio_key", ctypes.c_uint32),
+    ("aio_rw_flags", ctypes.c_int),
+]
+if sys.byteorder == "big":
+    _aio_key_and_aio_rw_flags.reverse()
+
+
+IOCB_CMD_PREAD = 0
+IOCB_CMD_PWRITE = 1
+IOCB_CMD_FSYNC = 2
+IOCB_CMD_FDSYNC = 3
+IOCB_CMD_POLL = 5
+IOCB_CMD_NOOP = 6
+IOCB_CMD_PREADV = 7
+IOCB_CMD_PWRITEV = 8
+
+
+class iocb(ctypes.Structure):
+    _fields_ = (
+        ("aio_data", ctypes.c_uint64),
+        *_aio_key_and_aio_rw_flags,
+        ("aio_lio_opcode", ctypes.c_uint16),
+        ("aio_reqprio", ctypes.c_int16),
+        ("aio_fildes", ctypes.c_uint32),
+        ("aio_buf", ctypes.c_uint64),
+        ("aio_nbytes", ctypes.c_uint64),
+        ("aio_offset", ctypes.c_int64),
+        ("aio_reserved2", ctypes.c_uint64),
+        ("aio_flags", ctypes.c_uint32),
+        ("aio_resfd", ctypes.c_uint32),
+    )
+
+
+def io_submit(ctx_id, iocbs):
+    nr = len(iocbs)
+    iocbp = (ctypes.POINTER(iocb) * nr)(*(ctypes.pointer(iocb) for iocb in iocbs))
+    return _check_ctypes_syscall(
+        _syscall(
+            SYS["io_submit"],
+            _aio_context_t(ctx_id),
+            ctypes.c_long(nr),
+            ctypes.byref(iocbp),
+        )
+    )
