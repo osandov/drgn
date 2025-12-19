@@ -35,6 +35,7 @@
 #include <linux/radix-tree.h>
 #include <linux/rbtree.h>
 #include <linux/rbtree_augmented.h>
+#include <linux/sbitmap.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/stacktrace.h>
@@ -1063,6 +1064,55 @@ static void drgn_test_rbtree_init(void)
 		     &drgn_test_rb_entries_with_black_violation[0].node,
 		     &drgn_test_rb_entries_with_black_violation[0].node.rb_right);
 	drgn_test_rb_entries_with_black_violation[1].node.__rb_parent_color |= RB_BLACK;
+}
+
+// sbitmap
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+// sbitmap_deferred_clear_bit() was added in Linux kernel commit ea86ea2cdced
+// ("sbitmap: ammortize cost of clearing bits") (in v5.0).
+#define sbitmap_deferred_clear_bit sbitmap_clear_bit
+#endif
+
+struct sbitmap drgn_test_sbitmap;
+
+static int drgn_test_sbitmap_init(void)
+{
+	int ret;
+
+	ret = sbitmap_init_node(&drgn_test_sbitmap, 128, 4, GFP_KERNEL,
+				NUMA_NO_NODE
+// The round_robin and alloc_hint parameters were added in Linux kernel commits
+// efe1f3a1d583 ("scsi: sbitmap: Maintain allocation round_robin in sbitmap"),
+// and c548e62bcf6a ("scsi: sbitmap: Move allocation hint into sbitmap") (both
+// in v5.13), respectively.
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
+				, false , false
+#endif
+				);
+	if (ret)
+		return ret;
+
+	sbitmap_set_bit(&drgn_test_sbitmap, 13);
+	sbitmap_set_bit(&drgn_test_sbitmap, 23);
+	sbitmap_set_bit(&drgn_test_sbitmap, 24);
+	sbitmap_set_bit(&drgn_test_sbitmap, 97);
+	sbitmap_set_bit(&drgn_test_sbitmap, 98);
+	sbitmap_set_bit(&drgn_test_sbitmap, 99);
+	sbitmap_set_bit(&drgn_test_sbitmap, 123);
+
+	sbitmap_clear_bit(&drgn_test_sbitmap, 97);
+	// Resize to smaller than a set bit to test that the depth is enforced
+	// properly.
+	sbitmap_resize(&drgn_test_sbitmap, 100);
+	sbitmap_deferred_clear_bit(&drgn_test_sbitmap, 98);
+	return 0;
+}
+
+static void drgn_test_sbitmap_exit(void)
+{
+	if (drgn_test_sbitmap.map)
+		sbitmap_free(&drgn_test_sbitmap);
 }
 
 // slab
@@ -2159,6 +2209,7 @@ static void drgn_test_exit(void)
 {
 	drgn_test_sysfs_exit();
 	drgn_test_slab_exit();
+	drgn_test_sbitmap_exit();
 	drgn_test_percpu_exit();
 	drgn_test_maple_tree_exit();
 	drgn_test_mm_exit();
@@ -2197,6 +2248,9 @@ static int __init drgn_test_init(void)
 	if (ret)
 		goto out;
 	drgn_test_rbtree_init();
+	ret = drgn_test_sbitmap_init();
+	if (ret)
+		goto out;
 	ret = drgn_test_slab_init();
 	if (ret)
 		goto out;
