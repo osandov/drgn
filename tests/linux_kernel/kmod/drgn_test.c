@@ -10,6 +10,8 @@
 
 #include <linux/version.h>
 
+#include <linux/blkdev.h>
+#include <linux/blk-mq.h>
 #include <linux/completion.h>
 #include <linux/hrtimer.h>
 #include <linux/io.h>
@@ -189,6 +191,320 @@ static void drgn_test_constants_init(void)
 #ifdef CONFIG_FLATMEM
 	drgn_test_ARCH_PFN_OFFSET = ARCH_PFN_OFFSET;
 #endif
+}
+
+// block
+
+// blk_mode_t, BLK_OPEN_READ, and BLK_OPEN_WRITE were added in Linux kernel
+// commit 05bdb9965305 ("block: replace fmode_t with a block-specific type for
+// block open flags") (in v6.5).
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 5, 0)
+#define blk_mode_t fmode_t
+#define BLK_OPEN_READ FMODE_READ
+#define BLK_OPEN_WRITE FMODE_WRITE
+#endif
+
+// blk_status_t and BLK_STS_OK were added in Linux kernel commit 2a842acab109
+// ("block: introduce new block status code type") (in v4.13).
+#ifndef BLK_STS_OK
+#define blk_status_t int
+#define BLK_STS_OK 0
+#endif
+
+// blk_mq_alloc_disk() was added in Linux kernel commit b461dfc49eb6 ("blk-mq:
+// add the blk_mq_alloc_disk APIs") (in v5.14).
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
+static struct gendisk *blk_mq_alloc_disk(struct blk_mq_tag_set *set, void *queuedata)
+{
+       struct request_queue *q;
+       struct gendisk *disk;
+
+       // Not blk_mq_init_queue_data() because that was added in Linux kernel
+       // commit 2f227bb99934 ("block: add a blk_mq_init_queue_data helper") (in
+       // v5.7).
+       q = blk_mq_init_queue(set);
+       if (IS_ERR(q))
+               return ERR_CAST(q);
+       q->queuedata = queuedata;
+
+       disk = alloc_disk_node(0, set->numa_node);
+       if (!disk) {
+               blk_cleanup_queue(q);
+               return ERR_PTR(-ENOMEM);
+       }
+       disk->queue = q;
+       return disk;
+}
+#endif
+
+static int drgn_test_blkdev_major;
+
+struct drgn_test_blkdev {
+	struct blk_mq_tag_set tag_set;
+	struct gendisk *disk;
+	spinlock_t lock;
+	int truant;
+	struct list_head loafing_requests;
+} drgn_test_blkdevs[2];
+
+static void drgn_test_blkdev_complete_rq(struct request *rq)
+{
+	struct bio *bio;
+
+	if (req_op(rq) == REQ_OP_READ) {
+		__rq_for_each_bio(bio, rq)
+			zero_fill_bio(bio);
+	}
+	blk_mq_end_request(rq, BLK_STS_OK);
+}
+
+static ssize_t drgn_test_blkdev_truant_show(struct device *dev,
+					    struct device_attribute *attr,
+					    char *buf)
+{
+	struct drgn_test_blkdev *data = dev_to_disk(dev)->private_data;
+	return sprintf(buf, "%d\n", READ_ONCE(data->truant));
+}
+
+static ssize_t drgn_test_blkdev_truant_store(struct device *dev,
+					     struct device_attribute *attr,
+					     const char *buf, size_t count)
+{
+	struct drgn_test_blkdev *data = dev_to_disk(dev)->private_data;
+	LIST_HEAD(to_complete);
+	struct list_head *pos;
+	int ret, val;
+
+	ret = kstrtoint(buf, 0, &val);
+	if (ret < 0)
+		return ret;
+	if (val != 0 && val != 1)
+		return -EINVAL;
+
+	spin_lock(&data->lock);
+	if (!val)
+		list_splice_init(&data->loafing_requests, &to_complete);
+	data->truant = val;
+	spin_unlock(&data->lock);
+
+	list_for_each(pos, &to_complete)
+		drgn_test_blkdev_complete_rq(blk_mq_rq_from_pdu(pos));
+
+	return count;
+}
+
+static struct device_attribute drgn_test_blkdev_attr_truant =
+	__ATTR(truant, 0600, drgn_test_blkdev_truant_show,
+	       drgn_test_blkdev_truant_store);
+
+static const struct attribute_group drgn_test_blkdev_attr_group = {
+	.attrs = (struct attribute *[]){
+		&drgn_test_blkdev_attr_truant.attr,
+		NULL,
+	},
+};
+
+static const struct attribute_group *drgn_test_blkdev_attr_groups[] = {
+	&drgn_test_blkdev_attr_group,
+	NULL,
+};
+
+static blk_status_t drgn_test_queue_rq(struct blk_mq_hw_ctx *hctx,
+				       const struct blk_mq_queue_data *bd)
+{
+	struct request *rq = bd->rq;
+	struct drgn_test_blkdev *data = rq->q->queuedata;
+
+	blk_mq_start_request(rq);
+
+	spin_lock(&data->lock);
+	if (data->truant) {
+		list_add_tail(blk_mq_rq_to_pdu(rq), &data->loafing_requests);
+		spin_unlock(&data->lock);
+	} else {
+		spin_unlock(&data->lock);
+		drgn_test_blkdev_complete_rq(rq);
+	}
+
+	return BLK_STS_OK;
+}
+
+// For testing flush requests, we want an interface that synchronously queues a
+// flush request. Unfortunately, aio IOCB_CMD_FSYNC queues the request
+// asynchronously (with schedule_work()). Instead, we expose this via an ioctl.
+static int drgn_test_blkdev_ioctl(struct block_device *bdev, blk_mode_t mode,
+				  unsigned cmd, unsigned long arg)
+{
+	struct bio *bio;
+
+	// We co-opt the number for LOOP_SET_FD so that the test code doesn't
+	// need to worry about ioctl number encoding.
+	if (cmd != 0x4c00)
+		return -ENOTTY;
+
+	if (!(mode & (BLK_OPEN_READ | BLK_OPEN_WRITE)))
+		return -EBADF;
+
+	// The bdev and opf parameters to bio_alloc() were added in Linux kernel
+	// commit 07888c665b40 ("block: pass a block_device and opf to
+	// bio_alloc") (in v5.18). Before that, we have to set the block device
+	// and operation manually.
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
+	bio = bio_alloc(bdev, 0, REQ_OP_WRITE | REQ_PREFLUSH, GFP_KERNEL);
+	if (!bio)
+		return -ENOMEM;
+#else
+	bio = bio_alloc(GFP_KERNEL, 0);
+	if (!bio)
+		return -ENOMEM;
+	// bio_set_dev() was added in Linux kernel commit 74d46992e0d9 ("block:
+	// replace bi_bdev with a gendisk pointer and partitions index") (in
+	// v4.14). Before that, we have to set bi_bdev manually.
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+	bio_set_dev(bio, bdev);
+#else
+	bio->bi_bdev = bdev;
+#endif
+	bio->bi_opf = REQ_OP_WRITE | REQ_PREFLUSH;
+#endif
+	bio->bi_end_io = bio_put;
+	submit_bio(bio);
+	// We shouldn't be poking at internals like this, but flush requests are
+	// added to the requeue list and queued asynchronously. We need them to
+	// be queued before we return.
+	flush_delayed_work(&bdev->bd_disk->queue->requeue_work);
+	return 0;
+}
+
+static const struct blk_mq_ops drgn_test_blk_mq_ops = {
+	.queue_rq = drgn_test_queue_rq,
+};
+
+static const struct block_device_operations drgn_test_blk_fops = {
+	.ioctl = drgn_test_blkdev_ioctl,
+	.owner = THIS_MODULE,
+};
+
+static int drgn_test_blkdev_create(struct drgn_test_blkdev *bdev,
+				   int index, int nr_hw_queues, int queue_depth,
+				   unsigned int tag_set_flags)
+{
+	int ret;
+
+	spin_lock_init(&bdev->lock);
+	INIT_LIST_HEAD(&bdev->loafing_requests);
+
+	// Before Linux kernel commit f8a5b12247fe ("blk-mq: make mq_ops a const
+	// pointer") (in v4.11), struct blk_mq_tag_set::ops wasn't marked const.
+	bdev->tag_set.ops =
+		(struct blk_mq_ops *)&drgn_test_blk_mq_ops;
+	bdev->tag_set.cmd_size = sizeof(struct list_head);
+	bdev->tag_set.nr_hw_queues = nr_hw_queues;
+	bdev->tag_set.queue_depth = queue_depth;
+	bdev->tag_set.numa_node = NUMA_NO_NODE;
+	bdev->tag_set.flags = tag_set_flags;
+	ret = blk_mq_alloc_tag_set(&bdev->tag_set);
+	if (ret) {
+		bdev->tag_set.ops = NULL;
+		return ret;
+	}
+
+	// We need write cache support to test flush requests.
+	// BLK_FEAT_WRITE_CACHE was added in Linux kernel commit 1122c0c1cc71
+	// ("block: move cache control settings out of queue->flags") (in
+	// v6.11). Before that, we have to call blk_queue_write_cache().
+	//
+	// The lim parameter was added to blk_mq_alloc_disk() in Linux kernel
+	// commit 27e32cd23fed ("block: pass a queue_limits argument to
+	// blk_mq_alloc_disk") (in v6.9).
+	bdev->disk = blk_mq_alloc_disk(&bdev->tag_set,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+				       (&(struct queue_limits){
+					       .features = BLK_FEAT_WRITE_CACHE,
+				       }),
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
+				       NULL,
+#endif
+				       bdev);
+	if (IS_ERR(bdev->disk))
+		return PTR_ERR(bdev->disk);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
+	blk_queue_write_cache(bdev->disk->queue, true, false);
+#endif
+	bdev->disk->major = drgn_test_blkdev_major;
+	bdev->disk->first_minor = index;
+	bdev->disk->minors = 1;
+	bdev->disk->fops = &drgn_test_blk_fops;
+	sprintf(bdev->disk->disk_name, "drgntestb%d", index);
+	set_capacity(bdev->disk, SZ_1G >> SECTOR_SHIFT);
+	bdev->disk->private_data = bdev;
+
+	// The groups parameter was added to device_add_disk() in Linux kernel
+	// commit fef912bf860e ("block: genhd: add 'groups' argument to
+	// device_add_disk") (in v4.20). Before that, we have to call
+	// sysfs_create_groups().
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+	// Before Linux kernel commit 83cbce957446 ("block: add error handling
+	// for device_add_disk / add_disk") (in v5.15), device_add_disk() didn't
+	// return anything.
+	ret =
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
+	0;
+#endif
+	device_add_disk(NULL, bdev->disk, drgn_test_blkdev_attr_groups);
+	if (ret)
+		return ret;
+#else
+	add_disk(bdev->disk);
+	ret = sysfs_create_groups(&disk_to_dev(bdev->disk)->kobj,
+				  drgn_test_blkdev_attr_groups);
+	if (ret)
+		return ret;
+#endif
+
+	return 0;
+}
+
+static void drgn_test_blkdev_destroy(struct drgn_test_blkdev *bdev)
+{
+	if (!IS_ERR_OR_NULL(bdev->disk))
+		put_disk(bdev->disk);
+	if (bdev->tag_set.ops)
+		blk_mq_free_tag_set(&bdev->tag_set);
+}
+
+static int drgn_test_block_init(void)
+{
+	int ret;
+
+	drgn_test_blkdev_major = register_blkdev(0, "drgntest");
+	if (drgn_test_blkdev_major < 0)
+		return drgn_test_blkdev_major;
+
+	ret = drgn_test_blkdev_create(&drgn_test_blkdevs[0], 0, 2, 2, 0);
+	if (ret)
+		return ret;
+	// BLK_MQ_F_TAG_HCTX_SHARED was added in Linux kernel commit
+	// 32bc15afed04 ("blk-mq: Facilitate a shared sbitmap per tagset") (in
+	// v5.10).
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+	ret = drgn_test_blkdev_create(&drgn_test_blkdevs[1], 1, 2, 4,
+				      BLK_MQ_F_TAG_HCTX_SHARED);
+	if (ret)
+		return ret;
+#endif
+
+	return 0;
+}
+
+static void drgn_test_block_exit(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(drgn_test_blkdevs); i++)
+		drgn_test_blkdev_destroy(&drgn_test_blkdevs[i]);
+	if (drgn_test_blkdev_major > 0)
+		unregister_blkdev(drgn_test_blkdev_major, "drgntest");
 }
 
 // list
@@ -2221,6 +2537,7 @@ static void drgn_test_exit(void)
 	drgn_test_xarray_exit();
 	drgn_test_waitq_exit();
 	drgn_test_idr_exit();
+	drgn_test_block_exit();
 }
 
 static int __init drgn_test_init(void)
@@ -2228,6 +2545,9 @@ static int __init drgn_test_init(void)
 	int ret;
 
 	drgn_test_constants_init();
+	ret = drgn_test_block_init();
+	if (ret)
+		goto out;
 	drgn_test_list_init();
 	drgn_test_llist_init();
 	drgn_test_plist_init();
