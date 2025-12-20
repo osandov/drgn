@@ -54,7 +54,7 @@ from drgn.helpers.linux.irq import (
 )
 from drgn.helpers.linux.kconfig import _get_raw_kconfig
 from drgn.helpers.linux.mm import totalram_pages
-from drgn.helpers.linux.panic import panic_message, panic_task
+from drgn.helpers.linux.panic import panic_message, panic_task, tainted
 from drgn.helpers.linux.percpu import per_cpu
 from drgn.helpers.linux.pid import for_each_task
 from drgn.helpers.linux.printk import print_dmesg
@@ -145,20 +145,29 @@ class _SysPrinter:
         print_table(rows, sep=": ")
 
     def _append_kernel(self) -> None:
+        self.code.add_from_import("drgn.helpers.linux.panic", "tainted")
         self.code.append(
             """\
 try:
     kernel = prog.main_module().debug_file_path
 except LookupError:
     kernel = None
+
+taints = tainted()
 """
         )
 
     def _get_kernel(self) -> Optional[str]:
         try:
-            return self.prog.main_module().debug_file_path
+            kernel = self.prog.main_module().debug_file_path
         except LookupError:
-            return None
+            kernel = None
+        if tainted(self.prog):
+            if kernel is None:
+                kernel = "[TAINTED]"
+            else:
+                kernel += "  [TAINTED]"
+        return kernel
 
     def _append_dumpfile(self) -> None:
         self.code.append("dumpfile = prog.core_dump_path\n")

@@ -34,6 +34,7 @@ class TestSys(CrashCommandTestCase):
 
         for variable in (
             "kernel",
+            "taints",
             "dumpfile",
             "cpus",
             "offline_cpus",
