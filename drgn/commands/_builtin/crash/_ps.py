@@ -24,6 +24,7 @@ from drgn.commands import (
     unquote_shell_word,
 )
 from drgn.commands.crash import (
+    _CRASH_FOREACH_SUBCOMMANDS,
     Cpuspec,
     CrashDrgnCodeBuilder,
     _format_seconds_duration,
@@ -47,7 +48,13 @@ from drgn.helpers.linux.mm import (
 )
 from drgn.helpers.linux.pid import for_each_task_in_group
 from drgn.helpers.linux.resource import task_rlimits
-from drgn.helpers.linux.sched import cpu_rq, task_cpu, task_on_cpu, task_state_to_char
+from drgn.helpers.linux.sched import (
+    _TASK_STATE_CHAR_TO_STATE,
+    cpu_rq,
+    task_cpu,
+    task_on_cpu,
+    task_state_to_char,
+)
 from drgn.helpers.linux.timekeeping import ktime_get_coarse_ns
 
 _SCHED_POLICIES = {
@@ -714,3 +721,135 @@ comm = task.comm
             )
         )
     print_table(rows)
+
+
+@crash_custom_command(
+    description="run command on multiple tasks",
+    long_description="""
+    Run the given command on all tasks matching the given constraints (or all
+    tasks in the system if no constraints are given).
+    """,
+    usage=r"**foreach** [**\-\-drgn**] [*pid* | *task* | *name* ...] "
+    "[**kernel** | **user** | **gleader**] [**active**] [*state*] "
+    "*command* [*-option* ...]",
+    arguments=(
+        argument(
+            "pid",
+            help="run the command on the task with this decimal process ID",
+        ),
+        argument(
+            "task",
+            help="""
+            run the command on the task with this hexadecimal task_struct
+            address
+            """,
+        ),
+        argument(
+            "name",
+            help=r"""
+            run the command on tasks with the given name. May be prefixed with
+            ``\`` to disambiguate it as a literal command name. If
+            single-quoted (``'``), then it is treated as a regular expression
+            """,
+        ),
+        argument(
+            "kernel",
+            help="run the command on kernel threads",
+        ),
+        argument(
+            "user",
+            help="run the command on user tasks",
+        ),
+        argument(
+            "gleader",
+            help="run the command on thread group leaders",
+        ),
+        argument(
+            "active",
+            help="run the command on the active task on each CPU",
+        ),
+        argument(
+            "state",
+            help='run the command on tasks in this state ("R", "D", etc.)',
+        ),
+        argument(
+            "command",
+            help="run this command on the selected tasks",
+        ),
+        argument(
+            "-option",
+            action="store_true",
+            help="additional option to pass to the command",
+        ),
+        drgn_argument,
+    ),
+    parse=functools.partial(parse_shell_command, unquote=False),
+)
+def _crash_cmd_foreach(
+    prog: Program,
+    name: str,
+    quoted_args: Sequence[str],
+    *,
+    parser: argparse.ArgumentParser,
+    **kwargs: Any,
+) -> Any:
+    args = [
+        (
+            arg
+            if arg.startswith("'") or arg.startswith("\\")
+            else unquote_shell_word(arg)
+        )
+        for arg in quoted_args
+    ]
+
+    tasks = []
+    kernel = False
+    user = False
+    group_leader = False
+    on_cpu = False
+    state = None
+    command_args = []
+    for i, arg in enumerate(args):
+        if arg in _CRASH_FOREACH_SUBCOMMANDS:
+            subcommand = _CRASH_FOREACH_SUBCOMMANDS[arg]
+            command_args.extend(args[i + 1 :])
+            break
+        elif arg.startswith("-"):
+            command_args.append(arg)
+        elif arg == "kernel":
+            if group_leader:
+                parser.error("gleader and kernel are mutually exclusive")
+            if user:
+                parser.error("user and kernel are mutually exclusive")
+            kernel = True
+        elif arg == "user":
+            if kernel:
+                parser.error("kernel and user are mutually exclusive")
+            user = True
+        elif arg == "gleader":
+            if kernel:
+                parser.error("kernel and gleader are mutually exclusive")
+            user = group_leader = True
+        elif arg == "active":
+            on_cpu = True
+        elif arg in _TASK_STATE_CHAR_TO_STATE:
+            if state is not None:
+                parser.error("only one task state allowed")
+            state = arg
+        else:
+            tasks.append(_pid_or_task_or_command(arg))
+    else:
+        parser.error("no command given")
+
+    return subcommand.func(
+        _TaskSelector(
+            prog,
+            tasks,
+            kernel=kernel,
+            user=user,
+            group_leader=group_leader,
+            on_cpu=on_cpu,
+            state=state,
+        ),
+        subcommand.parser.parse_args(command_args),
+    )

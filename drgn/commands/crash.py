@@ -3,6 +3,7 @@
 
 """Functions for porting commands from :doc:`crash <crash_compatibility>`."""
 
+import argparse
 import dataclasses
 import functools
 import operator
@@ -21,6 +22,7 @@ from typing import (
     Iterator,
     List,
     Literal,
+    NamedTuple,
     Optional,
     Sequence,
     Set,
@@ -39,9 +41,14 @@ from drgn.commands import (
     DrgnCodeBlockContext,
     DrgnCodeBuilder,
     ParsedCommand,
+    _command_name,
+    _create_parser,
     _repr_black,
+    argument,
+    argument_group,
     command,
     custom_command,
+    mutually_exclusive_group,
     unquote_shell_word,
 )
 from drgn.helpers.common.format import double_quote_ascii_string
@@ -985,3 +992,38 @@ if not thread_group_leader(task):
             block2.end()
 
         return block
+
+
+_CrashForeachSubcommandFunc = Callable[[_TaskSelector, argparse.Namespace], Any]
+_CrashForeachSubcommandFuncDecorator = Callable[
+    [_CrashForeachSubcommandFunc], _CrashForeachSubcommandFunc
+]
+
+
+class _CrashForeachSubcommand(NamedTuple):
+    parser: argparse.ArgumentParser
+    func: _CrashForeachSubcommandFunc
+
+
+_CRASH_FOREACH_SUBCOMMANDS: Dict[str, _CrashForeachSubcommand] = {}
+
+
+def _crash_foreach_subcommand(
+    *,
+    name: Optional[str] = None,
+    arguments: Sequence[Union[argument, argument_group, mutually_exclusive_group]] = (),
+) -> _CrashForeachSubcommandFuncDecorator:
+    def decorator(func: _CrashForeachSubcommandFunc) -> _CrashForeachSubcommandFunc:
+        command_name = _command_name(name, func, "_crash_foreach_")
+
+        parser = _create_parser(
+            name="foreach " + command_name,
+            arguments=arguments,
+            types=CRASH_COMMAND_NAMESPACE._argparse_types,
+        )
+
+        _CRASH_FOREACH_SUBCOMMANDS[command_name] = _CrashForeachSubcommand(parser, func)
+
+        return func
+
+    return decorator

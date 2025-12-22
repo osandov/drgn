@@ -617,15 +617,17 @@ def _add_argument(
 
 
 def _command_name(
-    name: Optional[str], func: Callable[..., Any], namespace: CommandNamespace
+    name: Optional[str],
+    func: Callable[..., Any],
+    prefix: str,
 ) -> str:
     if name is None:
         if not hasattr(func, "__name__"):
             raise ValueError("callable doesn't have __name__; pass name explicitly")
-        match = re.fullmatch(namespace._func_name_prefix + r"(\w+)", func.__name__)
+        match = re.fullmatch(prefix + r"(\w+)", func.__name__)
         if not match:
             raise ValueError(
-                f"{func.__name__!r} doesn't start with {namespace._func_name_prefix}; "
+                f"{func.__name__!r} doesn't start with {prefix}; "
                 "rename it or pass name explicitly"
             )
         name = match.group(1)
@@ -643,9 +645,9 @@ def _decimal_or_hexadecimal(s: str) -> int:
 def _create_parser(
     *,
     name: str,
-    usage: Optional[str],
-    description: Optional[str],
-    epilog: Optional[str],
+    usage: Optional[str] = None,
+    description: Optional[str] = None,
+    epilog: Optional[str] = None,
     arguments: Sequence[Union[argument, argument_group, mutually_exclusive_group]],
     types: Sequence[Tuple[str, Callable[[str], Any]]],
 ) -> argparse.ArgumentParser:
@@ -732,7 +734,7 @@ def command(
     """
 
     def decorator(func: CommandFunc) -> CommandFunc:
-        command_name = _command_name(name, func, namespace)
+        command_name = _command_name(name, func, namespace._func_name_prefix)
 
         parser = _create_parser(
             name=command_name,
@@ -1067,7 +1069,7 @@ def custom_command(
         arguments = ()
 
     def decorator(func: CustomCommandFunc[Any]) -> CustomCommandFunc[Any]:
-        command_name = _command_name(name, func, namespace)
+        command_name = _command_name(name, func, namespace._func_name_prefix)
 
         parser = _create_parser(
             name=command_name,
