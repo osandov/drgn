@@ -55,51 +55,63 @@ class TestSig(CrashCommandTestCase):
             )
 
             cmd = self.check_crash_command(f"sig {pid}")
+            foreach_cmd = self.check_crash_command(f"foreach {pid} sig", mode="capture")
 
-        self.assertIn("PID:", cmd.stdout)
-        self.assertIn("SIGNAL_STRUCT:", cmd.stdout)
-        self.assertIn("NR_THREADS:", cmd.stdout)
+        for c in (cmd, foreach_cmd):
+            self.assertIn("PID:", c.stdout)
+            self.assertIn("SIGNAL_STRUCT:", c.stdout)
+            self.assertIn("NR_THREADS:", c.stdout)
 
-        self.assertEqual(
-            re.search(r"^\s*BLOCKED: ([0-9a-f]+)$", cmd.stdout, flags=re.M).group(1),
-            sig_status["SigBlk"],
-        )
+            self.assertEqual(
+                re.search(r"^\s*BLOCKED: ([0-9a-f]+)$", c.stdout, flags=re.M).group(1),
+                sig_status["SigBlk"],
+            )
 
-        for crash_name, proc_name in (
-            ("PRIVATE_PENDING", "SigPnd"),
-            ("SHARED_PENDING", "ShdPnd"),
-        ):
-            with self.subTest(set=crash_name):
-                self.assertEqual(
-                    re.search(
-                        rf"^{crash_name}\n\s*SIGNAL: ([0-9a-f]+)$",
-                        cmd.stdout,
-                        flags=re.M,
-                    ).group(1),
-                    sig_status[proc_name],
-                )
-                sigqueue = re.search(
-                    rf"^{crash_name}\n.*\n\s*SIGQUEUE: (.*)", cmd.stdout, flags=re.M
-                ).group(1)
-                if sig_status[proc_name].replace("0", ""):
-                    self.assertRegex(sigqueue, r"^\s*SIG\s+SIGINFO\s*$")
-                else:
-                    self.assertEqual(sigqueue, "(empty)")
+            for crash_name, proc_name in (
+                ("PRIVATE_PENDING", "SigPnd"),
+                ("SHARED_PENDING", "ShdPnd"),
+            ):
+                with self.subTest(set=crash_name):
+                    self.assertEqual(
+                        re.search(
+                            rf"^{crash_name}\n\s*SIGNAL: ([0-9a-f]+)$",
+                            c.stdout,
+                            flags=re.M,
+                        ).group(1),
+                        sig_status[proc_name],
+                    )
+                    sigqueue = re.search(
+                        rf"^{crash_name}\n.*\n\s*SIGQUEUE: (.*)", c.stdout, flags=re.M
+                    ).group(1)
+                    if sig_status[proc_name].replace("0", ""):
+                        self.assertRegex(sigqueue, r"^\s*SIG\s+SIGINFO\s*$")
+                    else:
+                        self.assertEqual(sigqueue, "(empty)")
 
         self._test_sig_drgn_option_common(cmd)
         for variable in ("sigqueue", "info", "pending_signo"):
             with self.subTest(variable=variable):
                 self.assertIsInstance(cmd.drgn_option.globals[variable], Object)
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_thread_group(self):
         cmd = self.check_crash_command(f"sig -g {os.getpid()}")
-        self.assertEqual(
-            len(re.findall(r"^\s*PID:", cmd.stdout, flags=re.M)),
-            len(os.listdir("/proc/self/task")) + 1,
+        foreach_cmd = self.check_crash_command(
+            f"foreach {os.getpid()} sig -g", mode="capture"
         )
+
+        for c in (cmd, foreach_cmd):
+            self.assertEqual(
+                len(re.findall(r"^\s*PID:", c.stdout, flags=re.M)),
+                len(os.listdir("/proc/self/task")) + 1,
+            )
+
         self.assertIn("for_each_task_in_group(", cmd.drgn_option.stdout)
         self._test_sig_drgn_option_common(cmd)
         # We may not have any pending signals, so don't check for those variables.
+
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
 
     def test_list(self):
         cmd = self.check_crash_command("sig -l")

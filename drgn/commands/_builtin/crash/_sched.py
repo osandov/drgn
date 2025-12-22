@@ -12,11 +12,12 @@ from drgn import Object, Program, offsetof
 from drgn.commands import _repr_black, argument, drgn_argument, mutually_exclusive_group
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
+    _crash_foreach_subcommand,
     _guess_type,
     _parse_type_name_and_member,
     _prefer_object_lookup,
+    _TaskSelector,
     crash_command,
-    crash_get_context,
     print_task_header,
 )
 from drgn.helpers.common.format import CellFormat, print_table
@@ -31,7 +32,7 @@ from drgn.helpers.linux.signal import (
 from drgn.helpers.linux.wait import waitqueue_for_each_task
 
 
-def _append_sigpending(code: CrashDrgnCodeBuilder, name: str, indent: str) -> None:
+def _append_sigpending(code: CrashDrgnCodeBuilder, name: str, indent: str = "") -> None:
     code.add_from_import("drgn.helpers.linux.signal", "sigpending_for_each")
     code.append(
         f"""\
@@ -63,6 +64,145 @@ def _print_sigpending(pending: Object, indent: str = "") -> None:
         print(indent + "  SIGQUEUE: (empty)")
     else:
         print_table(rows)
+
+
+@_crash_foreach_subcommand(
+    arguments=(
+        argument(
+            "-g",
+            dest="thread_group",
+            action="store_true",
+        ),
+        drgn_argument,
+    ),
+)
+def _crash_foreach_sig(task_selector: _TaskSelector, args: argparse.Namespace) -> None:
+    prog = task_selector.prog
+
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        with task_selector.begin_task_loop(code):
+            code.append_task_header()
+            code.add_from_import("drgn.helpers.linux.signal", "decode_sigaction_flags")
+            code.append(
+                """\
+
+signal_struct = task.signal
+nr_threads = signal_struct.nr_threads
+
+for signo, action in enumerate(task.sighand.action, 1):
+    sigaction = action.sa
+    handler = sigaction.sa_handler
+    mask = sigaction.sa_mask
+    flags = sigaction.sa_flags
+    decoded_flags = decode_sigaction_flags(sigaction)
+"""
+            )
+
+            if not args.thread_group:
+                code.append(
+                    """
+blocked = task.blocked
+
+private_pending = task.pending
+"""
+                )
+                _append_sigpending(code, "private_pending")
+
+            code.append(
+                """
+shared_pending = signal_struct.shared_pending
+"""
+            )
+            _append_sigpending(code, "shared_pending")
+
+            if args.thread_group:
+                code.add_from_import("drgn.helpers.linux.pid", "for_each_task_in_group")
+                code.append(
+                    """
+for task in for_each_task_in_group(task, include_self=True):
+"""
+                )
+                code.append_task_header("    ")
+                code.append(
+                    """
+    blocked = task.blocked
+
+    private_pending = task.pending
+"""
+                )
+                _append_sigpending(code, "private_pending", "    ")
+
+        return code.print()
+
+    first = True
+    for task in task_selector.tasks():
+        if first:
+            first = False
+        else:
+            print()
+        print_task_header(task)
+
+        signal_struct = task.signal.read_()
+        print(
+            f"SIGNAL_STRUCT: {signal_struct.value_():x}  NR_THREADS: {signal_struct.nr_threads.value_()}"
+        )
+
+        rows: List[Sequence[Any]] = [
+            (
+                CellFormat("SIG", ">"),
+                CellFormat("SIGACTION", "^"),
+                CellFormat("HANDLER", "^"),
+                CellFormat("MASK", "^"),
+                "FLAGS",
+            ),
+        ]
+        for signo, action in enumerate(task.sighand.action, 1):
+            sa = action.sa
+
+            handler = sa.sa_handler.value_()
+            if handler == 0:
+                handler_cell = CellFormat("SIG_DFL", "^")
+            elif handler == 1:
+                handler_cell = CellFormat("SIG_IGN", "^")
+            else:
+                handler_cell = CellFormat(handler, ">x")
+
+            flags = sa.sa_flags.value_()
+            if flags:
+                flags_cell = f"{flags:x} ({decode_sigaction_flags_value(prog, flags)})"
+            else:
+                flags_cell = "0"
+
+            rows.append(
+                (
+                    CellFormat(f"[{signo}]", ">"),
+                    CellFormat(sa.address_, ">x"),
+                    handler_cell,
+                    sigset_to_hex(sa.sa_mask),
+                    flags_cell,
+                )
+            )
+        print_table(rows)
+
+        # Crash also displays SIGPENDING, which checks whether TIF_SIGPENDING
+        # is set on the task. But TIF flags are a pain to get, so we omit it
+        # for now.
+        if not args.thread_group:
+            print("   BLOCKED:", sigset_to_hex(task.blocked))
+            print("PRIVATE_PENDING")
+            _print_sigpending(task.pending)
+
+        print("SHARED_PENDING")
+        _print_sigpending(signal_struct.shared_pending)
+
+        if args.thread_group:
+            for thread in for_each_task_in_group(task, include_self=True):
+                sys.stdout.write("\n  ")
+                print_task_header(thread)
+                print("     BLOCKED:", sigset_to_hex(thread.blocked))
+                print("  PRIVATE_PENDING")
+                _print_sigpending(thread.pending, indent="  ")
 
 
 @crash_command(
@@ -150,148 +290,7 @@ decoded = decode_sigset({hex(args.sigset)})
 
     if not args.tasks:
         args.tasks.append(None)
-
-    if args.drgn:
-        code = CrashDrgnCodeBuilder(prog)
-
-        if len(args.tasks) > 1:
-            code.append("tasks = []\n")
-        for task_arg in args.tasks:
-            if len(args.tasks) > 1:
-                code.append("\n")
-            code.append_crash_context(task_arg)
-            if len(args.tasks) > 1:
-                code.append("tasks.append(task)\n")
-
-        code.append("\n")
-        if len(args.tasks) > 1:
-            code.append("for task in tasks:\n")
-            indent = "    "
-        else:
-            indent = ""
-
-        code.append_task_header(indent)
-        code.append("\n")
-        code.add_from_import("drgn.helpers.linux.signal", "decode_sigaction_flags")
-        code.append(
-            f"""\
-{indent}signal_struct = task.signal
-{indent}nr_threads = signal_struct.nr_threads
-
-{indent}for signo, action in enumerate(task.sighand.action, 1):
-{indent}    sigaction = action.sa
-{indent}    handler = sigaction.sa_handler
-{indent}    mask = sigaction.sa_mask
-{indent}    flags = sigaction.sa_flags
-{indent}    decoded_flags = decode_sigaction_flags(sigaction)
-"""
-        )
-
-        if not args.thread_group:
-            code.append(
-                f"""
-{indent}blocked = task.blocked
-
-{indent}private_pending = task.pending
-"""
-            )
-            _append_sigpending(code, "private_pending", indent)
-
-        code.append(
-            f"""
-{indent}shared_pending = signal_struct.shared_pending
-"""
-        )
-        _append_sigpending(code, "shared_pending", indent)
-
-        if args.thread_group:
-            code.add_from_import("drgn.helpers.linux.pid", "for_each_task_in_group")
-            code.append(
-                f"""
-{indent}for task in for_each_task_in_group(task, include_self=True):
-"""
-            )
-            code.append_task_header(indent + "    ")
-            code.append(
-                f"""
-{indent}    blocked = task.blocked
-
-{indent}    private_pending = task.pending
-"""
-            )
-            _append_sigpending(code, "private_pending", indent + "    ")
-
-        return code.print()
-
-    first = True
-    for task_arg in args.tasks:
-        task = crash_get_context(prog, task_arg)
-        if first:
-            first = False
-        else:
-            print()
-        print_task_header(task)
-
-        signal_struct = task.signal.read_()
-        print(
-            f"SIGNAL_STRUCT: {signal_struct.value_():x}  NR_THREADS: {signal_struct.nr_threads.value_()}"
-        )
-
-        rows: List[Sequence[Any]] = [
-            (
-                CellFormat("SIG", ">"),
-                CellFormat("SIGACTION", "^"),
-                CellFormat("HANDLER", "^"),
-                CellFormat("MASK", "^"),
-                "FLAGS",
-            ),
-        ]
-        for signo, action in enumerate(task.sighand.action, 1):
-            sa = action.sa
-
-            handler = sa.sa_handler.value_()
-            if handler == 0:
-                handler_cell = CellFormat("SIG_DFL", "^")
-            elif handler == 1:
-                handler_cell = CellFormat("SIG_IGN", "^")
-            else:
-                handler_cell = CellFormat(handler, ">x")
-
-            flags = sa.sa_flags.value_()
-            if flags:
-                flags_cell = f"{flags:x} ({decode_sigaction_flags_value(prog, flags)})"
-            else:
-                flags_cell = "0"
-
-            rows.append(
-                (
-                    CellFormat(f"[{signo}]", ">"),
-                    CellFormat(sa.address_, ">x"),
-                    handler_cell,
-                    sigset_to_hex(sa.sa_mask),
-                    flags_cell,
-                )
-            )
-        print_table(rows)
-
-        # Crash also displays SIGPENDING, which checks whether TIF_SIGPENDING
-        # is set on the task. But TIF flags are a pain to get, so we omit it
-        # for now.
-        if not args.thread_group:
-            print("   BLOCKED:", sigset_to_hex(task.blocked))
-            print("PRIVATE_PENDING")
-            _print_sigpending(task.pending)
-
-        print("SHARED_PENDING")
-        _print_sigpending(signal_struct.shared_pending)
-
-        if args.thread_group:
-            for thread in for_each_task_in_group(task, include_self=True):
-                sys.stdout.write("\n  ")
-                print_task_header(thread)
-                print("     BLOCKED:", sigset_to_hex(thread.blocked))
-                print("  PRIVATE_PENDING")
-                _print_sigpending(thread.pending, indent="  ")
+    return _crash_foreach_sig(_TaskSelector(prog, args.tasks), args)
 
 
 @crash_command(
