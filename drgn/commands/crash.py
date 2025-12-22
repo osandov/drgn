@@ -12,7 +12,7 @@ import shutil
 import textwrap
 from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Tuple, Union
 
-from drgn import Object, Program, ProgramFlags, Type, TypeKind, offsetof
+from drgn import FaultError, Object, Program, ProgramFlags, Type, TypeKind, offsetof
 from drgn.commands import (
     _SHELL_TOKEN_REGEX,
     DEFAULT_COMMAND_NAMESPACE,
@@ -226,6 +226,17 @@ def _crash_get_panic_context(prog: Program) -> Object:
         raise ValueError("no default context")
 
 
+def _is_valid_task_struct(task: Object) -> bool:
+    try:
+        pid = task.pid.value_()
+        if pid:
+            return find_task(task.prog_, task.pid) == task
+        else:
+            return idle_task(task.prog_, task_cpu(task)) == task
+    except FaultError:
+        return False
+
+
 def crash_get_context(
     prog: Program, arg: Optional[Tuple[Literal["pid", "task"], int]] = None
 ) -> Object:
@@ -243,7 +254,10 @@ def crash_get_context(
                 raise LookupError("no such process with PID {}".format(arg[1]))
             return task
         else:
-            return Object(prog, "struct task_struct *", arg[1])
+            task = Object(prog, "struct task_struct *", arg[1])
+            if not _is_valid_task_struct(task):
+                raise LookupError(f"invalid task_struct: {arg[1]:#x}")
+            return task
 
     try:
         return prog.config["crash_context"]
