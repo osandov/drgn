@@ -109,7 +109,8 @@ class TestPs(CrashCommandTestCase):
 
         self.assertRegex(cmd.stdout, rf"^>?\s*1\b.*\n>?\s*{os.getpid()}\b.*\n$")
 
-        self.assertIn("for pid in (", cmd.drgn_option.stdout)
+        self.assertIn("pid = 1\n", cmd.drgn_option.stdout)
+        self.assertIn(f"pid = {os.getpid()}\n", cmd.drgn_option.stdout)
         self.assertIn("find_task(pid)", cmd.drgn_option.stdout)
         self.assertNotIn("for_each_task", cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
@@ -125,9 +126,9 @@ class TestPs(CrashCommandTestCase):
 
         self.assertRegex(cmd.stdout, r"^>?\s*1\b.*\n$")
 
-        self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
-        self.assertIn(f"task.value_() != {address:#x}", cmd.drgn_option.stdout)
-        self.assertIn("continue", cmd.drgn_option.stdout)
+        self.assertNotIn("for_each_task", cmd.drgn_option.stdout)
+        self.assertIn(hex(address), cmd.drgn_option.stdout)
+        self.assertIn('Object(prog, "struct task_struct *", ', cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
 
     def test_multiple_task_structs(self):
@@ -137,9 +138,8 @@ class TestPs(CrashCommandTestCase):
 
         self.assertRegex(cmd.stdout, r"^>?\s*0\b.*\n>?\s*1\b.*\n$")
 
-        self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
-        self.assertIn("task.value_() not in ", cmd.drgn_option.stdout)
-        self.assertIn("continue", cmd.drgn_option.stdout)
+        self.assertNotIn("for_each_task", cmd.drgn_option.stdout)
+        self.assertIn('Object(prog, "struct task_struct *", ', cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
 
     def test_invalid_task_struct(self):
@@ -155,11 +155,11 @@ class TestPs(CrashCommandTestCase):
         self.assertRegex(cmd.stdout, r"(?m)^>?\s*0\b")
         self.assertRegex(cmd.stdout, r"(?m)^>?\s*1\b")
 
-        self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
-        self.assertNotIn("find_task(", cmd.drgn_option.stdout)
-        self.assertIn("task.pid.value_() != 1", cmd.drgn_option.stdout)
-        self.assertIn(f"task.value_() != {address:#x}", cmd.drgn_option.stdout)
-        self.assertIn("continue", cmd.drgn_option.stdout)
+        self.assertNotIn("for_each_task", cmd.drgn_option.stdout)
+        self.assertIn("pid = 1", cmd.drgn_option.stdout)
+        self.assertIn("find_task(pid)", cmd.drgn_option.stdout)
+        self.assertIn(hex(address), cmd.drgn_option.stdout)
+        self.assertIn('Object(prog, "struct task_struct *", ', cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
 
     def test_command_names(self):
@@ -339,11 +339,11 @@ class TestPs(CrashCommandTestCase):
 
         self.assertRegex(cmd.stdout, rf"^>?\s*{os.getpid()}\b.*$")
 
-        self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
-        self.assertIn(f"task.value_() == {address:#x}", cmd.drgn_option.stdout)
+        self.assertNotIn("for_each_task", cmd.drgn_option.stdout)
+        self.assertIn(hex(address), cmd.drgn_option.stdout)
+        self.assertIn('Object(prog, "struct task_struct *", ', cmd.drgn_option.stdout)
         self.assertIn("if not thread_group_leader(task):", cmd.drgn_option.stdout)
         self.assertIn("task = task.group_leader", cmd.drgn_option.stdout)
-        self.assertIn("continue", cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
 
     def test_group_leader_and_thread_task_struct(self):
@@ -352,11 +352,11 @@ class TestPs(CrashCommandTestCase):
 
         self.assertRegex(cmd.stdout, rf"^>?\s*{os.getpid()}\b.*$")
 
-        self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
-        self.assertIn(f"task.value_() == {address:#x}", cmd.drgn_option.stdout)
+        self.assertNotIn("for_each_task", cmd.drgn_option.stdout)
+        self.assertIn(hex(address), cmd.drgn_option.stdout)
+        self.assertIn('Object(prog, "struct task_struct *", ', cmd.drgn_option.stdout)
         self.assertIn("if not thread_group_leader(task):", cmd.drgn_option.stdout)
         self.assertIn("task = task.group_leader", cmd.drgn_option.stdout)
-        self.assertIn("continue", cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
 
     def test_group_leader_and_command_name(self):

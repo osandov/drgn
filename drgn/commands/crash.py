@@ -5,6 +5,7 @@
 
 import dataclasses
 import functools
+import operator
 import os
 import re
 import shlex
@@ -689,29 +690,41 @@ class _TaskSelector:
     def __init__(
         self,
         prog: Program,
-        task_args: Sequence[_PID_OR_TASK_OR_COMMAND] = (),
+        task_args: Sequence[Optional[_PID_OR_TASK_OR_COMMAND]] = (),
         *,
         kernel: bool = False,
         user: bool = False,
         group_leader: bool = False,
         policies: Optional[AbstractSet[int]] = None,
         on_cpu: bool = False,
+        sort: bool = False,
     ) -> None:
         self.prog = prog
 
+        self._exact_task_args = []
+        current_context = False
         self._pids = set()
         self._task_structs = set()
         self._commands = set()
         self._command_patterns = []
         for task_arg in task_args:
-            if task_arg[0] == "pid":
+            if task_arg is None:
+                current_context = True
+            elif task_arg[0] == "pid":
                 self._pids.add(task_arg[1])
             elif task_arg[0] == "task":
                 self._task_structs.add(task_arg[1])
             elif task_arg[0] == "command_pattern":
                 self._command_patterns.append(task_arg[1])
+                continue
             else:
                 self._commands.add(task_arg[1])
+                continue
+            self._exact_task_args.append(task_arg)
+
+        # No commands need this, so don't bother with the added complexity.
+        if current_context and (self._commands or self._command_patterns):
+            raise NotImplementedError("cannot combine current context with comm filter")
 
         self._kernel = kernel
         self._user = user
@@ -719,12 +732,21 @@ class _TaskSelector:
         self._on_cpu = on_cpu
         self._policies = policies
 
-    def _find_by_pid(self) -> bool:
+        self._sort = sort
+
+    def _any_filters(self) -> bool:
         return bool(
-            self._pids
-            and not self._task_structs
-            and not self._commands
-            and not self._command_patterns
+            self._commands
+            or self._command_patterns
+            or self._kernel
+            or self._user
+            or self._policies is not None
+            or self._on_cpu
+        )
+
+    def _find_exact(self) -> bool:
+        return bool(
+            self._exact_task_args and not self._commands and not self._command_patterns
         )
 
     def _filter(self, task: Object) -> Optional[Object]:
@@ -737,16 +759,16 @@ class _TaskSelector:
         if self._on_cpu and not task_on_cpu(task):
             return None
 
-        if not self._pids and not self._task_structs:
+        if not self._exact_task_args:
             if self._group_leader and not thread_group_leader(task):
                 return None
             if not self._commands and not self._command_patterns:
                 return task
 
         if (
-            # If we found the task by PID, then we don't need to check the PID
-            # again.
-            self._find_by_pid()
+            # If we found the task by PID or address, then we don't need to
+            # check the PID or address again.
+            self._find_exact()
             # Otherwise, only read task.pid if we're filtering by PID.
             or (self._pids and task.pid.value_() in self._pids)
             or task.value_() in self._task_structs
@@ -768,25 +790,44 @@ class _TaskSelector:
         return None
 
     def tasks(self) -> Iterator[Object]:
-        # If we're filtering by PID but not by task_struct or comm, then we can
-        # avoid iterating over every task.
-        if self._find_by_pid():
-            for pid in sorted(self._pids):
-                if pid == 0:
+        # If we're filtering by exact tasks and not on comm, then we can avoid
+        # iterating over every task.
+        if self._find_exact():
+            to_sort = []
+            for task_arg in self._exact_task_args:
+                if task_arg == ("pid", 0):
                     for cpu in for_each_online_cpu(self.prog):
                         filtered_task = self._filter(idle_task(self.prog, cpu))
                         if filtered_task is not None:
-                            yield filtered_task
+                            if self._sort:
+                                # list.sort() is stable, so these will remain
+                                # in CPU order.
+                                to_sort.append((0, filtered_task))
+                            else:
+                                yield filtered_task
                     continue
 
-                task = find_task(self.prog, pid)
-                if not task:
-                    print(f"ps: no such process with PID {pid}")
+                try:
+                    task = crash_get_context(self.prog, task_arg)
+                except LookupError as e:
+                    print(e)
                     continue
 
                 filtered_task = self._filter(task)
                 if filtered_task is not None:
-                    yield filtered_task
+                    if self._sort:
+                        # Note that we sort on the original task's PID.
+                        if task_arg is not None and task_arg[0] == "pid":
+                            to_sort.append((task_arg[1], filtered_task))
+                        else:
+                            to_sort.append((task.pid.value_(), filtered_task))
+                    else:
+                        yield filtered_task
+
+            if self._sort:
+                to_sort.sort(key=operator.itemgetter(0))
+                for _, task in to_sort:
+                    yield task
             return
 
         unmatched_task_structs = self._task_structs.copy()
@@ -804,40 +845,42 @@ class _TaskSelector:
                 yield filtered_task
 
         for task_value in unmatched_task_structs:
-            print(f"ps: invalid task_struct: {task_value:#x}")
+            print(f"invalid task_struct: {task_value:#x}")
 
-    def begin_task_loop(self, code: DrgnCodeBuilder) -> DrgnCodeBlockContext:
-        if self._find_by_pid():
-            code.append("tasks = []\n")
-            if 0 in self._pids:
-                code.add_from_import(
-                    "drgn.helpers.linux.cpumask", "for_each_online_cpu"
-                )
-                code.add_from_import("drgn.helpers.linux.sched", "idle_task")
-                code.append(
-                    """\
+    def begin_task_loop(self, code: CrashDrgnCodeBuilder) -> DrgnCodeBlockContext:
+        if (
+            self._find_exact()
+            and len(self._exact_task_args) == 1
+            and self._exact_task_args[0] != ("pid", 0)
+            and not self._any_filters()
+        ):
+            task_arg = self._exact_task_args[0]
+            code.append_crash_context(task_arg)
+            if task_arg is None or task_arg[0] == "pid":
+                block = code.begin_block("if task:\n")
+            else:
+                code.append("\n")
+                block = code.begin_block("")
+        elif self._find_exact():
+            code.append("tasks = []\n\n")
+            for task_arg in self._exact_task_args:
+                if task_arg == ("pid", 0):
+                    code.add_from_import(
+                        "drgn.helpers.linux.cpumask", "for_each_online_cpu"
+                    )
+                    code.add_from_import("drgn.helpers.linux.sched", "idle_task")
+                    code.append(
+                        """\
 for cpu in for_each_online_cpu():
     tasks.append(idle_task(cpu))
+
 """
-                )
-            non_zero_pids = [pid for pid in self._pids if pid != 0]
-            non_zero_pids.sort()
-            if non_zero_pids:
-                code.add_from_import("drgn.helpers.linux.pid", "find_task")
-                if len(non_zero_pids) == 1:
-                    code.append(f"pid = {non_zero_pids[0]}\n")
-                    pid_block = code.begin_block("")
+                    )
                 else:
-                    pids_str = ", ".join([str(pid) for pid in non_zero_pids])
-                    pid_block = code.begin_block(f"for pid in ({pids_str}):\n")
-                code.append(
-                    """\
-task = find_task(pid)
-if task:
-    tasks.append(task)
-"""
-                )
-                pid_block.end()
+                    code.append_crash_context(task_arg)
+                    if task_arg is None or task_arg[0] == "pid":
+                        code.append("if task:\n    ")
+                    code.append("tasks.append(task)\n\n")
             block = code.begin_block("for task in tasks:\n")
         else:
             code.add_from_import("drgn.helpers.linux.pid", "for_each_task")
@@ -860,7 +903,7 @@ if task:
             code.append("if not task_on_cpu(task):\n    continue\n")
 
         block2 = None
-        if self._find_by_pid():
+        if self._find_exact():
             if self._group_leader:
                 code.add_from_import("drgn.helpers.linux.sched", "thread_group_leader")
                 code.append(

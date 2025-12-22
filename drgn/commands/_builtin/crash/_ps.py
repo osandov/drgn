@@ -630,6 +630,7 @@ def _crash_cmd_ps(
         group_leader=args.group_leader or args.func == _ps_thread_groups,
         policies=None if args.policy is None else _parse_sched_policies(args.policy),
         on_cpu=args.active,
+        sort=True,
     )
 
     if args.func is not None:
