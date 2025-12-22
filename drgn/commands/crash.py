@@ -10,7 +10,23 @@ import re
 import shlex
 import shutil
 import textwrap
-from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Tuple, Union
+from typing import (
+    AbstractSet,
+    Any,
+    Callable,
+    Dict,
+    FrozenSet,
+    Iterable,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 from drgn import FaultError, Object, Program, ProgramFlags, Type, TypeKind, offsetof
 from drgn.commands import (
@@ -22,14 +38,21 @@ from drgn.commands import (
     DrgnCodeBlockContext,
     DrgnCodeBuilder,
     ParsedCommand,
+    _repr_black,
     command,
     custom_command,
     unquote_shell_word,
 )
 from drgn.helpers.common.format import double_quote_ascii_string
-from drgn.helpers.linux.cpumask import for_each_possible_cpu
-from drgn.helpers.linux.pid import find_task
-from drgn.helpers.linux.sched import task_cpu
+from drgn.helpers.linux.cpumask import for_each_online_cpu, for_each_possible_cpu
+from drgn.helpers.linux.kthread import task_is_kthread
+from drgn.helpers.linux.pid import find_task, for_each_task
+from drgn.helpers.linux.sched import (
+    idle_task,
+    task_cpu,
+    task_on_cpu,
+    thread_group_leader,
+)
 
 
 def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
@@ -37,6 +60,33 @@ def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
         return "pid", int(s)
     except ValueError:
         return "task", int(s, 16)
+
+
+_PID_OR_TASK_OR_COMMAND = Union[
+    Tuple[Literal["pid"], int],
+    Tuple[Literal["task"], int],
+    Tuple[Literal["command"], str],
+    Tuple[Literal["command_pattern"], "re.Pattern[str]"],
+]
+
+
+def _pid_or_task_or_command(arg: str) -> _PID_OR_TASK_OR_COMMAND:
+    try:
+        return "pid", int(arg, 10)
+    except ValueError:
+        pass
+
+    try:
+        return "task", int(arg, 16)
+    except ValueError:
+        pass
+
+    if arg:
+        if arg[0] == "'" and arg[-1] == "'":
+            return "command_pattern", re.compile(arg[1:-1])
+        if arg[0] == "\\":
+            return "command", arg[1:]
+    return "command", arg
 
 
 def _addr_or_sym(
@@ -596,3 +646,288 @@ command = {variable}.comm
             else:
                 self.append(f"cpu = {cpus[0]}\n")
                 return False
+
+
+_T = TypeVar("_T")
+
+
+def _in_set_condition(
+    name: str, items: Iterable[_T], convert: Callable[[_T], str] = str
+) -> str:
+    converted = [convert(item) for item in items]
+    if len(converted) == 1:
+        return f"{name} == {converted[0]}"
+    else:
+        return f"{name} in {{{', '.join(converted)}}}"
+
+
+def _not_in_set_condition(
+    name: str, items: Iterable[_T], convert: Callable[[_T], str] = str
+) -> str:
+    converted = [convert(item) for item in items]
+    if len(converted) == 1:
+        return f"{name} != {converted[0]}"
+    else:
+        return f"{name} not in {{{', '.join(converted)}}}"
+
+
+def _join_if_statement(conditions: Sequence[str], logical_op: str) -> str:
+    if len(conditions) == 1:
+        return f"if {conditions[0]}:\n"
+
+    logical_op += " "
+    parts = ["if (\n"]
+    prefix = ""
+    for condition in conditions:
+        parts.append(f"    {prefix}{condition}\n")
+        prefix = logical_op
+    parts.append("):\n")
+    return "".join(parts)
+
+
+class _TaskSelector:
+    def __init__(
+        self,
+        prog: Program,
+        task_args: Sequence[_PID_OR_TASK_OR_COMMAND] = (),
+        *,
+        kernel: bool = False,
+        user: bool = False,
+        group_leader: bool = False,
+        policies: Optional[AbstractSet[int]] = None,
+        on_cpu: bool = False,
+    ) -> None:
+        self.prog = prog
+
+        self._pids = set()
+        self._task_structs = set()
+        self._commands = set()
+        self._command_patterns = []
+        for task_arg in task_args:
+            if task_arg[0] == "pid":
+                self._pids.add(task_arg[1])
+            elif task_arg[0] == "task":
+                self._task_structs.add(task_arg[1])
+            elif task_arg[0] == "command_pattern":
+                self._command_patterns.append(task_arg[1])
+            else:
+                self._commands.add(task_arg[1])
+
+        self._kernel = kernel
+        self._user = user
+        self._group_leader = group_leader
+        self._on_cpu = on_cpu
+        self._policies = policies
+
+    def _find_by_pid(self) -> bool:
+        return bool(
+            self._pids
+            and not self._task_structs
+            and not self._commands
+            and not self._command_patterns
+        )
+
+    def _filter(self, task: Object) -> Optional[Object]:
+        if self._kernel and not task_is_kthread(task):
+            return None
+        if self._user and task_is_kthread(task):
+            return None
+        if self._policies is not None and task.policy.value_() not in self._policies:
+            return None
+        if self._on_cpu and not task_on_cpu(task):
+            return None
+
+        if not self._pids and not self._task_structs:
+            if self._group_leader and not thread_group_leader(task):
+                return None
+            if not self._commands and not self._command_patterns:
+                return task
+
+        if (
+            # If we found the task by PID, then we don't need to check the PID
+            # again.
+            self._find_by_pid()
+            # Otherwise, only read task.pid if we're filtering by PID.
+            or (self._pids and task.pid.value_() in self._pids)
+            or task.value_() in self._task_structs
+        ):
+            # If we only want group leaders and match a non-group leader by PID
+            # or task_struct, then it should be replaced by its group leader.
+            if self._group_leader and not thread_group_leader(task):
+                return task.group_leader.read_()
+            return task
+
+        # Only read task.comm if we're filtering by comm.
+        if self._commands or self._command_patterns:
+            comm = task.comm.string_().decode(errors="surrogateescape")
+            if comm in self._commands or any(
+                pattern.search(comm) for pattern in self._command_patterns
+            ):
+                return task
+
+        return None
+
+    def tasks(self) -> Iterator[Object]:
+        # If we're filtering by PID but not by task_struct or comm, then we can
+        # avoid iterating over every task.
+        if self._find_by_pid():
+            for pid in sorted(self._pids):
+                if pid == 0:
+                    for cpu in for_each_online_cpu(self.prog):
+                        filtered_task = self._filter(idle_task(self.prog, cpu))
+                        if filtered_task is not None:
+                            yield filtered_task
+                    continue
+
+                task = find_task(self.prog, pid)
+                if not task:
+                    print(f"ps: no such process with PID {pid}")
+                    continue
+
+                filtered_task = self._filter(task)
+                if filtered_task is not None:
+                    yield filtered_task
+            return
+
+        unmatched_task_structs = self._task_structs.copy()
+        for task in for_each_task(
+            self.prog,
+            # If we only want user tasks, then we don't need the idle tasks.
+            # That is, unless we are filtering by task_struct, in case we need
+            # them to check the validity of the given task_structs.
+            idle=not self._user or bool(self._task_structs),
+        ):
+            unmatched_task_structs.discard(task.value_())
+
+            filtered_task = self._filter(task)
+            if filtered_task is not None:
+                yield filtered_task
+
+        for task_value in unmatched_task_structs:
+            print(f"ps: invalid task_struct: {task_value:#x}")
+
+    def begin_task_loop(self, code: DrgnCodeBuilder) -> DrgnCodeBlockContext:
+        if self._find_by_pid():
+            code.append("tasks = []\n")
+            if 0 in self._pids:
+                code.add_from_import(
+                    "drgn.helpers.linux.cpumask", "for_each_online_cpu"
+                )
+                code.add_from_import("drgn.helpers.linux.sched", "idle_task")
+                code.append(
+                    """\
+for cpu in for_each_online_cpu():
+    tasks.append(idle_task(cpu))
+"""
+                )
+            non_zero_pids = [pid for pid in self._pids if pid != 0]
+            non_zero_pids.sort()
+            if non_zero_pids:
+                code.add_from_import("drgn.helpers.linux.pid", "find_task")
+                if len(non_zero_pids) == 1:
+                    code.append(f"pid = {non_zero_pids[0]}\n")
+                    pid_block = code.begin_block("")
+                else:
+                    pids_str = ", ".join([str(pid) for pid in non_zero_pids])
+                    pid_block = code.begin_block(f"for pid in ({pids_str}):\n")
+                code.append(
+                    """\
+task = find_task(pid)
+if task:
+    tasks.append(task)
+"""
+                )
+                pid_block.end()
+            block = code.begin_block("for task in tasks:\n")
+        else:
+            code.add_from_import("drgn.helpers.linux.pid", "for_each_task")
+            idle = "idle=True" if not self._user or self._task_structs else ""
+            block = code.begin_block(f"for task in for_each_task({idle}):\n")
+
+        if self._kernel:
+            code.add_from_import("drgn.helpers.linux.kthread", "task_is_kthread")
+            code.append("if not task_is_kthread(task):\n    continue\n")
+        if self._user:
+            code.add_from_import("drgn.helpers.linux.kthread", "task_is_kthread")
+            code.append("if task_is_kthread(task):\n    continue\n")
+        if self._policies is not None:
+            condition = _not_in_set_condition(
+                "task.policy.value_()", sorted(self._policies)
+            )
+            code.append(f"if {condition}:\n    continue\n")
+        if self._on_cpu:
+            code.add_from_import("drgn.helpers.linux.sched", "task_on_cpu")
+            code.append("if not task_on_cpu(task):\n    continue\n")
+
+        block2 = None
+        if self._find_by_pid():
+            if self._group_leader:
+                code.add_from_import("drgn.helpers.linux.sched", "thread_group_leader")
+                code.append(
+                    """\
+if not thread_group_leader(task):
+    task = task.group_leader.read_()
+"""
+                )
+        elif self._pids or self._task_structs:
+            if self._group_leader or self._commands or self._command_patterns:
+                condition_func = _in_set_condition
+                logical_op = "or"
+            else:
+                condition_func = _not_in_set_condition
+                logical_op = "and"
+
+            conditions = []
+            if self._pids:
+                conditions.append(
+                    condition_func("task.pid.value_()", sorted(self._pids))
+                )
+            if self._task_structs:
+                conditions.append(
+                    condition_func("task.value_()", sorted(self._task_structs), hex)
+                )
+            code.append(_join_if_statement(conditions, logical_op))
+
+            if self._group_leader:
+                code.add_from_import("drgn.helpers.linux.sched", "thread_group_leader")
+                code.append(
+                    """\
+    if not thread_group_leader(task):
+        task = task.group_leader.read_()
+"""
+                )
+            elif self._commands or self._command_patterns:
+                code.append("    pass\n")
+
+            if self._commands or self._command_patterns:
+                block2 = code.begin_block("else:\n")
+            else:
+                if self._group_leader:
+                    code.append("else:\n")
+                code.append("    continue\n")
+        elif self._group_leader:
+            code.add_from_import("drgn.helpers.linux.sched", "thread_group_leader")
+            code.append("if not thread_group_leader(task):\n    continue\n")
+
+        if self._commands or self._command_patterns:
+            code.append("comm_string = task.comm.string_().decode()\n")
+            conditions = []
+            if self._commands:
+                conditions.append(
+                    _not_in_set_condition(
+                        "comm_string", sorted(self._commands), _repr_black
+                    )
+                )
+            if self._command_patterns:
+                code.add_import("re")
+                for pattern in self._command_patterns:
+                    conditions.append(
+                        f"not re.search({_repr_black(pattern.pattern)}, comm_string)"
+                    )
+            code.append(_join_if_statement(conditions, "and"))
+            code.append("    continue\n")
+
+        if block2:
+            block2.end()
+
+        return block
