@@ -52,6 +52,7 @@ from drgn.helpers.linux.sched import (
     idle_task,
     task_cpu,
     task_on_cpu,
+    task_state_to_char,
     thread_group_leader,
 )
 
@@ -697,6 +698,7 @@ class _TaskSelector:
         group_leader: bool = False,
         policies: Optional[AbstractSet[int]] = None,
         on_cpu: bool = False,
+        state: Optional[str] = None,
         sort: bool = False,
     ) -> None:
         self.prog = prog
@@ -729,8 +731,9 @@ class _TaskSelector:
         self._kernel = kernel
         self._user = user
         self._group_leader = group_leader
-        self._on_cpu = on_cpu
         self._policies = policies
+        self._on_cpu = on_cpu
+        self._state = state
 
         self._sort = sort
 
@@ -742,6 +745,7 @@ class _TaskSelector:
             or self._user
             or self._policies is not None
             or self._on_cpu
+            or self._state is not None
         )
 
     def _find_exact(self) -> bool:
@@ -757,6 +761,8 @@ class _TaskSelector:
         if self._policies is not None and task.policy.value_() not in self._policies:
             return None
         if self._on_cpu and not task_on_cpu(task):
+            return None
+        if self._state is not None and task_state_to_char(task) != self._state:
             return None
 
         if not self._exact_task_args:
@@ -901,6 +907,11 @@ for cpu in for_each_online_cpu():
         if self._on_cpu:
             code.add_from_import("drgn.helpers.linux.sched", "task_on_cpu")
             code.append("if not task_on_cpu(task):\n    continue\n")
+        if self._state is not None:
+            code.add_from_import("drgn.helpers.linux.sched", "task_state_to_char")
+            code.append(
+                f"if task_state_to_char(task) != {_repr_black(self._state)}:\n    continue\n"
+            )
 
         block2 = None
         if self._find_exact():
