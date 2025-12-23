@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import os
+import re
 import shutil
 import unittest.mock
 
+from drgn import Object
 from drgn.commands import CommandArgumentError, CommandError
 from drgn.commands.crash import crash_get_context
 from drgn.helpers.linux.pid import find_task
@@ -20,11 +22,13 @@ class TestSet(CrashCommandTestCase):
 
     def test_pid(self):
         cmd = self.check_crash_command("set 1")
+        self.assertIn("PID: 1", cmd.stdout)
         self.assertEqual(crash_get_context(self.prog).pid.value_(), 1)
         self.assertEqual(cmd.drgn_option.globals["task"].pid, 1)
 
     def test_task(self):
         cmd = self.check_crash_command(f"set {hex(self.prog['init_task'].address_)}")
+        self.assertIn("PID: 0", cmd.stdout)
         self.assertEqual(
             crash_get_context(self.prog), self.prog["init_task"].address_of_()
         )
@@ -40,6 +44,7 @@ class TestSet(CrashCommandTestCase):
             cmd = self.check_crash_command(f"set -c {cpu}")
         finally:
             os.sched_setaffinity(0, old_affinity)
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
         task = find_task(self.prog, os.getpid())
         self.assertEqual(crash_get_context(self.prog), task)
         self.assertEqual(cmd.drgn_option.globals["task"], task)
@@ -47,10 +52,29 @@ class TestSet(CrashCommandTestCase):
     def test_panic(self):
         cmd = self.check_crash_command("set -p")
         task = find_task(self.prog, os.getpid())
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
         self.assertEqual(
             crash_get_context(self.prog), find_task(self.prog, os.getpid())
         )
         self.assertEqual(cmd.drgn_option.globals["task"], task)
+
+    def test_foreach(self):
+        self.run_crash_command(f"set {hex(self.prog['init_task'].address_)}")
+        cmd = self.check_crash_command(f"foreach 1 {os.getpid()} set")
+        # Task information gets printed twice (once in the header and once in
+        # the sys format).
+        self.assertEqual(len(re.findall(r"\bPID: 1\b", cmd.stdout)), 2)
+        self.assertEqual(len(re.findall(rf"\bPID: {os.getpid()}\b", cmd.stdout)), 2)
+        # foreach set shouldn't change the context.
+        self.assertEqual(
+            crash_get_context(self.prog), self.prog["init_task"].address_of_()
+        )
+
+        for variable in ("task", "pid", "comm", "thread_info"):
+            with self.subTest(variable=variable):
+                self.assertIsInstance(cmd.drgn_option.globals[variable], Object)
+        self.assertIsInstance(cmd.drgn_option.globals["cpu"], int)
+        self.assertIsInstance(cmd.drgn_option.globals["state"], str)
 
     def test_scroll_on_off(self):
         try:

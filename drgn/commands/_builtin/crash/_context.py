@@ -17,12 +17,15 @@ from drgn.commands import (
 from drgn.commands._builtin.crash._sys import _append_sys_drgn_task, _print_sys
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
+    _crash_foreach_subcommand,
     _crash_get_panic_context,
     _find_pager,
     _get_pager,
     _pid_or_task,
+    _TaskSelector,
     crash_command,
     crash_get_context,
+    print_task_header,
 )
 from drgn.helpers.linux.sched import cpu_curr
 
@@ -227,3 +230,25 @@ def _crash_cmd_set(
         prog.config["crash_context"] = crash_get_context(prog, args.task)
         prog.config["crash_context_origin"] = args.task
     return _print_sys(prog, system_fields=False, context="current")
+
+
+@_crash_foreach_subcommand(arguments=(drgn_argument,))
+def _crash_foreach_set(task_selector: _TaskSelector, args: argparse.Namespace) -> None:
+    prog = task_selector.prog
+
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        with task_selector.begin_task_loop(code):
+            # No append_task_header() because it is a subset of
+            # _append_sys_drgn_task() anyways.
+            _append_sys_drgn_task(code)
+        return code.print()
+
+    first = True
+    for task in task_selector.tasks():
+        if first:
+            first = False
+        else:
+            print()
+        print_task_header(task)
+        _print_sys(prog, system_fields=False, context=task)
