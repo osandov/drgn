@@ -14,7 +14,7 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands._builtin.crash._sys import _SysPrinter
+from drgn.commands._builtin.crash._sys import _append_sys_drgn_task, _print_sys
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
     _crash_get_panic_context,
@@ -204,20 +204,17 @@ def _crash_cmd_set(
             )
 
     if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
         if args.panic:
-            code = CrashDrgnCodeBuilder(prog)
             code._append_crash_panic_context()
-            code.print()
         elif args.cpu is not None:
-            code = CrashDrgnCodeBuilder(prog)
             code._append_crash_cpu_context(args.cpu)
-            code.print()
         elif args.task is not None:
-            code = CrashDrgnCodeBuilder(prog)
             code.append_crash_context(args.task)
-            code.print()
         else:
-            _SysPrinter(prog, True, system_fields=False, context="current").print()
+            code.append_crash_context()
+            _append_sys_drgn_task(code)
+        code.print()
         return None
 
     if args.panic:
@@ -230,8 +227,6 @@ def _crash_cmd_set(
         task = crash_get_context(prog, args.task)
         prog.config["crash_context_origin"] = args.task
     else:
-        printer = _SysPrinter(prog, False, system_fields=False, context="current")
-        printer.print()
-        return printer.task
+        return _print_sys(prog, system_fields=False, context="current")
     prog.config["crash_context"] = task
     return task

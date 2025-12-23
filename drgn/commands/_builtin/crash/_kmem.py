@@ -37,7 +37,7 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands._builtin.crash._sys import _SysPrinter
+from drgn.commands._builtin.crash._sys import _print_sys
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
     _parse_members,
@@ -1596,9 +1596,7 @@ def _kmem_identify(
             elif isinstance(identified, (IdentifiedTaskStruct, IdentifiedTaskStack)):
                 if mode is None:
                     print_divider()
-                    _SysPrinter(
-                        prog, False, system_fields=False, context=identified.task
-                    ).print()
+                    _print_sys(prog, system_fields=False, context=identified.task)
             elif isinstance(identified, IdentifiedVmap):
                 found_vmap = True
                 if mode is None or mode == "vmalloc":

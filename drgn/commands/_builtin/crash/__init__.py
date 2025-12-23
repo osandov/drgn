@@ -16,7 +16,7 @@ from drgn.commands import (
     _write_command_error,
     argument,
 )
-from drgn.commands._builtin.crash._sys import _SysPrinter
+from drgn.commands._builtin.crash._sys import _print_sys
 from drgn.commands.crash import (
     CRASH_COMMAND_NAMESPACE,
     crash_command,
@@ -96,7 +96,7 @@ def _cmd_crash(
             with drgn.cli._setup_readline(
                 drgn.cli._state_file("crash_history"), _CrashCompleter(prog).complete
             ):
-                _SysPrinter(prog, False, context="panic").print()
+                _print_sys(prog, context="panic")
                 while True:
                     try:
                         line = input("%crash> ")

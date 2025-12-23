@@ -5,13 +5,12 @@
 
 import argparse
 import datetime
-import itertools
+import functools
 import logging
 import sys
 from typing import (
     Any,
     Callable,
-    Iterable,
     Iterator,
     List,
     Literal,
@@ -73,81 +72,10 @@ from drgn.helpers.linux.timekeeping import (
 logger = logging.getLogger("drgn")
 
 
-class _SysPrinter:
-    def __init__(
-        self,
-        prog: Program,
-        drgn: bool,
-        *,
-        system_fields: bool = True,
-        context: Union[Literal["panic", "current"], Object, None] = None,
-    ) -> None:
-        self.prog = prog
-        self.drgn = drgn
-        self.context = context
-        self.system_fields = system_fields
-        if self.drgn:
-            assert not isinstance(context, Object)
-            self.code = CrashDrgnCodeBuilder(prog)
-        elif context == "panic":
-            self.task = _crash_get_panic_context(prog)
-        elif context == "current":
-            self.task = crash_get_context(prog)
-        else:
-            self.task = context  # type: ignore
-
-    def _print_drgn(self) -> None:
-        if self.system_fields:
-            for append, _ in self.FIELDS.values():
-                append(self)
-
-        if self.context:
-            if self.system_fields:
-                self.code.append("\n")
-
-            if self.context == "panic":
-                self.code._append_crash_panic_context()
-            else:
-                assert self.context == "current"
-                self.code.append_crash_context()
-
-            self.code.append("\n")
-
-            for append, _ in self.TASK_FIELDS.values():
-                append(self)
-
-        self.code.print()
-
-    def print(self) -> None:
-        if self.drgn:
-            self._print_drgn()
-            return
-
-        fields: Iterable[Tuple[str, Tuple[Any, Callable[[_SysPrinter], Optional[str]]]]]
-        if self.system_fields and self.task is not None:
-            fields = itertools.chain(self.FIELDS.items(), self.TASK_FIELDS.items())
-        elif self.system_fields:
-            fields = self.FIELDS.items()
-        elif self.task is not None:
-            fields = self.TASK_FIELDS.items()
-        else:
-            fields = ()
-
-        rows = []
-        for name, (_, getter) in fields:
-            try:
-                value = getter(self)
-            except Exception as e:
-                logger.warning("couldn't get %s: %s", name, e)
-                continue
-            if value is not None:
-                rows.append((CellFormat(name, ">"), value))
-        print_table(rows, sep=": ")
-
-    def _append_kernel(self) -> None:
-        self.code.add_from_import("drgn.helpers.linux.panic", "tainted")
-        self.code.append(
-            """\
+def _append_kernel(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.panic", "tainted")
+    code.append(
+        """\
 try:
     kernel = prog.main_module().debug_file_path
 except LookupError:
@@ -155,201 +83,273 @@ except LookupError:
 
 taints = tainted()
 """
-        )
+    )
 
-    def _get_kernel(self) -> Optional[str]:
-        try:
-            kernel = self.prog.main_module().debug_file_path
-        except LookupError:
-            kernel = None
-        if tainted(self.prog):
-            if kernel is None:
-                kernel = "[TAINTED]"
-            else:
-                kernel += "  [TAINTED]"
-        return kernel
 
-    def _append_dumpfile(self) -> None:
-        self.code.append("dumpfile = prog.core_dump_path\n")
+def _get_kernel(prog: Program) -> Optional[str]:
+    try:
+        kernel = prog.main_module().debug_file_path
+    except LookupError:
+        kernel = None
+    if tainted(prog):
+        if kernel is None:
+            kernel = "[TAINTED]"
+        else:
+            kernel += "  [TAINTED]"
+    return kernel
 
-    def _get_dumpfile(self) -> Optional[str]:
-        return self.prog.core_dump_path
 
-    def _append_cpus(self) -> None:
-        self.code.add_from_import(
-            "drgn.helpers.linux.cpumask", "num_online_cpus", "num_present_cpus"
-        )
-        self.code.append(
-            """\
+def _append_dumpfile(code: CrashDrgnCodeBuilder) -> None:
+    code.append("dumpfile = prog.core_dump_path\n")
+
+
+def _get_dumpfile(prog: Program) -> Optional[str]:
+    return prog.core_dump_path
+
+
+def _append_cpus(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import(
+        "drgn.helpers.linux.cpumask", "num_online_cpus", "num_present_cpus"
+    )
+    code.append(
+        """\
 cpus = num_present_cpus()
 offline_cpus = cpus - num_online_cpus()
 """
-        )
+    )
 
-    def _get_cpus(self) -> str:
-        present = num_present_cpus(self.prog)
-        online = num_online_cpus(self.prog)
-        cpus = str(present)
-        if present > online:
-            cpus += f" [OFFLINE: {present - online}]"
-        return cpus
 
-    def _append_date(self) -> None:
-        self.code.add_from_import(
-            "drgn.helpers.linux.timekeeping", "ktime_get_real_seconds"
-        )
-        self.code.append("timestamp = ktime_get_real_seconds().value_()\n")
+def _get_cpus(prog: Program) -> str:
+    present = num_present_cpus(prog)
+    online = num_online_cpus(prog)
+    cpus = str(present)
+    if present > online:
+        cpus += f" [OFFLINE: {present - online}]"
+    return cpus
 
-    def _get_date(self) -> str:
-        timestamp = ktime_get_real_seconds(self.prog).value_()
-        dt = datetime.datetime.fromtimestamp(timestamp).astimezone()
-        return dt.strftime("%a %b %e %T %Z %Y")
 
-    def _append_uptime(self) -> None:
-        self.code.add_from_import("drgn.helpers.linux.timekeeping", "uptime")
-        self.code.append("uptime_ = uptime()\n")
+def _append_date(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.timekeeping", "ktime_get_real_seconds")
+    code.append("timestamp = ktime_get_real_seconds().value_()\n")
 
-    def _get_uptime(self) -> str:
-        return _format_seconds_duration(ktime_get_boottime_seconds(self.prog).value_())
 
-    def _append_load_average(self) -> None:
-        self.code.add_from_import("drgn.helpers.linux.sched", "loadavg")
-        self.code.append("load_average = loadavg()\n")
+def _get_date(prog: Program) -> str:
+    timestamp = ktime_get_real_seconds(prog).value_()
+    dt = datetime.datetime.fromtimestamp(timestamp).astimezone()
+    return dt.strftime("%a %b %e %T %Z %Y")
 
-    def _get_load_average(self) -> str:
-        return ", ".join([f"{v:.2f}" for v in loadavg(self.prog)])
 
-    def _append_tasks(self) -> None:
-        self.code.add_from_import("drgn.helpers.linux.pid", "for_each_task")
-        self.code.append("num_tasks = sum(1 for _ in for_each_task())\n")
+def _append_uptime(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.timekeeping", "uptime")
+    code.append("uptime_ = uptime()\n")
 
-    def _get_tasks(self) -> str:
-        return str(sum(1 for _ in for_each_task(self.prog)))
 
-    def _append_utsname_field(self, field: str) -> None:
-        self.code.append(f'{field} = prog["init_uts_ns"].name.{field}.string_()\n')
+def _get_uptime(prog: Program) -> str:
+    return _format_seconds_duration(ktime_get_boottime_seconds(prog).value_())
 
-    def _get_utsname_field(self, field: str) -> str:
-        return escape_ascii_string(
-            getattr(self.prog["init_uts_ns"].name, field).string_(),
-            escape_backslash=True,
-        )
 
-    def _append_nodename(self) -> None:
-        self._append_utsname_field("nodename")
+def _append_load_average(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.sched", "loadavg")
+    code.append("load_average = loadavg()\n")
 
-    def _get_nodename(self) -> str:
-        return self._get_utsname_field("nodename")
 
-    def _append_release(self) -> None:
-        self.code.append('release = prog["UTS_RELEASE"].string_()\n')
+def _get_load_average(prog: Program) -> str:
+    return ", ".join([f"{v:.2f}" for v in loadavg(prog)])
 
-    def _get_release(self) -> str:
-        return escape_ascii_string(
-            self.prog["UTS_RELEASE"].string_(), escape_backslash=True
-        )
 
-    def _append_version(self) -> None:
-        self._append_utsname_field("version")
+def _append_tasks(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.pid", "for_each_task")
+    code.append("num_tasks = sum(1 for _ in for_each_task())\n")
 
-    def _get_version(self) -> str:
-        return self._get_utsname_field("version")
 
-    def _append_machine(self) -> None:
-        self._append_utsname_field("machine")
+def _get_tasks(prog: Program) -> str:
+    return str(sum(1 for _ in for_each_task(prog)))
 
-    def _get_machine(self) -> str:
-        return self._get_utsname_field("machine")
 
-    def _append_memory(self) -> None:
-        self.code.add_from_import("drgn.helpers.linux.mm", "totalram_pages")
-        self.code.append('memory = totalram_pages() * prog["PAGE_SIZE"].value_()\n')
+def _append_utsname_field(code: CrashDrgnCodeBuilder, field: str) -> None:
+    code.append(f'{field} = prog["init_uts_ns"].name.{field}.string_()\n')
 
-    def _get_memory(self) -> str:
-        return number_in_binary_units(
-            totalram_pages(self.prog) * self.prog["PAGE_SIZE"]
-        )
 
-    def _append_panic(self) -> None:
-        self.code.add_from_import("drgn.helpers.linux.panic", "panic_message")
-        self.code.append("panic = panic_message()\n")
+def _get_utsname_field(prog: Program, field: str) -> str:
+    return escape_ascii_string(
+        getattr(prog["init_uts_ns"].name, field).string_(),
+        escape_backslash=True,
+    )
 
-    def _get_panic(self) -> Optional[str]:
-        message = panic_message(self.prog)
-        if message is None:
-            return message
-        return double_quote_ascii_string(message)
 
-    def _append_pid(self) -> None:
-        self.code.append("pid = task.pid\n")
+def _append_release(code: CrashDrgnCodeBuilder) -> None:
+    code.append('release = prog["UTS_RELEASE"].string_()\n')
 
-    def _get_pid(self) -> str:
-        return str(self.task.pid.value_())
 
-    def _append_command(self) -> None:
-        self.code.append("comm = task.comm\n")
+def _get_release(prog: Program) -> str:
+    return escape_ascii_string(prog["UTS_RELEASE"].string_(), escape_backslash=True)
 
-    def _get_command(self) -> str:
-        return double_quote_ascii_string(self.task.comm.string_())
 
-    def _append_task(self) -> None:
-        self.code.add_from_import("drgn.helpers.linux.sched", "task_thread_info")
-        self.code.append("thread_info = task_thread_info(task)\n")
+def _append_memory(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.mm", "totalram_pages")
+    code.append('memory = totalram_pages() * prog["PAGE_SIZE"].value_()\n')
 
-    def _get_task(self) -> str:
-        return f"{self.task.value_():x}  [THREAD_INFO: {task_thread_info(self.task).value_():x}]"
 
-    def _append_cpu(self) -> None:
-        self.code.add_from_import("drgn.helpers.linux.sched", "task_cpu")
-        self.code.append("cpu = task_cpu(task)\n")
+def _get_memory(prog: Program) -> str:
+    return number_in_binary_units(totalram_pages(prog) * prog["PAGE_SIZE"])
 
-    def _get_cpu(self) -> str:
-        return str(task_cpu(self.task))
 
-    def _append_state(self) -> None:
-        self.code.add_from_import("drgn.helpers.linux.panic", "panic_task")
-        self.code.add_from_import(
-            "drgn.helpers.linux.sched", "get_task_state", "task_on_cpu"
-        )
-        self.code.append(
-            """\
+def _append_panic(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.panic", "panic_message")
+    code.append("panic = panic_message()\n")
+
+
+def _get_panic(prog: Program) -> Optional[str]:
+    message = panic_message(prog)
+    if message is None:
+        return message
+    return double_quote_ascii_string(message)
+
+
+def _append_pid(code: CrashDrgnCodeBuilder) -> None:
+    code.append("pid = task.pid\n")
+
+
+def _get_pid(task: Object) -> str:
+    return str(task.pid.value_())
+
+
+def _append_command(code: CrashDrgnCodeBuilder) -> None:
+    code.append("comm = task.comm\n")
+
+
+def _get_command(task: Object) -> str:
+    return double_quote_ascii_string(task.comm.string_())
+
+
+def _append_task(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.sched", "task_thread_info")
+    code.append("thread_info = task_thread_info(task)\n")
+
+
+def _get_task(task: Object) -> str:
+    return f"{task.value_():x}  [THREAD_INFO: {task_thread_info(task).value_():x}]"
+
+
+def _append_cpu(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+    code.append("cpu = task_cpu(task)\n")
+
+
+def _get_cpu(task: Object) -> str:
+    return str(task_cpu(task))
+
+
+def _append_state(code: CrashDrgnCodeBuilder) -> None:
+    code.add_from_import("drgn.helpers.linux.panic", "panic_task")
+    code.add_from_import("drgn.helpers.linux.sched", "get_task_state", "task_on_cpu")
+    code.append(
+        """\
 state = get_task_state(task)
 is_active = task_on_cpu(task)
 is_panic = task == panic_task()
 """
-        )
+    )
 
-    def _get_state(self) -> str:
-        state = get_task_state(self.task)
-        if self.task == panic_task(self.prog):
-            state += " (PANIC)"
-        elif task_on_cpu(self.task):
-            state += " (ACTIVE)"
-        return state
 
-    FIELDS = {
-        "KERNEL": (_append_kernel, _get_kernel),
-        "DUMPFILE": (_append_dumpfile, _get_dumpfile),
-        "CPUS": (_append_cpus, _get_cpus),
-        "DATE": (_append_date, _get_date),
-        "UPTIME": (_append_uptime, _get_uptime),
-        "LOAD AVERAGE": (_append_load_average, _get_load_average),
-        "TASKS": (_append_tasks, _get_tasks),
-        "NODENAME": (_append_nodename, _get_nodename),
-        "RELEASE": (_append_release, _get_release),
-        "VERSION": (_append_version, _get_version),
-        "MACHINE": (_append_machine, _get_machine),
-        "MEMORY": (_append_memory, _get_memory),
-        "PANIC": (_append_panic, _get_panic),
-    }
+def _get_state(task: Object) -> str:
+    state = get_task_state(task)
+    if task == panic_task(task.prog_):
+        state += " (PANIC)"
+    elif task_on_cpu(task):
+        state += " (ACTIVE)"
+    return state
 
-    TASK_FIELDS = {
-        "PID": (_append_pid, _get_pid),
-        "COMMAND": (_append_command, _get_command),
-        "TASK": (_append_task, _get_task),
-        "CPU": (_append_cpu, _get_cpu),
-        "STATE": (_append_state, _get_state),
-    }
+
+_FIELDS: List[
+    Tuple[str, Callable[[CrashDrgnCodeBuilder], None], Callable[[Program], Any]]
+] = [
+    ("KERNEL", _append_kernel, _get_kernel),
+    ("DUMPFILE", _append_dumpfile, _get_dumpfile),
+    ("CPUS", _append_cpus, _get_cpus),
+    ("DATE", _append_date, _get_date),
+    ("UPTIME", _append_uptime, _get_uptime),
+    ("LOAD AVERAGE", _append_load_average, _get_load_average),
+    ("TASKS", _append_tasks, _get_tasks),
+    (
+        "NODENAME",
+        functools.partial(_append_utsname_field, field="nodename"),
+        functools.partial(_get_utsname_field, field="nodename"),
+    ),
+    ("RELEASE", _append_release, _get_release),
+    (
+        "VERSION",
+        functools.partial(_append_utsname_field, field="version"),
+        functools.partial(_get_utsname_field, field="version"),
+    ),
+    (
+        "MACHINE",
+        functools.partial(_append_utsname_field, field="machine"),
+        functools.partial(_get_utsname_field, field="machine"),
+    ),
+    ("MEMORY", _append_memory, _get_memory),
+    ("PANIC", _append_panic, _get_panic),
+]
+
+_TASK_FIELDS: List[
+    Tuple[str, Callable[[CrashDrgnCodeBuilder], None], Callable[[Object], Any]]
+] = [
+    ("PID", _append_pid, _get_pid),
+    ("COMMAND", _append_command, _get_command),
+    ("TASK", _append_task, _get_task),
+    ("CPU", _append_cpu, _get_cpu),
+    ("STATE", _append_state, _get_state),
+]
+
+
+def _append_sys_drgn_system(code: CrashDrgnCodeBuilder) -> None:
+    for _, append, _ in _FIELDS:
+        append(code)
+
+
+def _append_sys_drgn_task(code: CrashDrgnCodeBuilder) -> None:
+    for _, append, _ in _TASK_FIELDS:
+        append(code)
+
+
+def _print_sys(
+    prog: Program,
+    system_fields: bool = True,
+    context: Union[Literal["panic", "current"], Object, None] = None,
+) -> Optional[Object]:
+    if isinstance(context, Object) or context is None:
+        task = context
+    elif context == "panic":
+        task = _crash_get_panic_context(prog)
+    elif context == "current":
+        task = crash_get_context(prog)
+    else:
+        raise ValueError("invalid context")
+
+    rows = []
+
+    if system_fields:
+        for name, _, getter in _FIELDS:
+            try:
+                value = getter(prog)
+            except Exception as e:
+                logger.warning("couldn't get %s: %s", name, e)
+                continue
+            if value is not None:
+                rows.append((CellFormat(name, ">"), value))
+
+    if task is not None:
+        for name, _, task_getter in _TASK_FIELDS:
+            try:
+                value = task_getter(task)
+            except Exception as e:
+                logger.warning("couldn't get %s: %s", name, e)
+                continue
+            if value is not None:
+                rows.append((CellFormat(name, ">"), value))
+
+    print_table(rows, sep=": ")
+    return task
 
 
 @crash_command(
@@ -382,7 +382,11 @@ kconfig = get_kconfig()
         sys.stdout.write(_get_raw_kconfig(prog).decode())
         return
 
-    _SysPrinter(prog, args.drgn).print()
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        _append_sys_drgn_system(code)
+        return code.print()
+    _print_sys(prog)
 
 
 def _print_idt(prog: Program, drgn_arg: bool) -> None:
