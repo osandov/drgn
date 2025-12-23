@@ -85,13 +85,17 @@ class TestPs(CrashCommandTestCase):
 
     def test_pid(self):
         cmd = self.check_crash_command("ps -H 1")
+        foreach_cmd = self.check_crash_command("foreach 1 ps -H", mode="capture")
 
-        self.assertRegex(cmd.stdout, r"^>?\s*1\b.*\n$")
+        for c in (cmd, foreach_cmd):
+            self.assertRegex(c.stdout, r"^>?\s*1\b.*\n$")
 
         self.assertIn("pid = 1", cmd.drgn_option.stdout)
         self.assertIn("find_task(pid)", cmd.drgn_option.stdout)
         self.assertNotIn("for_each_task", cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
+
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
 
     def test_pid_0(self):
         cmd = self.check_crash_command("ps -H 0")
@@ -311,8 +315,12 @@ class TestPs(CrashCommandTestCase):
 
     def test_group_leader_and_pid(self):
         cmd = self.check_crash_command(f"ps -H -G {os.getpid()}")
+        foreach_cmd = self.check_crash_command(
+            f"foreach {os.getpid()} ps -H -G", mode="capture"
+        )
 
-        self.assertRegex(cmd.stdout, rf"^>?\s*{os.getpid()}\b.*$")
+        for c in (cmd, foreach_cmd):
+            self.assertRegex(c.stdout, rf"^>?\s*{os.getpid()}\b.*$")
 
         self.assertIn("find_task(pid)", cmd.drgn_option.stdout)
         self.assertNotIn("for_each_task", cmd.drgn_option.stdout)
@@ -320,6 +328,8 @@ class TestPs(CrashCommandTestCase):
         self.assertIn("task = task.group_leader", cmd.drgn_option.stdout)
         self.assertNotIn("continue", cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
+
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
 
     def test_group_leader_and_tid(self):
         cmd = self.check_crash_command(f"ps -H -G {self.threads[0].native_id}")
@@ -380,14 +390,46 @@ class TestPs(CrashCommandTestCase):
             os.sched_setscheduler(pid2, os.SCHED_BATCH, os.sched_param(0))
 
             cmd = self.check_crash_command("ps -y BATCH")
+            foreach_cmd = self.check_crash_command(
+                "foreach ps -y BATCH", mode="capture"
+            )
 
-        self.assertRegex(cmd.stdout, rf"(?m)^>?\s*{pid2}\b")
-        self.assertNotRegex(cmd.stdout, rf"(?m)^>?\s*{pid1}\b")
+        for c in (cmd, foreach_cmd):
+            self.assertRegex(c.stdout, rf"(?m)^>?\s*{pid2}\b")
+            self.assertNotRegex(c.stdout, rf"(?m)^>?\s*{pid1}\b")
 
         self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
         self.assertIn("if task.policy.value_() != ", cmd.drgn_option.stdout)
         self.assertIn("continue", cmd.drgn_option.stdout)
         self._test_drgn_common(cmd)
+
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
+    def test_state(self):
+        with fork_and_stop() as pid:
+            cmd = self.check_crash_command("foreach R ps")
+
+        self.assertNotRegex(cmd.stdout, rf"(?m)^>?\s*{pid}\b")
+
+        self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
+        self.assertIn("if task_state_to_char(task) != ", cmd.drgn_option.stdout)
+        self.assertIn("continue", cmd.drgn_option.stdout)
+        self._test_drgn_common(cmd)
+
+    def test_active(self):
+        with fork_and_stop() as pid:
+            cmd = self.check_crash_command("ps -A")
+            foreach_cmd = self.check_crash_command("foreach active ps", mode="capture")
+
+        for c in (cmd, foreach_cmd):
+            self.assertNotRegex(c.stdout, rf"(?m)^>?\s*{pid}\b")
+
+        self.assertIn("for_each_task(idle=True)", cmd.drgn_option.stdout)
+        self.assertIn("if not task_on_cpu(task)", cmd.drgn_option.stdout)
+        self.assertIn("continue", cmd.drgn_option.stdout)
+        self._test_drgn_common(cmd)
+
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
 
     def _test_drgn_task_header(self, cmd):
         for variable in (
@@ -415,12 +457,16 @@ class TestPs(CrashCommandTestCase):
                 current_pid = ppid
 
             cmd = self.check_crash_command(f"ps -p {pid}")
+            foreach_cmd = self.check_crash_command(
+                f"foreach {pid} ps -p", mode="capture"
+            )
 
         regex = ["^"]
         for i, expected_pid in enumerate(reversed(parents)):
             regex.append(" " * i + rf"PID: {expected_pid}\b.*\n")
         regex.append("$")
-        self.assertRegex(cmd.stdout, "".join(regex))
+        for c in (cmd, foreach_cmd):
+            self.assertRegex(c.stdout, "".join(regex))
 
         self.assertIn("task.parent", cmd.drgn_option.stdout)
         self.assertEqual(
@@ -428,12 +474,19 @@ class TestPs(CrashCommandTestCase):
         )
         self._test_drgn_task_header(cmd)
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_children(self):
         with fork_and_stop() as pid1, fork_and_stop() as pid2:
             cmd = self.check_crash_command(f"ps -c {os.getpid()}")
-        self.assertRegex(cmd.stdout, rf"^PID: {os.getpid()}\b")
-        for pid in pid1, pid2:
-            self.assertRegex(cmd.stdout, rf"(?m)^  PID: {pid}\b")
+            foreach_cmd = self.check_crash_command(
+                f"foreach {os.getpid()} ps -c", mode="capture"
+            )
+
+        for c in (cmd, foreach_cmd):
+            self.assertRegex(c.stdout, rf"^PID: {os.getpid()}\b")
+            for pid in pid1, pid2:
+                self.assertRegex(c.stdout, rf"(?m)^  PID: {pid}\b")
 
         self.assertIn("list_for_each_entry(", cmd.drgn_option.stdout)
         self.assertIn("task.children", cmd.drgn_option.stdout)
@@ -442,6 +495,8 @@ class TestPs(CrashCommandTestCase):
         )
         self._test_drgn_task_header(cmd)
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_no_children(self):
         with fork_and_stop() as pid:
             cmd = self.run_crash_command(f"ps -c {pid}")
@@ -449,12 +504,18 @@ class TestPs(CrashCommandTestCase):
 
     def test_times(self):
         cmd = self.check_crash_command(f"ps -t {os.getpid()}")
-        self.assertRegex(
-            cmd.stdout, r"(?m)^\s*RUN TIME: (?:[0-9] days, )?[0-9]{2}:[0-9]{2}:[0-9]{2}"
+        foreach_cmd = self.check_crash_command(
+            f"foreach {os.getpid()} ps -t", mode="capture"
         )
-        self.assertRegex(cmd.stdout, r"(?m)^\s*START TIME: [0-9]+$")
-        self.assertRegex(cmd.stdout, r"(?m)^\s*UTIME: [0-9]+$")
-        self.assertRegex(cmd.stdout, r"(?m)^\s*STIME: [0-9]+$")
+
+        for c in (cmd, foreach_cmd):
+            self.assertRegex(
+                c.stdout,
+                r"(?m)^\s*RUN TIME: (?:[0-9] days, )?[0-9]{2}:[0-9]{2}:[0-9]{2}",
+            )
+            self.assertRegex(c.stdout, r"(?m)^\s*START TIME: [0-9]+$")
+            self.assertRegex(c.stdout, r"(?m)^\s*UTIME: [0-9]+$")
+            self.assertRegex(c.stdout, r"(?m)^\s*STIME: [0-9]+$")
 
         for variable in (
             "run_time",
@@ -466,67 +527,84 @@ class TestPs(CrashCommandTestCase):
                 self.assertIsInstance(cmd.drgn_option.globals[variable], Object)
         self._test_drgn_task_header(cmd)
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_last_arrival_timestamp(self):
         cmd = self.check_crash_command("ps -l")
+        foreach_cmd = self.check_crash_command("foreach ps -l", mode="capture")
 
-        timestamps = []
-        for line in cmd.stdout.splitlines():
-            timestamps.append(
-                int(re.match(r"\[\s*([0-9]+)\] \[[A-Z]\]  PID: ", line).group(1))
-            )
-        self.assertEqual(timestamps, sorted(timestamps, reverse=True))
+        for c in (cmd, foreach_cmd):
+            timestamps = []
+            for line in c.stdout.splitlines():
+                timestamps.append(
+                    int(re.match(r"\[\s*([0-9]+)\] \[[A-Z]\]  PID: ", line).group(1))
+                )
+            self.assertEqual(timestamps, sorted(timestamps, reverse=True))
 
         self.assertIsInstance(cmd.drgn_option.globals["last_arrival"], Object)
         self.assertIsInstance(cmd.drgn_option.globals["state"], str)
         self._test_drgn_task_header(cmd)
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_last_arrival_elapsed(self):
         cmd = self.check_crash_command("ps -m")
+        foreach_cmd = self.check_crash_command("foreach ps -m", mode="capture")
 
-        for line in cmd.stdout.splitlines():
-            self.assertRegex(
-                line,
-                r"^\[\s*[0-9]+ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}\] \[[A-Z]\]  PID: ",
-            )
+        for c in (cmd, foreach_cmd):
+            for line in c.stdout.splitlines():
+                self.assertRegex(
+                    line,
+                    r"^\[\s*[0-9]+ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}\] \[[A-Z]\]  PID: ",
+                )
 
         self.assertIn("task_since_last_arrival_ns(", cmd.drgn_option.stdout)
         self.assertIsInstance(cmd.drgn_option.globals["elapsed"], int)
         self.assertIsInstance(cmd.drgn_option.globals["state"], str)
         self._test_drgn_task_header(cmd)
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_last_arrival_cpus(self):
         cpu = min(online_cpus())
         cmd = self.run_crash_command(f"ps -l -C {cpu}")
+        foreach_cmd = self.run_crash_command(f"foreach ps -l -C {cpu}")
 
-        timestamps = []
-        lines = cmd.stdout.splitlines()
-        self.assertEqual(lines[0], f"CPU: {cpu}")
-        for line in lines[1:]:
-            timestamps.append(
-                int(
-                    re.match(
-                        rf"\[\s*([0-9]+)\] \[[A-Z]\]  PID: .*\bCPU: {cpu}\b", line
-                    ).group(1)
+        for c in (cmd, foreach_cmd):
+            timestamps = []
+            lines = c.stdout.splitlines()
+            self.assertEqual(lines[0], f"CPU: {cpu}")
+            for line in lines[1:]:
+                timestamps.append(
+                    int(
+                        re.match(
+                            rf"\[\s*([0-9]+)\] \[[A-Z]\]  PID: .*\bCPU: {cpu}\b", line
+                        ).group(1)
+                    )
                 )
-            )
-        self.assertEqual(timestamps, sorted(timestamps, reverse=True))
+            self.assertEqual(timestamps, sorted(timestamps, reverse=True))
 
     @skip_unless_have_full_mm_support
     @skip_if_highmem
     def test_arguments(self):
         cmd = self.check_crash_command(f"ps -a {os.getpid()}")
+        foreach_cmd = self.check_crash_command(
+            f"foreach {os.getpid()} ps -a", mode="capture"
+        )
 
         cmdline = Path("/proc/self/cmdline").read_text()
         if cmdline.endswith("\0"):
             cmdline = cmdline[:-1]
         cmdline = cmdline.replace("\0", " ")
-        self.assertRegex(cmd.stdout, rf"(?m)^ARG: {re.escape(cmdline)}$")
 
         environ = Path("/proc/self/environ").read_text()
         if environ.endswith("\0"):
             environ = environ[:-1]
         environ = environ.replace("\0", "\n     ")
-        self.assertRegex(cmd.stdout, rf"(?m)^ENV: {re.escape(environ)}$")
+
+        for c in (cmd, foreach_cmd):
+            self.assertRegex(c.stdout, rf"(?m)^ARG: {re.escape(cmdline)}$")
+            self.assertRegex(c.stdout, rf"(?m)^ENV: {re.escape(environ)}$")
 
         self.assertIn("cmdline(", cmd.drgn_option.stdout)
         self.assertIn("environ(", cmd.drgn_option.stdout)
@@ -534,14 +612,18 @@ class TestPs(CrashCommandTestCase):
         self.assertIsInstance(cmd.drgn_option.globals["env"], list)
         self._test_drgn_task_header(cmd)
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_thread_groups(self):
         cmd = self.check_crash_command("ps -g")
+        foreach_cmd = self.check_crash_command("foreach ps -g", mode="capture")
 
-        self.assertRegex(
-            cmd.stdout,
-            rf"(?m)^PID: {os.getpid()}\b.*\n(?:  PID: .*\n)*  PID: {self.threads[0].native_id}\b",
-        )
-        self.assertNotRegex(cmd.stdout, rf"(?m)^PID: {self.threads[0].native_id}\b")
+        for c in (cmd, foreach_cmd):
+            self.assertRegex(
+                c.stdout,
+                rf"(?m)^PID: {os.getpid()}\b.*\n(?:  PID: .*\n)*  PID: {self.threads[0].native_id}\b",
+            )
+            self.assertNotRegex(c.stdout, rf"(?m)^PID: {self.threads[0].native_id}\b")
 
         self.assertIn("if not thread_group_leader(task):", cmd.drgn_option.stdout)
         self.assertIn("continue", cmd.drgn_option.stdout)
@@ -550,6 +632,8 @@ class TestPs(CrashCommandTestCase):
             cmd.drgn_option.globals["thread"].type_.type_name(), "struct task_struct *"
         )
         self._test_drgn_task_header(cmd)
+
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
 
     def test_thread_groups_and_pid(self):
         cmd = self.check_crash_command(f"ps -g {os.getpid()}")
@@ -625,35 +709,47 @@ class TestPs(CrashCommandTestCase):
 
     def test_rlimit(self):
         cmd = self.check_crash_command(f"ps -r {os.getpid()}")
-        for name in (
-            "CPU",
-            "FSIZE",
-            "DATA",
-            "STACK",
-            "CORE",
-            "RSS",
-            "NPROC",
-            "NOFILE",
-            "MEMLOCK",
-            "AS",
-            "LOCKS",
-            "SIGPENDING",
-            "MSGQUEUE",
-            "NICE",
-            "RTPRIO",
-            "RTTIME",
-        ):
-            self.assertRegex(
-                cmd.stdout, rf"(?m)^\s*{name}(?:\s+(?:[0-9]+|\(unlimited\))){{2}}$"
-            )
+        foreach_cmd = self.check_crash_command(
+            f"foreach {os.getpid()} ps -r", mode="capture"
+        )
+
+        for c in (cmd, foreach_cmd):
+            for name in (
+                "CPU",
+                "FSIZE",
+                "DATA",
+                "STACK",
+                "CORE",
+                "RSS",
+                "NPROC",
+                "NOFILE",
+                "MEMLOCK",
+                "AS",
+                "LOCKS",
+                "SIGPENDING",
+                "MSGQUEUE",
+                "NICE",
+                "RTPRIO",
+                "RTTIME",
+            ):
+                self.assertRegex(
+                    c.stdout, rf"(?m)^\s*{name}(?:\s+(?:[0-9]+|\(unlimited\))){{2}}$"
+                )
 
         self.assertIn("task_rlimits(", cmd.drgn_option.stdout)
         self.assertIsInstance(cmd.drgn_option.globals["rlimits"], dict)
         self._test_drgn_task_header(cmd)
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_summary(self):
         cmd = self.check_crash_command("ps -S")
-        self.assertRegex(cmd.stdout, r"^(?:\s*[A-Z]: [0-9]+)+$")
+        foreach_cmd = self.check_crash_command("foreach ps -S", mode="capture")
+
+        for c in (cmd, foreach_cmd):
+            self.assertRegex(c.stdout, r"^(?:\s*[A-Z]: [0-9]+)+$")
 
         self.assertIn("task_state_to_char(", cmd.drgn_option.stdout)
         self.assertIsInstance(cmd.drgn_option.globals["counter"], collections.Counter)
+
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)

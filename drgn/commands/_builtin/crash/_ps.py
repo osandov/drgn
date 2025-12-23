@@ -17,6 +17,7 @@ from typing import AbstractSet, Any, List, Optional, Sequence, Tuple
 
 from drgn import FaultError, Object, Program
 from drgn.commands import (
+    CommandArgumentError,
     argument,
     drgn_argument,
     mutually_exclusive_group,
@@ -27,6 +28,7 @@ from drgn.commands.crash import (
     _CRASH_FOREACH_SUBCOMMANDS,
     Cpuspec,
     CrashDrgnCodeBuilder,
+    _crash_foreach_subcommand,
     _format_seconds_duration,
     _pid_or_task_or_command,
     _print_task_header,
@@ -435,6 +437,186 @@ for state, num in counter.items():
         print(f"  {state}: {num}")
 
 
+@_crash_foreach_subcommand(
+    arguments=(
+        argument(
+            "-G",
+            dest="group_leader",
+            action="store_true",
+        ),
+        argument(
+            "-y",
+            dest="policy",
+        ),
+        mutually_exclusive_group(
+            argument(
+                "-s",
+                dest="stack_pointer",
+                action="store_true",
+            ),
+            argument(
+                "-p",
+                dest="func",
+                action="store_const",
+                const=_ps_parents,
+            ),
+            argument(
+                "-c",
+                dest="func",
+                action="store_const",
+                const=_ps_children,
+            ),
+            argument(
+                "-t",
+                dest="func",
+                action="store_const",
+                const=_ps_times,
+            ),
+            argument(
+                "-l",
+                dest="last_arrival_timestamp",
+                action="store_true",
+            ),
+            argument(
+                "-m",
+                dest="last_arrival_elapsed",
+                action="store_true",
+            ),
+            argument(
+                "-a",
+                dest="func",
+                action="store_const",
+                const=_ps_arguments,
+            ),
+            argument(
+                "-g",
+                dest="func",
+                action="store_const",
+                const=_ps_thread_groups,
+            ),
+            argument(
+                "-r",
+                dest="func",
+                action="store_const",
+                const=_ps_rlimit,
+            ),
+            argument(
+                "-S",
+                dest="func",
+                action="store_const",
+                const=_ps_summary,
+            ),
+        ),
+        argument(
+            "-C",
+            dest="cpu",
+        ),
+        argument(
+            "-H",
+            dest="header",
+            action="store_false",
+        ),
+        # Note: crash doesn't support foreach ps -S, -H, or -C, but supporting
+        # them actually makes things easier for us, so we do.
+        drgn_argument,
+    ),
+)
+def _crash_foreach_ps(task_selector: _TaskSelector, args: argparse.Namespace) -> None:
+    if args.last_arrival_timestamp or args.last_arrival_elapsed:
+        cpuspec = None if args.cpu is None else parse_cpuspec(args.cpu)
+    elif args.cpu is not None:
+        raise CommandArgumentError("-C can only be used with -l or -m")
+
+    if args.group_leader or args.func == _ps_thread_groups:
+        task_selector._group_leader = True
+    if args.policy is not None:
+        task_selector._policies = _parse_sched_policies(args.policy)
+
+    if args.func is not None:
+        return args.func(task_selector, args.drgn)
+
+    if args.last_arrival_timestamp or args.last_arrival_elapsed:
+        return _ps_last_arrival(
+            task_selector, args.drgn, args.last_arrival_elapsed, cpuspec
+        )
+
+    prog = task_selector.prog
+
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import(
+            "drgn.helpers.linux.mm", "task_rss", "task_vsize", "totalram_pages"
+        )
+        code.append("total_mem = totalram_pages()\n\n")
+        with task_selector.begin_task_loop(code):
+            code.add_from_import(
+                "drgn.helpers.linux.sched", "task_cpu", "task_state_to_char"
+            )
+            code.append(
+                """\
+pid = task.pid
+ppid = task.parent.pid
+cpu = task_cpu(task)
+state = task_state_to_char(task)
+rss = task_rss(task)
+mem_usage = rss.total / total_mem
+vsize = task_vsize(task)
+comm = task.comm
+"""
+            )
+        return code.print()
+
+    rows: List[Sequence[Any]] = []
+    if args.header:
+        rows.append(
+            (
+                "",
+                CellFormat("PID", ">"),
+                CellFormat("PPID", ">"),
+                CellFormat("CPU", ">"),
+                CellFormat("KSTACKP" if args.stack_pointer else "TASK", "^"),
+                "ST",
+                CellFormat("%MEM", ">"),
+                CellFormat("VSZ", ">"),
+                CellFormat("RSS", ">"),
+                "COMM",
+            )
+        )
+
+    page_size = prog["PAGE_SIZE"].value_()
+    total_mem = totalram_pages(prog)
+    for task in task_selector.tasks():
+        if args.stack_pointer:
+            try:
+                pointer_cell = CellFormat(prog.stack_trace(task)[0].sp, "^x")
+            except ValueError:
+                pointer_cell = CellFormat("--", "^")
+        else:
+            pointer_cell = CellFormat(task.value_(), "^x")
+
+        rss = task_rss(prog, task)
+
+        comm_column = escape_ascii_string(task.comm.string_(), escape_backslash=True)
+        if task_is_kthread(task):
+            comm_column = f"[{comm_column}]"
+
+        rows.append(
+            (
+                ">" if task_selector._on_cpu or task_on_cpu(task) else "",
+                task.pid.value_(),
+                task.parent.pid.value_(),
+                task_cpu(task),
+                pointer_cell,
+                task_state_to_char(task),
+                CellFormat(rss.total / total_mem * 100, ".1f"),
+                task_vsize(task) // 1024,
+                rss.total * page_size // 1024,
+                comm_column,
+            )
+        )
+    print_table(rows)
+
+
 @crash_custom_command(
     description="process information",
     long_description="display process status information",
@@ -623,104 +805,17 @@ def _crash_cmd_ps(
             for arg in quoted_args
         ]
     )
-
-    if args.last_arrival_timestamp or args.last_arrival_elapsed:
-        cpuspec = None if args.cpu is None else parse_cpuspec(args.cpu)
-    elif args.cpu is not None:
-        parser.error("-C can only be used with -l or -m")
-
     task_selector = _TaskSelector(
         prog,
         args.tasks,
         kernel=args.kernel,
         user=args.user,
-        group_leader=args.group_leader or args.func == _ps_thread_groups,
-        policies=None if args.policy is None else _parse_sched_policies(args.policy),
+        # Note: group_leader and policies are overridden in
+        # _crash_foreach_ps().
         on_cpu=args.active,
         sort=True,
     )
-
-    if args.func is not None:
-        return args.func(task_selector, args.drgn)
-
-    if args.last_arrival_timestamp or args.last_arrival_elapsed:
-        return _ps_last_arrival(
-            task_selector, args.drgn, args.last_arrival_elapsed, cpuspec
-        )
-
-    if args.drgn:
-        code = CrashDrgnCodeBuilder(prog)
-        code.add_from_import(
-            "drgn.helpers.linux.mm", "task_rss", "task_vsize", "totalram_pages"
-        )
-        code.append("total_mem = totalram_pages()\n\n")
-        with task_selector.begin_task_loop(code):
-            code.add_from_import(
-                "drgn.helpers.linux.sched", "task_cpu", "task_state_to_char"
-            )
-            code.append(
-                """\
-pid = task.pid
-ppid = task.parent.pid
-cpu = task_cpu(task)
-state = task_state_to_char(task)
-rss = task_rss(task)
-mem_usage = rss.total / total_mem
-vsize = task_vsize(task)
-comm = task.comm
-"""
-            )
-        return code.print()
-
-    rows: List[Sequence[Any]] = []
-    if args.header:
-        rows.append(
-            (
-                "",
-                CellFormat("PID", ">"),
-                CellFormat("PPID", ">"),
-                CellFormat("CPU", ">"),
-                CellFormat("KSTACKP" if args.stack_pointer else "TASK", "^"),
-                "ST",
-                CellFormat("%MEM", ">"),
-                CellFormat("VSZ", ">"),
-                CellFormat("RSS", ">"),
-                "COMM",
-            )
-        )
-
-    page_size = prog["PAGE_SIZE"].value_()
-    total_mem = totalram_pages(prog)
-    for task in task_selector.tasks():
-        if args.stack_pointer:
-            try:
-                pointer_cell = CellFormat(prog.stack_trace(task)[0].sp, "^x")
-            except ValueError:
-                pointer_cell = CellFormat("--", "^")
-        else:
-            pointer_cell = CellFormat(task.value_(), "^x")
-
-        rss = task_rss(prog, task)
-
-        comm_column = escape_ascii_string(task.comm.string_(), escape_backslash=True)
-        if task_is_kthread(task):
-            comm_column = f"[{comm_column}]"
-
-        rows.append(
-            (
-                ">" if args.active or task_on_cpu(task) else "",
-                task.pid.value_(),
-                task.parent.pid.value_(),
-                task_cpu(task),
-                pointer_cell,
-                task_state_to_char(task),
-                CellFormat(rss.total / total_mem * 100, ".1f"),
-                task_vsize(task) // 1024,
-                rss.total * page_size // 1024,
-                comm_column,
-            )
-        )
-    print_table(rows)
+    _crash_foreach_ps(task_selector, args)
 
 
 @crash_custom_command(
