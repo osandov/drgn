@@ -4,122 +4,105 @@
 import argparse
 from typing import Any, List, Sequence
 
-from drgn import Object, Program
+from drgn import Program
 from drgn.commands import argument, drgn_argument
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
+    _crash_foreach_subcommand,
+    _TaskSelector,
     crash_command,
-    crash_get_context,
     print_task_header,
 )
 from drgn.helpers.common.format import CellFormat, print_table
 from drgn.helpers.linux.mm import for_each_vma, task_rss, vma_name
 
 
-# Generate DRGN code mode output
-def _generate_drgn_code(prog: Program, args: argparse.Namespace) -> None:
-    code = CrashDrgnCodeBuilder(prog)
-    code.add_from_import("drgn", "Object")
-    code.add_from_import(
-        "drgn.helpers.linux.mm", "for_each_vma", "task_rss", "vma_name"
-    )
-    code.add_from_import("drgn.helpers.linux.sched", "task_cpu")
-    code.add_from_import("drgn.helpers.linux.pid", "find_task")
+@_crash_foreach_subcommand(
+    arguments=(drgn_argument,),
+)
+def _crash_foreach_vm(task_selector: _TaskSelector, args: argparse.Namespace) -> None:
+    prog = task_selector.prog
 
-    # Build task list
-    code.append("tasks = []\n")
-    # Handle the case where no arguments are provided
-    if not args.pids_or_tasks:
-        code.append_crash_context(None)
-        code.append("tasks.append(task)\n")
-    else:
-        # Iterate over provided arguments and handle invalid inputs gracefully
-        for pid_or_task in args.pids_or_tasks:
-            code.append_crash_context(pid_or_task)
-            code.append("tasks.append(task)\n")
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        with task_selector.begin_task_loop(code):
+            code.append_task_header()
+            code.add_from_import(
+                "drgn.helpers.linux.mm", "for_each_vma", "task_rss", "vma_name"
+            )
+            code.append(
+                """\
 
-    # Add processing logic
-    code.append(
-        """\
-for task in tasks:
-"""
-    )
-    code.append_task_header(indent="    ")
-    code.append(
-        """\
-    mm = task.mm.read_()
-    if mm:
-        # Get memory statistics
-        pgd = mm.pgd
-        rss = task_rss(task).total
-        total_vm = mm.total_vm * prog["PAGE_SIZE"]
-        # Get VMA info
-        for vma in for_each_vma(mm):
-            vma_addr = vma
-            vm_start = vma.vm_start
-            vm_end = vma.vm_end
-            vm_flags = vma.vm_flags
+mm = task.mm.read_()
+if mm:
+    pgd = mm.pgd
+    rss = task_rss(task)
+    total_vm = mm.total_vm
 
-            # Get file path
-            file_path = vma_name(vma)
-"""
-    )
-    code.print()
-
-
-# Print virtual memory info for a single task
-def _print_task_vm_info(prog: Program, task: Object) -> None:
-    print_task_header(task)
-
-    mm = task.mm.read_()
-    if mm:
-        pgd_value = mm.pgd.value_()
-        rss_total = task_rss(task).total
-        total_vm = mm.total_vm.value_()
-    else:
-        pgd_value = rss_total = total_vm = 0
-    page_size = prog["PAGE_SIZE"].value_()
-    print_table(
-        (
-            (
-                CellFormat("MM", "^"),
-                CellFormat("PGD", "^"),
-                CellFormat("RSS", "^"),
-                CellFormat("TOTAL_VM", "^"),
-            ),
-            (
-                CellFormat(mm.value_(), "^x"),
-                CellFormat(pgd_value, "^x"),
-                CellFormat(f"{rss_total * page_size // 1024}k", "^"),
-                CellFormat(f"{total_vm * page_size // 1024}k", "^"),
-            ),
-        )
-    )
-    if not mm:
-        return
-
-    rows: List[Sequence[Any]] = [
-        [
-            CellFormat("VMA", "^"),
-            CellFormat("START", "^"),
-            CellFormat("END", "^"),
-            CellFormat("FLAGS", "<"),
-            CellFormat("FILE", "<"),
-        ]
-    ]
     for vma in for_each_vma(mm):
-        file_path = vma_name(vma)
-        rows.append(
-            [
-                CellFormat(vma.value_(), "^x"),
-                CellFormat(vma.vm_start.value_(), "^x"),
-                CellFormat(vma.vm_end.value_(), "^x"),
-                CellFormat(vma.vm_flags.value_(), "<x"),
-                file_path,
-            ]
-        )
+        start = vma.vm_start
+        end = vma.vm_end
+        flags = vma.vm_flags
+        file = vma_name(vma)
+"""
+            )
+        return code.print()
 
-    print_table(rows)
+    first = True
+    for task in task_selector.tasks():
+        if first:
+            first = False
+        else:
+            print()
+        print_task_header(task)
+
+        mm = task.mm.read_()
+        if mm:
+            pgd_value = mm.pgd.value_()
+            rss_total = task_rss(task).total
+            total_vm = mm.total_vm.value_()
+        else:
+            pgd_value = rss_total = total_vm = 0
+        page_size = prog["PAGE_SIZE"].value_()
+        print_table(
+            (
+                (
+                    CellFormat("MM", "^"),
+                    CellFormat("PGD", "^"),
+                    CellFormat("RSS", "^"),
+                    CellFormat("TOTAL_VM", "^"),
+                ),
+                (
+                    CellFormat(mm.value_(), "^x"),
+                    CellFormat(pgd_value, "^x"),
+                    CellFormat(f"{rss_total * page_size // 1024}k", "^"),
+                    CellFormat(f"{total_vm * page_size // 1024}k", "^"),
+                ),
+            )
+        )
+        if not mm:
+            return
+
+        rows: List[Sequence[Any]] = [
+            (
+                CellFormat("VMA", "^"),
+                CellFormat("START", "^"),
+                CellFormat("END", "^"),
+                CellFormat("FLAGS", "<"),
+                CellFormat("FILE", "<"),
+            )
+        ]
+        for vma in for_each_vma(mm):
+            rows.append(
+                (
+                    CellFormat(vma.value_(), "^x"),
+                    CellFormat(vma.vm_start.value_(), "^x"),
+                    CellFormat(vma.vm_end.value_(), "^x"),
+                    CellFormat(vma.vm_flags.value_(), "<x"),
+                    vma_name(vma),
+                )
+            )
+        print_table(rows)
 
 
 @crash_command(
@@ -132,7 +115,7 @@ arguments are entered, the current context is used.
 """,
     arguments=(
         argument(
-            "pids_or_tasks",
+            "tasks",
             metavar="pid|task",
             nargs="*",
             type="pid_or_task",
@@ -144,19 +127,6 @@ arguments are entered, the current context is used.
 def _crash_cmd_vm(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
-
-    if args.drgn:
-        _generate_drgn_code(prog, args)
-        return
-
-    if not args.pids_or_tasks:
-        args.pids_or_tasks.append(None)
-
-    for task_arg in args.pids_or_tasks:
-        try:
-            task = crash_get_context(prog, task_arg)
-        except Exception as e:
-            print("vm:", e)
-        else:
-            _print_task_vm_info(prog, task)
-        print()
+    if not args.tasks:
+        args.tasks.append(None)
+    return _crash_foreach_vm(_TaskSelector(prog, args.tasks), args)
