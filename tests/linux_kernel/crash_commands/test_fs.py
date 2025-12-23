@@ -69,16 +69,43 @@ class TestFiles(CrashCommandTestCase):
 
         self._test_drgn_common(cmd)
 
+    def test_tasks(self):
+        with tempfile.NamedTemporaryFile() as f:
+            with fork_and_stop() as pid:
+                cmd = self.check_crash_command(f"files {os.getpid()} {pid}")
+                foreach_cmd = self.check_crash_command(
+                    f"foreach {os.getpid()} {pid} files", mode="capture"
+                )
+
+            for c in (cmd, foreach_cmd):
+                self.assertIn(f"PID: {os.getpid()}", c.stdout)
+                self.assertIn(f"PID: {pid}", c.stdout)
+                self.assertRegex(c.stdout, r"(?m)^ROOT: .* CWD:")
+                self.assertEqual(
+                    len(re.findall(rf"^\s*{f.fileno()}\b", c.stdout, flags=re.M)), 2
+                )
+
+        self._test_drgn_common(cmd)
+
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_c(self):
         with tempfile.NamedTemporaryFile() as f:
-            cmd = self.check_crash_command("files -c")
-            self.assertRegex(cmd.stdout, r"(?m)^ROOT: .* CWD:")
-            self.assertRegex(
-                cmd.stdout,
-                rf"(?m)^\s*{f.fileno()}\s+[0-9a-f]+\s+[0-9a-f]+\s+[0-9]+\s+REG\s+{re.escape(f.name)}",
+            cmd = self.check_crash_command(f"files -c {os.getpid()}")
+            foreach_cmd = self.check_crash_command(
+                f"foreach {os.getpid()} files -c", mode="capture"
             )
 
+            for c in (cmd, foreach_cmd):
+                self.assertRegex(c.stdout, r"(?m)^ROOT: .* CWD:")
+                self.assertRegex(
+                    c.stdout,
+                    rf"(?m)^\s*{f.fileno()}\s+[0-9a-f]+\s+[0-9a-f]+\s+[0-9]+\s+REG\s+{re.escape(f.name)}",
+                )
+
         self._test_drgn_common(cmd, cache=True)
+
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
 
     def test_d(self):
         with tempfile.NamedTemporaryFile() as f:
@@ -135,34 +162,54 @@ class TestFiles(CrashCommandTestCase):
         self.assertIsInstance(cmd.drgn_option.globals["index"], int)
         self.assertIsInstance(cmd.drgn_option.globals["decoded_flags"], str)
 
-    def _test_R(self, arg_fn, expect_no_cache, expect_cache):
+    def _test_R(self, arg_fn, expect_no_cache, expect_cache, test_foreach=False):
         with tempfile.NamedTemporaryFile() as f:
             arg = arg_fn(f)
 
-            cmd = self.check_crash_command("files -R " + arg)
-            if expect_no_cache:
-                self.assertRegex(
-                    cmd.stdout,
-                    rf"(?m)^\s*{f.fileno()}\s+[0-9a-f]+\s+[0-9a-f]+\s+[0-9a-f]+\s+REG\s+{re.escape(f.name)}",
+            cmd = self.check_crash_command(f"files -R {arg} {os.getpid()}")
+            cmds = [cmd]
+            if test_foreach:
+                foreach_cmd = self.check_crash_command(
+                    f"foreach {os.getpid()} files -R {arg}", mode="capture"
                 )
-            else:
-                self.assertFalse(cmd.stdout)
+                cmds.append(foreach_cmd)
+
+            for c in cmds:
+                if expect_no_cache:
+                    self.assertRegex(
+                        c.stdout,
+                        rf"(?m)^\s*{f.fileno()}\s+[0-9a-f]+\s+[0-9a-f]+\s+[0-9a-f]+\s+REG\s+{re.escape(f.name)}",
+                    )
+                else:
+                    self.assertFalse(c.stdout)
             self._test_drgn_common(cmd)
             self.assertIsInstance(cmd.drgn_option.globals["is_match"], bool)
+            if test_foreach:
+                self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
 
-            cmd = self.check_crash_command("files -c -R " + arg)
-            if expect_cache:
-                self.assertRegex(
-                    cmd.stdout,
-                    rf"(?m)^\s*{f.fileno()}\s+[0-9a-f]+\s+[0-9a-f]+\s+[0-9]+\s+REG\s+{re.escape(f.name)}",
+            cmd = self.check_crash_command(f"files -c -R {arg} {os.getpid()}")
+            cmds = [cmd]
+            if test_foreach:
+                foreach_cmd = self.check_crash_command(
+                    f"foreach {os.getpid()} files -c -R {arg}", mode="capture"
                 )
-            else:
-                self.assertFalse(cmd.stdout)
+                cmds.append(foreach_cmd)
+
+            for c in cmds:
+                if expect_cache:
+                    self.assertRegex(
+                        c.stdout,
+                        rf"(?m)^\s*{f.fileno()}\s+[0-9a-f]+\s+[0-9a-f]+\s+[0-9]+\s+REG\s+{re.escape(f.name)}",
+                    )
+                else:
+                    self.assertFalse(c.stdout)
             self._test_drgn_common(cmd, cache=True)
             self.assertIsInstance(cmd.drgn_option.globals["is_match"], bool)
+            if test_foreach:
+                self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
 
     def test_R_fd(self):
-        self._test_R(lambda f: str(f.fileno()), True, True)
+        self._test_R(lambda f: str(f.fileno()), True, True, True)
 
     def test_R_filename(self):
         self._test_R(lambda f: f.name, True, True)
@@ -208,18 +255,6 @@ class TestFiles(CrashCommandTestCase):
 
         self.assertEqual(cmd.drgn_option.globals["cwd"], os.fsencode(tmp_dir))
         self.assertIsInstance(cmd.drgn_option.globals["is_match"], bool)
-
-    def test_tasks(self):
-        with tempfile.NamedTemporaryFile() as f:
-            with fork_and_stop() as pid:
-                cmd = self.check_crash_command(f"files {os.getpid()} {pid}")
-
-            self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
-            self.assertIn(f"PID: {pid}", cmd.stdout)
-
-            self.assertEqual(
-                len(re.findall(rf"^\s*{f.fileno()}\b", cmd.stdout, flags=re.M)), 2
-            )
 
     def test_no_files(self):
         cmd = self.check_crash_command(f"files {hex(self.prog['init_task'].address_)}")

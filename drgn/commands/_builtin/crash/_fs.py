@@ -14,6 +14,8 @@ from drgn.commands import _repr_black, argument, drgn_argument, mutually_exclusi
 from drgn.commands._builtin.crash._kmem import _print_pages_default_members
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
+    _crash_foreach_subcommand,
+    _TaskSelector,
     crash_command,
     crash_get_context,
     print_task_header,
@@ -117,6 +119,214 @@ for index, page in inode_for_each_page(inode):
     )
 
 
+@_crash_foreach_subcommand(
+    arguments=(
+        argument(
+            "-c",
+            dest="cache",
+            action="store_true",
+        ),
+        argument(
+            "-R",
+            dest="reference",
+        ),
+        drgn_argument,
+    ),
+)
+def _crash_foreach_files(
+    task_selector: _TaskSelector, args: argparse.Namespace
+) -> None:
+    prog = task_selector.prog
+
+    reference_int = None
+    if args.reference is not None:
+        try:
+            reference_int = int(args.reference, 10)
+            reference_int_base = 10
+        except ValueError:
+            try:
+                reference_int = int(args.reference, 16)
+                reference_int_base = 16
+            except ValueError:
+                pass
+
+        reference_path = os.fsencode(args.reference)
+
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+
+        if reference_int is not None:
+            if reference_int_base == 10:
+                code.append(f"reference = {reference_int}\n")
+            else:
+                code.append(f"reference = {hex(reference_int)}\n")
+        if args.reference is not None:
+            code.add_import("os")
+            code.append(
+                f"reference_path = os.fsencode({_repr_black(args.reference)})\n\n"
+            )
+
+        with task_selector.begin_task_loop(code):
+            code.append_task_header()
+
+            code.add_from_import(
+                "drgn.helpers.linux.fs", "d_path", "decode_file_type", "for_each_file"
+            )
+
+            code.append(
+                """
+root = d_path(task.fs.root)
+cwd = d_path(task.fs.pwd)
+
+"""
+            )
+            if args.reference is not None:
+                code.append(
+                    """\
+is_match = (reference_path in root) or (reference_path in cwd)
+
+"""
+                )
+
+            code.append("for fd, file in for_each_file(task):\n")
+            if args.cache:
+                code.append(
+                    """\
+    inode = file.f_inode
+    i_mapping = inode.i_mapping
+    nrpages = i_mapping.nrpages
+"""
+                )
+            else:
+                code.append(
+                    """\
+    dentry = file.f_path.dentry
+    inode = file.f_inode
+"""
+                )
+            code.append(
+                """\
+    type = decode_file_type(inode.i_mode)
+    path = d_path(file.f_path)
+"""
+            )
+            if reference_int is not None:
+                code.append(
+                    """\
+    is_match = (
+        fd == reference
+"""
+                )
+                if args.cache:
+                    code.append(
+                        """\
+        or inode.value_() == reference
+        or i_mapping.value_() == reference
+"""
+                    )
+                else:
+                    code.append(
+                        """\
+        or file.value_() == reference
+        or dentry.value_() == reference
+        or inode.value_() == reference
+"""
+                    )
+                code.append(
+                    """\
+        or reference_path in path
+    )
+"""
+                )
+            elif args.reference is not None:
+                code.append(
+                    """\
+    is_match = reference_path in path
+"""
+                )
+        return code.print()
+
+    first = True
+    for task in task_selector.tasks():
+        row: List[Any] = [CellFormat("FD", ">")]
+        if args.cache:
+            row.append(CellFormat("INODE", "^"))
+            row.append(CellFormat("I_MAPPING", "^"))
+            row.append(CellFormat("NRPAGES", ">"))
+        else:
+            row.append(CellFormat("FILE", "^"))
+            row.append(CellFormat("DENTRY", "^"))
+            row.append(CellFormat("INODE", "^"))
+        row.append("TYPE")
+        row.append("PATH")
+        rows = [row]
+
+        for fd, file in for_each_file(task):
+            f_path = file.f_path.read_()
+            inode = file.f_inode.read_()
+            if args.cache:
+                mapping = inode.i_mapping.read_()
+            else:
+                dentry = f_path.dentry.read_()
+            path = d_path(f_path)
+
+            if args.reference is not None and not (
+                (
+                    reference_int is not None
+                    and (
+                        fd == reference_int
+                        or inode.value_() == reference_int
+                        # Crash only matches against the columns that it prints
+                        # depending on -c.
+                        or (args.cache and mapping.value_() == reference_int)
+                        or (not args.cache and file.value_() == reference_int)
+                        or (not args.cache and dentry.value_() == reference_int)
+                    )
+                )
+                or reference_path in path
+            ):
+                continue
+
+            row = [fd]
+            if args.cache:
+                row.append(CellFormat(inode.value_(), "^x"))
+                row.append(CellFormat(mapping.value_(), "^x"))
+                row.append(mapping.nrpages.value_())
+            else:
+                row.append(CellFormat(file.value_(), "^x"))
+                row.append(CellFormat(dentry.value_(), "^x"))
+                row.append(CellFormat(inode.value_(), "^x"))
+            row.append(decode_file_type(inode.i_mode))
+            row.append(escape_ascii_string(path, escape_backslash=True))
+            rows.append(row)
+
+        fs = task.fs
+        root_path = d_path(fs.root)
+        cwd_path = d_path(fs.pwd)
+        if (
+            args.reference is None
+            or len(rows) > 1
+            or reference_path in root_path
+            or reference_path in cwd_path
+        ):
+            if first:
+                first = False
+            else:
+                print()
+            print_task_header(task)
+
+            fs = task.fs
+            print(
+                f"ROOT: {escape_ascii_string(root_path, escape_backslash=True)}"
+                f"  CWD: {escape_ascii_string(cwd_path, escape_backslash=True)}"
+            )
+
+            if len(rows) > 1:
+                print_table(rows)
+            elif args.reference is None:
+                print("No open files")
+
+
 @crash_command(
     description="file information",
     long_description="""
@@ -199,211 +409,7 @@ def _crash_cmd_files(
 
     if not args.tasks:
         args.tasks.append(None)
-
-    reference_int = None
-    if args.reference is not None:
-        try:
-            reference_int = int(args.reference, 10)
-            reference_int_base = 10
-        except ValueError:
-            try:
-                reference_int = int(args.reference, 16)
-                reference_int_base = 16
-            except ValueError:
-                pass
-
-        reference_path = os.fsencode(args.reference)
-
-    if args.drgn:
-        code = CrashDrgnCodeBuilder(prog)
-
-        if reference_int is not None:
-            if reference_int_base == 10:
-                code.append(f"reference = {reference_int}\n")
-            else:
-                code.append(f"reference = {hex(reference_int)}\n")
-        if args.reference is not None:
-            code.add_import("os")
-            code.append(
-                f"reference_path = os.fsencode({_repr_black(args.reference)})\n\n"
-            )
-
-        if len(args.tasks) > 1:
-            code.append("tasks = []\n")
-        for task_arg in args.tasks:
-            if len(args.tasks) > 1:
-                code.append("\n")
-            code.append_crash_context(task_arg)
-            if len(args.tasks) > 1:
-                code.append("tasks.append(task)\n")
-
-        code.append("\n")
-        if len(args.tasks) > 1:
-            code.append("for task in tasks:\n")
-            indent = "    "
-        else:
-            indent = ""
-
-        code.append_task_header(indent)
-
-        code.add_from_import(
-            "drgn.helpers.linux.fs", "d_path", "decode_file_type", "for_each_file"
-        )
-
-        code.append(
-            f"""
-{indent}root = d_path(task.fs.root)
-{indent}cwd = d_path(task.fs.pwd)
-
-"""
-        )
-        if args.reference is not None:
-            code.append(
-                f"""\
-{indent}is_match = (reference_path in root) or (reference_path in cwd)
-
-"""
-            )
-
-        code.append(f"{indent}for fd, file in for_each_file(task):\n")
-        if args.cache:
-            code.append(
-                f"""\
-{indent}    inode = file.f_inode
-{indent}    i_mapping = inode.i_mapping
-{indent}    nrpages = i_mapping.nrpages
-"""
-            )
-        else:
-            code.append(
-                f"""\
-{indent}    dentry = file.f_path.dentry
-{indent}    inode = file.f_inode
-"""
-            )
-        code.append(
-            f"""\
-{indent}    type = decode_file_type(inode.i_mode)
-{indent}    path = d_path(file.f_path)
-"""
-        )
-        if reference_int is not None:
-            code.append(
-                f"""\
-{indent}    is_match = (
-{indent}        fd == reference
-"""
-            )
-            if args.cache:
-                code.append(
-                    f"""\
-{indent}        or inode.value_() == reference
-{indent}        or i_mapping.value_() == reference
-"""
-                )
-            else:
-                code.append(
-                    f"""\
-{indent}        or file.value_() == reference
-{indent}        or dentry.value_() == reference
-{indent}        or inode.value_() == reference
-"""
-                )
-            code.append(
-                f"""\
-{indent}        or reference_path in path
-{indent}    )
-"""
-            )
-        elif args.reference is not None:
-            code.append(
-                f"""\
-{indent}    is_match = reference_path in path
-"""
-            )
-        return code.print()
-
-    first = True
-    for task_arg in args.tasks:
-        task = crash_get_context(prog, task_arg)
-
-        row: List[Any] = [CellFormat("FD", ">")]
-        if args.cache:
-            row.append(CellFormat("INODE", "^"))
-            row.append(CellFormat("I_MAPPING", "^"))
-            row.append(CellFormat("NRPAGES", ">"))
-        else:
-            row.append(CellFormat("FILE", "^"))
-            row.append(CellFormat("DENTRY", "^"))
-            row.append(CellFormat("INODE", "^"))
-        row.append("TYPE")
-        row.append("PATH")
-        rows = [row]
-
-        for fd, file in for_each_file(task):
-            f_path = file.f_path.read_()
-            inode = file.f_inode.read_()
-            if args.cache:
-                mapping = inode.i_mapping.read_()
-            else:
-                dentry = f_path.dentry.read_()
-            path = d_path(f_path)
-
-            if args.reference is not None and not (
-                (
-                    reference_int is not None
-                    and (
-                        fd == reference_int
-                        or inode.value_() == reference_int
-                        # Crash only matches against the columns that it prints
-                        # depending on -c.
-                        or (args.cache and mapping.value_() == reference_int)
-                        or (not args.cache and file.value_() == reference_int)
-                        or (not args.cache and dentry.value_() == reference_int)
-                    )
-                )
-                or reference_path in path
-            ):
-                continue
-
-            row = [fd]
-            if args.cache:
-                row.append(CellFormat(inode.value_(), "^x"))
-                row.append(CellFormat(mapping.value_(), "^x"))
-                row.append(mapping.nrpages.value_())
-            else:
-                row.append(CellFormat(file.value_(), "^x"))
-                row.append(CellFormat(dentry.value_(), "^x"))
-                row.append(CellFormat(inode.value_(), "^x"))
-            row.append(decode_file_type(inode.i_mode))
-            row.append(escape_ascii_string(path, escape_backslash=True))
-            rows.append(row)
-
-        fs = task.fs
-        root_path = d_path(fs.root)
-        cwd_path = d_path(fs.pwd)
-        if (
-            args.reference is None
-            or len(rows) > 1
-            or reference_path in root_path
-            or reference_path in cwd_path
-        ):
-            if first:
-                first = False
-            else:
-                print()
-            print_task_header(task)
-
-            fs = task.fs
-            print(
-                f"ROOT: {escape_ascii_string(root_path, escape_backslash=True)}"
-                f"  CWD: {escape_ascii_string(cwd_path, escape_backslash=True)}"
-            )
-
-            if len(rows) > 1:
-                print_table(rows)
-            elif args.reference is None:
-                print("No open files")
+    return _crash_foreach_files(_TaskSelector(prog, args.tasks), args)
 
 
 @crash_command(
