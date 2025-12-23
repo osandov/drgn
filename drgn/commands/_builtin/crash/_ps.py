@@ -921,9 +921,9 @@ for state, num in counter.items():
             nargs="*",
             help=r"""
             display only this task, given as a decimal process ID, hexadecimal
-            ``task_struct``, single quoted ("'") regular expression matching
+            ``task_struct``, single-quoted (``'``) regular expression matching
             command names, or a literal command name (optionally prefixed with
-            "\" to disambiguate it). May be given multiple times
+            ``\`` to disambiguate it). May be given multiple times
             """,
         ),
         drgn_argument,
