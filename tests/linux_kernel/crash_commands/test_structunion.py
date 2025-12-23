@@ -557,10 +557,13 @@ class TestTask(CrashCommandTestCase):
 
     def test_pids(self):
         cmd = self.check_crash_command("task 1 2")
-        self.assertIn("PID: 1", cmd.stdout)
-        self.assertIn("PID: 2", cmd.stdout)
-        self.assertIn("(struct task_struct){", cmd.stdout)
-        self.assertIn("(struct thread_info){", cmd.stdout)
+        foreach_cmd = self.check_crash_command("foreach 1 2 task", mode="capture")
+
+        for c in (cmd, foreach_cmd):
+            self.assertIn("PID: 1", c.stdout)
+            self.assertIn("PID: 2", c.stdout)
+            self.assertIn("(struct task_struct){", c.stdout)
+            self.assertIn("(struct thread_info){", c.stdout)
 
         task = find_task(self.prog, 2)
         self.assertEqual(cmd.drgn_option.globals["task"], task)
@@ -569,12 +572,19 @@ class TestTask(CrashCommandTestCase):
         self.assertIn("command", cmd.drgn_option.globals)
         self.assertEqual(cmd.drgn_option.globals["thread_info"], task_thread_info(task))
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_members(self):
         cmd = self.check_crash_command("task 1 -R on_rq,prio")
-        self.assertNotIn("(struct task_struct){", cmd.stdout)
-        self.assertNotIn("(struct thread_info){", cmd.stdout)
-        self.assertIn("on_rq =", cmd.stdout)
-        self.assertIn("prio =", cmd.stdout)
+        foreach_cmd = self.check_crash_command(
+            "foreach 1 task -R on_rq,prio", mode="capture"
+        )
+
+        for c in (cmd, foreach_cmd):
+            self.assertNotIn("(struct task_struct){", c.stdout)
+            self.assertNotIn("(struct thread_info){", c.stdout)
+            self.assertIn("on_rq =", c.stdout)
+            self.assertIn("prio =", c.stdout)
 
         task = find_task(self.prog, 1)
         self.assertEqual(cmd.drgn_option.globals["task"], task)
@@ -585,7 +595,23 @@ class TestTask(CrashCommandTestCase):
         self.assertIsInstance(cmd.drgn_option.globals["prio"], Object)
         self.assertNotIn("thread_info", cmd.drgn_option.globals)
 
+        self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
     def test_members_without_R(self):
+        cmd = self.check_crash_command("task 1 prio")
+        self.assertNotIn("(struct task_struct){", cmd.stdout)
+        self.assertNotIn("(struct thread_info){", cmd.stdout)
+        self.assertIn("prio =", cmd.stdout)
+
+        task = find_task(self.prog, 1)
+        self.assertEqual(cmd.drgn_option.globals["task"], task)
+        self.assertIn("pid", cmd.drgn_option.globals)
+        self.assertIn("cpu", cmd.drgn_option.globals)
+        self.assertIn("command", cmd.drgn_option.globals)
+        self.assertIsInstance(cmd.drgn_option.globals["prio"], Object)
+        self.assertNotIn("thread_info", cmd.drgn_option.globals)
+
+    def test_members_with_and_without_R(self):
         cmd = self.check_crash_command("task -R on_rq 1 prio")
         self.assertNotIn("(struct task_struct){", cmd.stdout)
         self.assertNotIn("(struct thread_info){", cmd.stdout)

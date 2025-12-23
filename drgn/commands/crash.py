@@ -63,8 +63,13 @@ from drgn.helpers.linux.sched import (
     thread_group_leader,
 )
 
+_PID_OR_TASK = Union[
+    Tuple[Literal["pid"], int],
+    Tuple[Literal["task"], int],
+]
 
-def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
+
+def _pid_or_task(s: str) -> _PID_OR_TASK:
     try:
         return "pid", int(s)
     except ValueError:
@@ -72,8 +77,7 @@ def _pid_or_task(s: str) -> Tuple[Literal["pid", "task"], int]:
 
 
 _PID_OR_TASK_OR_COMMAND = Union[
-    Tuple[Literal["pid"], int],
-    Tuple[Literal["task"], int],
+    _PID_OR_TASK,
     Tuple[Literal["command"], str],
     Tuple[Literal["command_pattern"], "re.Pattern[str]"],
 ]

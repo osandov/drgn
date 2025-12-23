@@ -6,13 +6,15 @@
 import argparse
 import functools
 import sys
-from typing import Any, Iterable, List, Literal, Optional, Tuple, Union
+from typing import Any, Iterable, List, Optional, Tuple, Union
 
 from drgn import Object, Program, offsetof, sizeof
 from drgn.commands import CommandError, _repr_black, argument, drgn_argument
 from drgn.commands.crash import (
+    _PID_OR_TASK,
     Cpuspec,
     CrashDrgnCodeBuilder,
+    _crash_foreach_subcommand,
     _guess_type,
     _guess_type_name,
     _object_format_options,
@@ -22,8 +24,8 @@ from drgn.commands.crash import (
     _pid_or_task,
     _prefer_object_lookup,
     _sanitize_member_name,
+    _TaskSelector,
     crash_command,
-    crash_get_context,
     parse_cpuspec,
     print_task_header,
 )
@@ -474,6 +476,72 @@ def _crash_cmd_asterisk(
     return _crash_cmd_struct(prog, name, args, **kwargs)
 
 
+@_crash_foreach_subcommand(
+    arguments=(
+        argument(
+            "-R",
+            dest="members",
+            metavar="member[,member]",
+            action="append",
+        ),
+        argument(
+            "-x",
+            dest="integer_base",
+            action="store_const",
+            const=16,
+        ),
+        argument(
+            "-d",
+            dest="integer_base",
+            action="store_const",
+            const=10,
+        ),
+        drgn_argument,
+    ),
+)
+def _crash_foreach_task(task_selector: _TaskSelector, args: argparse.Namespace) -> None:
+    prog = task_selector.prog
+
+    members = []
+    if args.members:
+        for arg in args.members:
+            members.extend(_parse_members(arg))
+
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        with task_selector.begin_task_loop(code):
+            code.append_task_header()
+            if members:
+                for member in members:
+                    code.append(f"{_sanitize_member_name(member)} = task.{member}\n")
+            else:
+                code.add_from_import("drgn.helpers.linux.sched", "task_thread_info")
+                code.append("thread_info = task_thread_info(task)\n")
+        return code.print()
+
+    format_options = _object_format_options(prog, args.integer_base)
+
+    first = True
+    for task in task_selector.tasks():
+        if first:
+            first = False
+        else:
+            print()
+
+        print_task_header(task)
+        if members:
+            for member in members:
+                print(
+                    f"  {member} = {task[0].subobject_(member).format_(**format_options)}"
+                )
+        else:
+            print(
+                task[0].format_(**format_options),
+                task_thread_info(task)[0].format_(**format_options),
+                sep="\n\n",
+            )
+
+
 @crash_command(
     description="task_struct and thread_info contents",
     arguments=(
@@ -518,65 +586,16 @@ def _crash_cmd_asterisk(
 def _crash_cmd_task(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
-    members = []
-    if args.members:
-        for arg in args.members:
-            members.extend(_parse_members(arg))
-
-    task_args: List[Optional[Tuple[Literal["pid", "task"], int]]] = []
+    task_args: List[Optional[_PID_OR_TASK]] = []
     for arg in args.tasks:
         try:
             task_args.append(_pid_or_task(arg))
         except ValueError:
-            members.extend(_parse_members(arg))
+            if args.members is None:
+                args.members = [arg]
+            else:
+                args.members.append(arg)
 
     if not task_args:
         task_args.append(None)
-
-    if args.drgn:
-        code = CrashDrgnCodeBuilder(prog)
-        if not members:
-            code.add_from_import("drgn.helpers.linux.sched", "task_thread_info")
-        first = True
-        for task_arg in task_args:
-            if first:
-                first = False
-            else:
-                code.append("\n")
-
-            code.append_crash_context(task_arg)
-            code.append_task_header()
-            if members:
-                for member in members:
-                    code.append(f"{_sanitize_member_name(member)} = task.{member}\n")
-            else:
-                code.append("thread_info = task_thread_info(task)\n")
-        return code.print()
-
-    format_options = _object_format_options(prog, args.integer_base)
-
-    first = True
-    for task_arg in task_args:
-        if first:
-            first = False
-        else:
-            print()
-
-        try:
-            task = crash_get_context(prog, task_arg)
-        except Exception as e:
-            print(e)
-            continue
-
-        print_task_header(task)
-        if members:
-            for member in members:
-                print(
-                    f"  {member} = {task[0].subobject_(member).format_(**format_options)}"
-                )
-        else:
-            print(
-                task[0].format_(**format_options),
-                task_thread_info(task)[0].format_(**format_options),
-                sep="\n\n",
-            )
+    return _crash_foreach_task(_TaskSelector(prog, task_args), args)
