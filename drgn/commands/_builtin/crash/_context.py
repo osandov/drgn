@@ -213,20 +213,17 @@ def _crash_cmd_set(
             code.append_crash_context(args.task)
         else:
             code.append_crash_context()
-            _append_sys_drgn_task(code)
+        _append_sys_drgn_task(code)
         code.print()
         return None
 
     if args.panic:
-        task = _crash_get_panic_context(prog)
+        prog.config["crash_context"] = _crash_get_panic_context(prog)
         prog.config.pop("crash_context_origin", None)
     elif args.cpu is not None:
-        task = cpu_curr(prog, args.cpu)
+        prog.config["crash_context"] = cpu_curr(prog, args.cpu)
         prog.config["crash_context_origin"] = ("cpu", args.cpu)
     elif args.task is not None:
-        task = crash_get_context(prog, args.task)
+        prog.config["crash_context"] = crash_get_context(prog, args.task)
         prog.config["crash_context_origin"] = args.task
-    else:
-        return _print_sys(prog, system_fields=False, context="current")
-    prog.config["crash_context"] = task
-    return task
+    return _print_sys(prog, system_fields=False, context="current")
