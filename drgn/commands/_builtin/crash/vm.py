@@ -72,32 +72,32 @@ def _print_task_vm_info(prog: Program, task: Object) -> None:
     print_task_header(task)
 
     mm = task.mm.read_()
+    if mm:
+        pgd_value = mm.pgd.value_()
+        rss_total = task_rss(task).total
+        total_vm = mm.total_vm.value_()
+    else:
+        pgd_value = rss_total = total_vm = 0
+    page_size = prog["PAGE_SIZE"].value_()
+    print_table(
+        (
+            (
+                CellFormat("MM", "^"),
+                CellFormat("PGD", "^"),
+                CellFormat("RSS", "^"),
+                CellFormat("TOTAL_VM", "^"),
+            ),
+            (
+                CellFormat(mm.value_(), "^x"),
+                CellFormat(pgd_value, "^x"),
+                CellFormat(f"{rss_total * page_size // 1024}k", "^"),
+                CellFormat(f"{total_vm * page_size // 1024}k", "^"),
+            ),
+        )
+    )
     if not mm:
-        kernel_stats_rows = [["MM", "PGD", "RSS", "TOTAL_VM"], ["0", "0", "0k", "0k"]]
-        print_table(kernel_stats_rows)
         return
 
-    # Show memory statistics
-    page_size = prog["PAGE_SIZE"].value_()
-    rss_total = task_rss(task).total
-    total_vm = mm.total_vm.value_()
-
-    stats_rows: List[List[CellFormat]] = [
-        [
-            CellFormat("MM", "^"),
-            CellFormat("PGD", "^"),
-            CellFormat("RSS", "^"),
-            CellFormat("TOTAL_VM", "^"),
-        ],
-        [
-            CellFormat(mm.value_(), "^x"),
-            CellFormat(mm.pgd.value_(), "^x"),
-            CellFormat(f"{rss_total * page_size // 1024}k", "^"),
-            CellFormat(f"{total_vm * page_size // 1024}k", "^"),
-        ],
-    ]
-    print_table(stats_rows)
-    # Show detailed VMA info
     rows: List[Sequence[Any]] = [
         [
             CellFormat("VMA", "^"),
