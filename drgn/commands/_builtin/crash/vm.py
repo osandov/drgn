@@ -78,8 +78,9 @@ def _print_task_vm_info(prog: Program, task: Object) -> None:
         return
 
     # Show memory statistics
-    rss_info = task_rss(task)
-    total_vm_kb = mm.total_vm.value_() * prog["PAGE_SIZE"].value_() // 1024
+    page_size = prog["PAGE_SIZE"].value_()
+    rss_total = task_rss(task).total
+    total_vm = mm.total_vm.value_()
 
     stats_rows: List[List[CellFormat]] = [
         [
@@ -91,8 +92,8 @@ def _print_task_vm_info(prog: Program, task: Object) -> None:
         [
             CellFormat(mm.value_(), "^x"),
             CellFormat(mm.pgd.value_(), "^x"),
-            CellFormat(f"{rss_info.total}k", "^"),
-            CellFormat(f"{total_vm_kb}k", "^"),
+            CellFormat(f"{rss_total * page_size // 1024}k", "^"),
+            CellFormat(f"{total_vm * page_size // 1024}k", "^"),
         ],
     ]
     print_table(stats_rows)
