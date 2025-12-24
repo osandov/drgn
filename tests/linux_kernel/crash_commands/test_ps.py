@@ -8,6 +8,7 @@ import re
 import threading
 
 from drgn import Object
+from drgn.commands.crash import _CRASH_FOREACH_SUBCOMMANDS
 from drgn.helpers.common.format import double_quote_ascii_string
 from drgn.helpers.linux.mm import TaskRss
 from drgn.helpers.linux.pid import find_task
@@ -753,3 +754,20 @@ class TestPs(CrashCommandTestCase):
         self.assertIsInstance(cmd.drgn_option.globals["counter"], collections.Counter)
 
         self.assertEqual(cmd.drgn_option.stdout, foreach_cmd.drgn_option.stdout)
+
+
+class TestForeach(CrashCommandTestCase):
+    def test_help(self):
+        # The actual functionality of foreach is tested in the individual
+        # subcommands. This just tests that we properly document what
+        # subcommands are supported.
+        cmd = self.run_crash_command("help foreach")
+        match = re.search(
+            r"Currently,\s+((?:\*\*\w+\*\*,\s+)+)and\s+(\*\*\w+\*\*)\s+are\s+supported",
+            cmd.stdout,
+        )
+        self.assertTrue(match)
+        documented = (
+            (match.group(1) + match.group(2)).replace("*", "").replace(",", "").split()
+        )
+        self.assertEqual(documented, sorted(_CRASH_FOREACH_SUBCOMMANDS))
