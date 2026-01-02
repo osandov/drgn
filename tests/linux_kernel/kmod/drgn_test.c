@@ -49,6 +49,14 @@
 #include <linux/timer.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
+#include <linux/swait.h>
+
+// Before Linux kernel commit b3dae109fa89 ("sched/swait: Rename to exclusive")
+// (in v4.19), prepare_to_swait_exclusive() was named prepare_to_swait().
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0)
+#define prepare_to_swait_exclusive prepare_to_swait
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
 #define HAVE_XARRAY 1
 #include <linux/xarray.h>
@@ -2163,6 +2171,47 @@ static void drgn_test_waitq_exit(void)
 	}
 }
 
+// simple-wait-queue
+static struct task_struct *drgn_test_swaitq_kthread;
+static struct swait_queue_head drgn_test_swaitq;
+static struct swait_queue_head drgn_test_empty_swaitq;
+
+static int drgn_test_swaitq_kthread_fn(void *arg)
+{
+	DECLARE_SWAITQUEUE(swait);
+	for (;;) {
+		prepare_to_swait_exclusive(&drgn_test_swaitq, &swait, TASK_UNINTERRUPTIBLE);
+		if (kthread_should_stop())
+			break;
+		schedule();
+	}
+	finish_swait(&drgn_test_swaitq, &swait);
+	return 0;
+}
+
+static int drgn_test_swaitq_init(void)
+{
+	init_swait_queue_head(&drgn_test_swaitq);
+	init_swait_queue_head(&drgn_test_empty_swaitq);
+
+	drgn_test_swaitq_kthread = kthread_create(drgn_test_swaitq_kthread_fn,
+						 NULL,
+						 "drgn_test_swaitq_kthread");
+	if (!drgn_test_swaitq_kthread)
+		return -1;
+
+	wake_up_process(drgn_test_swaitq_kthread);
+	return 0;
+}
+
+static void drgn_test_swaitq_exit(void)
+{
+	if (drgn_test_swaitq_kthread) {
+		kthread_stop(drgn_test_swaitq_kthread);
+		drgn_test_swaitq_kthread = NULL;
+	}
+}
+
 // Dummy function symbol.
 int drgn_test_function(int x); // Silence -Wmissing-prototypes.
 int drgn_test_function(int x)
@@ -2538,6 +2587,7 @@ static void drgn_test_exit(void)
 	drgn_test_waitq_exit();
 	drgn_test_idr_exit();
 	drgn_test_block_exit();
+	drgn_test_swaitq_exit();
 }
 
 static int __init drgn_test_init(void)
@@ -2596,6 +2646,10 @@ static int __init drgn_test_init(void)
 	if (ret)
 		goto out;
 	ret = drgn_test_crash_init();
+	if (ret)
+		goto out;
+
+	ret = drgn_test_swaitq_init();
 out:
 	if (ret)
 		drgn_test_exit();
