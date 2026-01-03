@@ -1449,6 +1449,14 @@ for attempts_remaining in range({num_attempts}, 0, -1):
         """Write the output to standard output."""
         sys.stdout.write(self.get())
 
+    def has_declaration(self, variable: str) -> bool:
+        """Return true if the variable is declared in the code."""
+        for block in self._code:
+            for line in block.split("\n"):
+                if line.lstrip(" ").startswith(f"{variable} = "):
+                    return True
+        return False
+
 
 class DrgnCodeBlockContext:
     def __init__(self, builder: DrgnCodeBuilder, indent: str, end: str) -> None:
