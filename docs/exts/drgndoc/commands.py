@@ -182,9 +182,9 @@ class CommandFormatter:
                 ):
                     namespace = ""
                 elif (
-                    name == "drgn.commands.linux_kernel_command"
-                    or name == "drgn.commands.linux_kernel_custom_command"
-                    or name == "drgn.commands.linux_kernel_raw_command"
+                    name == "drgn.commands.linux.linux_kernel_command"
+                    or name == "drgn.commands.linux.linux_kernel_custom_command"
+                    or name == "drgn.commands.linux.linux_kernel_raw_command"
                 ):
                     namespace = ""
                     enabled = "linux"
