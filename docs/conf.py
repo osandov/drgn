@@ -8,6 +8,7 @@ master_doc = "index"
 
 man_pages = [
     ("man/drgn", "drgn", "programmable debugger", "", "1"),
+    ("man/drgn-crash", "drgn-crash", "drgn crash(8) compatibility mode", "", "1"),
 ]
 
 option_emphasise_placeholders = True

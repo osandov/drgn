@@ -49,6 +49,6 @@ Table of Contents
     helpers
     commands
     crash_compatibility
-    Man Page <man/drgn>
+    man_pages
     support_matrix
     release_highlights
