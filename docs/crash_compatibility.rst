@@ -25,20 +25,14 @@ it:
     >>> %sh $EDITOR mount.py
     >>> %source mount.py
 
+Interactive Crash Prompt
+------------------------
+
 Calling the :drgncommand:`crash` command with no arguments enters an
 interactive prompt where crash commands can be called directly::
 
     >>> %crash
     %crash> sys
-    KERNEL: ...
-    %crash>
-
-The interactive prompt can also be entered directly from a shell with the
-``drgn-crash`` script:
-
-.. code-block:: console
-
-    $ drgn-crash
     KERNEL: ...
     %crash>
 
@@ -48,11 +42,20 @@ drgn code can be executed from the interactive crash prompt with the
     %crash> drgn stack_trace(1)[0]["next"].pid
     (pid_t)0
 
-Calling the :drgncommand:`drgn <crash.drgn>` command with no arguments
-enters/returns to the drgn CLI::
+Calling the :drgncommand:`drgn <crash.drgn>` command with no arguments returns
+to the drgn CLI::
 
     %crash> drgn
     >>>
+
+The interactive prompt can also be entered directly from a shell with the
+:doc:`drgn-crash <man/drgn-crash>` script:
+
+.. code-block:: console
+
+    $ drgn-crash
+    KERNEL: ...
+    %crash>
 
 Commands
 --------
