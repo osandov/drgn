@@ -11,7 +11,7 @@ downstream_package_name: python-drgn
 actions:
   get-current-version: "python3 setup.py --version"
   # Fetch the specfile from Rawhide, drop any patches and disable rpmautospec
-  post-upstream-clone: "bash -c \"curl -s https://src.fedoraproject.org/rpms/python-drgn/raw/main/f/python-drgn.spec | sed -e '/^Patch[0-9]/d' -e '/^%autochangelog$/d' > python-drgn.spec\""
+  post-upstream-clone: "bash -c \"curl -s https://src.fedoraproject.org/rpms/python-drgn/raw/main/f/python-drgn.spec | sed -e '/^Patch[0-9]/d' -e '/^%autochangelog$/d' -e '/^%{_bindir}\\\\/drgn$/a %{_bindir}/drgn-crash' > python-drgn.spec\""
 
 srpm_build_deps:
   - bash
