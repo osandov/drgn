@@ -734,6 +734,50 @@ drgn_program_set_kernel(struct drgn_program *prog)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_remote_kernel(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+	if (!prog->vmcoreinfo.swapper_pg_dir) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+			"vmcoreinfo with swapper_pg_dir must be set before "
+			"calling set_remote_kernel()");
+	}
+
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+			"platform must be set before calling set_remote_kernel()");
+	}
+
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		return NULL;
+
+	/*
+	 * Register a virtual memory reader that uses page table walking.
+	 * This translates virtual addresses to physical using swapper_pg_dir
+	 * from vmcoreinfo, then reads physical memory from user-registered
+	 * segments.
+	 */
+	if (prog->platform.arch->linux_kernel_pgtable_iterator_next) {
+		err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
+						      read_memory_via_pgtable,
+						      prog, false);
+		if (err)
+			return err;
+	}
+
+	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+
+	err = drgn_program_finish_set_kernel(prog);
+	if (err) {
+		prog->flags &= ~DRGN_PROGRAM_IS_LINUX_KERNEL;
+		return err;
+	}
+
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 {
 	struct drgn_error *err;

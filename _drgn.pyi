@@ -748,6 +748,22 @@ class Program:
         """
         ...
 
+    def set_remote_kernel(self) -> None:
+        """
+        Set the program to a remote Linux kernel.
+
+        This enables debugging a remote kernel via a custom memory transport
+        (e.g., RDMA, TCP/IP, or VMM introspection). It sets up page table
+        walking for virtual address translation. It does not load any
+        debugging symbols; see :meth:`load_default_debug_info()`.
+
+        Physical memory segments must be registered via
+        :meth:`add_memory_segment()` with ``physical=True`` before reading
+        memory. Platform and vmcoreinfo must be provided when creating the
+        :class:`Program`.
+        """
+        ...
+
     def set_pid(self, pid: int) -> None:
         """
         Set the program to a running process.
