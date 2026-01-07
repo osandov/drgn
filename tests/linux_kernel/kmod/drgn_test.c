@@ -2212,6 +2212,40 @@ static void drgn_test_swaitq_exit(void)
 	}
 }
 
+// completion variable
+static struct task_struct *drgn_test_completion_kthread;
+static struct completion drgn_test_completion;
+static struct completion drgn_test_done_completion;
+
+static int drgn_test_completion_kthread_fn(void *arg)
+{
+	complete(&drgn_test_done_completion);
+	wait_for_completion(&drgn_test_completion);
+	return 0;
+}
+
+static int drgn_test_completion_init(void)
+{
+	drgn_test_completion_kthread = kthread_create(drgn_test_completion_kthread_fn,
+						 NULL,
+						 "drgn_test_completion_kthread");
+	if (!drgn_test_completion_kthread)
+		return -1;
+
+	init_completion(&drgn_test_completion);
+	init_completion(&drgn_test_done_completion);
+	wake_up_process(drgn_test_completion_kthread);
+	return 0;
+}
+
+static void drgn_test_completion_exit(void)
+{
+	if (drgn_test_completion_kthread) {
+		complete(&drgn_test_completion);
+		drgn_test_completion_kthread = NULL;
+	}
+}
+
 // Dummy function symbol.
 int drgn_test_function(int x); // Silence -Wmissing-prototypes.
 int drgn_test_function(int x)
@@ -2588,6 +2622,7 @@ static void drgn_test_exit(void)
 	drgn_test_idr_exit();
 	drgn_test_block_exit();
 	drgn_test_swaitq_exit();
+	drgn_test_completion_exit();
 }
 
 static int __init drgn_test_init(void)
@@ -2650,6 +2685,10 @@ static int __init drgn_test_init(void)
 		goto out;
 
 	ret = drgn_test_swaitq_init();
+	if (ret)
+		goto out;
+
+	ret = drgn_test_completion_init();
 out:
 	if (ret)
 		drgn_test_exit();
