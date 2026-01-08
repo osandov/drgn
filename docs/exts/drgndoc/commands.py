@@ -656,7 +656,18 @@ class CommandFormatter:
                     self._format_argument(lines, node)
                 elif type == "drgn.commands.mutually_exclusive_group":
                     for type, node in self._group_arguments(command, node):
-                        visit_positional_argument(type, node)
+                        if type == "drgn.commands.argument":
+                            self._format_argument(lines, node)
+                        elif type == "drgn.commands.argument_group":
+                            _log_unrecognized_input(
+                                "argument_group cannot be child of mutually_exclusive_group"
+                            )
+                        elif type == "drgn.commands.mutually_exclusive_group":
+                            _log_unrecognized_input(
+                                "mutually_exclusive_group cannot be child of mutually_exclusive_group"
+                            )
+                        else:
+                            assert_never(type)
                 elif type == "drgn.commands.argument_group":
                     _log_unrecognized_input(
                         "argument_group cannot be child of argument_group"
