@@ -282,7 +282,9 @@ Getting Help
 * The `GitHub issue tracker <https://github.com/osandov/drgn/issues>`_ is the
   preferred method to report issues.
 * There is also a `Linux Kernel Debuggers Matrix room
-  <https://matrix.to/#/#linux-debuggers:matrix.org>`_.
+  <https://matrix.to/#/#linux-debuggers:matrix.org>`_ and a `linux-debuggers
+  mailing list <https://lore.kernel.org/linux-debuggers/>`_ on `vger
+  <https://subspace.kernel.org/vger.kernel.org.html>`_.
 
 License
 -------
