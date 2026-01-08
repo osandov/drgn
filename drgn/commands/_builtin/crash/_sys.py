@@ -4,8 +4,10 @@
 """Commands for getting system information."""
 
 import argparse
+import collections
 import datetime
 import functools
+import itertools
 import logging
 import sys
 from typing import (
@@ -21,7 +23,13 @@ from typing import (
 )
 
 from drgn import Architecture, Object, Program
-from drgn.commands import _repr_black, argument, drgn_argument, mutually_exclusive_group
+from drgn.commands import (
+    _repr_black,
+    argument,
+    argument_group,
+    drgn_argument,
+    mutually_exclusive_group,
+)
 from drgn.commands.crash import (
     Cpuspec,
     CrashDrgnCodeBuilder,
@@ -33,16 +41,29 @@ from drgn.commands.crash import (
 )
 from drgn.helpers.common.format import (
     CellFormat,
+    RowOptions,
     double_quote_ascii_string,
     escape_ascii_string,
     number_in_binary_units,
     print_table,
+)
+from drgn.helpers.linux.block import (
+    disk_name,
+    for_each_disk,
+    request_queue_busy_iter,
+    rq_data_dir,
 )
 from drgn.helpers.linux.cpumask import (
     cpumask_to_cpulist,
     num_online_cpus,
     num_present_cpus,
 )
+from drgn.helpers.linux.device import (
+    MAJOR,
+    for_each_registered_blkdev,
+    for_each_registered_chrdev,
+)
+from drgn.helpers.linux.ioport import for_each_resource
 from drgn.helpers.linux.irq import (
     for_each_irq_desc,
     gate_desc_func,
@@ -54,6 +75,16 @@ from drgn.helpers.linux.irq import (
 from drgn.helpers.linux.kconfig import _get_raw_kconfig
 from drgn.helpers.linux.mm import totalram_pages
 from drgn.helpers.linux.panic import panic_message, panic_task, tainted
+from drgn.helpers.linux.pci import (
+    PCI_EXP_TYPE,
+    for_each_pci_root_bus,
+    pci_bus_for_each_child,
+    pci_bus_for_each_dev,
+    pci_bus_name,
+    pci_is_bridge,
+    pci_name,
+    pci_pcie_type,
+)
 from drgn.helpers.linux.percpu import per_cpu
 from drgn.helpers.linux.pid import for_each_task
 from drgn.helpers.linux.printk import print_dmesg
@@ -387,6 +418,383 @@ kconfig = get_kconfig()
         _append_sys_drgn_system(code)
         return code.print()
     _print_sys(prog)
+
+
+def _print_ioports(prog: Program, drgn_arg: bool) -> None:
+    if drgn_arg:
+        sys.stdout.write(
+            """\
+from drgn.helpers.linux.ioport import for_each_resource
+
+
+for resource in for_each_resource(prog["ioport_resource"].address_of_()):
+    start = resource.start
+    end = resource.end
+    name = resource.name
+"""
+        )
+        return
+
+    rows: List[Sequence[Any]] = [
+        (
+            CellFormat("RESOURCE", "^"),
+            CellFormat("RANGE", "^"),
+            "NAME",
+        )
+    ]
+    ioport_resource = prog["ioport_resource"]
+    width = len(f"{ioport_resource.end.value_():x}")
+    for resource in for_each_resource(ioport_resource.address_of_()):
+        rows.append(
+            (
+                CellFormat(resource.value_(), "^x"),
+                f"{resource.start.value_():0{width}x}-{resource.end.value_():0{width}x}",
+                escape_ascii_string(resource.name.string_(), escape_backslash=True),
+            )
+        )
+    print_table(rows)
+
+
+def _append_pci_devs(rows: List[Sequence[Any]], bus: Object) -> None:
+    first = True
+    self = bus.self.read_()
+    for dev in itertools.chain(((self,) if self else ()), pci_bus_for_each_dev(bus)):
+        if first:
+            rows.append(
+                RowOptions(
+                    (
+                        "",
+                        CellFormat("PCI DEV", "^"),
+                        "DO:BU:SL.FN",
+                        CellFormat("CLASS", ">"),
+                        CellFormat("PCI_ID", "^"),
+                        "TYPE",
+                    ),
+                    group=1,
+                )
+            )
+            first = False
+
+        type = pci_pcie_type(dev)
+        type_str = type.name if isinstance(type, PCI_EXP_TYPE) else f"{type:x}"
+        if pci_is_bridge(dev):
+            type_str += " [BRIDGE]"
+        rows.append(
+            RowOptions(
+                (
+                    "",
+                    CellFormat(dev.value_(), "^x"),
+                    pci_name(dev),
+                    CellFormat(f"{dev.member_('class').value_() >> 8:04x}", ">"),
+                    f"{dev.vendor.value_():04x}:{dev.device.value_():04x}",
+                    type_str,
+                ),
+                group=1,
+            )
+        )
+
+
+def _append_pci_buses(
+    rows: List[Sequence[Any]], parent_bus: Object, want_blank_line: bool
+) -> None:
+    for bus in pci_bus_for_each_child(parent_bus):
+        if want_blank_line:
+            rows.append(())
+        want_blank_line = True
+
+        rows.append(
+            RowOptions(
+                (
+                    "",
+                    CellFormat("PCI BUS", "^"),
+                    CellFormat("PARENT BUS", "^"),
+                ),
+                group=2,
+            )
+        )
+        rows.append(
+            RowOptions(
+                (
+                    "",
+                    CellFormat(bus.value_(), "^x"),
+                    CellFormat(parent_bus.value_(), "^x"),
+                ),
+                group=2,
+            )
+        )
+        _append_pci_devs(rows, bus)
+        _append_pci_buses(rows, bus, True)
+
+
+def _print_pci(prog: Program, drgn_arg: bool) -> None:
+    if drgn_arg:
+        sys.stdout.write(
+            """\
+from drgn.helpers.linux.pci import (
+    for_each_pci_root_bus,
+    pci_bus_for_each_child,
+    pci_bus_for_each_dev,
+    pci_bus_name,
+    pci_is_bridge,
+    pci_name,
+    pci_pcie_type,
+)
+
+
+def visit_pci_dev(dev):
+    do_bu_sl_fn = pci_name(dev)
+    class_ = dev.member_("class") >> 8
+    pci_id = f"{dev.vendor.value_():04x}:{dev.device.value_():04x}"
+    type_ = pci_pcie_type(dev)
+    is_bridge = pci_is_bridge(dev)
+
+
+def visit_pci_bus(bus):
+    for dev in pci_bus_for_each_dev(bus):
+        visit_pci_dev(dev)
+    for child_bus in pci_bus_for_each_child(bus):
+        visit_pci_bus(child_bus)
+
+
+for root_bus in for_each_pci_root_bus():
+    busname = pci_bus_name(root_bus)
+    visit_pci_bus(root_bus)
+"""
+        )
+        return
+
+    rows: List[Sequence[Any]] = []
+    first = True
+    for bus in for_each_pci_root_bus(prog):
+        if first:
+            first = False
+        else:
+            rows.append(())
+
+        rows.append(
+            (
+                CellFormat("ROOT BUS", "^"),
+                "BUSNAME",
+            )
+        )
+        rows.append(
+            (
+                CellFormat(bus.value_(), "^x"),
+                pci_bus_name(bus),
+            )
+        )
+        _append_pci_devs(rows, bus)
+        _append_pci_buses(rows, bus, False)
+    print_table(rows)
+
+
+def _print_disks(prog: Program, drgn_arg: bool, only_busy: bool) -> None:
+    if drgn_arg:
+        sys.stdout.write(
+            """\
+from drgn.helpers.linux.block import (
+    disk_name,
+    for_each_disk,
+    request_queue_busy_iter,
+    rq_data_dir,
+)
+
+
+for disk in for_each_disk():
+    major = disk.major
+    name = disk_name(disk)
+    queue = disk.queue
+    read = write = 0
+    for rq in request_queue_busy_iter(queue):
+        if rq_data_dir(rq):
+            write += 1
+        else:
+            read += 1
+    total = read + write
+"""
+        )
+        return
+
+    rows: List[Sequence[Any]] = [
+        (
+            CellFormat("MAJOR", ">"),
+            "GENDISK",
+            "NAME",
+            "REQUEST_QUEUE",
+            CellFormat("TOTAL", ">"),
+            CellFormat("READ", ">"),
+            CellFormat("WRITE", ">"),
+        )
+    ]
+    for disk in for_each_disk(prog):
+        queue = disk.queue.read_()
+        num_ops = [0, 0]
+        for rq in request_queue_busy_iter(queue):
+            num_ops[rq_data_dir(rq)] += 1
+        total_ops = sum(num_ops)
+        if not total_ops and only_busy:
+            continue
+
+        rows.append(
+            (
+                disk.major.value_(),
+                CellFormat(disk.value_(), "<x"),
+                escape_ascii_string(disk_name(disk), escape_backslash=True),
+                CellFormat(disk.queue.value_(), "<x"),
+                total_ops,
+                *num_ops,
+            ),
+        )
+    print_table(rows)
+
+
+@crash_command(
+    description="devices",
+    arguments=(
+        argument_group(
+            mutually_exclusive_group(
+                argument(
+                    "-i",
+                    dest="ioport",
+                    action="store_true",
+                    help="display I/O port regions",
+                ),
+                argument(
+                    "-p",
+                    dest="pci",
+                    action="store_true",
+                    help="display PCI devices",
+                ),
+                argument(
+                    "-d",
+                    dest="disk",
+                    action="store_true",
+                    help="display all disks and their number of in-progress requests",
+                ),
+                argument(
+                    "-D",
+                    dest="busy_disk",
+                    action="store_true",
+                    help="""
+                    like **-d**, but only display disks that have in-progress
+                    requests
+                    """,
+                ),
+            ),
+            title="type",
+            description="""
+            What type of devices to display. If not given, display registered
+            character and block device majors.
+            """,
+        ),
+        drgn_argument,
+    ),
+)
+def _crash_cmd_dev(
+    prog: Program, command_name: str, args: argparse.Namespace, **kwargs: Any
+) -> None:
+    if args.ioport:
+        return _print_ioports(prog, args.drgn)
+    elif args.pci:
+        return _print_pci(prog, args.drgn)
+    elif args.disk or args.busy_disk:
+        return _print_disks(prog, args.drgn, args.busy_disk)
+
+    if args.drgn:
+        sys.stdout.write(
+            """\
+from drgn.helpers.linux.block import for_each_disk
+from drgn.helpers.linux.device import (
+    MAJOR,
+    for_each_registered_blkdev,
+    for_each_registered_chrdev,
+)
+
+
+for dev, _, name, cdev in for_each_registered_chrdev():
+    major = MAJOR(dev)
+    if cdev:
+        operations = cdev.ops
+
+
+for major, name, _ in for_each_registered_blkdev():
+    pass
+
+
+for disk in for_each_disk():
+    major = disk.major
+    operations = disk.fops
+"""
+        )
+        return
+
+    rows: List[Sequence[Any]] = [
+        (
+            "CHRDEV",
+            "NAME",
+            CellFormat("CDEV", "^"),
+            "OPERATIONS",
+        )
+    ]
+    for dev, _, name, cdev in for_each_registered_chrdev(prog):
+        operations_cell: Any = ""
+        if cdev:
+            cdev_cell = CellFormat(cdev.value_(), "^x")
+            ops = cdev.ops.value_()
+            try:
+                operations_cell = prog.symbol(ops).name
+            except LookupError:
+                operations_cell = CellFormat(ops, "x")
+        else:
+            cdev_cell = CellFormat("(none)", "^")
+        rows.append(
+            (
+                MAJOR(dev),
+                escape_ascii_string(name, escape_backslash=True),
+                cdev_cell,
+                operations_cell,
+            )
+        )
+
+    rows.append(())
+
+    major_to_gendisk = collections.defaultdict(list)
+    for disk in for_each_disk(prog):
+        major_to_gendisk[disk.major.value_()].append(disk)
+    major_to_gendisk.default_factory = None
+
+    rows.append(
+        (
+            "BLKDEV",
+            "NAME",
+            CellFormat("GENDISK", "^"),
+            "OPERATIONS",
+        )
+    )
+
+    for major, name, _ in for_each_registered_blkdev(prog):
+        name_string = escape_ascii_string(name, escape_backslash=True)
+        try:
+            gendisks = major_to_gendisk[major]
+        except KeyError:
+            rows.append((major, name_string, CellFormat("(none)", "^")))
+        else:
+            cell0: Any = major
+            cell1: Any = name_string
+            # Crash only lists the first gendisk per major, but we list all of
+            # them.
+            for disk in gendisks:
+                ops = disk.fops.value_()
+                try:
+                    operations_cell = prog.symbol(ops).name
+                except LookupError:
+                    operations_cell = CellFormat(ops, "x")
+                rows.append(
+                    (cell0, cell1, CellFormat(disk.value_(), "^x"), operations_cell)
+                )
+                cell0 = cell1 = ""
+
+    print_table(rows)
 
 
 def _print_idt(prog: Program, drgn_arg: bool) -> None:
