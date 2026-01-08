@@ -193,6 +193,14 @@ Python code is formatted with `Black <https://github.com/psf/black>`_ and
 Type hints are required everywhere (including helpers and the C extension),
 except in tests.
 
+Public APIs should be documented with docstrings in reStructuredText format.
+
+Non-public functions, classes, etc. should have names prefixed with an
+underscore (``_``) and use normal comments instead of docstrings (this is
+because drgn's `documentation generation system <docs/exts/drgndoc>`_ uses the
+presence of a docstring to determine whether something should be included in
+the Sphinx documentation).
+
 Linux Kernel Helpers
 ^^^^^^^^^^^^^^^^^^^^
 
