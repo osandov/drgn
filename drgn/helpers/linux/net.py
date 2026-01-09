@@ -10,7 +10,8 @@ Linux kernel networking subsystem.
 """
 
 import operator
-from typing import Iterator, Optional, Union
+import ipaddress
+from typing import Iterator, Optional, Union, List
 
 from drgn import NULL, IntegerLike, Object, Program, Type, cast, container_of, sizeof
 from drgn.helpers.common.prog import (
@@ -35,6 +36,7 @@ __all__ = (
     "sk_nulls_for_each",
     "skb_shinfo",
     "is_pp_page",
+    "netdev_ipv4_addr_list",
 )
 
 
@@ -314,3 +316,20 @@ def is_pp_page(page: Object) -> bool:
     # Between that and Linux kernel commit c07aea3ef4d4 ("mm: add a signature
     # in struct page") (in v5.14), there is no way to identify page_pool pages.
     raise NotImplementedError("page_pool pages cannot be identified before Linux 5.14")
+
+
+def netdev_ipv4_addr_list(dev: Object) -> List[ipaddress.IPv4Address]:
+    """
+    Get the list of IPV4 addresses associated with a network device.
+
+    :param dev: ``struct net_device *``
+    """
+    ips = []
+    prog = dev.prog_
+    if dev.ip_ptr:
+        ifa = dev.ip_ptr.ifa_list
+        while ifa:
+            addr_bytes = prog.read(ifa.ifa_address.address_of_(), 4)
+            ips.append(ipaddress.IPv4Address(addr_bytes))
+            ifa = ifa.ifa_next
+    return ips
