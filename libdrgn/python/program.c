@@ -986,6 +986,16 @@ static PyObject *Program_set_kernel(Program *self)
 	Py_RETURN_NONE;
 }
 
+static PyObject *Program_set_remote_kernel(Program *self)
+{
+	struct drgn_error *err;
+
+	err = drgn_program_set_remote_kernel(&self->prog);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"pid", NULL};
@@ -2021,6 +2031,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_core_dump_DOC},
 	{"set_kernel", (PyCFunction)Program_set_kernel, METH_NOARGS,
 	 drgn_Program_set_kernel_DOC},
+	{"set_remote_kernel", (PyCFunction)Program_set_remote_kernel, METH_NOARGS,
+	 drgn_Program_set_remote_kernel_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_pid_DOC},
 	{"modules", (PyCFunction)Program_modules, METH_NOARGS,
