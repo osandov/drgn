@@ -1,9 +1,11 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import ipaddress
 import os
 import socket
 import tempfile
+import unittest
 
 from drgn import cast
 from drgn.helpers.linux.fs import fget
@@ -19,6 +21,7 @@ from drgn.helpers.linux.net import (
     netdev_for_each_tx_queue,
     netdev_get_by_index,
     netdev_get_by_name,
+    netdev_ipv4_addrs,
     netdev_name,
     netdev_priv,
     sk_fullsock,
@@ -31,6 +34,13 @@ from tests.linux_kernel import (
     skip_unless_have_test_kmod,
 )
 from util import KernelVersion
+
+try:
+    import pyroute2
+
+    have_pyroute2 = True
+except ImportError:
+    have_pyroute2 = False
 
 
 class TestNet(LinuxKernelTestCase):
@@ -148,3 +158,16 @@ class TestNet(LinuxKernelTestCase):
             self.skipTest("kernel does not support identifying page_pool pages")
         self.assertTrue(is_pp_page(self.prog["drgn_test_page_pool_page"]))
         self.assertFalse(is_pp_page(self.prog["drgn_test_page"]))
+
+    @unittest.skipUnless(have_pyroute2, "pyroute2 not found")
+    def test_netdev_ipv4_addrs(self):
+        with pyroute2.IPRoute() as ipr:
+            idx = ipr.link_lookup(ifname="lo")[0]
+            addrs = ipr.get_addr(index=idx, family=socket.AF_INET)
+            expected = [
+                ipaddress.IPv4Address(addr.get_attr("IFA_ADDRESS")) for addr in addrs
+            ]
+        self.assertCountEqual(
+            netdev_ipv4_addrs(netdev_get_by_name(self.prog, "lo")),
+            expected,
+        )
