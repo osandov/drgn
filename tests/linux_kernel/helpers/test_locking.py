@@ -2,9 +2,15 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import os
+import unittest
 
 from drgn import NULL
-from drgn.helpers.linux.locking import RwsemLocked, rwsem_locked, rwsem_owner
+from drgn.helpers.linux.locking import (
+    RwsemLocked,
+    mutex_owner,
+    rwsem_locked,
+    rwsem_owner,
+)
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 from util import KernelVersion
 

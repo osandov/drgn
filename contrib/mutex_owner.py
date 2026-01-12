@@ -15,9 +15,8 @@ def main(mutex_name):
 	print("="*40)
 
 	m = prog[mutex_name]
-	addr = cast("unsigned long", m.owner.counter) & ~0x7
-	if addr != 0:
-		t = cast("struct task_struct *", addr)
+	t = mutex_owner(m)
+	if t:
 		owner = "{}-{}".format(t.comm.string_().decode(), int(t.pid))
 		print("\tOwner: {}".format(owner))
 		for e in stack_trace(t):

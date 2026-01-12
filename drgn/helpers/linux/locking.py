@@ -6,18 +6,48 @@ Locking
 -------
 
 The ``drgn.helpers.linux.locking`` module provides helpers for inspecting
-locks.
+locks, including mutexes and read-write semaphores.
 """
 
 
 import enum
 
-from drgn import Object, Program, TypeKind
+from drgn import Object, Program, TypeKind, cast
 
 __all__ = (
+    "mutex_owner",
     "rwsem_locked",
     "rwsem_owner",
 )
+
+
+# Before Linux kernel commit e274795ea7b7 ("locking/mutex: Fix mutex handoff")
+# (in v4.11), this was 0x3, but task_struct was sufficiently aligned that it
+# doesn't matter.
+_MUTEX_FLAGS = 0x7
+
+
+def mutex_owner(lock: Object) -> Object:
+    """
+    Get the task that currently owns a mutex.
+
+    Before `Linux 4.10
+    <https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=3ca0ff571b092ee4d807f1168caa428d95b0173b>`_,
+    this is only supported when ``CONFIG_DEBUG_MUTEXES`` or
+    ``CONFIG_MUTEX_SPIN_ON_OWNER`` are enabled.
+
+    :param lock: ``struct mutex *``
+    :return: ``struct task_struct *``
+    """
+    owner = lock.owner
+    try:
+        # Since Linux kernel commit 3ca0ff571b09 ("locking/mutex: Rework
+        # mutex::owner") (in v4.10), struct mutex::owner is a tagged pointer in
+        # an atomic_long_t.
+        return cast("struct task_struct *", owner.counter & ~_MUTEX_FLAGS)
+    except AttributeError:
+        # Before that, it was a direct struct task_struct * pointer.
+        return owner.read_()
 
 
 # Linux kernel commit 64489e78004c ("locking/rwsem: Implement a new locking

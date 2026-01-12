@@ -31,6 +31,7 @@
 #include <linux/mm.h>
 #include <linux/mmzone.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/netdevice.h>
 #include <linux/nodemask.h>
 #include <linux/plist.h>
@@ -784,6 +785,8 @@ static void drgn_test_plist_init(void)
 static DECLARE_COMPLETION(drgn_test_locking_kthread_ready);
 struct task_struct *drgn_test_locking_kthread;
 struct task_struct *drgn_test_locking_kthread2;
+DEFINE_MUTEX(drgn_test_mutex_locked);
+DEFINE_MUTEX(drgn_test_mutex_unlocked);
 DECLARE_RWSEM(drgn_test_rwsem_read_locked);
 DECLARE_RWSEM(drgn_test_rwsem_write_locked);
 DECLARE_RWSEM(drgn_test_rwsem_previously_read_locked);
@@ -793,6 +796,8 @@ DECLARE_RWSEM(drgn_test_rwsem_writer_waiting);
 
 static int drgn_test_locking_kthread_fn(void *arg)
 {
+	mutex_lock(&drgn_test_mutex_locked);
+
 	down_read(&drgn_test_rwsem_read_locked);
 	down_write(&drgn_test_rwsem_write_locked);
 
@@ -823,6 +828,8 @@ static int drgn_test_locking_kthread_fn(void *arg)
 	up_read(&drgn_test_rwsem_writer_waiting);
 	up_write(&drgn_test_rwsem_write_locked);
 	up_read(&drgn_test_rwsem_read_locked);
+
+	mutex_unlock(&drgn_test_mutex_locked);
 	return 0;
 }
 
