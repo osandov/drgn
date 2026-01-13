@@ -22,6 +22,7 @@ from drgn.helpers.linux.net import (
     netdev_get_by_index,
     netdev_get_by_name,
     netdev_ipv4_addrs,
+    netdev_ipv6_addrs,
     netdev_name,
     netdev_priv,
     sk_fullsock,
@@ -169,5 +170,18 @@ class TestNet(LinuxKernelTestCase):
             ]
         self.assertCountEqual(
             netdev_ipv4_addrs(netdev_get_by_name(self.prog, "lo")),
+            expected,
+        )
+
+    @unittest.skipUnless(have_pyroute2, "pyroute2 not found")
+    def test_netdev_ipv6_addrs(self):
+        with pyroute2.IPRoute() as ipr:
+            idx = ipr.link_lookup(ifname="lo")[0]
+            addrs = ipr.get_addr(index=idx, family=socket.AF_INET6)
+            expected = [
+                ipaddress.IPv6Address(addr.get_attr("IFA_ADDRESS")) for addr in addrs
+            ]
+        self.assertCountEqual(
+            netdev_ipv6_addrs(netdev_get_by_name(self.prog, "lo")),
             expected,
         )
