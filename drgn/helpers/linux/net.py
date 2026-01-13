@@ -39,6 +39,7 @@ __all__ = (
     "skb_shinfo",
     "is_pp_page",
     "netdev_ipv4_addrs",
+    "netdev_ipv6_addrs",
 )
 
 
@@ -347,4 +348,27 @@ def netdev_ipv4_addrs(dev: Object) -> List[ipaddress.IPv4Address]:
             )
             ips.append(ipaddress.IPv4Address(addr_bytes))
             ifa = ifa.ifa_next.read_()
+    return ips
+
+
+def netdev_ipv6_addrs(dev: Object) -> List[ipaddress.IPv6Address]:
+    """
+    Get the list of IPV6 addresses associated with a network device.
+
+    :param dev: ``struct net_device *``
+    """
+    ips = []
+    prog = dev.prog_
+    ip_ptr = dev.ip6_ptr.read_()
+    if ip_ptr:
+        for addr in list_for_each_entry(
+            "struct inet6_ifaddr",
+            dev.ip6_ptr.addr_list.address_of_(),
+            "if_list",
+        ):
+            addr_bytes = prog.read(
+                addr.addr.in6_u.u6_addr8.address_,  # type: ignore[arg-type]  # address can't be None.
+                16,
+            )
+            ips.append(ipaddress.IPv6Address(addr_bytes))
     return ips
