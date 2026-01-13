@@ -7,6 +7,7 @@ import unittest
 import drgn
 from tests import TestCase
 from tests.linux_kernel import LinuxKernelTestCase
+from tests.linux_kernel.crash_commands import CrashCommandTestCaseBase
 
 VMCORE_PATH = Path("/proc/vmcore")
 
@@ -25,3 +26,7 @@ class LinuxVMCoreTestCase(TestCase):
             prog.set_core_dump(VMCORE_PATH)
             LinuxKernelTestCase._load_debug_info(prog)
             LinuxVMCoreTestCase.prog = prog
+
+
+class LinuxVMCoreCrashCommandTestCase(CrashCommandTestCaseBase, LinuxVMCoreTestCase):
+    pass

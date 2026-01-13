@@ -57,6 +57,7 @@ def _print_memory(
     format: Literal["x", "d", "u"] = "x",
     endian: Literal["little", "big", None] = None,
     cache: Optional[Dict[Any, Any]] = None,
+    indent: str = "",
 ) -> None:
     """
     Read memory, format, and print output to stdout
@@ -138,7 +139,7 @@ def _print_memory(
     for offset in range(0, len(mem), unit):
         line_index = (offset % bytes_per_line) // unit
         if line_index == 0:
-            print(f"{offset + address:0{word_size * 2}x}: ", end="")
+            print(f"{indent}{offset + address:0{word_size * 2}x}: ", end="")
         value = int.from_bytes(mem[offset : offset + unit], byteorder, signed=signed)
         identified = _crash_annotate(prog, value, annotate, cache)
         if identified is not None:
