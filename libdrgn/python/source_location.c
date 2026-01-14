@@ -59,15 +59,7 @@ int add_SourceLocation(PyObject *m)
 		return -1;
 
 	SourceLocation_type = PyDict_GetItemString(globals, "SourceLocation");
-	if (!SourceLocation_type)
-		return -1;
-	Py_INCREF(SourceLocation_type);
-
-	if (PyModule_AddObject(m, "SourceLocation", SourceLocation_type) == -1) {
-		Py_DECREF(SourceLocation_type);
-		return -1;
-	}
-	return 0;
+	return PyModule_AddObjectRef(m, "SourceLocation", SourceLocation_type);
 }
 
 PyObject *SourceLocationList_wrap(struct drgn_source_location_list *locs)

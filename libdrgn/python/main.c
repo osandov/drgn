@@ -17,21 +17,12 @@ static int add_type(PyObject *module, PyTypeObject *type)
 	const char *dot = strrchr(type->tp_name, '.');
 	if (dot)
 		name = dot + 1;
-	Py_INCREF(type);
-	ret = PyModule_AddObject(module, name, (PyObject *)type);
-	if (ret)
-		Py_DECREF(type);
-	return ret;
+	return PyModule_AddObjectRef(module, name, (PyObject *)type);
 }
 
 static int add_bool(PyObject *module, const char *name, bool value)
 {
-	PyObject *obj = value ? Py_True : Py_False;
-	Py_INCREF(obj);
-	int ret = PyModule_AddObject(module, name, obj);
-	if (ret)
-		Py_DECREF(obj);
-	return ret;
+	return PyModule_AddObjectRef(module, name, value ? Py_True : Py_False);
 }
 
 PyObject *MissingDebugInfoError;
@@ -325,27 +316,16 @@ static int add_type_aliases(PyObject *m)
 	if (!typing_Union)
 		return -1;
 
-	PyObject *typing_SupportsIndex =
-		PyObject_GetAttrString(typing_module, "SupportsIndex");
-	if (PyModule_AddObject(m, "IntegerLike", typing_SupportsIndex) == -1) {
-		Py_XDECREF(typing_SupportsIndex);
+	if (PyModule_Add(m, "IntegerLike",
+			 PyObject_GetAttrString(typing_module, "SupportsIndex")))
 		return -1;
-	}
 
 	_cleanup_pydecref_ PyObject *item =
 		Py_BuildValue("OOO", &PyUnicode_Type, &PyBytes_Type,
 			      os_PathLike);
 	if (!item)
 		return -1;
-	PyObject *Path = PyObject_GetItem(typing_Union, item);
-	if (!Path)
-		return -1;
-	if (PyModule_AddObject(m, "Path", Path) == -1) {
-		Py_DECREF(Path);
-		return -1;
-	}
-
-	return 0;
+	return PyModule_Add(m, "Path", PyObject_GetItem(typing_Union, item));
 }
 
 PyMODINIT_FUNC PyInit__drgn(void); // Silence -Wmissing-prototypes.
@@ -359,9 +339,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		name = PyErr_NewExceptionWithDoc("_drgn." #name,		\
 						 drgn_##name##_DOC, NULL,	\
 						 NULL);				\
-		if (name && PyModule_AddObject(m, #name, name))			\
-			Py_CLEAR(name);						\
-		!name;								\
+		!name || PyModule_AddObjectRef(m, #name, name);			\
 	})
 
 	if (add_module_constants(m) ||
@@ -419,13 +397,9 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (add_type(m, &ObjectNotFoundError_type))
 		goto err;
 
-	PyObject *host_platform_obj = Platform_wrap(&drgn_host_platform);
-	if (!host_platform_obj)
+	if (PyModule_Add(m, "host_platform",
+			 Platform_wrap(&drgn_host_platform)))
 		goto err;
-	if (PyModule_AddObject(m, "host_platform", host_platform_obj)) {
-		Py_DECREF(host_platform_obj);
-		goto err;
-	}
 
 	if (PyModule_AddStringConstant(m, "_elfutils_version",
 				       dwfl_version(NULL)))

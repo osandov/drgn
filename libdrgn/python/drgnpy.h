@@ -32,7 +32,27 @@ static inline PyObject *PyObject_CallOneArg(PyObject *callable, PyObject *arg)
 }
 #endif
 
+#if PY_VERSION_HEX < 0x030a00a3
+static inline int PyModule_AddObjectRef(PyObject *mod, const char *name,
+					PyObject *value)
+{
+	Py_XINCREF(value);
+	int ret = PyModule_AddObject(mod, name, value);
+	if (ret)
+		Py_XDECREF(value);
+	return ret;
+}
+#endif
+
 #if PY_VERSION_HEX < 0x030d00a1
+static inline int PyModule_Add(PyObject *mod, const char *name, PyObject *value)
+{
+	int ret = PyModule_AddObject(mod, name, value);
+	if (ret)
+		Py_XDECREF(value);
+	return ret;
+}
+
 #define PyThreadState_GetUnchecked _PyThreadState_UncheckedGet
 #endif
 

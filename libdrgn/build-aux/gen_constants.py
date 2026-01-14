@@ -76,12 +76,8 @@ static int add_{constant_class.name}(PyObject *m, PyObject *enum_module)
     output_file.write(
         f"""\
 	{constant_class.name}_class = PyObject_CallMethod(enum_module, "{constant_class.enum_class}", "sO", "{constant_class.name}", tmp);
-	if (!{constant_class.name}_class)
+	if (PyModule_AddObjectRef(m, "{constant_class.name}", {constant_class.name}_class))
 		goto out;
-	if (PyModule_AddObject(m, "{constant_class.name}", {constant_class.name}_class) == -1) {{
-		Py_CLEAR({constant_class.name}_class);
-		goto out;
-	}}
 	Py_DECREF(tmp);
 	tmp = PyUnicode_FromString(drgn_{constant_class.name}_DOC);
 	if (!tmp)

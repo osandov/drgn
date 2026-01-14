@@ -18,16 +18,8 @@ int add_WantedSupplementaryFile(PyObject *m)
 		PyObject_CallFunction(namedtuple, "s[ssss]",
 				      "WantedSupplementaryFile", "kind", "path",
 				      "supplementary_path", "checksum");
-	if (!WantedSupplementaryFile_class)
-		return -1;
-	Py_INCREF(WantedSupplementaryFile_class);
-	if (PyModule_AddObject(m, "WantedSupplementaryFile",
-			       WantedSupplementaryFile_class) == -1) {
-		Py_DECREF(WantedSupplementaryFile_class);
-		Py_DECREF(WantedSupplementaryFile_class);
-		return -1;
-	}
-	return 0;
+	return PyModule_AddObjectRef(m, "WantedSupplementaryFile",
+				     WantedSupplementaryFile_class);
 }
 
 PyObject *Module_wrap(struct drgn_module *module)
