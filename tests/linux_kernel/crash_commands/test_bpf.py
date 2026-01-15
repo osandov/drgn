@@ -73,3 +73,46 @@ class TestBpf(CrashCommandTestCase, BpfTestCase):
                 cmd.stdout,
                 rf"(?sm)BPF_MAP.*^\s*{map_id}\s+.*HASH\s+",
             )
+
+    def test_bpf_program_by_id(self):
+        with contextlib.ExitStack() as exit_stack:
+            prog_fd = bpf_prog_load(BPF_PROG_TYPE_KPROBE, self.INSNS, b"GPL")
+            exit_stack.callback(os.close, prog_fd)
+
+            prog_info = bpf_prog_get_info_by_fd(prog_fd)
+            prog_id = prog_info.id
+            prog_tag = "".join(f"{b:02x}" for b in prog_info.tag)
+
+            cmd = self.check_crash_command(f"bpf -p {prog_id}")
+
+            self.assertRegex(
+                cmd.stdout,
+                rf"(?sm)ID\s+.*BPF_PROG_TYPE.*^\s*{prog_id}\s+.*KPROBE\s+.*{prog_tag}\s*$",
+            )
+
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\s*XLATED:\s*\d+\s+JITED:\s*\d+\s+MEMLOCK:\s*\d+",
+            )
+
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\s*LOAD_TIME:\s*((\w+\s+){3}\d{2}:\d{2}:\d{2}\s+\d{4}|\(unknown\))",
+            )
+
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\s*GPL_COMPATIBLE:\s*(yes|no)\s+NAME:\s*(\(unused\)|\(unknown\)|\S+)\s+UID:\s*\d+",
+            )
+
+    def test_bpf_program_by_id_invalid(self):
+        self.assertRaises(
+            Exception,
+            self.check_crash_command,
+            "bpf -p 1a",
+        )
+        self.assertRaises(
+            Exception,
+            self.check_crash_command,
+            "bpf -p 1$^7",
+        )
