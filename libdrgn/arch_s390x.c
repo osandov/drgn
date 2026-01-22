@@ -482,6 +482,7 @@ const struct drgn_architecture_info arch_info_s390x = {
 	.name = "s390x",
 	.arch = DRGN_ARCH_S390X,
 	.default_flags = DRGN_PLATFORM_IS_64_BIT,
+	.scalar_alignment = { 1, 2, 4, 8, 8 },
 	DRGN_ARCHITECTURE_REGISTERS,
 	.default_dwarf_cfi_row = &default_dwarf_cfi_row_s390x,
 	.fallback_unwind = fallback_unwind_s390x,
