@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 """
-Completion variables
-------------------
+Completion Variables
+--------------------
 
 The ``drgn.helpers.linux.completion`` module provides helpers for working with
-completion variables (``struct completion``) from :linux:`include/linux/completion.h`.
-
+completion variables (``struct completion``) from
+:linux:`include/linux/completion.h`.
 """
 
 from typing import Iterator
