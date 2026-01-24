@@ -248,21 +248,9 @@ static int Module_set_address_ranges(Module *self, PyObject *value, void *arg)
 					"address_ranges must None or sequence of (int, int)");
 			return -1;
 		}
-		_cleanup_pydecref_ PyObject *start_obj =
-			PyNumber_Index(PyTuple_GET_ITEM(item, 0));
-		if (!start_obj)
-			return -1;
-		_cleanup_pydecref_ PyObject *end_obj =
-			PyNumber_Index(PyTuple_GET_ITEM(item, 1));
-		if (!end_obj)
-			return -1;
-
 		uint64_t range[2];
-		range[0] = PyLong_AsUint64(start_obj);
-		if (range[0] == UINT64_MAX && PyErr_Occurred())
-			return -1;
-		range[1] = PyLong_AsUint64(end_obj);
-		if (range[1] == UINT64_MAX && PyErr_Occurred())
+		if (PyLong_AsUInt64(PyTuple_GET_ITEM(item, 0), &range[0])
+		    || PyLong_AsUInt64(PyTuple_GET_ITEM(item, 1), &range[1]))
 			return -1;
 
 		if (!uint64_pair_vector_append(&ranges, &range)) {
@@ -317,20 +305,9 @@ static int Module_set_address_range(Module *self, PyObject *value, void *arg)
 				"address_range must be None or (int, int)");
 		return -1;
 	}
-	_cleanup_pydecref_ PyObject *start_obj =
-		PyNumber_Index(PyTuple_GET_ITEM(value, 0));
-	if (!start_obj)
-		return -1;
-	_cleanup_pydecref_ PyObject *end_obj =
-		PyNumber_Index(PyTuple_GET_ITEM(value, 1));
-	if (!end_obj)
-		return -1;
-
-	uint64_t start = PyLong_AsUint64(start_obj);
-	if (start == UINT64_MAX && PyErr_Occurred())
-		return -1;
-	uint64_t end = PyLong_AsUint64(end_obj);
-	if (end == UINT64_MAX && PyErr_Occurred())
+	uint64_t start, end;
+	if (PyLong_AsUInt64(PyTuple_GET_ITEM(value, 0), &start)
+	    || PyLong_AsUInt64(PyTuple_GET_ITEM(value, 1), &end))
 		return -1;
 
 	if (start == 0 && end == 0) {
@@ -470,7 +447,7 @@ static PyObject *Module_get_loaded_file_bias(Module *self, void *arg)
 {
 	if (!drgn_module_loaded_file_path(self->module))
 		Py_RETURN_NONE;
-	return PyLong_FromUint64(drgn_module_loaded_file_bias(self->module));
+	return PyLong_FromUInt64(drgn_module_loaded_file_bias(self->module));
 }
 
 static PyObject *Module_get_debug_file_path(Module *self, void *arg)
@@ -485,7 +462,7 @@ static PyObject *Module_get_debug_file_bias(Module *self, void *arg)
 {
 	if (!drgn_module_debug_file_path(self->module))
 		Py_RETURN_NONE;
-	return PyLong_FromUint64(drgn_module_debug_file_bias(self->module));
+	return PyLong_FromUInt64(drgn_module_debug_file_bias(self->module));
 }
 
 static PyObject *Module_get_supplementary_debug_file_kind(Module *self,
@@ -581,7 +558,7 @@ PyTypeObject MainModule_type = {
 
 static PyObject *Module_get_info(Module *self, void *arg)
 {
-	return PyLong_FromUint64(drgn_module_info(self->module));
+	return PyLong_FromUInt64(drgn_module_info(self->module));
 }
 
 static PyGetSetDef SharedLibraryModule_getset[] = {

@@ -131,7 +131,7 @@ static PyObject *sizeof_(PyObject *self, PyObject *arg)
 	}
 	if (err)
 		return set_drgn_error(err);
-	return PyLong_FromUint64(size);
+	return PyLong_FromUInt64(size);
 }
 
 static bool
@@ -178,7 +178,7 @@ static PyObject *alignof_(PyObject *self, PyObject *arg)
 	err = drgn_type_alignof(qualified_type, &size);
 	if (err)
 		return set_drgn_error(err);
-	return PyLong_FromUint64(size);
+	return PyLong_FromUInt64(size);
 }
 
 static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
@@ -210,7 +210,7 @@ static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
 	err = drgn_type_offsetof(type, member, &offset);
 	if (err)
 		return set_drgn_error(err);
-	return PyLong_FromUint64(offset);
+	return PyLong_FromUInt64(offset);
 }
 
 static PyMethodDef drgn_methods[] = {

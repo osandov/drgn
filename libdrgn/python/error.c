@@ -111,8 +111,8 @@ static struct drgn_error *drgn_fault_error_from_python(PyObject *exc_value)
 
 	_cleanup_pydecref_ PyObject *py_address =
 		PyObject_GetAttrString(exc_value, "address");
-	uint64_t address = py_address ? PyLong_AsUint64(py_address) : (uint64_t)-1;
-	if (address == (uint64_t)-1 && PyErr_Occurred())
+	uint64_t address;
+	if (!py_address || PyLong_AsUInt64(py_address, &address))
 		return NULL;
 
 	return drgn_error_create_fault(message, address);

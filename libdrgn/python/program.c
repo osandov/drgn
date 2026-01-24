@@ -1895,7 +1895,7 @@ static PyObject *Program_address_size(Program *self)
 	err = drgn_program_address_size(&self->prog, &address_size);
 	if (err)
 		return set_drgn_error(err);
-	return PyLong_FromUint64(address_size);
+	return PyLong_FromUInt64(address_size);
 }
 
 // Used for testing.

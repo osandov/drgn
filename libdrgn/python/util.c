@@ -113,13 +113,7 @@ int index_converter(PyObject *o, void *p)
 
 int u64_converter(PyObject *o, void *p)
 {
-	uint64_t *arg = p;
-
-	_cleanup_pydecref_ PyObject *index_obj = PyNumber_Index(o);
-	if (!index_obj)
-		return 0;
-	*arg = PyLong_AsUint64(index_obj);
-	return (*arg != UINT64_C(-1) || !PyErr_Occurred());
+	return PyLong_AsUInt64(o, p) == 0;
 }
 
 int path_converter(PyObject *o, void *p)
@@ -293,3 +287,72 @@ int PyLong_IsNegative(PyObject *obj)
 	return _PyLong_Sign(obj) < 0;
 }
 #endif
+
+#if PY_VERSION_HEX < 0x030e00a1
+// Note that PyLong_AsLong{,Long}() automatically call __index__(), but
+// PyLong_AsUnsignedLong{,Long}() don't.
+int PyLong_AsInt64(PyObject *obj, int64_t *value)
+{
+	long long v = PyLong_AsLongLong(obj);
+	if (v == -1 && PyErr_Occurred())
+		return -1;
+	if (v < INT64_MIN || v > INT64_MAX) {
+		PyErr_SetString(PyExc_OverflowError,
+				"Python int too large to convert to C int64_t");
+		return -1;
+	}
+	*value = v;
+	return 0;
+}
+
+int PyLong_AsUInt32(PyObject *obj, uint32_t *value)
+{
+	_cleanup_pydecref_ PyObject *index = PyNumber_Index(obj);
+	if (!index)
+		return -1;
+	unsigned long v = PyLong_AsUnsignedLong(index);
+	if (v == (unsigned long)-1 && PyErr_Occurred())
+		return -1;
+	if (v > UINT32_MAX) {
+		PyErr_SetString(PyExc_OverflowError,
+				"Python int too large to convert to C uint32_t");
+		return -1;
+	}
+	*value = v;
+	return 0;
+}
+
+int PyLong_AsUInt64(PyObject *obj, uint64_t *value)
+{
+	_cleanup_pydecref_ PyObject *index = PyNumber_Index(obj);
+	if (!index)
+		return -1;
+	unsigned long long v = PyLong_AsUnsignedLongLong(index);
+	if (v == (unsigned long long)-1 && PyErr_Occurred())
+		return -1;
+	if (v > UINT64_MAX) {
+		PyErr_SetString(PyExc_OverflowError,
+				"Python int too large to convert to C uint64_t");
+		return -1;
+	}
+	*value = v;
+	return 0;
+}
+#endif
+
+int PyLong_AsUInt16(PyObject *obj, uint16_t *value)
+{
+	_cleanup_pydecref_ PyObject *index = PyNumber_Index(obj);
+	if (!index)
+		return -1;
+	unsigned long v = PyLong_AsUnsignedLong(index);
+	if (v == (unsigned long)-1 && PyErr_Occurred())
+		return -1;
+	if (v > UINT16_MAX) {
+		PyErr_SetString(PyExc_OverflowError,
+				"Python int too large to convert to C uint16_t");
+		return -1;
+	}
+	*value = v;
+	return 0;
+}

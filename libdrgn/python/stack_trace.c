@@ -276,7 +276,7 @@ static PyObject *StackFrame_register(StackFrame *self, PyObject *arg)
 				"register value is not known");
 		return NULL;
 	}
-	return PyLong_FromUint64(value);
+	return PyLong_FromUInt64(value);
 }
 
 static PyObject *StackFrame_registers(StackFrame *self)
@@ -295,7 +295,7 @@ static PyObject *StackFrame_registers(StackFrame *self)
 					       &value))
 			continue;
 		_cleanup_pydecref_ PyObject *value_obj =
-			PyLong_FromUint64(value);
+			PyLong_FromUInt64(value);
 		if (!value_obj)
 			return NULL;
 		size_t num_names;
@@ -344,7 +344,7 @@ static PyObject *StackFrame_get_pc(StackFrame *self, void *arg)
 {
 	uint64_t pc;
 	if (drgn_stack_frame_pc(self->trace->trace, self->i, &pc)) {
-		return PyLong_FromUint64(pc);
+		return PyLong_FromUInt64(pc);
 	} else {
 		PyErr_SetString(PyExc_LookupError,
 				"program counter is not known");
@@ -356,7 +356,7 @@ static PyObject *StackFrame_get_sp(StackFrame *self, void *arg)
 {
 	uint64_t sp;
 	if (drgn_stack_frame_sp(self->trace->trace, self->i, &sp)) {
-		return PyLong_FromUint64(sp);
+		return PyLong_FromUInt64(sp);
 	} else {
 		PyErr_SetString(PyExc_LookupError,
 				"stack pointer is not known");

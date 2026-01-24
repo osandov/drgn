@@ -125,7 +125,7 @@ static PyObject *ModuleSectionAddresses_subscript(ModuleSectionAddresses *self,
 	} else if (err) {
 		return set_drgn_error(err);
 	}
-	return PyLong_FromUint64(address);
+	return PyLong_FromUInt64(address);
 }
 
 static int ModuleSectionAddresses_ass_subscript(ModuleSectionAddresses *self,
@@ -142,8 +142,8 @@ static int ModuleSectionAddresses_ass_subscript(ModuleSectionAddresses *self,
 		const char *name = PyUnicode_AsUTF8(key);
 		if (!name)
 			return -1;
-		uint64_t address = PyLong_AsUint64(value);
-		if (address == (uint64_t)-1 && PyErr_Occurred())
+		uint64_t address;
+		if (PyLong_AsUInt64(value, &address))
 			return -1;
 		err = drgn_module_set_section_address(self->module, name,
 						      address);

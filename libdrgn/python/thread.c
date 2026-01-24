@@ -45,7 +45,7 @@ static int Thread_traverse(Thread *self, visitproc visit, void *arg)
 
 static PyObject *Thread_get_tid(Thread *self)
 {
-	return PyLong_FromUint32(self->thread.tid);
+	return PyLong_FromUInt32(self->thread.tid);
 }
 
 static DrgnObject *Thread_get_object(Thread *self)
