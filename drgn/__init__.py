@@ -119,6 +119,7 @@ from _drgn import (  # noqa: F401
     _have_debuginfod as _have_debuginfod,
     _with_libkdumpfile as _with_libkdumpfile,
     _with_lzma as _with_lzma,
+    _with_pcre2 as _with_pcre2,
 )
 from drgn.internal.version import __version__ as __version__  # noqa: F401
 

@@ -56,7 +56,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y btrfs-progs check dwarves libelf-dev libdw-dev qemu-kvm zstd ${{ matrix.cc == 'clang' && 'libomp-$(clang --version | sed -rn "s/.*clang version ([0-9]+).*/\\1/p")-dev' || '' }}
+          sudo apt-get install -y btrfs-progs check dwarves libelf-dev libdw-dev libpcre2-dev qemu-kvm zstd ${{ matrix.cc == 'clang' && 'libomp-$(clang --version | sed -rn "s/.*clang version ([0-9]+).*/\\1/p")-dev' || '' }}
           # pyroute2 0.9.1 dropped support for Python < 3.9.
           if [[ "${{ matrix.python-version }}" =~ ^3\.[678]$ ]]; then
               pyroute2_version="<0.9.1"

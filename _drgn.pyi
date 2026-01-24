@@ -3972,6 +3972,7 @@ _have_debuginfod: bool
 _enable_dlopen_debuginfod: bool
 _with_libkdumpfile: bool
 _with_lzma: bool
+_with_pcre2: bool
 
 def _linux_helper_direct_mapping_offset(__prog: Program) -> int: ...
 def _linux_helper_read_vm(

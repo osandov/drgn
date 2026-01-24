@@ -22,6 +22,7 @@ _ROOTFS_PACKAGES = [
     "libelf-dev",
     "libkdumpfile-dev",
     "liblzma-dev",
+    "libpcre2-dev",
     "libtool",
     "make",
     "pkgconf",

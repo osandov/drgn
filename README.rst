@@ -162,13 +162,13 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo dnf install autoconf automake check-devel elfutils-debuginfod-client-devel elfutils-devel gcc git libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools xz-devel
+      $ sudo dnf install autoconf automake check-devel elfutils-debuginfod-client-devel elfutils-devel gcc git libkdumpfile-devel libtool make pcre2-devel pkgconf python3 python3-devel python3-pip python3-setuptools xz-devel
 
 * RHEL/CentOS < 9, Oracle Linux
 
   .. code-block:: console
 
-      $ sudo dnf install autoconf automake check-devel elfutils-devel gcc git libtool make pkgconf python3 python3-devel python3-pip python3-setuptools xz-devel
+      $ sudo dnf install autoconf automake check-devel elfutils-devel gcc git libtool make pcre2-devel pkgconf python3 python3-devel python3-pip python3-setuptools xz-devel
 
   Optionally, install ``libkdumpfile-devel`` from EPEL on RHEL/CentOS >= 8 or
   install `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_ from
@@ -187,7 +187,7 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo apt install autoconf automake check gcc git libdebuginfod-dev libkdumpfile-dev liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
+      $ sudo apt install autoconf automake check gcc git libdebuginfod-dev libkdumpfile-dev liblzma-dev libelf-dev libdw-dev libpcre2-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
 
   On Debian <= 11 (Bullseye) and Ubuntu <= 22.04 (Jammy Jellyfish),
   ``libkdumpfile-dev`` is not available, so you must install libkdumpfile from
@@ -197,19 +197,19 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo pacman -S --needed autoconf automake check gcc git libelf libkdumpfile libtool make pkgconf python python-pip python-setuptools xz
+      $ sudo pacman -S --needed autoconf automake check gcc git libelf libkdumpfile libtool make pcre2 pkgconf python python-pip python-setuptools xz
 
 * Gentoo
 
   .. code-block:: console
 
-      $ sudo emerge --noreplace --oneshot dev-build/autoconf dev-build/automake dev-libs/check dev-libs/elfutils sys-devel/gcc dev-vcs/git dev-libs/libkdumpfile dev-build/libtool dev-build/make dev-python/pip virtual/pkgconfig dev-lang/python dev-python/setuptools app-arch/xz-utils
+      $ sudo emerge --noreplace --oneshot dev-build/autoconf dev-build/automake dev-libs/check dev-libs/elfutils dev-libs/libpcre2 sys-devel/gcc dev-vcs/git dev-libs/libkdumpfile dev-build/libtool dev-build/make dev-python/pip virtual/pkgconfig dev-lang/python dev-python/setuptools app-arch/xz-utils
 
 * openSUSE
 
   .. code-block:: console
 
-      $ sudo zypper install autoconf automake check-devel gcc git libdebuginfod-devel libdw-devel libelf-devel libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools xz-devel
+      $ sudo zypper install autoconf automake check-devel gcc git libdebuginfod-devel libdw-devel libelf-devel libkdumpfile-devel libtool make pcre2-devel pkgconf python3 python3-devel python3-pip python3-setuptools xz-devel
 
 Then, run:
 

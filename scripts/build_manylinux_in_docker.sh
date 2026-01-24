@@ -17,6 +17,7 @@ yum install -y \
 	libcurl-devel \
 	libzstd-devel \
 	lzo-devel \
+	pcre2-devel \
 	snappy-devel \
 	xz-devel \
 	zlib-devel \
@@ -76,7 +77,7 @@ build_for_python() {
 
 for pybin in /opt/python/cp*/bin; do
 	if build_for_python "$pybin/python"; then
-		CONFIGURE_FLAGS="--with-debuginfod --disable-dlopen-debuginfod --with-libkdumpfile --with-lzma" \
+		CONFIGURE_FLAGS="--with-debuginfod --disable-dlopen-debuginfod --with-libkdumpfile --with-lzma --with-pcre2" \
 			"$pybin/pip" wheel . --no-deps -w /tmp/wheels/
 	fi
 done

@@ -19,6 +19,8 @@ It optionally depends on:
 - `liblzma <https://tukaani.org/xz/>`_ for `MiniDebuginfo
   <https://sourceware.org/gdb/current/onlinedocs/gdb.html/MiniDebugInfo.html>`_
   support
+- `PCRE2 <https://www.pcre.org/>`_ for searching memory with regular
+  expressions.
 
 The build requires:
 

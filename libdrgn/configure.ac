@@ -130,6 +130,20 @@ AS_CASE(["x$with_lzma"],
 AM_CONDITIONAL([WITH_LZMA], [test "x$with_lzma" != xno])
 AM_COND_IF([WITH_LZMA], [AC_DEFINE(WITH_LZMA)])
 
+AC_ARG_WITH([pcre2],
+	    [AS_HELP_STRING([--with-pcre2],
+			    [build with support for searching memory with
+			     regular expressions using PCRE2
+			     @<:@default=auto@:>@])],
+			     [], [with_pcre2=auto])
+AS_CASE(["x$with_pcre2"],
+	[xyes], [PKG_CHECK_MODULES(pcre2, [libpcre2-8])],
+	[xauto], [PKG_CHECK_MODULES(pcre2, [libpcre2-8],
+				    [with_pcre2=yes],
+				    [with_pcre2=no])])
+AM_CONDITIONAL([WITH_PCRE2], [test "x$with_pcre2" = xyes])
+AM_COND_IF([WITH_PCRE2], [AC_DEFINE(WITH_PCRE2)])
+
 dnl We need check for running tests, but we don't want to fail the build over
 dnl it. Instead, if it's not found, set variables so that only `make check`
 dnl fails.
