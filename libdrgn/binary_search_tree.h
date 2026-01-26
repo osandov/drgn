@@ -173,6 +173,18 @@ struct binary_search_tree_iterator
 binary_search_tree_first(struct binary_search_tree *tree);
 
 /**
+ * Get an iterator pointing to the last (in-order) entry in a @ref
+ * binary_search_tree.
+ *
+ * The last entry is the one with the greatest key.
+ *
+ * @return An iterator pointing to the last entry, or an iterator with
+ * <tt>entry == NULL</tt> if the tree is empty.
+ */
+struct binary_search_tree_iterator
+binary_search_tree_last(struct binary_search_tree *tree);
+
+/**
  * Get an iterator pointing to the next (in-order) entry in a @ref
  * binary_search_tree.
  *
@@ -519,6 +531,19 @@ static struct tree##_iterator tree##_first(struct tree *tree)			\
 										\
 	while (node->left)							\
 		node = node->left;						\
+	return (struct tree##_iterator){ tree##_node_to_entry(node), };		\
+}										\
+										\
+__attribute__((__unused__))							\
+static struct tree##_iterator tree##_last(struct tree *tree)			\
+{										\
+	struct binary_tree_node *node = tree->root;				\
+										\
+	if (!node)								\
+		return (struct tree##_iterator){};				\
+										\
+	while (node->right)							\
+		node = node->right;						\
 	return (struct tree##_iterator){ tree##_node_to_entry(node), };		\
 }										\
 										\
