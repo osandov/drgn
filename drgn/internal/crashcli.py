@@ -32,19 +32,19 @@ def _main() -> None:
 
     prog = drgn.Program()
 
+    found_core = False
     debug_info_paths = []
-    if len(posargs) == 0:
-        drgn.cli._set_kernel_with_sudo_fallback(prog)
-    elif len(posargs) == 1:
-        file_type = drgn.cli._identify_script(posargs[0])
-        if file_type == "core":
-            prog.set_core_dump(posargs[0])
+    for posarg in posargs:
+        if drgn.cli._identify_script(posarg) == "core":
+            if found_core:
+                sys.exit("too many core dump arguments")
+            else:
+                prog.set_core_dump(posarg)
+                found_core = True
         else:
-            drgn.cli._set_kernel_with_sudo_fallback(prog)
-            debug_info_paths = posargs
-    else:
-        prog.set_core_dump(posargs[0])
-        debug_info_paths = posargs[1:]
+            debug_info_paths.append(posarg)
+    if not found_core:
+        drgn.cli._set_kernel_with_sudo_fallback(prog)
 
     try:
         prog.load_debug_info(debug_info_paths, default=True)
