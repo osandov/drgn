@@ -576,6 +576,15 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 	uint16_t num_entries = it->last_level_num_entries;
 	uint64_t table = it->it.pgtable;
 	bool table_physical = false;
+	if (table == prog->vmcoreinfo.swapper_pg_dir
+	    && prog->vmcoreinfo.kimage_voffset) {
+		// Avoid recursive address translation on swapper_pg_dir by
+		// directly resolving to a physical address. kimage_voffset has
+		// been present since Linux kernel commit 20a166243328 ("arm64:
+		// kdump: add VMCOREINFO's for user-space tools") (in v4.12).
+		table -= prog->vmcoreinfo.kimage_voffset;
+		table_physical = true;
+	}
 	for (int level = it->levels;; level--) {
 		uint8_t level_shift = page_shift + pgtable_shift * (level - 1);
 		uint16_t index = (virt_addr >> level_shift) & (num_entries - 1);

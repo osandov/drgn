@@ -152,6 +152,14 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 			prog->vmcoreinfo.pgtable_l5_enabled = tmp;
 			break;
 		}
+		@case "NUMBER(kimage_voffset)"@
+		{
+			err = parse_vmcoreinfo_u64(value, newline, 0,
+						   &prog->vmcoreinfo.kimage_voffset);
+			if (err)
+				return err;
+			break;
+		}
 		@case "NUMBER(phys_base)"@
 		{
 			err = parse_vmcoreinfo_u64(value, newline, 0,

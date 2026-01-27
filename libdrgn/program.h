@@ -217,6 +217,8 @@ struct drgn_program {
 				uint64_t va_bits;
 				/** `TCR_EL1_T1SZ` on AArch64. */
 				uint64_t tcr_el1_t1sz;
+				/** `kimage_voffset` on AArch64 */
+				uint64_t kimage_voffset;
 				/** `phys_base` on x86_64 */
 				uint64_t phys_base;
 				/**
