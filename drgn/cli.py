@@ -103,6 +103,12 @@ class _LogFormatter(logging.Formatter):
         return formatter.format(record)
 
 
+def _set_log_handler() -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(_LogFormatter(_is_tty(sys.stderr)))
+    logging.getLogger().addHandler(handler)
+
+
 def version_header() -> str:
     """
     Return the version header printed at the beginning of a drgn session.
@@ -392,10 +398,7 @@ def _load_debugging_symbols(prog: drgn.Program, args: argparse.Namespace) -> Non
 
 
 def _main() -> None:
-    handler = logging.StreamHandler()
-    color = _is_tty(sys.stderr)
-    handler.setFormatter(_LogFormatter(color))
-    logging.getLogger().addHandler(handler)
+    _set_log_handler()
 
     version = version_header()
     parser = argparse.ArgumentParser(prog="drgn", description="Programmable debugger")

@@ -11,6 +11,8 @@ from drgn.commands._builtin.crash import _cmd_crash
 
 
 def _main() -> None:
+    drgn.cli._set_log_handler()
+
     parser = argparse.ArgumentParser(description="Run drgn in crash compatibility mode")
     parser.add_argument(
         "vmlinux",
