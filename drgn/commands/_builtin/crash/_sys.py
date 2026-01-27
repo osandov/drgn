@@ -351,7 +351,11 @@ def _print_sys(
     if isinstance(context, Object) or context is None:
         task = context
     elif context == "panic":
-        task = _crash_get_panic_context(prog)
+        try:
+            task = _crash_get_panic_context(prog)
+        except LookupError:
+            logger.warning("panic task not found")
+            task = None
     elif context == "current":
         task = crash_get_context(prog)
     else:
