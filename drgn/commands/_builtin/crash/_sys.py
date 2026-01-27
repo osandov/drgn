@@ -190,11 +190,11 @@ def _get_load_average(prog: Program) -> str:
 
 def _append_tasks(code: CrashDrgnCodeBuilder) -> None:
     code.add_from_import("drgn.helpers.linux.pid", "for_each_task")
-    code.append("num_tasks = sum(1 for _ in for_each_task())\n")
+    code.append("num_tasks = sum(1 for _ in for_each_task(idle=True))\n")
 
 
 def _get_tasks(prog: Program) -> str:
-    return str(sum(1 for _ in for_each_task(prog)))
+    return str(sum(1 for _ in for_each_task(prog, idle=True)))
 
 
 def _append_utsname_field(code: CrashDrgnCodeBuilder, field: str) -> None:
