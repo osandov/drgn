@@ -13,6 +13,7 @@ from drgn.helpers.linux.bpf import (
     bpf_btf_for_each,
     bpf_link_for_each,
     bpf_map_for_each,
+    bpf_prog_by_id,
     bpf_prog_for_each,
     bpf_prog_used_maps,
     cgroup_bpf_prog_for_each,
@@ -30,6 +31,7 @@ from tests.linux_kernel.bpf import (
     BPF_MAP_TYPE_HASH,
     BPF_MOV64_IMM,
     BPF_PROG_TYPE_CGROUP_SKB,
+    BPF_PROG_TYPE_KPROBE,
     BPF_PROG_TYPE_SOCKET_FILTER,
     BPF_REG_0,
     _SYS_bpf,
@@ -343,3 +345,47 @@ class TestBpf(BpfTestCase):
             finally:
                 for fd in fds:
                     os.close(fd)
+
+    def test_bpf_prog_by_id(self):
+        fds = []
+        try:
+            prog_types = [
+                BPF_PROG_TYPE_SOCKET_FILTER,
+                BPF_PROG_TYPE_KPROBE,
+            ]
+            for prog_type in prog_types:
+                try:
+                    fds.append(bpf_prog_load(prog_type, self.INSNS, b"GPL"))
+                except OSError as e:
+                    if e.errno != errno.EINVAL:
+                        raise
+                    # Skip if this program type is not supported
+                    pass
+
+            if not fds:
+                self.skipTest(
+                    "kernel does not support any of the tested BPF program types"
+                )
+
+            # Get all program IDs
+            # bpf_prog_by_id() isn't supported before Linux v4.13, which
+            # added IDs for BPF programs in commit dc4bb0e23561 ("bpf:
+            # Introduce bpf_prog ID") and an API to get them in commit
+            # 34ad5580f8f9 ("bpf: Add BPF_(PROG|MAP)_GET_NEXT_ID command").
+            try:
+                all_ids = list(bpf_prog_ids())
+            except OSError as e:
+                if e.errno != errno.EINVAL:
+                    raise
+                self.skipTest("kernel does not support BPF_PROG_GET_NEXT_ID")
+
+            for prog_id in all_ids:
+                prog = bpf_prog_by_id(self.prog, prog_id)
+                self.assertIsNotNone(prog)
+                self.assertEqual(prog.aux.id.value_(), prog_id)
+
+            non_existent_prog = bpf_prog_by_id(self.prog, 0x7FFFFFFF)
+            self.assertIsNone(non_existent_prog)
+        finally:
+            for fd in fds:
+                os.close(fd)

@@ -12,11 +12,11 @@ etc.
 
 
 import itertools
-from typing import Iterator
+from typing import Iterator, Optional
 
 from drgn import IntegerLike, Object, Program, cast
 from drgn.helpers.common.prog import takes_program_or_default
-from drgn.helpers.linux.idr import idr_for_each
+from drgn.helpers.linux.idr import idr_find, idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
 __all__ = (
@@ -27,6 +27,7 @@ __all__ = (
     "cgroup_bpf_prog_for_each",
     "cgroup_bpf_prog_for_each_effective",
     "bpf_prog_used_maps",
+    "bpf_prog_by_id",
 )
 
 
@@ -192,3 +193,19 @@ def bpf_prog_used_maps(bpf_prog: Object) -> Iterator[Object]:
     """
     aux = bpf_prog.aux.read_()
     return iter(aux.used_maps[: aux.used_map_cnt])
+
+
+@takes_program_or_default
+def bpf_prog_by_id(prog: Program, id: IntegerLike) -> Optional[Object]:
+    """
+    Get a BPF program by ID.
+
+    :param prog: Program object
+    :param id: BPF program ID
+    :return: ``struct bpf_prog *`` object, or None if not found
+    """
+    type = prog.type("struct bpf_prog *")
+    entry = idr_find(prog["prog_idr"].address_of_(), id)
+    if entry:
+        return cast(type, entry)
+    return None
