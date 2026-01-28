@@ -101,7 +101,7 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 			break;
 		@case "KERNELOFFSET"@
 			err = parse_vmcoreinfo_u64(value, newline, 16,
-						   &prog->vmcoreinfo.kaslr_offset);
+						   &prog->ktext_offset);
 			if (err)
 				return err;
 			break;
@@ -193,18 +193,21 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 		@endswitch@
 	}
 	if (!prog->vmcoreinfo.osrelease[0]) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		drgn_log_error(prog, 
 					 "VMCOREINFO does not contain valid OSRELEASE");
+		// XXX make users of osrelease more robust
 	}
 	ignore_broken_vmcoreinfo_build_id(prog);
 	if (!is_power_of_two(prog->vmcoreinfo.page_size)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		drgn_log_error(prog, 
 					 "VMCOREINFO does not contain valid PAGESIZE");
+		// XXX make users of osrelease more robust || assume page_size
 	}
 	prog->vmcoreinfo.page_shift = ctz(prog->vmcoreinfo.page_size);
 	if (!prog->vmcoreinfo.swapper_pg_dir) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		drgn_log_error(prog, 
 					 "VMCOREINFO does not contain valid swapper_pg_dir");
+		// XXX make users of swapper_pg_dir more robust
 	}
 	// Everything else is optional.
 	return NULL;

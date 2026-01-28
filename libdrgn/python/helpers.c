@@ -294,7 +294,7 @@ PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *arg)
 	Program *prog = (Program *)arg;
 	if (!(prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
 		return PyErr_Format(PyExc_ValueError, "not Linux kernel");
-	return PyLong_FromUint64(prog->prog.vmcoreinfo.kaslr_offset);
+	return PyLong_FromUint64(prog->prog.ktext_offset);
 }
 
 PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *arg)

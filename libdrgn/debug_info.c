@@ -1345,9 +1345,9 @@ static bool drgn_module_elf_file_bias(struct drgn_module *module,
 	SWITCH_ENUM(module->kind) {
 	case DRGN_MODULE_MAIN:
 		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-			*ret = prog->vmcoreinfo.kaslr_offset;
+			*ret = prog->ktext_offset;
 			drgn_log_debug(prog,
-				       "got bias 0x%" PRIx64 " from VMCOREINFO",
+				       "got bias 0x%" PRIx64 " of kernel",
 				       *ret);
 			return true;
 		} else {
@@ -1500,6 +1500,21 @@ drgn_module_maybe_use_elf_file(struct drgn_module *module,
 		}
 	}
 
+	/* This may be initialized by drgn_find_ktext of existing vmcore */
+	if (prog->ktext_mapped) {
+		uint64_t s, e;
+		/* Dummy load of ELF under the assumption that
+		 * _text is always on the lowest address. */
+		if (!drgn_elf_file_address_range(file, &s, &e)) {
+			drgn_log_warning(prog, "Failed ktext_offset calculation.");
+			goto noktext_offset;
+		}
+
+		prog->ktext_offset = prog->ktext_mapped - s;
+		drgn_log_info(prog, "Calculated ktext_offset=%lx", prog->ktext_offset);
+	}
+
+noktext_offset:
 	uint64_t bias;
 	if (!drgn_module_elf_file_bias(module, file, &bias)) {
 		err = NULL;
@@ -5202,7 +5217,7 @@ load_debug_info_try_provided_vmlinux(struct drgn_module *module,
 				      release_len) == 0) {
 				drgn_log_debug(prog, "%s: %s Linux version matches",
 					       module->name, file->path);
-			} else {
+			} else if (strlen(prog->vmcoreinfo.osrelease) > 0) {
 				drgn_log_debug(prog,
 					       "%s: %s Linux version (%.*s) does not match",
 					       module->name, file->path,
@@ -5210,6 +5225,8 @@ load_debug_info_try_provided_vmlinux(struct drgn_module *module,
 					       ? INT_MAX : (int)release_len,
 					       release);
 				continue;
+			} else {
+				drgn_log_debug(prog, "Linux version in VMCOREINFO not found");
 			}
 
 			if (!it.entry->matched) {
