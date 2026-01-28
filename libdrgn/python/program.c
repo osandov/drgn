@@ -307,7 +307,7 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 	return 0;
 }
 
-void *drgn_begin_blocking(void)
+drgn_blocking_state drgn_begin_blocking(void)
 {
 	PyThreadState *state = PyGILState_GetThisThreadState();
 	// If the current thread doesn't hold the GIL (because it's not in
@@ -316,13 +316,13 @@ void *drgn_begin_blocking(void)
 	if (!state || state != PyThreadState_GetUnchecked())
 		return NULL;
 	PyEval_ReleaseThread(state);
-	return state;
+	return (drgn_blocking_state)state;
 }
 
-void drgn_end_blocking(void *state)
+void drgn_end_blocking(drgn_blocking_state state)
 {
 	if (state)
-		PyEval_RestoreThread(state);
+		PyEval_RestoreThread((PyThreadState *)state);
 }
 
 static Program *Program_new_impl(const struct drgn_platform *platform)

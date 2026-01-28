@@ -30,11 +30,17 @@ void drgn_call_plugins_prog(const char *name, struct drgn_program *prog)
 {
 }
 
-void *drgn_begin_blocking(void)
+drgn_blocking_state drgn_begin_blocking(void)
 {
 	return NULL;
 }
 
-void drgn_end_blocking(void *state)
+void drgn_end_blocking(drgn_blocking_state state)
 {
+}
+
+struct drgn_error *
+drgn_blocking_check_signals(drgn_blocking_state *statep)
+{
+	return NULL;
 }

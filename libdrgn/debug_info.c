@@ -5339,7 +5339,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 		return NULL;
 	}
 
-	drgn_blocking_guard();
+	drgn_blocking_guard(blocking_state);
 
 	const char *env = getenv("DRGN_MAX_DEBUG_INFO_ERRORS");
 	unsigned int max_warnings = env ? atoi(env) : 5;
@@ -5540,7 +5540,7 @@ drgn_load_module_debug_info(struct drgn_module **modules, size_t *num_modulesp)
 	for (size_t i = 0; i < num_wanted_modules; i++)
 		modules[i]->load_debug_info_generation = generation;
 
-	drgn_blocking_guard();
+	drgn_blocking_guard(blocking_state);
 
 	const size_t orig_num_wanted_modules = num_wanted_modules;
 	drgn_handler_list_for_each_enabled(struct drgn_debug_info_finder,

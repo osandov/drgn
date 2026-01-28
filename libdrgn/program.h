@@ -492,23 +492,35 @@ drgn_program_register_symbol_finder_impl(struct drgn_program *prog,
 					 const struct drgn_symbol_finder_ops *ops,
 					 void *arg, size_t enable_index);
 
+/** Opaque state used for blocking operations. */
+typedef struct drgn_blocking_state *drgn_blocking_state;
+
 /**
  * Call before a blocking (I/O or long-running) operation.
  *
  * Must be paired with @ref drgn_end_blocking().
  *
- * @return Opaque pointer to pass to @ref drgn_end_blocking().
+ * @return Opaque state to pass to @ref drgn_end_blocking().
  */
-void *drgn_begin_blocking(void);
+drgn_blocking_state drgn_begin_blocking(void);
 
 /**
  * Call after a blocking (I/O or long-running) operation.
  *
  * @param[in] state Return value of @ref drgn_begin_blocking().
  */
-void drgn_end_blocking(void *state);
+void drgn_end_blocking(drgn_blocking_state state);
 
-static inline void drgn_blocking_guard_cleanup(void **statep)
+/**
+ * Call periodically during a blocking operation to check for pending signals.
+ *
+ * @param[in,out] statep Pointer to return value of @ref drgn_begin_blocking().
+ */
+struct drgn_error *
+drgn_blocking_check_signals(drgn_blocking_state *statep);
+
+static inline void
+drgn_blocking_guard_cleanup(drgn_blocking_state *statep)
 {
 	drgn_end_blocking(*statep);
 }
@@ -517,8 +529,8 @@ static inline void drgn_blocking_guard_cleanup(void **statep)
  * Scope guard that wraps @ref drgn_begin_blocking() and @ref
  * drgn_end_blocking().
  */
-#define drgn_blocking_guard()							\
-	void *PP_UNIQUE(guard)							\
+#define drgn_blocking_guard(name)						\
+	drgn_blocking_state name						\
 	__attribute__((__cleanup__(drgn_blocking_guard_cleanup), __unused__)) =	\
 		drgn_begin_blocking()
 
