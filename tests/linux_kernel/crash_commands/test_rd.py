@@ -19,7 +19,7 @@ class TestRd(CrashCommandTestCase):
     def test_no_options(self):
         address = self.prog["init_task"].address_
         cmd = self.check_crash_command(f"rd {address:x}")
-        self.assertRegex(cmd.stdout, rf"^{address:0{self.w}x}:")
+        self.assertRegex(cmd.stdout, rf"^{address:{self.w}x}:")
         self.assertRegex(cmd.stdout, r"[0-9a-f]{" + str(self.w) + "}")
 
     def test_count(self):
@@ -27,12 +27,12 @@ class TestRd(CrashCommandTestCase):
         cmd = self.check_crash_command(f"rd -64 {address:x} 3")
         lines = cmd.stdout.strip().split("\n")
         self.assertGreaterEqual(len(lines), 2)
-        self.assertRegex(lines[0], rf"^{address:0{self.w}x}:")
+        self.assertRegex(lines[0], rf"^{address:{self.w}x}:")
 
     def test_format_decimal(self):
         address = self.prog["init_task"].address_
         cmd = self.check_crash_command(f"rd -d {address:x}")
-        self.assertRegex(cmd.stdout, rf"^{address:0{self.w}x}:")
+        self.assertRegex(cmd.stdout, rf"^{address:{self.w}x}:")
         # Should have decimal numbers
         self.assertRegex(cmd.stdout, r"\b-?\d+\b")
 
@@ -54,7 +54,7 @@ class TestRd(CrashCommandTestCase):
                 values = " ".join(f"{v:0{unit * 2}x}" for v in value_list)
                 self.assertRegex(
                     cmd.stdout,
-                    rf"^{address:0{self.w}x}:  {values} +Linux ve$",
+                    rf"^{address:{self.w}x}:  {values} +Linux ve$",
                 )
 
     def test_network_byte_order(self):
@@ -73,13 +73,13 @@ class TestRd(CrashCommandTestCase):
                 values = " ".join(f"{v:0{unit * 2}x}" for v in value_list)
                 self.assertRegex(
                     cmd.stdout,
-                    rf"^{address:0{self.w}x}:  {values} +Linux ve$",
+                    rf"^{address:{self.w}x}:  {values} +Linux ve$",
                 )
 
     def test_ascii(self):
         cmd = self.check_crash_command("rd -a linux_banner")
         address = self.prog.symbol("linux_banner").address
-        self.assertRegex(cmd.stdout, rf"{address:0{self.w}x}:  Linux version")
+        self.assertRegex(cmd.stdout, rf"{address:{self.w}x}:  Linux version")
         lines = cmd.stdout.strip().split("\n")
 
         # The ascii variant formats output over multiple lines, breaking at 79
@@ -96,22 +96,22 @@ class TestRd(CrashCommandTestCase):
     def test_ascii_count(self):
         cmd = self.check_crash_command("rd -a linux_banner 5")
         address = self.prog.symbol("linux_banner").address
-        self.assertEqual(cmd.stdout.strip(), f"{address:0{self.w}x}:  Linux")
+        self.assertEqual(cmd.stdout.strip(), f"{address:{self.w}x}:  Linux")
 
     def test_ascii_offset(self):
         address = self.prog.symbol("linux_banner").address
         cmd = self.check_crash_command("rd -o 4 -a linux_banner")
-        self.assertRegex(cmd.stdout, f"^{address + 4:0{self.w}x}:  x version.*")
+        self.assertRegex(cmd.stdout, f"^{address + 4:{self.w}x}:  x version.*")
 
     def test_symbol(self):
         address = self.prog["init_task"].address_
         cmd = self.check_crash_command("rd init_task")
-        self.assertRegex(cmd.stdout, rf"^{address:0{self.w}x}:")
+        self.assertRegex(cmd.stdout, rf"^{address:{self.w}x}:")
 
     def test_annotate_symbols(self):
         address = self.prog["slab_caches"].prev.value_()
         cmd = self.check_crash_command(f"rd -s {address:x} 2")
-        self.assertRegex(cmd.stdout, rf"^{address:0{self.w}x}:  slab_caches\+0")
+        self.assertRegex(cmd.stdout, rf"^{address:{self.w}x}:  slab_caches\+0")
 
     @skip_unless_have_test_kmod
     def test_annotate_slab(self):
@@ -120,12 +120,12 @@ class TestRd(CrashCommandTestCase):
         if self.prog["drgn_test_slob"]:
             self.assertRegex(
                 cmd.stdout,
-                rf"^{address:0{self.w}x}:  \[unknown slab object\] +\[unknown slab object\]",
+                rf"^{address:{self.w}x}:  \[unknown slab object\] +\[unknown slab object\]",
             )
         else:
             self.assertRegex(
                 cmd.stdout,
-                rf"^{address:0{self.w}x}:  \[drgn_test_small\] +\[drgn_test_small\]",
+                rf"^{address:{self.w}x}:  \[drgn_test_small\] +\[drgn_test_small\]",
             )
 
     @skip_unless_have_test_kmod
@@ -135,12 +135,12 @@ class TestRd(CrashCommandTestCase):
         if self.prog["drgn_test_slob"]:
             self.assertRegex(
                 cmd.stdout,
-                rf"^{address:0{self.w}x}:  \[[0-9a-f]+:unknown slab object\] +\[[0-9a-f]+:unknown slab object\]",
+                rf"^{address:{self.w}x}:  \[[0-9a-f]+:unknown slab object\] +\[[0-9a-f]+:unknown slab object\]",
             )
         else:
             self.assertRegex(
                 cmd.stdout,
-                rf"^{address:0{self.w}x}:  \[[0-9a-f]+:drgn_test_small\] +\[[0-9a-f]+:drgn_test_small\]",
+                rf"^{address:{self.w}x}:  \[[0-9a-f]+:drgn_test_small\] +\[[0-9a-f]+:drgn_test_small\]",
             )
 
     def test_reverse(self):
@@ -148,7 +148,7 @@ class TestRd(CrashCommandTestCase):
         cmd = self.check_crash_command(f"rd -R {address:x} 2")
         unit = self.prog.address_size()
         start_addr = address - unit
-        self.assertRegex(cmd.stdout, rf"^{start_addr:0{self.w}x}:  [0-9a-f]+ [0-9a-f]+")
+        self.assertRegex(cmd.stdout, rf"^{start_addr:{self.w}x}:  [0-9a-f]+ [0-9a-f]+")
 
     def test_raw(self):
         address = self.prog["init_task"].address_
@@ -173,7 +173,7 @@ class TestRd(CrashCommandTestCase):
         # the hint here.
         need_hint = self.prog.platform.arch == Architecture.S390X
 
-        expected_value = f"{address:0{self.w}x}:  hello world, I am a string!"
+        expected_value = f"{address:{self.w}x}:  hello world, I am a string!"
 
         if not need_hint:
             with self.subTest("without -u hint"):
