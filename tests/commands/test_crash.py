@@ -69,7 +69,7 @@ class TestPrintMemory(TestCase):
         self.assertEqual(
             result,
             """\
-00000000ffff0000:  00 01 02 03                                       ....
+        ffff0000:  00 01 02 03                                       ....
 """,
         )
 
@@ -78,7 +78,7 @@ class TestPrintMemory(TestCase):
         self.assertEqual(
             result,
             """\
-00000000ffff0000:  0100 0302                                 ....
+        ffff0000:  0100 0302                                 ....
 """,
         )
 
@@ -87,7 +87,7 @@ class TestPrintMemory(TestCase):
         self.assertEqual(
             result,
             """\
-0000000000010000:  44434241                              ABCD
+           10000:  44434241                              ABCD
 """,
         )
 
@@ -96,7 +96,7 @@ class TestPrintMemory(TestCase):
         self.assertEqual(
             result,
             """\
-00000000ffff0000:  00 01 02 03
+        ffff0000:  00 01 02 03
 """,
         )
 
@@ -107,7 +107,7 @@ class TestPrintMemory(TestCase):
         self.assertEqual(
             result,
             """\
-00000000ffff0008:  test_sym+0       0f0e0d0c0b0a0908
+        ffff0008:  test_sym+0       0f0e0d0c0b0a0908
 """,
         )
 
@@ -116,7 +116,7 @@ class TestPrintMemory(TestCase):
         self.assertEqual(
             result,
             """\
-00000000ffff0000:     50462976                                       ....
+        ffff0000:     50462976                                       ....
 """,
         )
 
@@ -125,7 +125,7 @@ class TestPrintMemory(TestCase):
         self.assertEqual(
             result,
             """\
-0000000000010000:  41424344                              ABCD
+           10000:  41424344                              ABCD
 """,
         )
 
