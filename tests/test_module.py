@@ -12,15 +12,7 @@ from drgn import (
     SharedLibraryModule,
     VdsoModule,
 )
-from tests import TestCase
-
-
-class IntWrapper:
-    def __init__(self, value):
-        self._value = value
-
-    def __index__(self):
-        return self._value
+from tests import IntWrapper, TestCase
 
 
 class TestModule(TestCase):

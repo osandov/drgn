@@ -41,6 +41,12 @@ _DRGN_GLOBALS = [
     "offsetof",
     "reinterpret",
     "sizeof",
+    "search_memory",
+    "search_memory_regex",
+    "search_memory_u16",
+    "search_memory_u32",
+    "search_memory_u64",
+    "search_memory_word",
     "source_location",
     "stack_trace",
 ]

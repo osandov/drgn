@@ -325,7 +325,11 @@ static int add_type_aliases(PyObject *m)
 			      os_PathLike);
 	if (!item)
 		return -1;
-	return PyModule_Add(m, "Path", PyObject_GetItem(typing_Union, item));
+	if (PyModule_Add(m, "Path", PyObject_GetItem(typing_Union, item)))
+		return -1;
+
+	return PyModule_Add(m, "MemorySearchIterator",
+			    PyObject_GetAttrString(typing_module, "Iterator"));
 }
 
 PyMODINIT_FUNC PyInit__drgn(void); // Silence -Wmissing-prototypes.
@@ -346,6 +350,10 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &DebugInfoOptions_type) ||
 	    add_type(m, &Language_type) || add_languages() ||
 	    add_type(m, &DrgnObject_type) ||
+	    PyType_Ready(&MemorySearchIteratorWithBytes_type) ||
+	    PyType_Ready(&MemorySearchIteratorWithInt_type) ||
+	    PyType_Ready(&MemorySearchIteratorWithStr_type) ||
+	    PyType_Ready(&MemorySearchIterator_type) ||
 	    add_type(m, &Module_type) ||
 	    add_type(m, &MainModule_type) ||
 	    add_type(m, &SharedLibraryModule_type) ||

@@ -29,6 +29,7 @@ from typing import (
     Set,
     SupportsIndex,
     Tuple,
+    TypeVar,
     Union,
     overload,
 )
@@ -38,10 +39,17 @@ if sys.version_info < (3, 10):
 else:
     from typing import TypeAlias
 
+if sys.version_info < (3, 11):
+    from typing_extensions import Self
+else:
+    from typing import Self
+
 if sys.version_info < (3, 12):
     from typing_extensions import Buffer
 else:
     from collections.abc import Buffer
+
+T = TypeVar("T")
 
 IntegerLike: TypeAlias = SupportsIndex
 """
@@ -503,6 +511,66 @@ class Program:
             :meth:`read()`.
         :raises FaultError: if the address is invalid; see :meth:`read()`
         """
+        ...
+
+    @overload
+    def search_memory(
+        self, value: Union[bytes, str], *, alignment: int = 1
+    ) -> MemorySearchIterator[int]:
+        """"""
+        ...
+
+    @overload
+    def search_memory(
+        self, value: Union[IntegerLike, Object]
+    ) -> MemorySearchIterator[int]:
+        """"""
+        ...
+
+    def search_memory_u16(
+        self,
+        *values: Union[IntegerLike, Tuple[IntegerLike, IntegerLike]],
+        ignore_mask: IntegerLike = 0,
+    ) -> MemorySearchIterator[Tuple[int, int]]:
+        """"""
+        ...
+
+    def search_memory_u32(
+        self,
+        *values: Union[IntegerLike, Tuple[IntegerLike, IntegerLike]],
+        ignore_mask: IntegerLike = 0,
+    ) -> MemorySearchIterator[Tuple[int, int]]:
+        """"""
+        ...
+
+    def search_memory_u64(
+        self,
+        *values: Union[IntegerLike, Tuple[IntegerLike, IntegerLike]],
+        ignore_mask: IntegerLike = 0,
+    ) -> MemorySearchIterator[Tuple[int, int]]:
+        """"""
+        ...
+
+    def search_memory_word(
+        self,
+        *values: Union[IntegerLike, Tuple[IntegerLike, IntegerLike]],
+        ignore_mask: IntegerLike = 0,
+    ) -> MemorySearchIterator[Tuple[int, int]]:
+        """"""
+        ...
+
+    @overload
+    def search_memory_regex(
+        self, pattern: bytes
+    ) -> MemorySearchIterator[Tuple[int, bytes]]:
+        """"""
+        ...
+
+    @overload
+    def search_memory_regex(
+        self, pattern: str
+    ) -> MemorySearchIterator[Tuple[int, str]]:
+        """See :ref:`api-searching-memory`."""
         ...
 
     def add_memory_segment(
@@ -1428,6 +1496,48 @@ class ObjectNotFoundError(KeyError):
         ...
     name: str
     """Object name that was not found."""
+
+class MemorySearchIterator(Iterator[T]):
+    """Iterator returned by :ref:`memory searches <api-searching-memory>`."""
+
+    def __next__(self) -> T: ...
+    def set_address_range(
+        self,
+        min_address: Optional[IntegerLike] = None,
+        max_address: Optional[IntegerLike] = None,
+        physical: bool = False,
+    ) -> Self:
+        """
+        Set the address range to limit a memory search to.
+
+        This returns the iterator itself, so it can be used conveniently when
+        the iterator is created:
+
+        .. code-block:: python3
+
+            for address in search_memory(b"VMCOREINFO").set_address_range(physical=True):
+                print(hex(address))
+
+        It can also be called during or after iteration, allowing an iterator
+        to be reused for searching multiple ranges:
+
+        .. code-block:: python3
+
+            it = search_memory_regex(some_complex_pattern)
+
+            for min_address, max_address in address_ranges:
+                it.set_address_range(min_address, max_address)
+                for address, match in it:
+                    print(hex(address), match)
+
+        :param min_address: Minimum address to search (inclusive). Defaults to
+            the program's minimum address.
+        :param max_address: Maximum address to search (inclusive). Defaults to
+            the program's maximum address.
+        :param physical: Whether to search physical memory. Defaults to
+            ``False`` (virtual memory).
+        """
+        ...
 
 class DebugInfoOptions:
     """

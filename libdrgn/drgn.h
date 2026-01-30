@@ -956,6 +956,203 @@ struct drgn_error *drgn_program_read_word(struct drgn_program *prog,
 					  uint64_t *ret);
 
 /**
+ * @defgroup MemorySearches Memory searches
+ *
+ * Searching program memory for values or patterns.
+ *
+ * @{
+ */
+
+/**
+ * @struct drgn_memory_search_iterator
+ *
+ * An iterator over all matches of a value or pattern in memory.
+ */
+struct drgn_memory_search_iterator; // IWYU pragma: export
+
+/**
+ * Search for all non-overlapping occurrences of a byte string in memory.
+ *
+ * @param needle[in] Byte string to search for. This is copied, so it need not
+ * remain valid after this function returns.
+ * @param[in] size Size of @p needle in bytes.
+ * @param[in] alignment Only consider addresses aligned to this value. Must be a
+ * power of two.
+ * @param[out] ret Returned memory search iterator.
+ */
+struct drgn_error *
+drgn_program_search_memory(struct drgn_program *prog, const void *needle,
+			   size_t size, uint64_t alignment,
+			   struct drgn_memory_search_iterator **ret);
+
+/**
+ * Search for all occurrences of an object's value in memory.
+ *
+ * @param[in] obj Object whose value to search for. Its value is copied, so it
+ * need not remain valid after this function returns.
+ * @param[out] ret Returned memory search iterator.
+ */
+struct drgn_error *
+drgn_search_memory_for_object(const struct drgn_object *obj,
+			      struct drgn_memory_search_iterator **ret);
+
+/**
+ * Search for all occurrences of a 16-bit unsigned integer in memory.
+ *
+ * Natural alignment is assumed.
+ *
+ * @param[in] value Value to search for.
+ * @param[out] ret Returned memory search iterator.
+ */
+struct drgn_error *
+drgn_program_search_memory_u16(struct drgn_program *prog, uint16_t value,
+			       struct drgn_memory_search_iterator **ret);
+
+/**
+ * Like @ref drgn_program_search_memory_u16(), but for a 32-bit unsigned
+ * integer.
+ */
+struct drgn_error *
+drgn_program_search_memory_u32(struct drgn_program *prog, uint32_t value,
+			       struct drgn_memory_search_iterator **ret);
+
+/**
+ * Like @ref drgn_program_search_memory_u16(), but for a 64-bit unsigned
+ * integer.
+ */
+struct drgn_error *
+drgn_program_search_memory_u64(struct drgn_program *prog, uint64_t value,
+			       struct drgn_memory_search_iterator **ret);
+
+/**
+ * Like @ref drgn_program_search_memory_u16(), but for a program word-sized
+ * unsigned integer.
+ *
+ * It is an error if @p value is out of range of the program word size.
+ */
+struct drgn_error *
+drgn_program_search_memory_word(struct drgn_program *prog, uint64_t value,
+				struct drgn_memory_search_iterator **ret);
+
+/**
+ * Search for all occurrences of one or more 16-bit unsigned integers in memory.
+ *
+ * Natural alignment is assumed.
+ *
+ * @param[in] values Values to search for. This is copied, so it need not remain
+ * valid after this function returns. May be @c NULL if @p num_values is 0.
+ * @param[in] num_values Number of values in @p values.
+ * @param[in] ignore_mask Mask of bits to ignore when comparing to @p values.
+ * @param[in] ranges Ranges to search for. `ranges[i][0]` is the minimum
+ * (inclusive) and `ranges[i][1]` is the maximum (inclusive). This is copied, so
+ * it need not remain valid after this function returns. May be @c NULL if @p
+ * num_ranges is 0.
+ * @param[in] num_ranges Number of ranges in @p ranges.
+ * @param[out] ret Returned memory search iterator.
+ */
+struct drgn_error *
+drgn_program_search_memory_u16_multi(struct drgn_program *prog,
+				     const uint16_t *values, size_t num_values,
+				     uint16_t ignore_mask,
+				     const uint16_t (*ranges)[2],
+				     size_t num_ranges,
+				     struct drgn_memory_search_iterator **ret);
+
+/**
+ * Like @ref drgn_program_search_memory_u16_multi(), but for 32-bit unsigned
+ * integers.
+ */
+struct drgn_error *
+drgn_program_search_memory_u32_multi(struct drgn_program *prog,
+				     const uint32_t *values, size_t num_values,
+				     uint32_t ignore_mask,
+				     const uint32_t (*ranges)[2],
+				     size_t num_ranges,
+				     struct drgn_memory_search_iterator **ret);
+
+/**
+ * Like @ref drgn_program_search_memory_u16_multi(), but for 64-bit unsigned
+ * integers.
+ */
+struct drgn_error *
+drgn_program_search_memory_u64_multi(struct drgn_program *prog,
+				     const uint64_t *values, size_t num_values,
+				     uint64_t ignore_mask,
+				     const uint64_t (*ranges)[2],
+				     size_t num_ranges,
+				     struct drgn_memory_search_iterator **ret);
+
+/**
+ * Like @ref drgn_program_search_memory_u16_multi(), but for program word-sized
+ * unsigned integers.
+ *
+ * It is an error if any value is out of range of the program word size.
+ */
+struct drgn_error *
+drgn_program_search_memory_word_multi(struct drgn_program *prog,
+				      const uint64_t *values, size_t num_values,
+				      uint64_t ignore_mask,
+				      const uint64_t (*ranges)[2],
+				      size_t num_ranges,
+				      struct drgn_memory_search_iterator **ret);
+
+/**
+ * Search for all non-overlapping matches of a regular expression pattern in
+ * memory.
+ *
+ * @param[in] pattern PCRE regular expression to search for. This need not
+ * remain valid after this function returns.
+ * @param[in] pattern_len Length of @p pattern in bytes.
+ * @param[in] utf8 If `false`, search for 8-bit strings. If `true`, search for
+ * Unicode strings.
+ * @param[out] ret Returned memory search iterator.
+ */
+struct drgn_error *
+drgn_program_search_memory_regex(struct drgn_program *prog, const void *pattern,
+				 size_t pattern_len, bool utf8,
+				 struct drgn_memory_search_iterator **ret);
+
+/** Destroy a @ref drgn_memory_search_iterator. */
+void drgn_memory_search_iterator_destroy(struct drgn_memory_search_iterator *it);
+
+/** Get the program that a memory search iterator is from. */
+struct drgn_program *
+drgn_memory_search_iterator_program(const struct drgn_memory_search_iterator *it);
+
+/**
+ * Get the next match from a memory search.
+ *
+ * @param[out] addr_ret Returned address of match. May be @c NULL.
+ * @param[out] match_ret Returned match. This is valid until the next call to
+ * @ref drgn_memory_search_iterator_next() or @ref
+ * drgn_memory_search_iterator_set_address_range() with the same @p it, or until
+ * @p it is destroyed. May be @c NULL.
+ * @param[out] match_len_ret Length of @p match_ret in bytes. May be @c NULL.
+ */
+struct drgn_error *
+drgn_memory_search_iterator_next(struct drgn_memory_search_iterator *it,
+				 uint64_t *addr_ret, const void **match_ret,
+				 size_t *match_len_ret);
+
+/**
+ * Limit the address range of a memory search.
+ *
+ * This can be called before, during, or after iteration.
+ *
+ * @param[in] min_address Minimum address to search (inclusive).
+ * @param[in] max_address Maximum address to search (inclusive).
+ * @param[in] physical If `false`, search virtual memory. If `true`, search
+ * physical memory.
+ */
+struct drgn_error *
+drgn_memory_search_iterator_set_address_range(struct drgn_memory_search_iterator *it,
+					      uint64_t min_address,
+					      uint64_t max_address,
+					      bool physical);
+
+/** @} */
+
+/**
  * Find a type in a program by name.
  *
  * The returned type is valid for the lifetime of the @ref drgn_program.

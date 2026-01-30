@@ -136,6 +136,31 @@ Source locations are obtained from :func:`source_location()`,
 .. drgndoc:: SourceLocation
 .. drgndoc:: SourceLocationList
 
+.. _api-searching-memory:
+
+Searching Memory
+----------------
+
+Memory can be searched for specific values or patterns with the following
+functions.
+
+.. drgndoc:: search_memory
+.. drgndoc:: search_memory_u16
+.. drgndoc:: search_memory_u32
+.. drgndoc:: search_memory_u64
+.. drgndoc:: search_memory_word
+.. drgndoc:: search_memory_regex
+
+To search programs other than the default program, these are also available as
+methods (:meth:`Program.search_memory()`, :meth:`Program.search_memory_u16()`,
+:meth:`Program.search_memory_u32()`, :meth:`Program.search_memory_u64()`,
+:meth:`Program.search_memory_word()`, and
+:meth:`Program.search_memory_regex()`).
+
+These functions/methods all return the following special iterator type.
+
+.. drgndoc:: MemorySearchIterator
+
 .. _api-reference-types:
 
 Types

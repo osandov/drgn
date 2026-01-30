@@ -165,6 +165,11 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_memory_search_iterator *it;
+} MemorySearchIterator;
+
+typedef struct {
+	PyObject_HEAD
 	struct drgn_module *module;
 } Module;
 
@@ -322,6 +327,10 @@ extern PyTypeObject ExtraModule_type;
 extern PyTypeObject FaultError_type;
 extern PyTypeObject Language_type;
 extern PyTypeObject MainModule_type;
+extern PyTypeObject MemorySearchIteratorWithBytes_type;
+extern PyTypeObject MemorySearchIteratorWithInt_type;
+extern PyTypeObject MemorySearchIteratorWithStr_type;
+extern PyTypeObject MemorySearchIterator_type;
 extern PyTypeObject ModuleIteratorWithNew_type;
 extern PyTypeObject ModuleIterator_type;
 extern PyTypeObject ModuleSectionAddressesIterator_type;
@@ -380,6 +389,9 @@ void *set_error_type_name(const char *format,
 			  struct drgn_qualified_type qualified_type);
 
 #define call_tp_alloc(type) ((type *)type##_type.tp_alloc(&type##_type, 0))
+
+PyObject *MemorySearchIterator_wrap(PyTypeObject *type,
+				    struct drgn_memory_search_iterator *it);
 
 PyObject *Module_wrap(struct drgn_module *module);
 static inline Program *Module_prog(Module *module)

@@ -44,7 +44,7 @@ import io
 import pkgutil
 import sys
 import types
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Tuple, Union, overload
 
 from _drgn import (
     NULL,
@@ -58,6 +58,7 @@ from _drgn import (
     KmodSearchMethod,
     Language,
     MainModule,
+    MemorySearchIterator,
     MissingDebugInfoError,
     Module,
     ModuleFileStatus,
@@ -134,6 +135,7 @@ __all__ = (
     "KmodSearchMethod",
     "Language",
     "MainModule",
+    "MemorySearchIterator",
     "MissingDebugInfoError",
     "Module",
     "ModuleFileStatus",
@@ -185,6 +187,12 @@ __all__ = (
     "program_from_kernel",
     "program_from_pid",
     "reinterpret",
+    "search_memory",
+    "search_memory_regex",
+    "search_memory_u16",
+    "search_memory_u32",
+    "search_memory_u64",
+    "search_memory_word",
     "set_default_prog",
     "sizeof",
     "source_location",
@@ -342,3 +350,159 @@ def source_location(address: Union[IntegerLike, str], /) -> SourceLocationList:
         return address.prog_.source_location(address)
     else:
         return get_default_prog().source_location(address)
+
+
+@overload
+def search_memory(
+    value: Union[bytes, str], *, alignment: int = 1
+) -> MemorySearchIterator[int]:
+    """
+    Search for all non-overlapping occurrences of a byte string in the
+    :ref:`default program's <default-program>` memory.
+
+    .. code-block:: python3
+
+        for address in search_memory(b"VMCOREINFO"):
+            print(hex(address))
+
+    :param value: Byte string to search for. If given as a :class:`str`, then
+        this searches for its UTF-8 encoding.
+    :param alignment: Only consider addresses aligned to this value (i.e.,
+        ``address % alignment == 0``). Must be a power of two.
+    :return: Iterator of addresses where the string is found.
+    """
+    ...
+
+
+@overload
+def search_memory(value: Union[IntegerLike, Object]) -> MemorySearchIterator[int]:
+    """
+    Search for all occurrences of a value in the :ref:`default program's
+    <default-program>` memory.
+
+    .. code-block:: python3
+
+        ptr = stack_trace(pid)[2]["ptr"]
+        for address in search_memory(ptr):
+            print(hex(address))
+
+    :param value: Value to search for. If given as an :class:`int`, then it is
+        interpreted as a program word-sized, naturally aligned unsigned
+        integer. If given as an :class:`Object`, then its size and alignment
+        are determined from its type.
+    :return: Iterator of addresses where the value is found.
+    """
+    ...
+
+
+def search_memory(
+    value: Union[bytes, str, IntegerLike, Object], **kwargs: Any
+) -> MemorySearchIterator[int]:
+    if isinstance(value, Object):
+        return value.prog_.search_memory(value)
+    else:
+        return get_default_prog().search_memory(value)
+
+
+def search_memory_u16(
+    *values: Union[IntegerLike, Tuple[IntegerLike, IntegerLike]],
+    ignore_mask: IntegerLike = 0,
+) -> MemorySearchIterator[Tuple[int, int]]:
+    """"""
+    return get_default_prog().search_memory_u16(*values, ignore_mask=ignore_mask)
+
+
+def search_memory_u32(
+    *values: Union[IntegerLike, Tuple[IntegerLike, IntegerLike]],
+    ignore_mask: IntegerLike = 0,
+) -> MemorySearchIterator[Tuple[int, int]]:
+    """"""
+    return get_default_prog().search_memory_u32(*values, ignore_mask=ignore_mask)
+
+
+def search_memory_u64(
+    *values: Union[IntegerLike, Tuple[IntegerLike, IntegerLike]],
+    ignore_mask: IntegerLike = 0,
+) -> MemorySearchIterator[Tuple[int, int]]:
+    """"""
+    return get_default_prog().search_memory_u64(*values, ignore_mask=ignore_mask)
+
+
+def search_memory_word(
+    *values: Union[IntegerLike, Tuple[IntegerLike, IntegerLike]],
+    ignore_mask: IntegerLike = 0,
+) -> MemorySearchIterator[Tuple[int, int]]:
+    """
+    Search for all occurrences of one or more unsigned integers in the
+    :ref:`default program's <default-program>` memory.
+
+    :func:`search_memory_u16()`, :func:`search_memory_u32()`, and
+    :func:`search_memory_u64()` search for 16-, 32- or 64-bit unsigned
+    integers, respectively. :func:`search_memory_word()` searches for program
+    word-sized unsigned integers. Natural alignment is assumed (i.e., 2-byte
+    alignment for 16-bit integers, 4-byte alignment for 32-bit integers, 8-byte
+    alignment for 64-bit integers).
+
+    .. code-block:: python3
+
+        for address, value in search_memory_word(
+            0xdead000000000100, 0xdead000000000122
+        ):
+            print(hex(address), hex(value))
+
+        for address, value in search_memory_word(
+            0xdead000000000000, ignore_mask=0xffff
+        ):
+            print(hex(address), hex(value))
+
+        obj = prog["obj"]
+        for address, value in search_memory_word(
+            (obj.address_, obj.address_ + sizeof(obj) - 1)
+        ):
+            print(hex(address), hex(value))
+
+    :param values: Values to search for. Each value may be a single integer or
+        a ``(min, max)`` range (where both ends are included).
+    :param ignore_mask: Mask of bits to ignore when comparing to single
+        integers given in *values*. This is not used when comparing to ranges.
+    :return: Iterator of addresses where the value is found and the found
+        value.
+    """
+    return get_default_prog().search_memory_word(*values, ignore_mask=ignore_mask)
+
+
+@overload
+def search_memory_regex(pattern: bytes) -> MemorySearchIterator[Tuple[int, bytes]]:
+    """"""
+    ...
+
+
+@overload
+def search_memory_regex(pattern: str) -> MemorySearchIterator[Tuple[int, str]]:
+    r"""
+    Search for all non-overlapping matches of a regular expression pattern in
+    the program's memory.
+
+    .. code-block:: python3
+
+        # Search for anything that looks like root's password encrypted in
+        # /etc/shadow.
+        for address, match in search_memory_regex(rb"root:\$\w+\$[ -9;-~]+:"):
+            print(hex(address), match)
+
+    :param pattern: PCRE regular expression to search for. If given as
+        :class:`bytes`, then search for 8-bit strings. If given as
+        :class:`str`, then search for Unicode strings. Note that lookbehind
+        assertions are not allowed.
+    :return: Iterator of addresses where a match is found and the matching
+        string.
+    """
+    ...
+
+
+def search_memory_regex(
+    pattern: Union[bytes, str]
+) -> Union[
+    MemorySearchIterator[Tuple[int, bytes]], MemorySearchIterator[Tuple[int, str]]
+]:
+    return get_default_prog().search_memory_regex(pattern)

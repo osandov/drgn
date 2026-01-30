@@ -46,10 +46,20 @@ else:
 DEFAULT_LANGUAGE = Language.C
 
 
+class IntWrapper:
+    def __init__(self, value):
+        self._value = value
+
+    def __index__(self):
+        return self._value
+
+
 MOCK_32BIT_PLATFORM = Platform(Architecture.UNKNOWN, PlatformFlags.IS_LITTLE_ENDIAN)
+MOCK_32BIT_BIG_ENDIAN_PLATFORM = Platform(Architecture.UNKNOWN, PlatformFlags(0))
 MOCK_PLATFORM = Platform(
     Architecture.UNKNOWN, PlatformFlags.IS_64_BIT | PlatformFlags.IS_LITTLE_ENDIAN
 )
+MOCK_BIG_ENDIAN_PLATFORM = Platform(Architecture.UNKNOWN, PlatformFlags.IS_64_BIT)
 
 
 class MockMemorySegment(NamedTuple):

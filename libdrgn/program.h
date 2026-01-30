@@ -58,6 +58,8 @@ struct drgn_thread {
 DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *);
 DEFINE_HASH_TABLE_TYPE(drgn_thread_set, struct drgn_thread);
 
+#define SEARCH_MEMORY_UINT_SIZES X(16) X(32) X(64)
+
 struct drgn_program {
 	/** @privatesection */
 

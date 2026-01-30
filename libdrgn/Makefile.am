@@ -171,6 +171,7 @@ libdrgn_common_python_la_SOURCES = python/constants.c \
 				   python/helpers.c \
 				   python/language.c \
 				   python/main.c \
+				   python/memory_search.c \
 				   python/module.c \
 				   python/module_section_addresses.c \
 				   python/object.c \

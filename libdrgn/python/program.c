@@ -1518,6 +1518,215 @@ METHOD_READ(u64, uint64_t)
 METHOD_READ(word, uint64_t)
 #undef METHOD_READ
 
+static PyObject *Program_search_memory(Program *self, PyObject *args,
+				       PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"value", "alignment", NULL};
+	PyObject *value_obj;
+	PyObject *alignment_obj = Py_None;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|$O:search_memory",
+					 keywords, &value_obj, &alignment_obj))
+		return NULL;
+
+	struct drgn_memory_search_iterator *it;
+	if (PyObject_TypeCheck(value_obj, &PyBytes_Type)) {
+		char *needle;
+		Py_ssize_t size;
+		if (PyBytes_AsStringAndSize(value_obj, &needle, &size))
+			return NULL;
+
+		uint64_t alignment;
+		if (alignment_obj == Py_None)
+			alignment = 1;
+		else if (PyLong_AsUInt64(alignment_obj, &alignment))
+			return NULL;
+
+		err = drgn_program_search_memory(&self->prog, needle, size,
+						 alignment, &it);
+		if (err)
+			return set_drgn_error(err);
+	} else if (PyObject_TypeCheck(value_obj, &PyUnicode_Type)) {
+		Py_ssize_t size;
+		const char *needle = PyUnicode_AsUTF8AndSize(value_obj, &size);
+		if (!needle)
+			return NULL;
+
+		uint64_t alignment;
+		if (alignment_obj == Py_None)
+			alignment = 1;
+		else if (PyLong_AsUInt64(alignment_obj, &alignment))
+			return NULL;
+
+		err = drgn_program_search_memory(&self->prog, needle, size,
+						 alignment, &it);
+		if (err)
+			return set_drgn_error(err);
+	} else {
+		if (alignment_obj != Py_None) {
+			PyErr_SetString(PyExc_TypeError,
+					"alignment is only allowed with bytes or str value");
+			return NULL;
+		}
+		if (PyObject_TypeCheck(value_obj, &DrgnObject_type)) {
+			err = drgn_search_memory_for_object(&((DrgnObject *)value_obj)->obj,
+							    &it);
+			if (err)
+				return set_drgn_error(err);
+		} else if (PyIndex_Check(value_obj)) {
+			uint64_t value;
+			if (PyLong_AsUInt64(value_obj, &value))
+				return NULL;
+			err = drgn_program_search_memory_word(&self->prog,
+							      value, &it);
+			if (err)
+				return set_drgn_error(err);
+		} else {
+			return PyErr_Format(PyExc_TypeError,
+					    "value must be bytes, str, int, "
+					    "or drgn.Object, not %.200s",
+					    Py_TYPE(value_obj)->tp_name);
+		}
+	}
+
+	PyObject *ret =
+		MemorySearchIterator_wrap(&MemorySearchIterator_type, it);
+	if (!ret)
+		drgn_memory_search_iterator_destroy(it);
+	return ret;
+}
+
+#define X(bits)									\
+DEFINE_VECTOR(uint##bits##_vector, uint##bits##_t);				\
+DEFINE_VECTOR(uint##bits##_range_vector, uint##bits##_t [2]);			\
+static PyObject *Program_search_memory_u##bits(Program *self, PyObject *args,	\
+					       PyObject *kwds)			\
+{										\
+	struct drgn_error *err;							\
+										\
+	static char *keywords[] = {"ignore_mask", NULL};			\
+	_cleanup_pydecref_ PyObject *empty_tuple = PyTuple_New(0);		\
+	if (!empty_tuple)							\
+		return NULL;							\
+	PyObject *ignore_mask_obj = NULL;					\
+	if (!PyArg_ParseTupleAndKeywords(empty_tuple, kwds,			\
+					 "|$O:search_memory_u" #bits,		\
+					 keywords, &ignore_mask_obj))		\
+		return NULL;							\
+										\
+	VECTOR(uint##bits##_vector, values);					\
+	VECTOR(uint##bits##_range_vector, ranges);				\
+										\
+	Py_ssize_t num_args = PyTuple_GET_SIZE(args);				\
+	for (Py_ssize_t i = 0; i < num_args; i++) {				\
+		PyObject *item = PyTuple_GET_ITEM(args, i);			\
+		if (PyTuple_Check(item)) {					\
+			if (PyTuple_GET_SIZE(item) != 2) {			\
+				PyErr_SetString(PyExc_TypeError,		\
+						"values must be int or (int, int)");\
+				return NULL;					\
+			}							\
+			uint##bits##_t (*entry)[2] =				\
+				uint##bits##_range_vector_append_entry(&ranges);\
+			if (!entry)						\
+				return PyErr_NoMemory();			\
+			if (PyLong_AsUInt##bits(PyTuple_GET_ITEM(item, 0),	\
+						&(*entry)[0])			\
+			    || PyLong_AsUInt##bits(PyTuple_GET_ITEM(item, 1),	\
+						   &(*entry)[1]))		\
+				return NULL;					\
+		} else {							\
+			uint##bits##_t *entry =					\
+				uint##bits##_vector_append_entry(&values);	\
+			if (!entry)						\
+				return PyErr_NoMemory();			\
+			if (PyLong_AsUInt##bits(item, entry))			\
+				return NULL;					\
+		}								\
+	}									\
+										\
+	uint##bits##_t ignore_mask;						\
+	if (!ignore_mask_obj)							\
+		ignore_mask = 0;						\
+	else if (PyLong_AsUInt##bits(ignore_mask_obj, &ignore_mask))		\
+		return NULL;							\
+										\
+	struct drgn_memory_search_iterator *it;					\
+	err = drgn_program_search_memory_u##bits##_multi(&self->prog,		\
+				uint##bits##_vector_begin(&values),		\
+				uint##bits##_vector_size(&values),		\
+				ignore_mask,					\
+				uint##bits##_range_vector_begin(&ranges),	\
+				uint##bits##_range_vector_size(&ranges), &it);	\
+	if (err)								\
+		return set_drgn_error(err);					\
+	PyObject *ret =								\
+		MemorySearchIterator_wrap(&MemorySearchIteratorWithInt_type,	\
+					  it);					\
+	if (!ret)								\
+		drgn_memory_search_iterator_destroy(it);			\
+	return ret;								\
+}
+SEARCH_MEMORY_UINT_SIZES
+#undef X
+
+static PyObject *Program_search_memory_word(Program *self, PyObject *args,
+					    PyObject *kwds)
+{
+	struct drgn_error *err;
+	bool is_64_bit;
+	err = drgn_program_is_64_bit(&self->prog, &is_64_bit);
+	if (err)
+		return set_drgn_error(err);
+	return (is_64_bit
+		? Program_search_memory_u64
+		: Program_search_memory_u32)(self, args, kwds);
+}
+
+static PyObject *Program_search_memory_regex(Program *self, PyObject *args,
+					     PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"pattern", NULL};
+	PyObject *pattern_obj;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|$:search_memory_regex",
+					 keywords, &pattern_obj))
+		return NULL;
+
+	const char *pattern;
+	Py_ssize_t pattern_len;
+	bool utf8;
+	if (PyObject_TypeCheck(pattern_obj, &PyBytes_Type)) {
+		if (PyBytes_AsStringAndSize(pattern_obj, (char **)&pattern,
+					    &pattern_len))
+			return NULL;
+		utf8 = false;
+	} else if (PyObject_TypeCheck(pattern_obj, &PyUnicode_Type)) {
+		pattern = PyUnicode_AsUTF8AndSize(pattern_obj, &pattern_len);
+		if (!pattern)
+			return NULL;
+		utf8 = true;
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+				"pattern must be bytes or str");
+		return NULL;
+	}
+
+	struct drgn_memory_search_iterator *it;
+	err = drgn_program_search_memory_regex(&self->prog, pattern,
+					       pattern_len, utf8, &it);
+	if (err)
+		return set_drgn_error(err);
+	PyObject *ret =
+		MemorySearchIterator_wrap(utf8
+					  ? &MemorySearchIteratorWithStr_type
+					  : &MemorySearchIteratorWithBytes_type,
+					  it);
+	if (!ret)
+		drgn_memory_search_iterator_destroy(it);
+	return ret;
+}
+
 static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"name", "filename", NULL};
@@ -2073,6 +2282,18 @@ static PyMethodDef Program_methods[] = {
 	METHOD_DEF_READ(u64),
 	METHOD_DEF_READ(word),
 #undef METHOD_READ_U
+	{"search_memory", (PyCFunction)Program_search_memory,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_search_memory_DOC},
+#define X(bits)									\
+	{"search_memory_u" #bits, (PyCFunction)Program_search_memory_u##bits,	\
+	 METH_VARARGS | METH_KEYWORDS,						\
+	 drgn_Program_search_memory_u##bits##_DOC},
+	SEARCH_MEMORY_UINT_SIZES
+#undef X
+	{"search_memory_word", (PyCFunction)Program_search_memory_word,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_search_memory_word_DOC},
+	{"search_memory_regex", (PyCFunction)Program_search_memory_regex,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_search_memory_regex_DOC},
 	{"type", (PyCFunction)Program_find_type, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_type_DOC},
 	{"object", (PyCFunction)Program_object, METH_VARARGS | METH_KEYWORDS,
