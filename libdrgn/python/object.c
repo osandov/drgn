@@ -18,19 +18,16 @@ static int DrgnObject_literal(struct drgn_object *res, PyObject *literal)
 	if (PyBool_Check(literal)) {
 		err = drgn_object_bool_literal(res, literal == Py_True);
 	} else if (PyLong_Check(literal)) {
-		bool is_negative = false;
-		uint64_t uvalue = PyLong_AsUint64(literal);
-
-		/* Assume an overflow is due to a negative number and retry */
-		if (uvalue == (uint64_t)-1 && PyErr_Occurred() &&
-		    PyErr_ExceptionMatches(PyExc_OverflowError)) {
-			is_negative = true;
-			PyErr_Clear();
+		bool is_negative = PyLong_IsNegative(literal);
+		uint64_t uvalue;
+		if (is_negative) {
 			_cleanup_pydecref_ PyObject *negated =
 				PyNumber_Negative(literal);
 			if (!negated)
 				return -1;
 			uvalue = PyLong_AsUint64(negated);
+		} else {
+			uvalue = PyLong_AsUint64(literal);
 		}
 		if (uvalue == (uint64_t)-1 && PyErr_Occurred())
 			return -1;

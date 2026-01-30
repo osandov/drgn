@@ -282,3 +282,14 @@ int enum_converter(PyObject *o, void *p)
 		return 0;
 	return 1;
 }
+
+#if PY_VERSION_HEX < 0x030e00a2
+int PyLong_IsNegative(PyObject *obj)
+{
+	if (!PyLong_Check(obj)) {
+		PyErr_SetString(PyExc_TypeError, "expected int");
+		return -1;
+	}
+	return _PyLong_Sign(obj) < 0;
+}
+#endif

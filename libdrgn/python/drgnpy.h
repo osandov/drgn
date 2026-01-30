@@ -89,6 +89,9 @@ static inline int PyModule_Add(PyObject *mod, const char *name, PyObject *value)
 #define PyLong_FromUint8(v) _Generic((v), uint8_t: PyLong_FromUnsignedLong)(v)
 #endif
 
+// Added in Python 3.14. We provide a fallback for older versions.
+int PyLong_IsNegative(PyObject *obj);
+
 #define Py_RETURN_BOOL(cond) do {	\
 	if (cond)			\
 		Py_RETURN_TRUE;		\
