@@ -43,6 +43,8 @@ from typing import (
     overload,
 )
 
+from drgn.helpers.common.format import escape_ascii_string
+
 if TYPE_CHECKING:
     if sys.version_info < (3, 11):
         from typing_extensions import Self, assert_never
@@ -1225,6 +1227,35 @@ def _repr_black(obj: Any) -> str:
     else:
         assert r.endswith(r"\''")
         return r[:-3] + "'"
+
+
+# repr() a bytes-like object as a raw bytes literal (if possible), preferring
+# double quotes.
+def _repr_raw_bytes(buffer: Sequence[int]) -> str:
+    contains_single_quote = ord("'") in buffer
+    contains_double_quote = ord('"') in buffer
+
+    # If the string contains both double and single quotes, or if it ends with
+    # a backslash, then it can't be a raw literal.
+    if (contains_double_quote and contains_single_quote) or (
+        buffer and buffer[-1] == ord("\\")
+    ):
+        prefix = "b"
+        escape_backslash = True
+    else:
+        prefix = "rb"
+        escape_backslash = False
+
+    quote = '"' if not contains_double_quote or contains_single_quote else "'"
+
+    escaped = escape_ascii_string(
+        buffer,
+        escape_single_quote=quote == "'",
+        escape_double_quote=quote == '"',
+        escape_backslash=escape_backslash,
+    )
+
+    return f"{prefix}{quote}{escaped}{quote}"
 
 
 class DrgnCodeBuilder:

@@ -17,6 +17,7 @@ from drgn.commands import (
     DrgnCodeBuilder,
     ParsedCommand,
     _repr_black,
+    _repr_raw_bytes,
     _sanitize_rst,
     argument,
     command,
@@ -524,6 +525,32 @@ class TestReprBlack(TestCase):
 
     def test_double_quote(self):
         self.assertEqual(_repr_black('l"oL'), "'l\"oL'")
+
+
+class TestReprRawBytes(TestCase):
+    def test_simple(self):
+        self.assertEqual(_repr_raw_bytes(b"foo"), 'rb"foo"')
+
+    def test_single_quote(self):
+        self.assertEqual(_repr_raw_bytes(b"ne'er"), 'rb"ne\'er"')
+
+    def test_double_quote(self):
+        self.assertEqual(_repr_raw_bytes(b'l"oL'), "rb'l\"oL'")
+
+    def test_single_and_double_quote(self):
+        self.assertEqual(_repr_raw_bytes(b"ne'er l\"oL"), 'b"ne\'er l\\"oL"')
+
+    def test_ends_with_backslash(self):
+        self.assertEqual(_repr_raw_bytes(b"foo\\"), r'b"foo\\"')
+
+    def test_single_quote_and_ends_with_backslash(self):
+        self.assertEqual(_repr_raw_bytes(b"ne'er\\"), 'b"ne\'er\\\\"')
+
+    def test_double_quote_and_ends_with_backslash(self):
+        self.assertEqual(_repr_raw_bytes(b'l"oL\\'), "b'l\"oL\\\\'")
+
+    def test_single_and_double_quote_and_ends_with_backslash(self):
+        self.assertEqual(_repr_raw_bytes(b"ne'er l\"oL\\"), 'b"ne\'er l\\"oL\\\\"')
 
 
 class TestDrgnCodeBuilder(TestCase):
