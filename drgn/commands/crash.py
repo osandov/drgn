@@ -102,13 +102,24 @@ def _pid_or_task_or_command(arg: str) -> _PID_OR_TASK_OR_COMMAND:
     return "command", arg
 
 
-def _addr_or_sym(
-    s: str,
-) -> Union[Tuple[Literal["addr"], int], Tuple[Literal["sym"], str]]:
+_ADDR_OR_SYM = Union[
+    Tuple[Literal["addr"], int],
+    Tuple[Literal["sym"], str],
+]
+
+
+def _addr_or_sym(s: str) -> _ADDR_OR_SYM:
     try:
         return "addr", int(s, 16)
     except ValueError:
         return "sym", s
+
+
+def _resolve_addr_or_sym(prog: Program, arg: _ADDR_OR_SYM) -> int:
+    if arg[0] == "addr":
+        return arg[1]
+    else:
+        return prog.symbol(arg[1]).address
 
 
 def _guess_type(prog: Program, name: str, kind: str = "*") -> Type:
@@ -610,6 +621,17 @@ command = {variable}.comm
                 indent,
             )
         )
+
+    def append_addr_or_sym(self, arg: _ADDR_OR_SYM) -> None:
+        """
+        Append code for the value of an address or symbol.
+
+        :param arg: Argument parsed by the ``"addr_or_sym"`` argparse type.
+        """
+        if arg[0] == "addr":
+            self.append(hex(arg[1]))
+        else:
+            self.append(f"prog.symbol({_repr_black(arg[1])}).address")
 
     def begin_cpuspec_loop(self, cpuspec: Cpuspec) -> DrgnCodeBlockContext:
         """

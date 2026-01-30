@@ -7,7 +7,12 @@ from typing import Any, Dict, Literal, Optional
 
 from drgn import FaultError, IntegerLike, PlatformFlags, Program
 from drgn.commands import argument, drgn_argument, mutually_exclusive_group
-from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command, crash_get_context
+from drgn.commands.crash import (
+    CrashDrgnCodeBuilder,
+    _resolve_addr_or_sym,
+    crash_command,
+    crash_get_context,
+)
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.common.memory import IdentifiedSymbol, identify_address_all
 from drgn.helpers.linux.common import IdentifiedSlabObject
@@ -418,18 +423,14 @@ def _crash_cmd_rd(
     # fail!). Only raise the resulting errors later, once we know we're not
     # emitting code.
     is_kernel = not args.user
-    exc = None
-    if args.start[0] == "addr":
-        start = args.start[1]
-    else:
-        try:
-            start = prog.symbol(args.start[1]).address
-        except Exception as e:
-            exc = e
-            start = None
+    exc: Optional[Exception] = None
+    try:
+        start = _resolve_addr_or_sym(prog, args.start) + args.offset
+    except LookupError as e:
+        exc = e
+        start = None
     # Only continue to read memory if we didn't fail a symbol lookup above.
     if start is not None:
-        start += args.offset
         if args.end is not None:
             count = (args.end - start) // args.unit
         elif args.reverse:
@@ -466,10 +467,9 @@ def _crash_cmd_rd(
 
     if args.drgn:
         code = CrashDrgnCodeBuilder(prog)
-        if args.start[0] == "addr":
-            code.append(f"start = {hex(args.start[1])}\n")
-        else:
-            code.append(f"start = prog.symbol({args.start[1]!r}).address\n")
+        code.append("start = ")
+        code.append_addr_or_sym(args.start)
+        code.append("\n")
         if args.offset != 0:
             code.append(f"start += {args.offset}\n")
         code.append(f"unit = {args.unit}\n")

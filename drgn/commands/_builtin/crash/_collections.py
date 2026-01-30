@@ -25,12 +25,14 @@ from drgn.commands import (
 )
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
+    _addr_or_sym,
     _guess_type,
     _guess_type_name,
     _object_format_options,
     _parse_type_name_and_members,
     _parse_type_offset_arg,
     _prefer_object_lookup,
+    _resolve_addr_or_sym,
     _resolve_type_offset_arg,
     _sanitize_member_name,
     crash_command,
@@ -40,13 +42,6 @@ from drgn.helpers.linux.mapletree import mt_for_each
 from drgn.helpers.linux.radixtree import radix_tree_for_each
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each, rbtree_preorder_for_each
 from drgn.helpers.linux.xarray import xa_for_each
-
-
-def _resolve_address_or_symbol(prog: Program, address_or_symbol: str) -> int:
-    try:
-        return int(address_or_symbol, 16)
-    except ValueError:
-        return prog.symbol(address_or_symbol).address
 
 
 def _append_get_members(
@@ -730,7 +725,7 @@ def _crash_cmd_list(
             entry_members=entry_members,
         )
 
-    start = _resolve_address_or_symbol(prog, args.start)
+    start = _resolve_addr_or_sym(prog, _addr_or_sym(args.start))
 
     if entry_name is None:
         entry_type = None
@@ -866,39 +861,8 @@ def _tree_drgn_option(
         else:
             start_type_name = start_type.type_name()
 
-    try:
-        address = int(args.start, 16)
-    except ValueError:
-        if root_offset_arg is None and _prefer_object_lookup(
-            prog, root_type_name, args.start
-        ):
-            code.append(f"root = prog[{_repr_black(args.start)}].address_of_()\n")
-        elif (
-            isinstance(root_offset_arg, tuple)
-            and start_type is not None
-            and _prefer_object_lookup(prog, start_type_name, args.start)
-            and typeof_member(start_type, root_offset_arg[1]).type_name()
-            == root_type_name
-        ):
-            code.append(
-                f"root = prog[{_repr_black(args.start)}].{root_offset_arg[1]}.address_of_()\n"
-            )
-        else:
-            code.append(f"address = prog.symbol({_repr_black(args.start)}).address")
-
-            if isinstance(root_offset_arg, int):
-                code.append(f" + {root_offset_arg}\n")
-            elif isinstance(root_offset_arg, tuple):
-                code.add_from_import("drgn", "offsetof")
-                code.append(
-                    f'\naddress += offsetof(prog.type("{start_type_name}"), "{root_offset_arg[1]}")\n'
-                )
-            else:
-                code.append("\n")
-
-            code.add_from_import("drgn", "Object")
-            code.append(f'root = Object(prog, "{root_type_name} *", address)\n')
-    else:
+    if args.start[0] == "addr":
+        address = args.start[1]
         code.add_from_import("drgn", "Object")
         if isinstance(root_offset_arg, int):
             address_arg = f"{hex(address)} + {root_offset_arg}"
@@ -912,6 +876,37 @@ def _tree_drgn_option(
         else:
             address_arg = hex(address)
         code.append(f'root = Object(prog, "{root_type_name} *", {address_arg})\n')
+    else:
+        symbol_name = args.start[1]
+        if root_offset_arg is None and _prefer_object_lookup(
+            prog, root_type_name, symbol_name
+        ):
+            code.append(f"root = prog[{_repr_black(symbol_name)}].address_of_()\n")
+        elif (
+            isinstance(root_offset_arg, tuple)
+            and start_type is not None
+            and _prefer_object_lookup(prog, start_type_name, symbol_name)
+            and typeof_member(start_type, root_offset_arg[1]).type_name()
+            == root_type_name
+        ):
+            code.append(
+                f"root = prog[{_repr_black(symbol_name)}].{root_offset_arg[1]}.address_of_()\n"
+            )
+        else:
+            code.append(f"address = prog.symbol({_repr_black(symbol_name)}).address")
+
+            if isinstance(root_offset_arg, int):
+                code.append(f" + {root_offset_arg}\n")
+            elif isinstance(root_offset_arg, tuple):
+                code.add_from_import("drgn", "offsetof")
+                code.append(
+                    f'\naddress += offsetof(prog.type("{start_type_name}"), "{root_offset_arg[1]}")\n'
+                )
+            else:
+                code.append("\n")
+
+            code.add_from_import("drgn", "Object")
+            code.append(f'root = Object(prog, "{root_type_name} *", address)\n')
 
     if entry_name is None:
         entry_type_name = None
@@ -1050,6 +1045,7 @@ for entry in {helper_name}(
         ),
         argument(
             "start",
+            type="addr_or_sym",
             help="""
             address or symbol name of the rb_root, radix_tree_root, xarray, or
             maple_tree (or the structure containing it if **-r** is used)
@@ -1101,7 +1097,7 @@ def _crash_cmd_tree(
     else:
         entry_type = _guess_type(prog, entry_name)
 
-    start = _resolve_address_or_symbol(prog, args.start) + _resolve_type_offset_arg(
+    start = _resolve_addr_or_sym(prog, args.start) + _resolve_type_offset_arg(
         prog, root_offset_arg
     )
 

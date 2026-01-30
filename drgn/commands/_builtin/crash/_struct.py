@@ -11,9 +11,11 @@ from typing import Any, Iterable, List, Optional, Tuple, Union
 from drgn import Object, Program, offsetof, sizeof
 from drgn.commands import CommandError, _repr_black, argument, drgn_argument
 from drgn.commands.crash import (
+    _ADDR_OR_SYM,
     _PID_OR_TASK,
     Cpuspec,
     CrashDrgnCodeBuilder,
+    _addr_or_sym,
     _crash_foreach_subcommand,
     _guess_type,
     _guess_type_name,
@@ -23,6 +25,7 @@ from drgn.commands.crash import (
     _parse_type_offset_arg,
     _pid_or_task,
     _prefer_object_lookup,
+    _resolve_addr_or_sym,
     _sanitize_member_name,
     _TaskSelector,
     crash_command,
@@ -48,7 +51,7 @@ def _struct_drgn_option(
     members: List[str],
     type_name: str,
     offset_arg: Union[None, int, Tuple[str, str]],
-    address_or_symbol: Optional[str],
+    address_or_symbol: Optional[_ADDR_OR_SYM],
     cpuspec: Optional[Cpuspec],
 ) -> None:
     if address_or_symbol is None:
@@ -109,16 +112,16 @@ size = sizeof(type)
     else:
         subtract_offset = ""
 
-    try:
-        address = int(address_or_symbol, 16)
-    except ValueError:
+    if address_or_symbol[0] == "addr":
+        code.add_from_import("drgn", "Object")
+        code.append(f"{initial_object(hex(address_or_symbol[1]) + subtract_offset)}\n")
+    else:
+        symbol_name = address_or_symbol[1]
         # This command technically always does a symbol lookup, but prefer
         # recommending a prog[] lookup if it is equivalent.
-        if offset_arg is None and _prefer_object_lookup(
-            prog, type_name, address_or_symbol
-        ):
+        if offset_arg is None and _prefer_object_lookup(prog, type_name, symbol_name):
             code.append(
-                f"{pcpu_prefix}{object_or_pointer} = prog[{_repr_black(address_or_symbol)}]"
+                f"{pcpu_prefix}{object_or_pointer} = prog[{_repr_black(symbol_name)}]"
             )
             if object_or_pointer == "pointer":
                 code.append(".address_of_()")
@@ -127,13 +130,10 @@ size = sizeof(type)
             code.add_from_import("drgn", "Object")
             code.append(
                 f"""\
-address = prog.symbol({_repr_black(address_or_symbol)}).address{subtract_offset}
+address = prog.symbol({_repr_black(symbol_name)}).address{subtract_offset}
 {initial_object("address")}
 """
             )
-    else:
-        code.add_from_import("drgn", "Object")
-        code.append(f"{initial_object(hex(address) + subtract_offset)}\n")
 
     if isinstance(offset_arg, tuple):
         offset_name, offset_member = offset_arg
@@ -258,7 +258,8 @@ def _crash_cmd_struct(
     else:
         if args.count is None:
             args.count = 1
-        address_or_symbol, sep, cpuspec_str = args.address_or_symbol.partition(":")
+        address_or_symbol_str, sep, cpuspec_str = args.address_or_symbol.partition(":")
+        address_or_symbol = _addr_or_sym(address_or_symbol_str)
         cpuspec = parse_cpuspec(cpuspec_str) if sep else None
 
     # We look up the type even for --drgn so that we can get the correct type
@@ -323,11 +324,7 @@ def _crash_cmd_struct(
             offset_type = _guess_type(prog, offset_name)
         offset = offsetof(offset_type, offset_member)
 
-    try:
-        address = int(address_or_symbol, 16)
-    except ValueError:
-        address = prog.symbol(address_or_symbol).address
-    address -= offset
+    address = _resolve_addr_or_sym(prog, address_or_symbol) - offset
 
     if args.count >= 0:
         sl = slice(0, args.count)
