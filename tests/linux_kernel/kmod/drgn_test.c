@@ -2351,6 +2351,44 @@ int drgn_test_function(int x)
 char drgn_test_data[] = "abc";
 const char drgn_test_rodata[] = "def";
 
+// search
+
+struct {
+	unsigned long l;
+	unsigned long l2;
+	unsigned int i;
+	unsigned short s;
+	char c[64];
+	char c2[64];
+	int (*func)(int);
+} drgn_test_search_subject = {
+	.l = 0xdeadbeef,
+	.l2 = 0xfee1dead,
+	.i = 0xdeadb00,
+	.s = 0xb0ba,
+	.c = "hello, world!",
+	.c2 = "goodbye, world!",
+	.func = drgn_test_function,
+};
+unsigned long *drgn_test_search_subject2;
+
+static int __init drgn_test_search_init(void)
+{
+	// Module memory can be in high memory, which makes it impossible to
+	// test physical memory searches, so we kmalloc() this.
+	drgn_test_search_subject2 = kmalloc(sizeof(*drgn_test_search_subject2),
+					    GFP_KERNEL);
+	if (!drgn_test_search_subject2)
+		return -ENOMEM;
+	*drgn_test_search_subject2 = 0x12345678;
+	return 0;
+}
+
+static void drgn_test_search_exit(void)
+{
+	kfree(drgn_test_search_subject2);
+}
+
 // kmodify
 
 #ifdef __x86_64__
@@ -2703,6 +2741,7 @@ static void drgn_test_exit(void)
 {
 	drgn_test_sysfs_exit();
 	drgn_test_slab_exit();
+	drgn_test_search_exit();
 	drgn_test_sbitmap_exit();
 	drgn_test_percpu_exit();
 	drgn_test_maple_tree_exit();
@@ -2753,6 +2792,9 @@ static int __init drgn_test_init(void)
 		goto out;
 	drgn_test_rbtree_init();
 	ret = drgn_test_sbitmap_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_search_init();
 	if (ret)
 		goto out;
 	ret = drgn_test_slab_init();
