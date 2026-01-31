@@ -25,7 +25,7 @@ class TestRd(CrashCommandTestCase):
     def test_count(self):
         address = self.prog["init_task"].address_
         cmd = self.check_crash_command(f"rd -64 {address:x} 3")
-        lines = cmd.stdout.strip().split("\n")
+        lines = cmd.stdout.splitlines()
         self.assertGreaterEqual(len(lines), 2)
         self.assertRegex(lines[0], rf"^{address:{self.w}x}:")
 
@@ -96,7 +96,7 @@ class TestRd(CrashCommandTestCase):
     def test_ascii_count(self):
         cmd = self.check_crash_command("rd -a linux_banner 5")
         address = self.prog.symbol("linux_banner").address
-        self.assertEqual(cmd.stdout.strip(), f"{address:{self.w}x}:  Linux")
+        self.assertEqual(cmd.stdout.strip(), f"{address:x}:  Linux")
 
     def test_ascii_offset(self):
         address = self.prog.symbol("linux_banner").address

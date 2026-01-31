@@ -194,7 +194,7 @@ def _dump_printable_memory(
         if char not in printable:
             break
         if print_newline:
-            print(f"{address + offset:0{width}x}:  ", end="")
+            print(f"{address + offset:{width}x}:  ", end="")
             print_newline = False
             line_width = width + 3
 
