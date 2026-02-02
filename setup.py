@@ -41,7 +41,23 @@ logger = logging.getLogger(__name__)
 
 class build(_build):
     def finalize_options(self):
+        if self.build_temp is None or self.build_platlib is None:
+            # Set build_temp/build_pathlib based on the extension suffix rather
+            # than the default (which is based on sysconfig.get_platform() and
+            # sys.implementation.cache_tag) to work around old setuptools
+            # versions missing commit 01e5f2d36476 ("Use a separate build
+            # directory for free-threading"), and also to make it easier to
+            # coordinate with cross-compilation that doesn't use setuptools.
+            suffix = sysconfig.get_config_var("EXT_SUFFIX")
+            if suffix.endswith(".so"):
+                suffix = suffix[:-3]
+            if self.build_temp is None:
+                self.build_temp = os.path.join(self.build_base, "temp" + suffix)
+            if self.build_platlib is None:
+                self.build_platlib = os.path.join(self.build_base, "lib" + suffix)
+
         super().finalize_options()
+
         if self.parallel is None:
             self.parallel = nproc() + 1
 
@@ -55,22 +71,6 @@ class build_ext(_build_ext):
     boolean_options = ["inplace"]
 
     help_options = []
-
-    def finalize_options(self):
-        default_build_temp = self.build_temp is None
-        super().finalize_options()
-        if default_build_temp and sysconfig.get_config_var("Py_GIL_DISABLED"):
-            # Python 3.13's free-threading builds are not ABI compatible with
-            # the standard ones, but sys.implementation.cache_tag, which
-            # distutils uses to set the default temporary directory, is not
-            # different. This means that the build_temp directory is shared
-            # between these two builds. Since drgn's build_ext allows
-            # incremental builds, this means that build artifacts can be
-            # mistakenly shared between builds, causing runtime errors. To avoid
-            # this, add a "t" suffix for free-threading builds. This isn't
-            # necessary for the build_lib directory, since the final build
-            # product does include the "t" in its filename.
-            self.build_temp += "t"
 
     def _run_autoreconf(self):
         if out_of_date(
