@@ -39,7 +39,7 @@ from vmtest.config import (
     Kernel,
 )
 from vmtest.download import Downloader
-from vmtest.rootfsbuild import build_drgn_in_rootfs
+from vmtest.rootfsbuild import build_drgn_for_arch
 from vmtest.vm import LostVMError, TestKmodMode, run_in_vm
 
 logger = logging.getLogger(__name__)
@@ -318,15 +318,14 @@ class _TestRunner:
                 outfile = exit_stack.enter_context(
                     (self._directory / "log" / f"{arch.name}-build.log").open("w")
                 )
-            rootfs = self._rootfs(arch)
-            if rootfs == Path("/"):
+            if self._use_host_rootfs and arch is HOST_ARCHITECTURE:
                 subprocess.check_call(
                     [sys.executable, "setup.py", "build_ext", "-i"],
                     stdout=outfile,
                     stderr=outfile,
                 )
             else:
-                build_drgn_in_rootfs(rootfs, outfile=outfile)
+                build_drgn_for_arch(arch, self._directory, outfile=outfile)
         return functools.partial(self._drgn_build_done, arch)
 
     def _drgn_build_done(self, arch: Architecture) -> bool:

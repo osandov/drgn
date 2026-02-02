@@ -271,6 +271,8 @@ class Architecture:
     kernel_srcarch: str
     # Name of the architecture in Debian.
     debian_arch: str
+    # GCC target triplet on Debian.
+    debian_gcc_target: str
     # Linux kernel configuration options.
     kernel_config: str
     # Flavor-specific Linux kernel configuration options.
@@ -292,6 +294,7 @@ ARCHITECTURES = {
             kernel_arch="arm64",
             kernel_srcarch="arm64",
             debian_arch="arm64",
+            debian_gcc_target="aarch64-linux-gnu",
             kernel_config="""
                 CONFIG_PCI_HOST_GENERIC=y
                 CONFIG_RTC_CLASS=y
@@ -319,6 +322,7 @@ ARCHITECTURES = {
             kernel_arch="arm",
             kernel_srcarch="arm",
             debian_arch="armhf",
+            debian_gcc_target="arm-linux-gnueabihf",
             kernel_config="""
                 CONFIG_NR_CPUS=8
                 # Debian armhf userspace assumes EABI and VFP.
@@ -363,6 +367,7 @@ ARCHITECTURES = {
             kernel_arch="powerpc",
             kernel_srcarch="powerpc",
             debian_arch="ppc64el",
+            debian_gcc_target="powerpc64le-linux-gnu",
             kernel_config="""
                 CONFIG_PPC64=y
                 CONFIG_CPU_LITTLE_ENDIAN=y
@@ -386,6 +391,7 @@ ARCHITECTURES = {
             kernel_arch="s390",
             kernel_srcarch="s390",
             debian_arch="s390x",
+            debian_gcc_target="s390x-linux-gnu",
             kernel_config="""
                 # Needed for CONFIG_KEXEC_FILE.
                 CONFIG_CRYPTO_SHA256_S390=y
@@ -400,6 +406,7 @@ ARCHITECTURES = {
             kernel_arch="x86_64",
             kernel_srcarch="x86",
             debian_arch="amd64",
+            debian_gcc_target="x86_64-linux-gnu",
             kernel_config="""
                 CONFIG_RTC_CLASS=y
                 CONFIG_RTC_DRV_CMOS=y

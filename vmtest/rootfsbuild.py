@@ -13,7 +13,7 @@ from vmtest.config import ARCHITECTURES, HOST_ARCHITECTURE, Architecture
 logger = logging.getLogger(__name__)
 
 
-_ROOTFS_PACKAGES = [
+_ROOTFS_PACKAGES = (
     # drgn build dependencies.
     "autoconf",
     "automake",
@@ -42,7 +42,7 @@ _ROOTFS_PACKAGES = [
     "python3-pytest",
     "python3-pytest-subtests",
     "zstd",
-]
+)
 
 
 def build_rootfs(
@@ -54,6 +54,12 @@ def build_rootfs(
     if path.exists():
         logger.info("%s already exists", path)
         return
+
+    packages = list(_ROOTFS_PACKAGES)
+    if arch is HOST_ARCHITECTURE:
+        for other_arch in ARCHITECTURES.values():
+            if other_arch is not arch:
+                packages.append(f"gcc-{other_arch.debian_gcc_target}")
 
     logger.info("creating debootstrap rootfs %s", path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,7 +99,7 @@ container=lxc debootstrap --variant=minbase --foreign --include="$packages" --ar
                 "sh",
                 arch.debian_arch,
                 tmp_dir / path.name,
-                ",".join(_ROOTFS_PACKAGES),
+                ",".join(packages),
             ]
         )
         (tmp_dir / path.name).rename(path)
@@ -105,7 +111,57 @@ container=lxc debootstrap --variant=minbase --foreign --include="$packages" --ar
         logger.info("created snapshot %s", snapshot_dir)
 
 
-def build_drgn_in_rootfs(rootfs: Path, outfile: Optional[TextIO] = None) -> None:
+def _cross_compile_drgn(
+    target: Architecture, directory: Path, *, outfile: Optional[TextIO] = None
+) -> None:
+    assert HOST_ARCHITECTURE is not None
+    host_rootfs = directory / HOST_ARCHITECTURE.name / "rootfs"
+    target_rootfs = directory / target.name / "rootfs"
+    logger.info("cross-compiling drgn in %s for %s", host_rootfs, target_rootfs)
+    subprocess.check_call(
+        [
+            "unshare",
+            "--map-root-user",
+            "--map-auto",
+            "--mount",
+            "sh",
+            "-c",
+            rf"""
+set -e
+
+mount --bind . "$1/mnt"
+mount --bind "$3" "$1/srv"
+{chroot_sh_cmd('"$1"')} '
+set -e
+
+extension_suffix="$(/srv/usr/bin/python3-config --extension-suffix)"
+build_temp="/mnt/build/temp${{extension_suffix%.so}}"
+mkdir -p "$build_temp"
+cd "$build_temp"
+export CFLAGS="--sysroot=/srv"
+export LDFLAGS="--sysroot=/srv"
+export PYTHON_CPPFLAGS="$(/srv/usr/bin/python3-config --includes)"
+export PKG_CONFIG_LIBDIR="$(pkg-config --variable pc_path pkg-config | sed -r -e "s!(^|:)/!\1/srv/!g" -e "s/$1/$2/g")"
+export PKG_CONFIG_SYSROOT_DIR=/srv
+if [ ! -e Makefile ]; then
+    /mnt/libdrgn/configure --host="$2" --with-sysroot=/srv --disable-static --disable-libdrgn --enable-python-extension
+fi
+make -j"$(nproc)"
+cp -v ".libs/_drgn.so" "/mnt/_drgn$extension_suffix"
+' sh "$2" "$4"
+""",
+            "sh",
+            host_rootfs,
+            HOST_ARCHITECTURE.debian_gcc_target,
+            target_rootfs,
+            target.debian_gcc_target,
+        ],
+        stdout=outfile,
+        stderr=outfile,
+    )
+
+
+def _build_drgn_in_rootfs(rootfs: Path, *, outfile: Optional[TextIO] = None) -> None:
     logger.info("building drgn using %s", rootfs)
     subprocess.check_call(
         [
@@ -127,6 +183,17 @@ mount --bind . "$1/mnt"
         stdout=outfile,
         stderr=outfile,
     )
+
+
+def build_drgn_for_arch(
+    target: Architecture, directory: Path, *, outfile: Optional[TextIO] = None
+) -> None:
+    if target is not HOST_ARCHITECTURE and HOST_ARCHITECTURE is not None:
+        return _cross_compile_drgn(target, directory, outfile=outfile)
+    else:
+        return _build_drgn_in_rootfs(
+            directory / target.name / "rootfs", outfile=outfile
+        )
 
 
 if __name__ == "__main__":
@@ -188,8 +255,17 @@ if __name__ == "__main__":
         else:
             architectures.append(ARCHITECTURES[name])
 
+    # Create the host architecture rootfs first in case it's needed for
+    # building drgn for other architectures.
+    try:
+        index = architectures.index(HOST_ARCHITECTURE)  # type: ignore[arg-type]
+    except ValueError:
+        pass
+    else:
+        architectures.insert(0, architectures.pop(index))
+
     for arch in architectures:
         dir = args.directory / arch.name / "rootfs"
         build_rootfs(arch, dir, btrfs=args.btrfs)
         if args.build_drgn:
-            build_drgn_in_rootfs(dir)
+            build_drgn_for_arch(arch, args.directory)
