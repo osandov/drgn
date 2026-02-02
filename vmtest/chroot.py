@@ -12,6 +12,10 @@ from vmtest.config import ARCHITECTURES, HOST_ARCHITECTURE
 _PASSTHROUGH_ENV_VARS = (
     "TERM",
     "COLORTERM",
+    "http_proxy",
+    "https_proxy",
+    "ftp_proxy",
+    "no_proxy",
 )
 
 
