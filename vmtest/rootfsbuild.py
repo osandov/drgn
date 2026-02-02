@@ -74,8 +74,7 @@ def build_rootfs(
             [
                 "unshare",
                 "--map-root-user",
-                "--map-users=auto",
-                "--map-groups=auto",
+                "--map-auto",
                 "sh",
                 "-c",
                 r"""
@@ -112,10 +111,9 @@ def build_drgn_in_rootfs(rootfs: Path, outfile: Optional[TextIO] = None) -> None
     subprocess.check_call(
         [
             "unshare",
-            "--mount",
             "--map-root-user",
-            "--map-users=auto",
-            "--map-groups=auto",
+            "--map-auto",
+            "--mount",
             "sh",
             "-c",
             r"""

@@ -441,8 +441,7 @@ class _TestRunner:
             args = [
                 "unshare",
                 "--map-root-user",
-                "--map-users=auto",
-                "--map-groups=auto",
+                "--map-auto",
                 "--fork",
                 "--pid",
                 "--mount-proc=" + str(rootfs / "proc"),

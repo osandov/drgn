@@ -50,8 +50,7 @@ if __name__ == "__main__":
             [
                 "unshare",
                 "--map-root-user",
-                "--map-users=auto",
-                "--map-groups=auto",
+                "--map-auto",
                 "--fork",
                 "--pid",
                 f"--mount-proc={dir / 'proc'}",

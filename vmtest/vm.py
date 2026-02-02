@@ -313,8 +313,7 @@ def run_in_vm(
                 unshare_args = [
                     "unshare",
                     "--map-root-user",
-                    "--map-users=auto",
-                    "--map-groups=auto",
+                    "--map-auto",
                 ]
             host_virtfs_args = [
                 "-virtfs",
