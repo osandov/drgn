@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from typing import Literal, Optional, TextIO
 
+from vmtest.chroot import chroot_sh_cmd
 from vmtest.config import ARCHITECTURES, HOST_ARCHITECTURE, Architecture
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ def build_rootfs(
                 "--map-auto",
                 "sh",
                 "-c",
-                r"""
+                rf"""
 set -e
 
 arch="$1"
@@ -86,10 +87,8 @@ packages="$3"
 
 # We're not really an LXC container, but this convinces debootstrap to skip
 # some operations that it can't do in a user namespace.
-export container=lxc
-debootstrap --variant=minbase --foreign --include="$packages" --arch="$arch" stable "$target"
-chroot "$target" /debootstrap/debootstrap --second-stage
-chroot "$target" apt clean
+container=lxc debootstrap --variant=minbase --foreign --include="$packages" --arch="$arch" stable "$target"
+{chroot_sh_cmd('"$target"')} 'container=lxc /debootstrap/debootstrap --second-stage && apt clean'
 """,
                 "sh",
                 arch.debian_arch,
@@ -116,11 +115,11 @@ def build_drgn_in_rootfs(rootfs: Path, outfile: Optional[TextIO] = None) -> None
             "--mount",
             "sh",
             "-c",
-            r"""
+            rf"""
 set -e
 
 mount --bind . "$1/mnt"
-chroot "$1" sh -c 'cd /mnt && CONFIGURE_FLAGS=--enable-compiler-warnings=error python3 setup.py build_ext -i'
+{chroot_sh_cmd('"$1"')} 'cd /mnt && CONFIGURE_FLAGS=--enable-compiler-warnings=error python3 setup.py build_ext -i'
 """,
             "sh",
             rootfs,

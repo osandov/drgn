@@ -28,6 +28,7 @@ from typing import (
 )
 
 from util import KernelVersion, nproc
+from vmtest.chroot import chroot_sh_cmd
 from vmtest.config import (
     ARCHITECTURES,
     HOST_ARCHITECTURE,
@@ -447,11 +448,11 @@ class _TestRunner:
                 "--mount-proc=" + str(rootfs / "proc"),
                 "sh",
                 "-c",
-                """\
+                f"""\
 set -e
 
 mount --bind . "$1/mnt"
-chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
+{chroot_sh_cmd('"$1"')} 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
 """,
                 "sh",
                 str(rootfs),

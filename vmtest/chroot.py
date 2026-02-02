@@ -1,12 +1,39 @@
 # Copyright (c) 2025 Oracle and/or its affiliates
 # SPDX-License-Identifier: LGPL-2.1-or-later
 import argparse
-import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
+from typing import List
 
 from vmtest.config import ARCHITECTURES, HOST_ARCHITECTURE
+
+_PASSTHROUGH_ENV_VARS = (
+    "TERM",
+    "COLORTERM",
+)
+
+
+def chroot_sh_args(new_root: str) -> List[str]:
+    # When entering a chroot, we want a clean environment. Preserve only a few
+    # specific environment variables and execute a login shell, which will
+    # define anything else important.
+    return [
+        "chroot",
+        new_root,
+        "env",
+        "-i",
+        *(f'${{{var}+{var}="${var}"}}' for var in _PASSTHROUGH_ENV_VARS),
+        "/bin/sh",
+        "-l",
+        "-c",
+    ]
+
+
+def chroot_sh_cmd(new_root: str) -> str:
+    return " ".join(chroot_sh_args(new_root))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -39,12 +66,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     arch = ARCHITECTURES[args.architecture]
     dir = args.directory / arch.name / "rootfs"
-    command = args.command or ["bash", "-i"]
-    env_passthrough = {
-        "TERM",
-        "COLORTERM",
-    }
-    filtered_env = {k: v for k, v in os.environ.items() if k in env_passthrough}
+    command = (
+        " ".join([shlex.quote(arg) for arg in args.command])
+        if args.command
+        else "bash -i"
+    )
     sys.exit(
         subprocess.run(
             [
@@ -54,10 +80,8 @@ if __name__ == "__main__":
                 "--fork",
                 "--pid",
                 f"--mount-proc={dir / 'proc'}",
-                "chroot",
-                dir,
-                *command,
+                *chroot_sh_args(dir),
+                command,
             ],
-            env=filtered_env,
         ).returncode
     )
