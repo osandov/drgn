@@ -33,8 +33,8 @@ try:
 except ImportError:
     from distutils.errors import DistutilsError as BaseError
 
-from util import nproc, out_of_date
-from vmtest.config import KERNEL_FLAVORS, SUPPORTED_KERNEL_VERSIONS
+from util import nproc
+from vmtest.config import KERNEL_FLAVORS, SUPPORTED_KERNEL_VERSIONS, _run_autoreconf
 
 logger = logging.getLogger(__name__)
 
@@ -72,19 +72,6 @@ class build_ext(_build_ext):
 
     help_options = []
 
-    def _run_autoreconf(self):
-        if out_of_date(
-            "libdrgn/Makefile.in", "libdrgn/Makefile.am", "libdrgn/configure.ac"
-        ) or out_of_date("libdrgn/configure", "libdrgn/configure.ac"):
-            try:
-                subprocess.check_call(["autoreconf", "-i", "libdrgn"])
-            except Exception:
-                with contextlib.suppress(FileNotFoundError):
-                    os.remove("libdrgn/configure")
-                with contextlib.suppress(FileNotFoundError):
-                    os.remove("libdrgn/Makefile.in")
-                raise
-
     def _run_configure(self):
         self.mkpath(self.build_temp)
         makefile = os.path.join(self.build_temp, "Makefile")
@@ -118,7 +105,7 @@ class build_ext(_build_ext):
         subprocess.check_call(args)
 
     def make(self, *make_args):
-        self._run_autoreconf()
+        _run_autoreconf()
         self._run_configure()
         self._run_make(*make_args)
 

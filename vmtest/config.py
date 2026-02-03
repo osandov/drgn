@@ -6,9 +6,11 @@ import dataclasses
 import inspect
 import os
 from pathlib import Path
+import subprocess
 from typing import Dict, Mapping, NamedTuple, Sequence
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
+from util import out_of_date
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
@@ -505,3 +507,21 @@ CONFIG_LOCALVERSION_AUTO=n
 
 {inspect.cleandoc(arch.kernel_flavor_configs.get(flavor.name, ""))}
 """
+
+
+def _run_autoreconf() -> None:
+    if out_of_date(
+        "libdrgn/Makefile.in", "libdrgn/Makefile.am", "libdrgn/configure.ac"
+    ) or out_of_date("libdrgn/configure", "libdrgn/configure.ac"):
+        try:
+            subprocess.check_call(["autoreconf", "-i", "libdrgn"])
+        except BaseException:
+            try:
+                os.remove("libdrgn/configure")
+            except FileNotFoundError:
+                pass
+            try:
+                os.remove("libdrgn/Makefile.in")
+            except FileNotFoundError:
+                pass
+            raise

@@ -8,7 +8,12 @@ import tempfile
 from typing import Literal, Optional, TextIO
 
 from vmtest.chroot import chroot_sh_cmd
-from vmtest.config import ARCHITECTURES, HOST_ARCHITECTURE, Architecture
+from vmtest.config import (
+    ARCHITECTURES,
+    HOST_ARCHITECTURE,
+    Architecture,
+    _run_autoreconf,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +193,7 @@ mount --bind . "$1/mnt"
 def build_drgn_for_arch(
     target: Architecture, directory: Path, *, outfile: Optional[TextIO] = None
 ) -> None:
+    _run_autoreconf()
     if target is not HOST_ARCHITECTURE and HOST_ARCHITECTURE is not None:
         return _cross_compile_drgn(target, directory, outfile=outfile)
     else:
