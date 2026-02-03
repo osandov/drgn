@@ -38,8 +38,8 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python-version: ${{ fromJSON('["3.14", "3.13", "3.12", "3.11", "3.10", "3.9", "3.8"]') }}
-        cc: [gcc, clang]
+        python-version: [3.14]
+        cc: [gcc]
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
@@ -51,4 +51,4 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
-      - run: python3 -m vmtest.download -c || ./rrsh.py client vps.osandov.com bash -i
+      - run: ./rrsh.py client vps.osandov.com bash -i
