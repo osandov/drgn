@@ -13,6 +13,7 @@ from drgn.helpers.linux.bpf import (
     bpf_btf_for_each,
     bpf_link_for_each,
     bpf_map_for_each,
+    bpf_prog_by_id,
     bpf_prog_for_each,
     bpf_prog_used_maps,
     cgroup_bpf_prog_for_each,
@@ -343,3 +344,25 @@ class TestBpf(BpfTestCase):
             finally:
                 for fd in fds:
                     os.close(fd)
+
+    def test_bpf_prog_by_id(self):
+        fd = bpf_prog_load(BPF_PROG_TYPE_SOCKET_FILTER, self.INSNS, b"GPL")
+        self.addCleanup(os.close, fd)
+        try:
+            prog_id = bpf_prog_get_info_by_fd(fd).id
+        except OSError as e:
+            # bpf_prog_by_id() and BPF program IDs aren't supported before
+            # Linux v4.13, which added IDs for BPF programs in commit
+            # dc4bb0e23561 ("bpf: Introduce bpf_prog ID") and an API to get
+            # them in commit 34ad5580f8f9 ("bpf: Add BPF_(PROG|MAP)_GET_NEXT_ID
+            # command").
+            if e.errno != errno.EINVAL:
+                raise
+            self.skipTest("kernel does not support BPF_PROG_GET_NEXT_ID")
+
+        prog = bpf_prog_by_id(self.prog, prog_id)
+        self.assertNotEqual(prog.value_(), 0)
+        self.assertEqual(prog.aux.id.value_(), prog_id)
+
+        non_existent_prog = bpf_prog_by_id(self.prog, 0x7FFFFFFF)
+        self.assertEqual(non_existent_prog.value_(), 0)
