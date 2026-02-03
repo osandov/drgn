@@ -905,9 +905,11 @@ class TestSearchMemoryRegex(TestCase):
         )
 
     def test_str_valid_utf8(self):
-        prog = mock_search_memory_program(MockMemorySegment(b"abcdef", 0x1000))
+        # 'ñ' is \xc3\xb1 in UTF-8. '±' is \xc2\xb1 in UTF-8. A Unicode search
+        # for the former shouldn't match the \xb1 byte in the latter.
+        prog = mock_search_memory_program(MockMemorySegment("piñata±".encode(), 0x1000))
         self.assertEqual(
-            list(prog.search_memory_regex(r"[a-z]+")), [(0x1000, "abcdef")]
+            list(prog.search_memory_regex(r"[a-zñ]+")), [(0x1000, "piñata")]
         )
 
     def test_invalid_utf8(self):
