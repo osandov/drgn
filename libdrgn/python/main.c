@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <elfutils/libdwfl.h>
+#ifdef WITH_PCRE2
+#define PCRE2_CODE_UNIT_WIDTH 8
+#include <pcre2.h>
+#endif
 
 #include "drgnpy.h"
 #include "../error.h"
@@ -445,6 +449,17 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 
 	if (add_bool(m, "_with_pcre2",
 #ifdef WITH_PCRE2
+		     true
+#else
+		     false
+#endif
+		    ))
+		goto err;
+
+	// Allow tests to detect whether PCRE2 supports UTF-8 patterns within
+	// invalid UTF.
+	if (add_bool(m, "_with_pcre2_utf",
+#if WITH_PCRE2 && (PCRE2_MAJOR > 10 || (PCRE2_MAJOR == 10 && PCRE2_MINOR >= 34))
 		     true
 #else
 		     false
