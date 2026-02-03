@@ -1152,9 +1152,23 @@ drgn_program_search_memory_regex(struct drgn_program *prog, const void *pattern,
 #ifdef WITH_PCRE2
 	int errorcode;
 	PCRE2_SIZE erroroffset;
+	uint32_t options;
+
+#if PCRE2_MAJOR > 10 || (PCRE2_MAJOR == 10 && PCRE2_MINOR >= 34)
+	options = utf8 ? PCRE2_MATCH_INVALID_UTF : PCRE2_NEVER_UTF;
+#else
+	if (utf8)
+		return drgn_error_format(
+			DRGN_ERROR_NOT_IMPLEMENTED,
+			"The PCRE2 version (%d.%d) is too old to support matching UTF-8 "
+			"patterns within invalid UTF-8 data. Use a bytes pattern, or "
+			"build against a newer PCRE2 version (10.34 or later).",
+			PCRE2_MAJOR, PCRE2_MINOR
+		);
+	options = PCRE2_NEVER_UTF;
+#endif
 	_cleanup_pcre2_code_ pcre2_code *code =
-		pcre2_compile(pattern, pattern_len,
-			      utf8 ? PCRE2_MATCH_INVALID_UTF : PCRE2_NEVER_UTF,
+		pcre2_compile(pattern, pattern_len, options,
 			      &errorcode, &erroroffset, NULL);
 	if (!code)
 		return drgn_error_pcre2(errorcode, &erroroffset);

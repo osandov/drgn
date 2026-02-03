@@ -904,6 +904,7 @@ class TestSearchMemoryRegex(TestCase):
             [(0x3FFFFFFE, b"foo")],
         )
 
+    @unittest.skipUnless(drgn._with_pcre2_utf, "PCRE2 does not support UTF-8")
     def test_str_valid_utf8(self):
         # 'ñ' is \xc3\xb1 in UTF-8. '±' is \xc2\xb1 in UTF-8. A Unicode search
         # for the former shouldn't match the \xb1 byte in the latter.
@@ -912,6 +913,7 @@ class TestSearchMemoryRegex(TestCase):
             list(prog.search_memory_regex(r"[a-zñ]+")), [(0x1000, "piñata")]
         )
 
+    @unittest.skipUnless(drgn._with_pcre2_utf, "PCRE2 does not support UTF-8")
     def test_invalid_utf8(self):
         prog = mock_search_memory_program(
             MockMemorySegment(b"\xc3\x28abcdef\xa0\xa1", 0x1000)
@@ -925,13 +927,13 @@ class TestSearchMemoryRegex(TestCase):
             ValueError,
             "lookbehind",
             mock_search_memory_program().search_memory_regex,
-            r"(?<=foo)bar",
+            rb"(?<=foo)bar",
         )
         self.assertRaisesRegex(
             ValueError,
             "lookbehind",
             mock_search_memory_program().search_memory_regex,
-            r"(?<!foo)bar",
+            rb"(?<!foo)bar",
         )
 
     def test_default_program(self):
@@ -942,7 +944,8 @@ class TestSearchMemoryRegex(TestCase):
                 list(search_memory_regex(rb"foo|bar")),
                 [(0x1000, b"foo"), (0x1004, b"bar")],
             )
-            self.assertEqual(
-                list(search_memory_regex(r"foo|bar")),
-                [(0x1000, "foo"), (0x1004, "bar")],
-            )
+            if drgn._with_pcre2_utf:
+                self.assertEqual(
+                    list(search_memory_regex(r"foo|bar")),
+                    [(0x1000, "foo"), (0x1004, "bar")],
+                )
