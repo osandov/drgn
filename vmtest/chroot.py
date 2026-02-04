@@ -1,6 +1,7 @@
 # Copyright (c) 2025 Oracle and/or its affiliates
 # SPDX-License-Identifier: LGPL-2.1-or-later
 import argparse
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -19,16 +20,20 @@ _PASSTHROUGH_ENV_VARS = (
 )
 
 
+# When entering a chroot, we want a clean environment. These functions preserve
+# only a few specific environment variables and execute a login shell, which
+# will define anything else important.
 def chroot_sh_args(new_root: str) -> List[str]:
-    # When entering a chroot, we want a clean environment. Preserve only a few
-    # specific environment variables and execute a login shell, which will
-    # define anything else important.
     return [
         "chroot",
         new_root,
         "env",
         "-i",
-        *(f'${{{var}+{var}="${var}"}}' for var in _PASSTHROUGH_ENV_VARS),
+        *(
+            f"{var}={value}"
+            for var in _PASSTHROUGH_ENV_VARS
+            if (value := os.getenv(var)) is not None
+        ),
         "/bin/sh",
         "-l",
         "-c",
@@ -36,7 +41,18 @@ def chroot_sh_args(new_root: str) -> List[str]:
 
 
 def chroot_sh_cmd(new_root: str) -> str:
-    return " ".join(chroot_sh_args(new_root))
+    return " ".join(
+        [
+            "chroot",
+            new_root,
+            "env",
+            "-i",
+            *(f'${{{var}+{var}="${var}"}}' for var in _PASSTHROUGH_ENV_VARS),
+            "/bin/sh",
+            "-l",
+            "-c",
+        ]
+    )
 
 
 if __name__ == "__main__":
