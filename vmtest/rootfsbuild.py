@@ -99,6 +99,10 @@ packages="$3"
 # We're not really an LXC container, but this convinces debootstrap to skip
 # some operations that it can't do in a user namespace.
 container=lxc debootstrap --variant=minbase --foreign --include="$packages" --arch="$arch" stable "$target"
+# By default, apt drops privileges to the "_apt" user. unshare --map-auto can
+# deal with that, but it creates files that can't be accessed as the normal
+# user without unshare, which is annoying.
+echo 'APT::Sandbox::User "root";' > "$target/etc/apt/apt.conf.d/99nosandbox"
 {chroot_sh_cmd('"$target"')} 'container=lxc /debootstrap/debootstrap --second-stage && apt clean'
 """,
                 "sh",
