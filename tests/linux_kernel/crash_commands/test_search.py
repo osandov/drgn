@@ -219,3 +219,5 @@ class TestSearch(CrashCommandTestCase):
             self.run_crash_command_drgn_option("search deadbeef")
         except TimeoutError:
             pass
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
