@@ -810,6 +810,21 @@ struct drgn_error *drgn_program_set_core_dump_fd(struct drgn_program *prog, int 
 struct drgn_error *drgn_program_set_kernel(struct drgn_program *prog);
 
 /**
+ * Set a @ref drgn_program to a remote Linux kernel.
+ *
+ * This enables debugging a remote kernel via a custom memory transport
+ * (e.g., RDMA, TCP/IP, or VMM introspection). It sets up page table walking
+ * for virtual address translation.
+ *
+ * Physical memory segment(s) must be registered via @ref
+ * drgn_program_add_memory_segment() with physical=true before reading memory.
+ * Platform and vmcoreinfo must be set when creating the program.
+ *
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_remote_kernel(struct drgn_program *prog);
+
+/**
  * Set a @ref drgn_program to a running process.
  *
  * @sa drgn_program_from_pid()
