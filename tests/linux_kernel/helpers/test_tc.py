@@ -19,6 +19,18 @@ try:
     # when sending del messages") (in v0.6.10), Pyroute2 passes an invalid flag
     # to deletion requests, resulting in ENOTSUP errors.
     have_pyroute2 = verrevcmp(getattr(pyroute2, "__version__", "0"), "0.6.10") >= 0
+
+    # Before Pyroute2 commit f0df9a49b41f ("Fix "failed to open netns" error in
+    # RISCV64.") (in v0.7.10), Pyroute2 uses the wrong syscall number on
+    # RISC-V. Monkey patch the correct number.
+    if (
+        have_pyroute2
+        and verrevcmp(getattr(pyroute2, "__version__", "0"), "0.7.10") < 0
+        and os.uname().machine.startswith("riscv")
+    ):
+        import pyroute2.netns
+
+        pyroute2.netns.__NR_setns = 268
 except ImportError:
     have_pyroute2 = False
 
