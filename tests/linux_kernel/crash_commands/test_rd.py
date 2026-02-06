@@ -8,7 +8,11 @@ import tempfile
 
 from drgn import Architecture, FaultError, PlatformFlags
 from drgn.helpers.linux.pid import find_task
-from tests.linux_kernel import skip_if_highmem, skip_unless_have_test_kmod
+from tests.linux_kernel import (
+    skip_if_highmem,
+    skip_unless_have_full_mm_support,
+    skip_unless_have_test_kmod,
+)
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 
 
@@ -113,6 +117,7 @@ class TestRd(CrashCommandTestCase):
         cmd = self.check_crash_command(f"rd -s {address:x} 2")
         self.assertRegex(cmd.stdout, rf"^{address:{self.w}x}:  slab_caches\+0")
 
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_annotate_slab(self):
         address = self.prog.symbol("drgn_test_small_slab_objects").address
@@ -128,6 +133,7 @@ class TestRd(CrashCommandTestCase):
                 rf"^{address:{self.w}x}:  \[drgn_test_small\] +\[drgn_test_small\]",
             )
 
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_annotate_slab_verbose(self):
         address = self.prog.symbol("drgn_test_small_slab_objects").address
@@ -202,5 +208,6 @@ class TestRd(CrashCommandTestCase):
     def test_not_existing_symbol(self):
         self.check_failing_command("rd this_symbol_does_not_exist", LookupError)
 
+    @skip_unless_have_full_mm_support
     def test_fault(self):
         self.check_failing_command("rd -u 0", FaultError)

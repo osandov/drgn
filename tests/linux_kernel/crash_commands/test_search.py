@@ -14,6 +14,7 @@ from tests.linux_kernel import (
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 
 
+@skip_unless_have_full_mm_support
 @skip_unless_have_test_kmod
 class TestSearch(CrashCommandTestCase):
     @classmethod
@@ -175,7 +176,6 @@ class TestSearch(CrashCommandTestCase):
         self.assertEqual(cmd.drgn_option.globals["address"], self.subject.l.address_)
         self.assertEqual(cmd.drgn_option.globals["value"], 0xDEADBEEF)
 
-    @skip_unless_have_full_mm_support
     def test_physical(self):
         subject = self.prog["drgn_test_search_subject2"]
         address = follow_phys(self.prog["init_mm"].address_of_(), subject).value_()

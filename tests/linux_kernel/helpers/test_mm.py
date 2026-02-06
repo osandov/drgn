@@ -180,6 +180,10 @@ class TestMm(LinuxKernelTestCase):
             page = pfn_to_page(self.prog, pfns[0])
             self.assertIn("PG_swapbacked", decode_page_flags(page))
 
+    # In principle, this shouldn't need full MM support, but /proc/kcore is
+    # sometimes missing some parts of vmemmap, requiring virtual address
+    # translation.
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_for_each_valid_page_range(self):
         expected_pfn = self.prog["drgn_test_pfn"].value_()

@@ -10,7 +10,10 @@ from drgn import Object
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.mm import TaskRss, phys_to_virt
 from drgn.helpers.linux.percpu import per_cpu_ptr
-from tests.linux_kernel import skip_unless_have_test_disk
+from tests.linux_kernel import (
+    skip_unless_have_full_mm_support,
+    skip_unless_have_test_disk,
+)
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 from tests.linux_kernel.helpers.test_swap import tmp_swaps
 
@@ -52,6 +55,7 @@ class TestPtob(CrashCommandTestCase):
 
 
 class TestPtov(CrashCommandTestCase):
+    @skip_unless_have_full_mm_support
     def test_phy_to_virt(self):
         """Test physical address to virtual address conversion."""
         phys_addr = 0x123

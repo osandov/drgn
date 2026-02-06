@@ -12,7 +12,12 @@ from drgn.commands.crash import CRASH_COMMAND_NAMESPACE
 from drgn.helpers.linux.mm import PageUsage
 from drgn.helpers.linux.slab import SlabTotalUsage
 from tests import with_default_prog
-from tests.linux_kernel import possible_cpus, skip_unless_have_test_kmod
+from tests.linux_kernel import (
+    HAVE_FULL_MM_SUPPORT,
+    possible_cpus,
+    skip_unless_have_full_mm_support,
+    skip_unless_have_test_kmod,
+)
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 from tests.linux_kernel.helpers.test_slab import fallback_slab_cache_names
 from util import KernelVersion
@@ -321,6 +326,7 @@ class TestKmem(CrashCommandTestCase):
 
     # For kmem -p and kmem -m, printing every page is too slow. Just get the
     # first few.
+    @skip_unless_have_full_mm_support
     def test_p(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "file"
@@ -350,6 +356,7 @@ class TestKmem(CrashCommandTestCase):
             self.assertIsInstance(drgn_option_globals[variable], Object)
         self.assertIsInstance(drgn_option_globals["decoded_flags"], str)
 
+    @skip_unless_have_full_mm_support
     def test_m(self):
         members = "mapping,private,_refcount,lru,flags"
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -524,10 +531,11 @@ class TestKmem(CrashCommandTestCase):
                 self.assertIn("VMAP_AREA", cmd.stdout)
                 self.assertIn(f"{address:x}", cmd.stdout)
                 page_address = f"{self.prog['drgn_test_vmalloc_page'].value_():x}"
-                if option:
-                    self.assertNotIn(page_address, cmd.stdout)
-                else:
-                    self.assertIn(page_address, cmd.stdout)
+                if HAVE_FULL_MM_SUPPORT:
+                    if option:
+                        self.assertNotIn(page_address, cmd.stdout)
+                    else:
+                        self.assertIn(page_address, cmd.stdout)
 
     @skip_unless_have_test_kmod
     def test_identify_not_vmalloc(self):
@@ -545,6 +553,7 @@ class TestKmem(CrashCommandTestCase):
                 self.assertIn("PAGE", cmd.stdout)
                 self.assertIn(f"{address:x}", cmd.stdout)
 
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_identify_slab(self):
         address = self.prog["drgn_test_small_slab_objects"][0].value_()
@@ -566,6 +575,7 @@ class TestKmem(CrashCommandTestCase):
         self.assertIn("address is not allocated in slab subsystem", cmd.stdout)
         self.assertNotIn("VMAP_AREA", cmd.stdout)
 
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_identify_slab_with_names(self):
         address = self.prog["drgn_test_small_slab_objects"][0].value_()
@@ -577,6 +587,7 @@ class TestKmem(CrashCommandTestCase):
             self.assertIn("drgn_test_small", cmd.stdout)
             self.assertIn(f"[{address:x}]", cmd.stdout)
 
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_identify_slab_ignored(self):
         address = self.prog["drgn_test_small_slab_objects"][0].value_()
@@ -588,6 +599,7 @@ class TestKmem(CrashCommandTestCase):
             self.assertIn("[IGNORED]", cmd.stdout)
             self.assertNotIn(f"[{address:x}]", cmd.stdout)
 
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_identify_multiple(self):
         slab_address = self.prog["drgn_test_small_slab_objects"][0].value_()
