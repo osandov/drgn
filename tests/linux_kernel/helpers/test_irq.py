@@ -22,8 +22,9 @@ def proc_irq_smp_affinity_list(path):
     try:
         return (path / "smp_affinity_list").read_text()
     except FileNotFoundError:
-        # This file doesn't exist on !SMP.
-        return "0\n"
+        # The smp_affinity_list file doesn't exist on !SMP or for IRQs without
+        # a handler.
+        return Path("/sys/devices/system/cpu/online").read_text()
 
 
 class TestIrq(LinuxKernelTestCase):

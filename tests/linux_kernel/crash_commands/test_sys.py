@@ -321,7 +321,7 @@ class TestIrq(CrashCommandTestCase):
         actual = [
             (int(irq), affinity)
             for irq, affinity in re.findall(
-                r"^\s*([0-9]+)\s+\S+\s+(\S+)", cmd.stdout, flags=re.M
+                r"^\s*([0-9]+).*\s(\S+)\s*$", cmd.stdout, flags=re.M
             )
         ]
         self.assertEqual(actual, expected)

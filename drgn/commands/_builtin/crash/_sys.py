@@ -884,9 +884,9 @@ from drgn.helpers.linux.irq import (
 
 
 for irq, irq_desc in for_each_irq_desc():
-    names = irq_desc_action_names(irq_desc)
-    if not names:
+    if not irq_desc.action:
         continue
+    names = irq_desc_action_names(irq_desc)
     affinity = irq_desc_affinity_mask(irq_desc)
     affinity_list = cpumask_to_cpulist(affinity)
 """
@@ -895,13 +895,14 @@ for irq, irq_desc in for_each_irq_desc():
 
     rows: List[Sequence[Any]] = [("IRQ", "NAME", "AFFINITY")]
     for irq, irq_desc in for_each_irq_desc(prog):
-        action_names = irq_desc_action_names(irq_desc)
-        if not action_names:
+        if not irq_desc.action:
             continue
         rows.append(
             (
                 irq,
-                escape_ascii_string(b",".join(action_names), escape_backslash=True),
+                escape_ascii_string(
+                    b",".join(irq_desc_action_names(irq_desc)), escape_backslash=True
+                ),
                 cpumask_to_cpulist(irq_desc_affinity_mask(irq_desc)),
             )
         )
@@ -923,18 +924,21 @@ def _print_irq_stats(prog: Program, drgn_arg: bool, cpuspec: Cpuspec) -> None:
         code.append(
             """\
 for irq, irq_desc in for_each_irq_desc():
-    names = irq_desc_action_names(irq_desc)
-    if not names:
+    if not irq_desc.action:
         continue
-
-    chip_name = irq_desc_chip_name(irq_desc)
 
 """
         )
 
         if multiple_cpus:
             code.append("    for cpu in cpus:\n    ")
-        code.append("    count = irq_desc_kstat_cpu(irq_desc, cpu)\n")
+        code.append(
+            """\
+    count = irq_desc_kstat_cpu(irq_desc, cpu)
+    chip_name = irq_desc_chip_name(irq_desc)
+    names = irq_desc_action_names(irq_desc)
+"""
+        )
         return code.print()
 
     cpus = cpuspec.cpus(prog)
@@ -945,8 +949,7 @@ for irq, irq_desc in for_each_irq_desc():
     rows: List[Sequence[Any]] = [header]
 
     for irq, irq_desc in for_each_irq_desc(prog):
-        action_names = irq_desc_action_names(irq_desc)
-        if not action_names:
+        if not irq_desc.action:
             continue
 
         row: List[Any] = [CellFormat(f"{irq}:", ">")]
@@ -969,7 +972,11 @@ for irq, irq_desc in for_each_irq_desc():
             if chip_name is None
             else escape_ascii_string(chip_name, escape_backslash=True)
         )
-        row.append(escape_ascii_string(b",".join(action_names), escape_backslash=True))
+        row.append(
+            escape_ascii_string(
+                b",".join(irq_desc_action_names(irq_desc)), escape_backslash=True
+            )
+        )
         rows.append(row)
 
     print_table(rows)
@@ -1139,12 +1146,17 @@ def _crash_cmd_irq(
         action = irq_desc.action.read_()
         if action:
             while True:
+                action_name = action.name.read_()
                 rows.append(
                     (
                         irq_cell,
                         irq_desc_cell,
                         CellFormat(action.value_(), "^x"),
-                        double_quote_ascii_string(action.name.string_()),
+                        (
+                            double_quote_ascii_string(action_name.string_())
+                            if action_name
+                            else ""
+                        ),
                     )
                 )
                 action = action.next.read_()

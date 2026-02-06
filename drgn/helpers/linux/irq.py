@@ -112,6 +112,8 @@ def irq_desc_action_names(desc: Object) -> List[bytes]:
     """
     Get a list of the names of actions set on an interrupt descriptor.
 
+    Actions without names (e.g., ``chained_action``) are skipped.
+
     >>> irq_desc_action_names(irq_to_desc(27))
     [b'i2c_designware.0', b'idma64.0']
 
@@ -120,7 +122,9 @@ def irq_desc_action_names(desc: Object) -> List[bytes]:
     action = desc.action.read_()
     names = []
     while action:
-        names.append(action.name.string_())
+        name = action.name.read_()
+        if name:
+            names.append(name.string_())
         action = action.next.read_()
     return names
 
