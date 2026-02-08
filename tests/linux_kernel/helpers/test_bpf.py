@@ -12,6 +12,7 @@ from drgn import cast
 from drgn.helpers.linux.bpf import (
     bpf_btf_for_each,
     bpf_link_for_each,
+    bpf_map_by_id,
     bpf_map_for_each,
     bpf_prog_by_id,
     bpf_prog_for_each,
@@ -38,6 +39,7 @@ from tests.linux_kernel.bpf import (
     bpf_link_create,
     bpf_link_ids,
     bpf_map_create,
+    bpf_map_get_info_by_fd,
     bpf_map_ids,
     bpf_prog_attach,
     bpf_prog_get_info_by_fd,
@@ -366,3 +368,25 @@ class TestBpf(BpfTestCase):
 
         non_existent_prog = bpf_prog_by_id(self.prog, 0x7FFFFFFF)
         self.assertEqual(non_existent_prog.value_(), 0)
+
+    def test_bpf_map_by_id(self):
+        fd = bpf_map_create(BPF_MAP_TYPE_HASH, 8, 8, 8)
+        self.addCleanup(os.close, fd)
+        try:
+            map_id = bpf_map_get_info_by_fd(fd).id
+        except OSError as e:
+            # bpf_map_by_id() and BPF map IDs aren't supported before
+            # Linux v4.13, which added IDs for BPF maps in commit
+            # f3f1c054c288 ("bpf: Introduce bpf_map ID") and an API to get
+            # them in commit 34ad5580f8f9 ("bpf: Add BPF_(PROG|MAP)_GET_NEXT_ID
+            # command").
+            if e.errno != errno.EINVAL:
+                raise
+            self.skipTest("kernel does not support BPF_MAP_GET_NEXT_ID")
+
+        bpf_map = bpf_map_by_id(self.prog, map_id)
+        self.assertNotEqual(bpf_map.value_(), 0)
+        self.assertEqual(bpf_map.id.value_(), map_id)
+
+        non_existent_map = bpf_map_by_id(self.prog, 0x7FFFFFFF)
+        self.assertEqual(non_existent_map.value_(), 0)

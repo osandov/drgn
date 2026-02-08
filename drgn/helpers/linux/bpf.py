@@ -28,6 +28,7 @@ __all__ = (
     "cgroup_bpf_prog_for_each_effective",
     "bpf_prog_used_maps",
     "bpf_prog_by_id",
+    "bpf_map_by_id",
 )
 
 
@@ -207,3 +208,17 @@ def bpf_prog_by_id(prog: Program, id: IntegerLike) -> Object:
     :return: ``struct bpf_prog *`` object, or a null pointer if not found
     """
     return cast("struct bpf_prog *", idr_find(prog["prog_idr"].address_of_(), id))
+
+
+@takes_program_or_default
+def bpf_map_by_id(prog: Program, id: IntegerLike) -> Object:
+    """
+    Get a BPF map by ID.
+
+    This is only supported since Linux v4.13.
+
+    :param prog: Program object
+    :param id: BPF map ID
+    :return: ``struct bpf_map *`` object, or a null pointer if not found
+    """
+    return cast("struct bpf_map *", idr_find(prog["map_idr"].address_of_(), id))
