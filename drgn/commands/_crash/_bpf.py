@@ -10,8 +10,14 @@ from typing import Any, List, Sequence
 from drgn import Program
 from drgn.commands import argument, drgn_argument
 from drgn.commands._crash.common import CrashDrgnCodeBuilder, crash_command
-from drgn.helpers.common.format import CellFormat, escape_ascii_string, print_table
+from drgn.helpers.common.format import (
+    CellFormat,
+    double_quote_ascii_string,
+    escape_ascii_string,
+    print_table,
+)
 from drgn.helpers.linux.bpf import (
+    bpf_map_by_id,
     bpf_map_for_each,
     bpf_prog_by_id,
     bpf_prog_for_each,
@@ -33,6 +39,12 @@ from drgn.helpers.linux.user import kuid_val
             type=int,
             help="display additional information for the specified BPF program ID",
         ),
+        argument(
+            "-m",
+            dest="map_id",
+            type=int,
+            help="display additional information for the specified BPF map ID",
+        ),
         drgn_argument,
     ),
 )
@@ -43,7 +55,9 @@ def _crash_cmd_bpf(
         code = CrashDrgnCodeBuilder(prog)
         code.add_from_import(
             "drgn.helpers.linux.bpf",
+            "bpf_map_by_id",
             "bpf_map_for_each",
+            "bpf_prog_by_id",
             "bpf_prog_for_each",
             "bpf_prog_used_maps",
         )
@@ -150,6 +164,101 @@ for bpf_map in bpf_map_for_each(prog):
 
         return
 
+    if args.map_id is not None:
+
+        bpf_map = bpf_map_by_id(prog, args.map_id)
+        if not bpf_map:
+            print(f"invalid BPF map ID: {args.map_id}")
+            return
+
+        map_id = bpf_map.id.value_()
+
+        map_type_name = bpf_map.map_type.format_(type_name=False).split(
+            "BPF_MAP_TYPE_"
+        )[-1]
+
+        # The 'map_flags' field was added in Linux kernel commit 6c9059817432
+        # ("bpf: pre-allocate hash map elements") in version 4.6. Older kernels
+        # may not have this field, so we catch LookupError and default to 0.
+        try:
+            map_flags = f"{bpf_map.map_flags.value_():08x}"
+        except AttributeError:
+            map_flags = "00000000"
+
+        map_rows: List[Sequence[Any]] = [
+            (
+                CellFormat("ID", "^"),
+                CellFormat("BPF_MAP", "^"),
+                CellFormat("BPF_MAP_TYPE", "^"),
+                CellFormat("MAP_FLAGS", "^"),
+            )
+        ]
+
+        map_rows.append(
+            (
+                map_id,
+                CellFormat(bpf_map.value_(), "^x"),
+                CellFormat(map_type_name, "^"),
+                CellFormat(map_flags, "^"),
+            )
+        )
+
+        print_table(map_rows)
+
+        key_size = bpf_map.key_size.value_()
+        value_size = bpf_map.value_size.value_()
+        max_entries = bpf_map.max_entries.value_()
+
+        print(
+            f"     KEY_SIZE: {key_size}  VALUE_SIZE: {value_size}  MAX_ENTRIES: {max_entries}",
+            end="",
+        )
+
+        # The 'name' field was added in Linux kernel commit ad5b177bd73f ("bpf:
+        # Add map_name to bpf_map_info") (in v4.15).
+        map_name = "(unknown)"
+        try:
+            name_member = bpf_map.name
+        except AttributeError:
+            map_name = "(unknown)"
+        else:
+            raw_name = name_member.string_()
+            if raw_name:
+                map_name = double_quote_ascii_string(raw_name)
+            else:
+                map_name = "(unused)"
+
+        uid_str = "(unused)"
+        user_ptr = None
+
+        # Linux 5.3 to 5.10: bpf_map.memory.user
+        # Commit 3539b96e041c ("bpf: group memory related fields in struct
+        # bpf_map_memory") (in v5.3) moved the user field into struct bpf_map_memory.
+        # This was removed in v5.11 by commit 80ee81e0403c ("bpf: Eliminate
+        # rlimit-based memory accounting infra for bpf maps").
+        try:
+            user_ptr = bpf_map.memory.user
+        except AttributeError:
+            # Linux 4.10 to 5.2: bpf_map.user
+            # Commit aaac3ba95e4c ("bpf: charge user for creation of BPF maps and
+            # programs") (in v4.10) added the user field directly to struct bpf_map.
+            # This was moved into struct bpf_map_memory in v5.3.
+            try:
+                user_ptr = bpf_map.user
+            except AttributeError:
+                pass
+
+        if user_ptr is not None:
+            try:
+                uid_val = kuid_val(user_ptr.uid)
+                uid_str = str(uid_val)
+            except AttributeError:
+                uid_str = "(unknown)"
+
+        print(f"     NAME: {map_name}  UID: {uid_str}")
+
+        return
+
     for bpf_prog in bpf_prog_for_each(prog):
         prog_id = bpf_prog.aux.id.value_()
         prog_type_name = bpf_prog.type.format_(type_name=False).split("BPF_PROG_TYPE_")[
@@ -178,7 +287,7 @@ for bpf_map in bpf_map_for_each(prog):
     print_table(prog_rows)
     print()
 
-    map_rows: List[Sequence[Any]] = [
+    all_map_rows: List[Sequence[Any]] = [
         (
             CellFormat("ID", "^"),
             CellFormat("BPF_MAP", "^"),
@@ -202,7 +311,7 @@ for bpf_map in bpf_map_for_each(prog):
         except AttributeError:
             map_flags = "00000000"
 
-        map_rows.append(
+        all_map_rows.append(
             (
                 map_id,
                 CellFormat(bpf_map.value_(), "^x"),
@@ -211,4 +320,4 @@ for bpf_map in bpf_map_for_each(prog):
             )
         )
 
-    print_table(map_rows)
+    print_table(all_map_rows)
