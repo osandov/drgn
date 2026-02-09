@@ -405,6 +405,38 @@ ARCHITECTURES = {
             min_kernel_version=KernelVersion("4.11"),
         ),
         Architecture(
+            name="riscv64",
+            kernel_arch="riscv",
+            kernel_srcarch="riscv",
+            debian_arch="riscv64",
+            debian_gcc_target="riscv64-linux-gnu",
+            kernel_config="""
+                CONFIG_ARCH_RV64I=y
+                CONFIG_KERNEL_UNCOMPRESSED=y
+                CONFIG_PCI_HOST_GENERIC=y
+                CONFIG_SERIAL_8250=y
+                CONFIG_SERIAL_8250_CONSOLE=y
+                CONFIG_SERIAL_OF_PLATFORM=y
+                # For some reason, tests run significantly slower on a
+                # relocatable kernel. Additionally, as of Linux 6.19, the KASLR
+                # offset is not in VMCOREINFO:
+                # https://lore.kernel.org/linux-riscv/aXiF55y5D49gcpUg@adminpc-PowerEdge-R7525/.
+                # So, disable KASLR for now.
+                CONFIG_RANDOMIZE_BASE=n
+            """,
+            kernel_flavor_configs={},
+            kernel_org_compiler_name="riscv64-linux",
+            qemu_options=("-M", "virt"),
+            qemu_console="ttyS0",
+            # RISC-V support was added in Linux 4.15. Linux 6.15 and older have
+            # bogus segments in /proc/vmcore. Linux 6.6 and older need a
+            # backport of Linux kernel commit e0c0a7c35f67 ("riscv: select
+            # ARCH_PROC_KCORE_TEXT"). Linux 6.2 is the oldest version that I
+            # can get to boot in QEMU so far. Linux 5.15 is the oldest version
+            # that will build without additional patches.
+            min_kernel_version=KernelVersion("6.16"),
+        ),
+        Architecture(
             name="s390x",
             kernel_arch="s390",
             kernel_srcarch="s390",

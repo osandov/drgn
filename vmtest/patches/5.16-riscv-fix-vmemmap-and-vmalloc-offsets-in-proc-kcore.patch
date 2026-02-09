@@ -1,0 +1,48 @@
+From 56799c0087d1a4ec75150fedb90f6aa83837c84d Mon Sep 17 00:00:00 2001
+Message-ID: <56799c0087d1a4ec75150fedb90f6aa83837c84d.1770676813.git.osandov@osandov.com>
+From: Omar Sandoval <osandov@fb.com>
+Date: Thu, 5 Feb 2026 10:21:02 -0800
+Subject: [PATCH] riscv: fix vmemmap and vmalloc offsets in /proc/kcore
+
+kc_vaddr_to_offset() maps a kernel virtual address to its file offset in
+/proc/kcore. The default definition is (address - PAGE_OFFSET). However, on
+RISC-V, the vmemmap and vmalloc regions are below PAGE_OFFSET, so the computed
+offsets for those regions are negative and wrap around to a large u64:
+
+  # readelf -l /proc/kcore
+  ...
+  Program Headers:
+    Type           Offset             VirtAddr           PhysAddr
+                   FileSiz            MemSiz              Flags  Align
+  ...
+    LOAD           0xffc0000000002000 0xff20000000000000 0xffffffffffffffff
+                   0x0040000000000000 0x0040000000000000  RWE    0x1000
+  ...
+
+When userspace applications like drgn attempt to read from that offset, it
+overflows an loff_t and results in EINVAL.
+
+Fix it by defining an alternate kc_vaddr_to_offset() that masks off the
+high bits, which is what x86-64 does, too.
+
+Fixes: 07037db5d479 ("RISC-V: Paging and MMU")
+Cc: stable@vger.kernel.org
+Signed-off-by: Omar Sandoval <osandov@fb.com>
+---
+ arch/riscv/include/asm/pgtable-64.h | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/arch/riscv/include/asm/pgtable-64.h b/arch/riscv/include/asm/pgtable-64.h
+index 228261aa96286..eff6cde4eb6a7 100644
+--- a/arch/riscv/include/asm/pgtable-64.h
++++ b/arch/riscv/include/asm/pgtable-64.h
+@@ -85,3 +85,6 @@ static inline unsigned long _pmd_pfn(pmd_t pmd)
+ 	pr_err("%s:%d: bad pmd %016lx.\n", __FILE__, __LINE__, pmd_val(e))
+ 
++#define kc_vaddr_to_offset(v) ((v) & ((1UL << CONFIG_VA_BITS) - 1))
++#define kc_offset_to_vaddr(o) ((o) | ~((1UL << CONFIG_VA_BITS) - 1))
++
+ #endif /* _ASM_RISCV_PGTABLE_64_H */
+-- 
+2.47.3
+

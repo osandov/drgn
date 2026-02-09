@@ -235,6 +235,28 @@ _PATCHES = (
             (KernelVersion("5.5"), KernelVersion("5.10")),
         ),
     ),
+    _Patch(
+        name="riscv-fix-vmemmap-and-vmalloc-offsets-in-proc-kcore.patch",
+        versions=((KernelVersion("6.11"), None),),
+    ),
+    _Patch(
+        name="6.10-riscv-fix-vmemmap-and-vmalloc-offsets-in-proc-kcore.patch",
+        versions=(
+            (KernelVersion("6.8"), KernelVersion("6.11")),
+            (KernelVersion("6.6.51"), KernelVersion("6.7")),
+        ),
+    ),
+    _Patch(
+        name="6.7-riscv-fix-vmemmap-and-vmalloc-offsets-in-proc-kcore.patch",
+        versions=(
+            (KernelVersion("6.7"), KernelVersion("6.8")),
+            (KernelVersion("5.17"), KernelVersion("6.6.51")),
+        ),
+    ),
+    _Patch(
+        name="5.16-riscv-fix-vmemmap-and-vmalloc-offsets-in-proc-kcore.patch",
+        versions=((KernelVersion("4.15"), KernelVersion("5.17")),),
+    ),
 )
 
 

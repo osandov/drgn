@@ -10,9 +10,9 @@ jobs:
     strategy:
       matrix:
         flavor: [default, alternative, tiny]
-        arch: [x86_64, aarch64, ppc64, s390x, arm]
+        arch: [x86_64, aarch64, ppc64, s390x, arm, riscv64]
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 6
     runs-on: ubuntu-22.04
     permissions:
       contents: write

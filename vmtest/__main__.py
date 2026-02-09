@@ -72,7 +72,7 @@ def _kdump_works(kernel: Kernel) -> bool:
     elif kernel.arch.name == "s390x":
         # Before 5.15, sysrq-c hangs.
         return KernelVersion(kernel.release) >= KernelVersion("5.15")
-    elif kernel.arch.name == "x86_64":
+    elif kernel.arch.name in {"x86_64", "riscv64"}:
         return True
     else:
         assert False, kernel.arch.name
