@@ -635,11 +635,23 @@ MODULE_DESCRIPTION("Module for testing build");
             package,
         )
 
-        image_name = (
-            (await check_output("make", *make_args, "-s", "image_name", env=self._env))
-            .decode()
-            .strip()
-        )
+        if self._arch.kernel_srcarch == "riscv":
+            # `qemu-system-riscv64 -kernel` apparently can't boot a compressed
+            # kernel. Since Linux kernel commit e79dfcbfb902 ("riscv: make
+            # image compression configurable") (in v6.10),
+            # CONFIG_KERNEL_UNCOMPRESSED=y makes `make image_name` output the
+            # uncompressed image. Before that, we need a special case.
+            image_name = "Image"
+        else:
+            image_name = (
+                (
+                    await check_output(
+                        "make", *make_args, "-s", "image_name", env=self._env
+                    )
+                )
+                .decode()
+                .strip()
+            )
 
         with tempfile.TemporaryDirectory(
             prefix=package.name + ".tmp.", dir=package.parent
