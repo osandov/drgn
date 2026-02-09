@@ -66,6 +66,28 @@ def build_rootfs(
             if other_arch is not arch:
                 packages.append(f"gcc-{other_arch.debian_gcc_target}")
 
+    # As of Debian 13, kexec-tools was not available for RISC-V:
+    # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1019254. We can install
+    # it from testing for now.
+    if arch.name == "riscv64":
+        packages.remove("kexec-tools")
+        riscv_kexec_tools_workaround = r"""
+cat > /etc/apt/sources.list.d/testing.list << "EOF"
+deb https://deb.debian.org/debian testing main
+EOF
+
+cat > /etc/apt/preferences.d/99testing << "EOF"
+Package: *
+Pin: release a=testing
+Pin-Priority: 100
+EOF
+
+apt update
+apt install -y -t testing kexec-tools
+"""
+    else:
+        riscv_kexec_tools_workaround = ""
+
     logger.info("creating debootstrap rootfs %s", path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=path.parent) as tmp_name:
@@ -103,7 +125,12 @@ container=lxc debootstrap --variant=minbase --foreign --include="$packages" --ar
 # deal with that, but it creates files that can't be accessed as the normal
 # user without unshare, which is annoying.
 echo 'APT::Sandbox::User "root";' > "$target/etc/apt/apt.conf.d/99nosandbox"
-{chroot_sh_cmd('"$target"')} 'container=lxc /debootstrap/debootstrap --second-stage && apt clean'
+{chroot_sh_cmd('"$target"')} '
+set -e
+
+container=lxc /debootstrap/debootstrap --second-stage
+{riscv_kexec_tools_workaround}
+apt clean'
 """,
                 "sh",
                 arch.debian_arch,
