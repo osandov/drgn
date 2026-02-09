@@ -56,20 +56,6 @@ class _TestFunction(Protocol):
     def __call__(self, *, outfile: Optional[TextIO] = None) -> bool: ...
 
 
-def _kernel_version_is_supported(version: str, arch: Architecture) -> bool:
-    # /proc/kcore is broken on AArch64 and Arm on older versions.
-    if arch.name in ("aarch64", "arm") and KernelVersion(version) < KernelVersion(
-        "4.19"
-    ):
-        return False
-    # Before 4.11, we need an implementation of the
-    # linux_kernel_live_direct_mapping_fallback architecture callback in
-    # libdrgn, which we only have for x86_64.
-    if KernelVersion(version) < KernelVersion("4.11") and arch.name != "x86_64":
-        return False
-    return True
-
-
 def _kdump_works(kernel: Kernel) -> bool:
     if kernel.arch.name == "aarch64":
         # kexec fails with "kexec: setup_2nd_dtb failed." on older versions.
@@ -664,14 +650,14 @@ if __name__ == "__main__":
             if pattern == "all":
                 for version in SUPPORTED_KERNEL_VERSIONS:
                     for arch in architectures:
-                        if _kernel_version_is_supported(version, arch):
+                        if arch.kernel_version_supported(version):
                             for flavor in KERNEL_FLAVORS.values():
                                 runner.add_kernel(arch, version + ".*" + flavor.name)
             elif pattern in KERNEL_FLAVORS:
                 flavor = KERNEL_FLAVORS[pattern]
                 for version in SUPPORTED_KERNEL_VERSIONS:
                     for arch in architectures:
-                        if _kernel_version_is_supported(version, arch):
+                        if arch.kernel_version_supported(version):
                             runner.add_kernel(arch, version + ".*" + flavor.name)
             else:
                 for arch in architectures:

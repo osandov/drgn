@@ -83,13 +83,6 @@ async def get_latest_kernel_tags() -> List[str]:
     return ["v" + str(version) for version in sorted(latest.values(), reverse=True)]
 
 
-def kernel_tag_to_release(tag: str, arch: Architecture, flavor: KernelFlavor) -> str:
-    match = re.fullmatch(r"v([0-9]+\.[0-9]+)(\.[0-9]+)?(-rc\d+)?", tag)
-    assert match
-    version = "".join([match.group(1), match.group(2) or ".0", match.group(3) or ""])
-    return version + kconfig_localversion(arch, flavor, version)
-
-
 async def fetch_kernel_tags(kernel_dir: Path, kernel_tags: Sequence[str]) -> None:
     if not kernel_dir.exists():
         logger.info("creating kernel repository in %s", kernel_dir)
@@ -332,14 +325,25 @@ async def main() -> None:
             logger.info("latest kernel versions: %s", ", ".join(latest_kernel_tags))
             for tag in latest_kernel_tags:
                 tag_arches_to_build = []
+
+                match = re.fullmatch(r"v([0-9]+\.[0-9]+)(\.[0-9]+)?(-rc\d+)?", tag)
+                assert match
+                version = "".join(
+                    [match.group(1), match.group(2) or ".0", match.group(3) or ""]
+                )
+
                 for arch in args.architectures:
+                    if not arch.kernel_version_supported(version):
+                        continue
+
                     arch_kernel_releases = kernel_releases.get(arch.name, {})
                     tag_arch_flavors_to_build = [
                         flavor
                         for flavor in args.flavors
-                        if kernel_tag_to_release(tag, arch, flavor)
+                        if (version + kconfig_localversion(arch, flavor, version))
                         not in arch_kernel_releases
                     ]
+
                     if tag_arch_flavors_to_build:
                         tag_arches_to_build.append((arch, tag_arch_flavors_to_build))
                 if tag_arches_to_build:

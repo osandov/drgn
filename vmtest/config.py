@@ -7,10 +7,10 @@ import inspect
 import os
 from pathlib import Path
 import subprocess
-from typing import Dict, Mapping, NamedTuple, Sequence
+from typing import Dict, Mapping, NamedTuple, Optional, Sequence, Union
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-from util import out_of_date
+from util import KernelVersion, out_of_date
 
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
@@ -286,6 +286,15 @@ class Architecture:
     qemu_options: Sequence[str]
     # Console device when using QEMU.
     qemu_console: str
+    # Minimum supported kernel version.
+    min_kernel_version: Optional[KernelVersion] = None
+
+    def kernel_version_supported(self, version: Union[KernelVersion, str]) -> bool:
+        if self.min_kernel_version is None:
+            return True
+        if not isinstance(version, KernelVersion):
+            version = KernelVersion(version)
+        return version >= self.min_kernel_version
 
 
 ARCHITECTURES = {
@@ -318,6 +327,8 @@ ARCHITECTURES = {
             kernel_org_compiler_name="aarch64-linux",
             qemu_options=("-M", "virt", "-cpu", "cortex-a76"),
             qemu_console="ttyAMA0",
+            # /proc/kcore is broken on older versions.
+            min_kernel_version=KernelVersion("4.19"),
         ),
         Architecture(
             name="arm",
@@ -363,6 +374,8 @@ ARCHITECTURES = {
             kernel_org_compiler_name="arm-linux-gnueabi",
             qemu_options=("-M", "virt,highmem=off"),
             qemu_console="ttyAMA0",
+            # /proc/kcore is broken on older versions.
+            min_kernel_version=KernelVersion("4.19"),
         ),
         Architecture(
             name="ppc64",
@@ -387,6 +400,9 @@ ARCHITECTURES = {
             kernel_org_compiler_name="powerpc64-linux",
             qemu_options=(),
             qemu_console="hvc0",
+            # Need an implementation of
+            # linux_kernel_live_direct_mapping_fallback in libdrgn.
+            min_kernel_version=KernelVersion("4.11"),
         ),
         Architecture(
             name="s390x",
@@ -402,6 +418,9 @@ ARCHITECTURES = {
             kernel_org_compiler_name="s390-linux",
             qemu_options=(),
             qemu_console="ttysclp0",
+            # Need an implementation of
+            # linux_kernel_live_direct_mapping_fallback in libdrgn.
+            min_kernel_version=KernelVersion("4.11"),
         ),
         Architecture(
             name="x86_64",
