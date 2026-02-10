@@ -366,16 +366,16 @@ def _identify_kernel_address(
     except NotImplementedError:
         # Virtual address translation isn't implemented for this
         # architecture.
-        direct_map = False
+        direct_map = None
+
+    if direct_map is not False and "vmemmap" not in prog:
+        # Without vmemmap, pages are in the direct mapping.
+        identified = _identify_page(prog, addr, cache)
+        if identified is not None:
+            yield identified
+            return
 
     if direct_map:
-        if "vmemmap" not in prog:
-            # Without vmemmap, pages are in the direct mapping.
-            identified = _identify_page(prog, addr, cache)
-            if identified is not None:
-                yield identified
-                return
-
         result = _find_containing_slab(prog, addr)
         if result is not None:
             page, slab = result
