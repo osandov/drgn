@@ -428,13 +428,14 @@ ARCHITECTURES = {
             kernel_org_compiler_name="riscv64-linux",
             qemu_options=("-M", "virt"),
             qemu_console="ttyS0",
-            # RISC-V support was added in Linux 4.15. Linux 6.15 and older have
-            # bogus segments in /proc/vmcore. Linux 6.6 and older need a
-            # backport of Linux kernel commit e0c0a7c35f67 ("riscv: select
-            # ARCH_PROC_KCORE_TEXT"). Linux 6.2 is the oldest version that I
-            # can get to boot in QEMU so far. Linux 5.15 is the oldest version
-            # that will build without additional patches.
-            min_kernel_version=KernelVersion("6.16"),
+            # RISC-V support was added in Linux 4.15. Linux 6.11 and older need
+            # patches to handle more relocation types in kexec_file_load(), and
+            # even after patching, 6.7-6.11 hang on kexec. Linux 6.6 and older
+            # need a backport of Linux kernel commit e0c0a7c35f67 ("riscv:
+            # select ARCH_PROC_KCORE_TEXT"). Linux 6.2 is the oldest version
+            # that I can get to boot in QEMU so far. Linux 5.15 is the oldest
+            # version that will build without additional patches.
+            min_kernel_version=KernelVersion("6.12"),
         ),
         Architecture(
             name="s390x",

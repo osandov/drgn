@@ -25,16 +25,23 @@ def main() -> None:
             # assertion when using emulation.
             cmdline += b" nosmp"
 
-    vmlinuz = f"/lib/modules/{os.uname().release}/vmlinuz"
+    # On RISC-V, kexec_file_load() is supported for Image (vmlinuz) files only
+    # since Linux kernel commit 809a11eea8e8 ("riscv: kexec_file: Support
+    # loading Image binary file") (in v6.16), but for ELF files since Linux
+    # kernel commit 6261586e0c91 ("RISC-V: Add kexec_file support") (in v5.19).
+    if NORMALIZED_MACHINE_NAME == "riscv64":
+        kernel_image = f"/lib/modules/{os.uname().release}/build/vmlinux"
+    else:
+        kernel_image = f"/lib/modules/{os.uname().release}/vmlinuz"
 
-    # On x86-64, kexec_file_load() is supported on all kernel versions we care
-    # about, and it's simple enough to call ourselves. On other architectures,
-    # we just use kexec(8).
-    if NORMALIZED_MACHINE_NAME == "x86_64":
+    # On x86-64 and RISC-V, kexec_file_load() is supported on all kernel
+    # versions we care about, and it's simple enough to call ourselves. On
+    # other architectures, we just use kexec(8).
+    if NORMALIZED_MACHINE_NAME in {"x86_64", "riscv64"}:
         syscall = ctypes.CDLL(None, use_errno=True).syscall
         syscall.restype = ctypes.c_long
 
-        with open(vmlinuz, "rb") as kernel:
+        with open(kernel_image, "rb") as kernel:
             if syscall(
                 ctypes.c_long(SYS["kexec_file_load"]),
                 ctypes.c_int(kernel.fileno()),
@@ -52,7 +59,7 @@ def main() -> None:
                 "--load-panic",
                 "--kexec-syscall-auto",
                 "--command-line=" + cmdline.decode(),
-                vmlinuz,
+                kernel_image,
             ]
         )
 
