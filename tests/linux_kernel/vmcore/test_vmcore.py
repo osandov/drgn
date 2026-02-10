@@ -8,6 +8,7 @@ from drgn import Object, Program, ProgramFlags
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.timekeeping import ktime_get_real_seconds
 from tests import TestCase
+from tests.linux_kernel import skip_unless_have_stack_tracing
 from tests.linux_kernel.vmcore import VMCORE_PATH, LinuxVMCoreTestCase
 
 
@@ -76,16 +77,19 @@ class TestVMCore(LinuxVMCoreTestCase):
                 "drgn_test_crash_store frame not found below drgn_test_crash_func"
             )
 
+    @skip_unless_have_stack_tracing
     def test_crashed_thread_stack_trace(self):
         self._skip_if_cpu0_on_s390x()
         self._test_crashed_thread_stack_trace(self.prog.crashed_thread().stack_trace())
 
+    @skip_unless_have_stack_tracing
     def test_crashed_thread_stack_trace_by_tid(self):
         self._skip_if_cpu0_on_s390x()
         self._test_crashed_thread_stack_trace(
             self.prog.stack_trace(self.prog.crashed_thread().tid)
         )
 
+    @skip_unless_have_stack_tracing
     def test_crashed_thread_stack_trace_by_task_struct(self):
         self._skip_if_cpu0_on_s390x()
         self._test_crashed_thread_stack_trace(
