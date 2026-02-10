@@ -1374,15 +1374,29 @@ def _vmap_area_rb_cmp(addr: int, va: Object) -> int:
         return 0
 
 
+# On !SMP or 32-bit kernels, vmap_nodes, nr_vmap_nodes, and vmap_zone_size can
+# only by &single, 1, and 1, respectively. In that case, GCC as of version 12.2
+# sometimes doesn't generate location descriptions for those variables.
 def _vmap_nodes(prog: Program) -> Object:
     vmap_nodes = prog["vmap_nodes"]
     try:
         return vmap_nodes.read_()
     except ObjectAbsentError:
-        # On !SMP and 32-bit kernels, vmap_nodes is initialized to &single and
-        # never reassigned. GCC as of version 12.2 doesn't generate a location
-        # for vmap_nodes description in that case.
         return prog.variable("single", "mm/vmalloc.c").address_of_()
+
+
+def _nr_vmap_nodes(prog: Program) -> int:
+    try:
+        return prog["nr_vmap_nodes"].value_()
+    except ObjectAbsentError:
+        return 1
+
+
+def _vmap_zone_size(prog: Program) -> int:
+    try:
+        return prog["vmap_zone_size"].value_()
+    except ObjectAbsentError:
+        return 1
 
 
 @takes_program_or_default
@@ -1414,8 +1428,8 @@ def find_vmap_area(prog: Program, addr: IntegerLike) -> Object:
             _vmap_area_rb_cmp,
         )
     else:
-        nr_vmap_nodes = prog["nr_vmap_nodes"].value_()
-        i = j = (addr // prog["vmap_zone_size"].value_()) % nr_vmap_nodes
+        nr_vmap_nodes = _nr_vmap_nodes(prog)
+        i = j = (addr // _vmap_zone_size(prog)) % nr_vmap_nodes
         while True:
             vn = vmap_nodes[i]
             va = rb_find(
@@ -1468,7 +1482,7 @@ def for_each_vmap_area(prog: Program) -> Iterator[Object]:
             "struct vmap_area", prog["vmap_area_list"].address_of_(), "list"
         )
     else:
-        for i in range(prog["nr_vmap_nodes"]):
+        for i in range(_nr_vmap_nodes(prog)):
             yield from list_for_each_entry(
                 "struct vmap_area", vmap_nodes[i].busy.head.address_of_(), "list"
             )
