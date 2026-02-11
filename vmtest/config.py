@@ -160,6 +160,8 @@ CONFIG_NAMESPACES=y
 CONFIG_NUMA=y
 
 # For sched tests.
+CONFIG_CGROUP_SCHED=y
+CONFIG_FAIR_GROUP_SCHED=y
 CONFIG_SCHEDSTATS=y
 
 # For slab allocator tests.
@@ -522,7 +524,7 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     vmtest_kernel_version = [
         # Increment the major version to rebuild every
         # architecture/flavor/version combination.
-        39,
+        40,
         # The minor version makes the default flavor the "latest" version.
         1 if flavor.name == "default" else 0,
     ]
