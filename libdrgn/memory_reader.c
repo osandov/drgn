@@ -158,6 +158,18 @@ void drgn_memory_reader_deinit(struct drgn_memory_reader *reader)
 	free_memory_segment_tree(&reader->virtual_segments);
 }
 
+void drgn_memory_reader_clear(struct drgn_memory_reader *reader)
+{
+	drgn_memory_reader_deinit(reader);
+	drgn_memory_reader_init(reader);
+}
+
+void drgn_memory_reader_clear_virtual(struct drgn_memory_reader *reader)
+{
+	free_memory_segment_tree(&reader->virtual_segments);
+	drgn_memory_segment_tree_init(&reader->virtual_segments);
+}
+
 bool drgn_memory_reader_empty(struct drgn_memory_reader *reader)
 {
 	return (drgn_memory_segment_tree_empty(&reader->virtual_segments) &&

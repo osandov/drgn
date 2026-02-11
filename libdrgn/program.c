@@ -673,8 +673,7 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 	return NULL;
 
 out_segments:
-	drgn_memory_reader_deinit(&prog->reader);
-	drgn_memory_reader_init(&prog->reader);
+	drgn_memory_reader_clear(&prog->reader);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
 out_notes:
@@ -776,8 +775,7 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	return NULL;
 
 out_segments:
-	drgn_memory_reader_deinit(&prog->reader);
-	drgn_memory_reader_init(&prog->reader);
+	drgn_memory_reader_clear(&prog->reader);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
 out_fd:

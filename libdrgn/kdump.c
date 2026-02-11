@@ -273,8 +273,7 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	return NULL;
 
 err_segments:
-	drgn_memory_reader_deinit(&prog->reader);
-	drgn_memory_reader_init(&prog->reader);
+	drgn_memory_reader_clear(&prog->reader);
 err_platform:
 	prog->has_platform = had_platform;
 err:

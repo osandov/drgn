@@ -57,6 +57,12 @@ void drgn_memory_reader_init(struct drgn_memory_reader *reader);
 /** Deinitialize a @ref drgn_memory_reader. */
 void drgn_memory_reader_deinit(struct drgn_memory_reader *reader);
 
+/** Remove all segments from a @ref drgn_memory_reader. */
+void drgn_memory_reader_clear(struct drgn_memory_reader *reader);
+
+/** Remove all virtual memory segments from a @ref drgn_memory_reader. */
+void drgn_memory_reader_clear_virtual(struct drgn_memory_reader *reader);
+
 /** Return whether a @ref drgn_memory_reader has no segments. */
 bool drgn_memory_reader_empty(struct drgn_memory_reader *reader);
 
