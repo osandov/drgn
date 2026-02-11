@@ -8,13 +8,15 @@ import re
 
 from drgn import Object
 from drgn.helpers.linux.cpumask import for_each_online_cpu
-from drgn.helpers.linux.mm import TaskRss, phys_to_virt
+from drgn.helpers.linux.mm import PFN_PHYS, TaskRss, phys_to_virt
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from tests.linux_kernel import (
     skip_unless_have_full_mm_support,
     skip_unless_have_test_disk,
+    skip_unless_have_test_kmod,
 )
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
+from tests.linux_kernel.helpers.test_mm import MmTestCase
 from tests.linux_kernel.helpers.test_swap import tmp_swaps
 
 
@@ -123,6 +125,80 @@ class TestPtov(CrashCommandTestCase):
             self.check_crash_command(f"ptov {hex(offset)}:invalid")
         msg = str(cm.exception).lower()
         self.assertIn("invalid cpuspec", msg, f"Unexpected error message: {msg}")
+
+
+@skip_unless_have_full_mm_support
+class TestVtop(CrashCommandTestCase, MmTestCase):
+    @skip_unless_have_test_kmod
+    def test_kernel(self):
+        virt_addr = self.prog["drgn_test_va"].value_()
+        phys_addr = self.prog["drgn_test_pa"].value_()
+
+        cmd = self.check_crash_command(f"vtop -k {virt_addr:x}")
+        self.assertIn(f"{phys_addr:x}", cmd.stdout)
+
+        self.assertIn("follow_phys", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["virtual_address"], virt_addr)
+        self.assertEqual(cmd.drgn_option.globals["physical_address"], phys_addr)
+
+    @skip_unless_have_test_kmod
+    def test_kernel_multiple(self):
+        virt_addrs = [
+            self.prog["drgn_test_va"].value_(),
+            self.prog["drgn_test_vmalloc_va"].value_(),
+        ]
+        phys_addrs = [
+            self.prog["drgn_test_pa"].value_(),
+            self.prog["drgn_test_vmalloc_pa"].value_(),
+        ]
+
+        cmd = self.check_crash_command(f"vtop -k {virt_addrs[0]:x} {virt_addrs[1]:x}")
+        for phys_addr in phys_addrs:
+            self.assertIn(f"{phys_addr:x}", cmd.stdout)
+
+        self.assertIn("follow_phys", cmd.drgn_option.stdout)
+        for virt_addr in virt_addrs:
+            self.assertIn(hex(virt_addr), cmd.drgn_option.stdout)
+        self.assertIn(cmd.drgn_option.globals["virtual_address"], virt_addrs)
+        self.assertIn(cmd.drgn_option.globals["physical_address"], phys_addrs)
+
+    def test_user(self):
+        with self.map_pages() as (_, address, pfns):
+            phys_addr = PFN_PHYS(self.prog, pfns[0]).value_()
+            cmd = self.check_crash_command(f"vtop -u -c {os.getpid()} {address:x}")
+        self.assertIn(f"{phys_addr:x}", cmd.stdout)
+
+        self.assertIn("follow_phys", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["virtual_address"], address)
+        self.assertEqual(cmd.drgn_option.globals["physical_address"], phys_addr)
+
+    def test_user_multiple(self):
+        with self.map_pages() as (_, address, pfns):
+            virt_addrs = [address, address + mmap.PAGESIZE]
+            phys_addrs = [PFN_PHYS(self.prog, pfns[i]).value_() for i in range(2)]
+            cmd = self.check_crash_command(
+                f"vtop -u -c {os.getpid()} {virt_addrs[0]:x} {virt_addrs[1]:x}"
+            )
+        for phys_addr in phys_addrs:
+            self.assertIn(f"{phys_addr:x}", cmd.stdout)
+
+        self.assertIn("follow_phys", cmd.drgn_option.stdout)
+        for virt_addr in virt_addrs:
+            self.assertIn(hex(virt_addr), cmd.drgn_option.stdout)
+        self.assertIn(cmd.drgn_option.globals["virtual_address"], virt_addrs)
+        self.assertIn(cmd.drgn_option.globals["physical_address"], phys_addrs)
+
+    @skip_unless_have_test_kmod
+    def test_guess(self):
+        virt_addr = self.prog["drgn_test_va"].value_()
+        phys_addr = self.prog["drgn_test_pa"].value_()
+
+        cmd = self.check_crash_command(f"vtop {virt_addr:x}")
+        self.assertRegex(cmd.stdout, f"{phys_addr:x}|ambiguous address")
+
+        self.assertIn("follow_phys(init_mm", cmd.drgn_option.stdout)
+        self.assertIn("follow_phys(mm", cmd.drgn_option.stdout)
+        self.assertEqual(cmd.drgn_option.globals["virtual_address"], virt_addr)
 
 
 class TestSwap(CrashCommandTestCase):

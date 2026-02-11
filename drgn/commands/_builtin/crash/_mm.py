@@ -5,10 +5,17 @@
 """Memory management-related crash commands (other than kmem)."""
 
 import argparse
+import sys
 from typing import Any, List, Sequence
 
-from drgn import Object, Program
-from drgn.commands import argument, drgn_argument
+from drgn import Architecture, FaultError, Object, Platform, Program
+from drgn.commands import (
+    DrgnCodeBlockContext,
+    argument,
+    argument_group,
+    drgn_argument,
+    mutually_exclusive_group,
+)
 from drgn.commands.crash import (
     CrashDrgnCodeBuilder,
     _crash_foreach_subcommand,
@@ -18,7 +25,13 @@ from drgn.commands.crash import (
     print_task_header,
 )
 from drgn.helpers.common.format import CellFormat, escape_ascii_string, print_table
-from drgn.helpers.linux.mm import for_each_vma, phys_to_virt, task_rss, vma_name
+from drgn.helpers.linux.mm import (
+    follow_phys,
+    for_each_vma,
+    phys_to_virt,
+    task_rss,
+    vma_name,
+)
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.swap import (
     for_each_swap_info,
@@ -201,6 +214,214 @@ def _crash_cmd_ptov(
 
             # Print the table
             print_table(rows)
+
+
+# This is not an exhaustive list.
+def _overlapping_address_spaces(prog: Program) -> bool:
+    platform: Platform = prog.platform  # type: ignore[assignment]  # platform can't be None.
+    return platform.arch == Architecture.S390X
+
+
+@_crash_foreach_subcommand(
+    arguments=(
+        mutually_exclusive_group(
+            argument(
+                "-u",
+                dest="user",
+                action="store_true",
+            ),
+            argument(
+                "-k",
+                dest="kernel",
+                action="store_true",
+            ),
+        ),
+        argument(
+            "addresses",
+            metavar="address",
+            type="hexadecimal",
+            nargs="+",
+        ),
+        drgn_argument,
+    ),
+)
+def _crash_foreach_vtop(
+    task_selector: _TaskSelector, args: argparse.Namespace, *, task_headers: bool = True
+) -> None:
+    prog = task_selector.prog
+
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import("drgn", "FaultError")
+        code.add_from_import("drgn.helpers.linux.mm", "follow_phys")
+
+        if len(args.addresses) == 1:
+            code.append(f"virtual_address = {hex(args.addresses[0])}\n\n")
+        else:
+            code.append(
+                "virtual_addresses = ("
+                + ", ".join([hex(address) for address in args.addresses])
+                + ")\n\n"
+            )
+
+        def virtual_address_loop() -> DrgnCodeBlockContext:
+            if len(args.addresses) == 1:
+                return code.begin_block("")
+            else:
+                return code.begin_block("for virtual_address in virtual_addresses:\n")
+
+        if not args.user:
+            if not args.kernel:
+                code.append("# As kernel address.\n")
+            code.append('init_mm = prog["init_mm"].address_of_()\n')
+            with virtual_address_loop():
+                code.append(
+                    """\
+try:
+    physical_address = follow_phys(init_mm, virtual_address)
+except FaultError:
+    pass
+"""
+                )
+
+        if not args.kernel:
+            if not args.user:
+                code.append("\n# As user address.\n")
+            with task_selector.begin_task_loop(code):
+                if task_headers:
+                    code.append_task_header()
+
+                with code.begin_block(
+                    """\
+mm = task.mm.read_()
+if mm:
+"""
+                ), virtual_address_loop():
+                    code.append(
+                        """\
+try:
+    physical_address = follow_phys(mm, virtual_address)
+except FaultError:
+    pass
+"""
+                    )
+        return code.print()
+
+    overlapping = _overlapping_address_spaces(prog)
+    init_mm = prog["init_mm"].address_of_()
+
+    first_task = True
+    for task in task_selector.tasks():
+        if first_task:
+            first_task = False
+        else:
+            print()
+        if task_headers:
+            print_task_header(task)
+
+        mm = task.mm.read_()
+        if not args.kernel and not args.user and mm and not overlapping:
+            task_size = mm.task_size.value_()
+
+        first_address = True
+        for address in args.addresses:
+            if first_address:
+                first_address = False
+            else:
+                print()
+
+            kernel_phys_addr = None
+            user_phys_addr = None
+            if args.kernel or (
+                not args.user and (not mm or overlapping or address >= task_size)
+            ):
+                try:
+                    kernel_phys_addr = follow_phys(init_mm, address).value_()
+                except FaultError:
+                    pass
+            if args.user or (
+                not args.kernel and mm and (overlapping or address < task_size)
+            ):
+                try:
+                    user_phys_addr = follow_phys(mm, address).value_()
+                except FaultError:
+                    pass
+
+            if kernel_phys_addr is not None and user_phys_addr is not None:
+                print(
+                    "error: ambiguous address: %x: -u or -k is required",
+                    address,
+                    file=sys.stderr,
+                )
+                continue
+            elif kernel_phys_addr is None and user_phys_addr is None:
+                phys_addr_cell: Any = "(not accessible)"
+            else:
+                phys_addr_cell = CellFormat(
+                    kernel_phys_addr if user_phys_addr is None else user_phys_addr, "<x"
+                )
+            print_table(
+                (
+                    ("VIRTUAL", "PHYSICAL"),
+                    (CellFormat(address, "<x"), phys_addr_cell),
+                )
+            )
+
+
+@crash_command(
+    description="virtual to physical address",
+    arguments=(
+        argument_group(
+            mutually_exclusive_group(
+                argument(
+                    "-u",
+                    dest="user",
+                    action="store_true",
+                    help="treat addresses as user space virtual addresses",
+                ),
+                argument(
+                    "-k",
+                    dest="kernel",
+                    action="store_true",
+                    help="treat addresses as kernel space virtual addresses",
+                ),
+            ),
+            title="address space",
+            description="""
+            In some kernel configurations, whether an address belongs to kernel
+            space or user space can be determined from only its value. In those
+            cases, this command will automatically determine whether the
+            address belongs to kernel or user space.
+
+            In other configurations (including s390x, SPARC, and 4G:4G), this
+            is not possible, and one of these options is required.
+            """,
+        ),
+        argument(
+            "-c",
+            dest="task",
+            type="pid_or_task",
+            help="""
+            PID or hexadecimal task_struct pointer of task whose address space
+            should be used for translating virtual addresses
+            """,
+        ),
+        argument(
+            "addresses",
+            metavar="address",
+            type="hexadecimal",
+            nargs="+",
+            help="hexadecimal virtual address",
+        ),
+        drgn_argument,
+    ),
+)
+def _crash_cmd_vtop(
+    prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
+) -> None:
+    return _crash_foreach_vtop(
+        _TaskSelector(prog, [args.task]), args, task_headers=False
+    )
 
 
 @crash_command(

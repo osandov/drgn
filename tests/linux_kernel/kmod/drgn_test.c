@@ -1065,6 +1065,7 @@ unsigned long drgn_test_pfn;
 struct page *drgn_test_page;
 struct page *drgn_test_compound_page;
 void *drgn_test_vmalloc_va;
+phys_addr_t drgn_test_vmalloc_pa;
 unsigned long drgn_test_vmalloc_pfn;
 struct page *drgn_test_vmalloc_page;
 
@@ -1173,6 +1174,8 @@ static int drgn_test_mm_init(void)
 		return -ENOMEM;
 	drgn_test_vmalloc_pfn = vmalloc_to_pfn(drgn_test_vmalloc_va);
 	drgn_test_vmalloc_page = vmalloc_to_page(drgn_test_vmalloc_va);
+	drgn_test_vmalloc_pa = page_to_phys(drgn_test_vmalloc_page)
+			       + offset_in_page(drgn_test_vmalloc_va);
 
 #ifdef CONFIG_SPARSEMEM
 	drgn_test_section_nr = pfn_to_section_nr(drgn_test_pfn);

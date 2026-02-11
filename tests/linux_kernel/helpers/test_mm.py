@@ -82,16 +82,11 @@ from tests.linux_kernel import (
 )
 
 
-class TestMm(LinuxKernelTestCase):
-    def test_page_constants(self):
-        self.assertEqual(self.prog["PAGE_SIZE"], mmap.PAGESIZE)
-        self.assertEqual(1 << self.prog["PAGE_SHIFT"], mmap.PAGESIZE)
-        self.assertEqual(~self.prog["PAGE_MASK"] + 1, mmap.PAGESIZE)
-
+class MmTestCase(LinuxKernelTestCase):
     # Returns an mmap.mmap object for a file mapping in /dev/shm, its mapped
     # address, and the pfns backing it.
     @contextlib.contextmanager
-    def _pages(self):
+    def map_pages(self):
         if not os.path.exists("/proc/self/pagemap"):
             self.skipTest("kernel does not support pagemap")
 
@@ -113,12 +108,19 @@ class TestMm(LinuxKernelTestCase):
                     ]
                 yield map, address, pfns
 
+
+class TestMm(MmTestCase):
+    def test_page_constants(self):
+        self.assertEqual(self.prog["PAGE_SIZE"], mmap.PAGESIZE)
+        self.assertEqual(1 << self.prog["PAGE_SHIFT"], mmap.PAGESIZE)
+        self.assertEqual(~self.prog["PAGE_MASK"] + 1, mmap.PAGESIZE)
+
     def test_page_index(self):
-        with self._pages() as (_, _, pfns):
+        with self.map_pages() as (_, _, pfns):
             self.assertEqual(page_index(pfn_to_page(self.prog, pfns[3])), 3)
 
     def test_page_flag_getters(self):
-        with self._pages() as (map, _, pfns):
+        with self.map_pages() as (map, _, pfns):
             page = pfn_to_page(self.prog, pfns[0])
             # The page flag getters are generated, so just pick a positive case
             # and a negative case to cover all of them.
@@ -176,7 +178,7 @@ class TestMm(LinuxKernelTestCase):
 
     @skip_unless_have_full_mm_support
     def test_decode_page_flags(self):
-        with self._pages() as (map, _, pfns):
+        with self.map_pages() as (map, _, pfns):
             page = pfn_to_page(self.prog, pfns[0])
             self.assertIn("PG_swapbacked", decode_page_flags(page))
 
@@ -308,7 +310,7 @@ class TestMm(LinuxKernelTestCase):
     @skip_if_highpte
     def test_follow_pfn(self):
         task = find_task(self.prog, os.getpid())
-        with self._pages() as (map, address, pfns):
+        with self.map_pages() as (map, address, pfns):
             self.assertEqual(follow_pfn(task.mm, address), pfns[0])
 
     @skip_unless_have_full_mm_support
