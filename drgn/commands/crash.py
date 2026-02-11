@@ -1021,9 +1021,9 @@ if not thread_group_leader(task):
 
 
 _CrashForeachSubcommandFunc = Callable[[_TaskSelector, argparse.Namespace], Any]
-_CrashForeachSubcommandFuncDecorator = Callable[
-    [_CrashForeachSubcommandFunc], _CrashForeachSubcommandFunc
-]
+_CrashForeachSubcommandFuncT = TypeVar(
+    "_CrashForeachSubcommandFuncT", bound=_CrashForeachSubcommandFunc
+)
 
 
 class _CrashForeachSubcommand(NamedTuple):
@@ -1038,8 +1038,8 @@ def _crash_foreach_subcommand(
     *,
     name: Optional[str] = None,
     arguments: Sequence[Union[argument, argument_group, mutually_exclusive_group]] = (),
-) -> _CrashForeachSubcommandFuncDecorator:
-    def decorator(func: _CrashForeachSubcommandFunc) -> _CrashForeachSubcommandFunc:
+) -> Callable[[_CrashForeachSubcommandFuncT], _CrashForeachSubcommandFuncT]:
+    def decorator(func: _CrashForeachSubcommandFuncT) -> _CrashForeachSubcommandFuncT:
         command_name = _command_name(name, func, "_crash_foreach_")
 
         parser = _create_parser(
