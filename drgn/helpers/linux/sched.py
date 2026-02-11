@@ -176,9 +176,9 @@ def cpu_rq(prog: Program, cpu: IntegerLike) -> Object:
     Get the runqueue for a given cpu.
 
     :param cpu: CPU number.
-    :returns: ``struct rq``
+    :returns: ``struct rq *``
     """
-    return per_cpu(prog["runqueues"], cpu)
+    return per_cpu(prog["runqueues"], cpu).address_of_()
 
 
 def task_rq(task: Object) -> Object:
@@ -186,7 +186,7 @@ def task_rq(task: Object) -> Object:
     Get the runqueue for a given task.
 
     :param task: ``struct task_struct *``
-    :returns: ``struct rq``
+    :returns: ``struct rq *``
     """
     return cpu_rq(task.prog_, task_cpu(task))
 
