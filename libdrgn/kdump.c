@@ -261,20 +261,20 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 		goto err_platform;
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
 					      drgn_read_kdump, ctx, true);
-	if (err) {
-		drgn_memory_reader_deinit(&prog->reader);
-		drgn_memory_reader_init(&prog->reader);
-		goto err_platform;
-	}
+	if (err)
+		goto err_segments;
 
 	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
 	err = drgn_program_finish_set_kernel(prog);
 	if (err)
-		goto err_platform;
+		goto err_segments;
 	prog->kdump_ctx = ctx;
 	drgn_call_plugins_prog("drgn_prog_set", prog);
 	return NULL;
 
+err_segments:
+	drgn_memory_reader_deinit(&prog->reader);
+	drgn_memory_reader_init(&prog->reader);
 err_platform:
 	prog->has_platform = had_platform;
 err:
