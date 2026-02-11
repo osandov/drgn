@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) 2026, Oracle and/or its affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 """
@@ -9,7 +10,7 @@ The ``drgn.helpers.linux.sched`` module provides helpers for working with the
 Linux CPU scheduler.
 """
 
-from typing import Tuple
+from typing import Iterator, Tuple
 
 from _drgn import (
     _linux_helper_cpu_curr,
@@ -20,6 +21,7 @@ from _drgn import (
 )
 from drgn import IntegerLike, Object, Program
 from drgn.helpers.common.prog import takes_program_or_default
+from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.percpu import per_cpu
 
 __all__ = (
@@ -28,6 +30,8 @@ __all__ = (
     "get_task_state",
     "idle_task",
     "loadavg",
+    "rq_for_each_fair_task",
+    "rq_for_each_rt_task",
     "task_cpu",
     "task_on_cpu",
     "task_rq",
@@ -189,6 +193,34 @@ def task_rq(task: Object) -> Object:
     :returns: ``struct rq *``
     """
     return cpu_rq(task.prog_, task_cpu(task))
+
+
+def rq_for_each_fair_task(rq: Object) -> Iterator[Object]:
+    """
+    Iterate over tasks on a runqueue in the fair scheduling class (EEVDF or
+    CFS).
+
+    Before Linux 6.17, this is not supported on !SMP kernels.
+
+    :param rq: ``struct rq *``
+    :return: Iterator of ``struct task_struct *`` objects
+    """
+    return list_for_each_entry(
+        "struct task_struct", rq.cfs_tasks.address_of_(), "se.group_node"
+    )
+
+
+def rq_for_each_rt_task(rq: Object) -> Iterator[Object]:
+    """
+    Iterate over tasks on a runqueue in the realtime scheduling class.
+
+    :param rq: ``struct rq *``
+    :return: Iterator of ``struct task_struct *`` objects
+    """
+    for queue in rq.rt.active.queue:
+        yield from list_for_each_entry(
+            "struct task_struct", queue.address_of_(), "rt.run_list"
+        )
 
 
 def task_since_last_arrival_ns(task: Object) -> int:

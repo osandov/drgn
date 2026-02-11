@@ -2,17 +2,22 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import os
+import resource
 import signal
 from threading import Condition, Thread
 import time
+import unittest
 
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.sched import (
     cpu_curr,
+    cpu_rq,
     get_task_state,
     idle_task,
     loadavg,
+    rq_for_each_fair_task,
+    rq_for_each_rt_task,
     task_cpu,
     task_on_cpu,
     task_since_last_arrival_ns,
@@ -27,6 +32,7 @@ from tests.linux_kernel import (
     skip_unless_have_test_kmod,
     wait_until,
 )
+from util import KernelVersion
 
 
 class TestSched(LinuxKernelTestCase):
@@ -116,6 +122,44 @@ class TestSched(LinuxKernelTestCase):
                 os.sched_setaffinity(pid, other_affinity)
             task = find_task(self.prog, pid)
             self.assertGreaterEqual(task_since_last_arrival_ns(task), 10000000)
+
+    # Before Linux kernel commit cac5cefbade9 ("sched/smp: Make SMP
+    # unconditional") (in v6.17), cfs_tasks does not exist on !SMP.
+    @unittest.skipIf(
+        KernelVersion(os.uname().release) < KernelVersion("6.17")
+        and "SMP" not in os.uname().version,
+        "rq_for_each_fair_task() is not supported on Linux < 6.17 !SMP",
+    )
+    def test_rq_for_each_fair_task(self):
+        old_affinity = os.sched_getaffinity(0)
+        cpu = max(old_affinity)
+        os.sched_setaffinity(0, (cpu,))
+        self.addCleanup(os.sched_setaffinity, 0, old_affinity)
+
+        rq = cpu_rq(self.prog, cpu)
+        pids = [task.pid.value_() for task in rq_for_each_fair_task(rq)]
+        self.assertIn(os.getpid(), pids)
+
+    def test_rq_for_each_rt_task(self):
+        old_affinity = os.sched_getaffinity(0)
+        cpu = max(old_affinity)
+        os.sched_setaffinity(0, (cpu,))
+        self.addCleanup(os.sched_setaffinity, 0, old_affinity)
+
+        old_rlimit = resource.getrlimit(resource.RLIMIT_RTTIME)
+        resource.setrlimit(
+            resource.RLIMIT_RTTIME, (resource.RLIM_INFINITY, resource.RLIM_INFINITY)
+        )
+        self.addCleanup(resource.setrlimit, resource.RLIMIT_RTTIME, old_rlimit)
+
+        old_scheduler = os.sched_getscheduler(0)
+        old_param = os.sched_getparam(0)
+        os.sched_setscheduler(0, os.SCHED_RR, os.sched_param(1))
+        self.addCleanup(os.sched_setscheduler, 0, old_scheduler, old_param)
+
+        rq = cpu_rq(self.prog, cpu)
+        pids = [task.pid.value_() for task in rq_for_each_rt_task(rq)]
+        self.assertIn(os.getpid(), pids)
 
     def test_thread_group_leader(self):
         condition = Condition()
