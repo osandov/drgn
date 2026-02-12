@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) 2026, Oracle and/or its affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 
@@ -11,6 +12,66 @@ from drgn import Object
 from drgn.commands import CommandArgumentError
 from tests.linux_kernel import fork_and_stop, skip_unless_have_test_kmod
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
+
+
+class TestRunq(CrashCommandTestCase):
+    def test_no_args(self):
+        cmd = self.check_crash_command("runq")
+        self.assertRegex(cmd.stdout, r"CPU \d+ RUNQUEUE [0-9a-f]+")
+        self.assertIn("CURRENT:", cmd.stdout)
+        self.assertIn("RT PRIO_ARRAY:", cmd.stdout)
+        self.assertIn("CFS RB_ROOT:", cmd.stdout)
+        self.assertIn("PID:", cmd.stdout)
+
+        self.assertIn("cpu_rq(", cmd.drgn_option.stdout)
+        self.assertIn("rq_for_each_rt_task(", cmd.drgn_option.stdout)
+        self.assertIn("cfs_rq_for_each_entity(", cmd.drgn_option.stdout)
+        self.assertIsInstance(cmd.drgn_option.globals["curr"], Object)
+
+    def test_timestamps(self):
+        cmd = self.check_crash_command("runq -t")
+        self.assertRegex(cmd.stdout, r"CPU \d+: \d{16}")
+        self.assertIn("PID:", cmd.stdout)
+
+        self.assertIn("rq.clock", cmd.drgn_option.stdout)
+        self.assertIn("sched_info.last_arrival", cmd.drgn_option.stdout)
+        self.assertIsInstance(cmd.drgn_option.globals["rq_clock"], Object)
+        self.assertIsInstance(cmd.drgn_option.globals["curr"], Object)
+        self.assertIsInstance(cmd.drgn_option.globals["curr_clock"], Object)
+
+    def test_lag(self):
+        cmd = self.check_crash_command("runq -T")
+        self.assertRegex(cmd.stdout, r"CPU \d+: \d+\.\d+ secs")
+
+        self.assertIsInstance(cmd.drgn_option.globals["rq_clock"], Object)
+
+    def test_elapsed(self):
+        cmd = self.check_crash_command("runq -m")
+        self.assertRegex(cmd.stdout, r"CPU \d+: \[\s*\d+ \d{2}:\d{2}:\d{2}\.\d{3}\]")
+        self.assertIn("PID:", cmd.stdout)
+
+        self.assertIn("rq.clock", cmd.drgn_option.stdout)
+        self.assertIn("sched_info.last_arrival", cmd.drgn_option.stdout)
+        self.assertIsInstance(cmd.drgn_option.globals["rq_clock"], Object)
+        self.assertIsInstance(cmd.drgn_option.globals["curr"], Object)
+        self.assertIsInstance(cmd.drgn_option.globals["curr_clock"], Object)
+
+    def test_task_groups(self):
+        cmd = self.check_crash_command("runq -g")
+        self.assertRegex(cmd.stdout, r"CPU \d+")
+        self.assertIn("CURRENT:", cmd.stdout)
+        self.assertIn("ROOT_TASK_GROUP:", cmd.stdout)
+        self.assertIn("CFS_RQ:", cmd.stdout)
+        self.assertIn("PID:", cmd.stdout)
+
+        self.assertIn("cfs_rq_for_each_entity(", cmd.drgn_option.stdout)
+        self.assertIn("task_group_name(", cmd.drgn_option.stdout)
+
+    def test_cpu(self):
+        cpu = max(os.sched_getaffinity(0))
+        cmd = self.check_crash_command(f"runq -c {cpu}")
+        self.assertIn(f"CPU {cpu}", cmd.stdout)
+        self.assertEqual(cmd.stdout.count("CURRENT:"), 1)
 
 
 class TestSig(CrashCommandTestCase):
