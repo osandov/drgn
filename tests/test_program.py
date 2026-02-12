@@ -1152,6 +1152,76 @@ class TestCoreDump(TestCase):
         self.assertEqual(cm.exception.address, 0xFFFF000C)
 
 
+def make_vmcoreinfo(
+    osrelease="6.0.0-test",
+    pagesize=4096,
+    swapper_pg_dir=0xFFFFFFFF81000000,
+    extra_lines=None,
+):
+    """Create fake vmcoreinfo data with required fields."""
+    lines = [
+        f"OSRELEASE={osrelease}",
+        f"PAGESIZE={pagesize}",
+        f"SYMBOL(swapper_pg_dir)={swapper_pg_dir:x}",
+    ]
+    if extra_lines:
+        lines.extend(extra_lines)
+    return ("\n".join(lines) + "\n").encode()
+
+
+class TestSetLinuxKernelCustom(TestCase):
+    def test_requires_platform(self):
+        prog = Program()
+        self.assertRaisesRegex(
+            ValueError,
+            "platform must be set",
+            prog.set_linux_kernel_custom,
+            make_vmcoreinfo(),
+        )
+
+    def test_invalid_vmcoreinfo_missing_osrelease(self):
+        prog = Program(MOCK_PLATFORM)
+        self.assertRaisesRegex(
+            Exception,
+            "VMCOREINFO does not contain valid OSRELEASE",
+            prog.set_linux_kernel_custom,
+            b"PAGESIZE=4096\nSYMBOL(swapper_pg_dir)=ffff0000\n",
+        )
+
+    def test_sets_linux_kernel_flag(self):
+        prog = Program(MOCK_PLATFORM)
+        self.assertFalse(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
+        prog.set_linux_kernel_custom(make_vmcoreinfo())
+        self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
+
+    def test_idempotent(self):
+        prog = Program(MOCK_PLATFORM)
+        prog.set_linux_kernel_custom(make_vmcoreinfo())
+        self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
+        prog.set_linux_kernel_custom(make_vmcoreinfo())
+        self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
+
+    def test_with_vmcoreinfo_in_constructor(self):
+        vmcoreinfo1 = make_vmcoreinfo(osrelease="5.0.0-first")
+        vmcoreinfo2 = make_vmcoreinfo(osrelease="6.0.0-second")
+        prog = Program(MOCK_PLATFORM, vmcoreinfo=vmcoreinfo1)
+        prog.set_linux_kernel_custom(vmcoreinfo2)
+        self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
+
+    def test_with_physical_memory_segment(self):
+        prog = Program(MOCK_PLATFORM)
+        data = b"test data"
+        prog.add_memory_segment(
+            0x1000,
+            len(data),
+            lambda addr, count, off, phys: data[off : off + count],
+            True,
+        )
+        prog.set_linux_kernel_custom(make_vmcoreinfo())
+        self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
+        self.assertEqual(prog.read(0x1000, len(data), physical=True), data)
+
+
 def dummy_symbol_finder(prog, name, address, one):
     return ()
 

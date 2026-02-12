@@ -810,6 +810,27 @@ struct drgn_error *drgn_program_set_core_dump_fd(struct drgn_program *prog, int 
 struct drgn_error *drgn_program_set_kernel(struct drgn_program *prog);
 
 /**
+ * Set a @ref drgn_program to a custom Linux kernel target.
+ *
+ * This enables debugging a Linux kernel via a custom memory transport
+ * (e.g., RDMA, TCP/IP, or VMM introspection). It sets up page table walking
+ * for virtual address translation.
+ *
+ * Physical memory segment(s) must be registered via @ref
+ * drgn_program_add_memory_segment() with physical=true before reading memory.
+ * Platform must be set when creating the program.
+ *
+ * @param[in] vmcoreinfo Raw vmcoreinfo data. If vmcoreinfo was already set
+ * when creating the program, this is ignored.
+ * @param[in] vmcoreinfo_size Size of vmcoreinfo data in bytes.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_program_set_linux_kernel_custom(struct drgn_program *prog,
+				     const char *vmcoreinfo,
+				     size_t vmcoreinfo_size);
+
+/**
  * Set a @ref drgn_program to a running process.
  *
  * @sa drgn_program_from_pid()

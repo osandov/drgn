@@ -733,6 +733,65 @@ drgn_program_set_kernel(struct drgn_program *prog)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_linux_kernel_custom(struct drgn_program *prog,
+				     const char *vmcoreinfo,
+				     size_t vmcoreinfo_size)
+{
+	struct drgn_error *err;
+
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+			"platform must be set before calling set_linux_kernel_custom()");
+	}
+
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		return NULL;
+
+	// Parse vmcoreinfo if not already set via Program constructor
+	bool had_vmcoreinfo = prog->vmcoreinfo.raw != NULL;
+	if (!had_vmcoreinfo) {
+		err = drgn_program_parse_vmcoreinfo(prog, vmcoreinfo,
+						    vmcoreinfo_size);
+		if (err)
+			return err;
+	}
+
+	/*
+	 * Register a virtual memory reader that uses page table walking.
+	 * This translates virtual addresses to physical using swapper_pg_dir
+	 * from vmcoreinfo, then reads physical memory from user-registered
+	 * segments.
+	 */
+	if (prog->platform.arch->linux_kernel_pgtable_iterator_next) {
+		err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
+						      read_memory_via_pgtable,
+						      prog, false);
+		if (err)
+			goto out_vmcoreinfo;
+	}
+
+	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+
+	err = drgn_program_finish_set_kernel(prog);
+	if (err) {
+		prog->flags &= ~DRGN_PROGRAM_IS_LINUX_KERNEL;
+		drgn_memory_reader_clear_virtual(&prog->reader);
+		goto out_vmcoreinfo;
+	}
+
+	drgn_call_plugins_prog("drgn_prog_set", prog);
+	return NULL;
+
+out_vmcoreinfo:
+	// Free vmcoreinfo buffer if it was not provided by the caller
+	if (!had_vmcoreinfo) {
+		free(prog->vmcoreinfo.raw);
+		memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
+	}
+	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 {
 	struct drgn_error *err;
