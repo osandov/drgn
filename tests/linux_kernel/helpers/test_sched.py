@@ -24,6 +24,7 @@ from drgn.helpers.linux.sched import (
     sched_entity_is_task,
     sched_entity_to_task,
     task_cpu,
+    task_group_name,
     task_on_cpu,
     task_since_last_arrival_ns,
     task_state_to_char,
@@ -191,6 +192,13 @@ class TestSched(LinuxKernelTestCase):
     def test_sched_entity_to_task(self):
         task = find_task(self.prog, os.getpid())
         self.assertEqual(sched_entity_to_task(task.se.address_of_()), task)
+
+    def test_task_group_name(self):
+        with tmp_cgroup_with_cpu_controller() as cgroup_dir:
+            cgrp = cgroup_get_from_path(self.prog, cgroup_dir.name)
+            css = cgrp.subsys[self.prog["cpu_cgrp_id"]]
+            task_group = container_of(css, "struct task_group", "css")
+            self.assertEqual(task_group_name(task_group), cgroup_dir.name.encode())
 
     def test_thread_group_leader(self):
         condition = Condition()
