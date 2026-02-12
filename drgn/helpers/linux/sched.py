@@ -24,8 +24,10 @@ from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.cgroup import cgroup_name
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.percpu import per_cpu
+from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 __all__ = (
+    "cfs_rq_for_each_entity",
     "cpu_curr",
     "cpu_rq",
     "get_task_state",
@@ -204,7 +206,8 @@ def rq_for_each_fair_task(rq: Object) -> Iterator[Object]:
     Iterate over tasks on a runqueue in the fair scheduling class (EEVDF or
     CFS).
 
-    Before Linux 6.17, this is not supported on !SMP kernels.
+    Before Linux 6.17, this is not supported on !SMP kernels; use
+    :func:`cfs_rq_for_each_entity()` instead.
 
     :param rq: ``struct rq *``
     :return: Iterator of ``struct task_struct *`` objects
@@ -263,6 +266,67 @@ def task_group_name(tg: Object) -> bytes:
     if not cgrp:
         return b""
     return cgroup_name(cgrp)
+
+
+def cfs_rq_for_each_entity(cfs_rq: Object) -> Iterator[Tuple[Object, int, bool, bool]]:
+    """
+    Iterate over all entities on a fair scheduler runqueue (recursively).
+
+    Task groups are visited before their children (i.e., this does a pre-order
+    traversal).
+
+    :param cfs_rq: ``struct cfs_rq *``
+    :return: Iterator of (``struct sched_entity *``, ``depth``, ``is_curr``,
+        ``is_task``) tuples.
+
+        ``depth`` is the depth of the entity relative to the runqueue (e.g.,
+        direct children have depth 0, entities in descendant task groups have
+        depth > 0).
+
+        ``is_curr`` is whether the entity is the current entity on its
+        runqueue.
+
+        If ``is_task`` is ``True``, then the entity is a task, which can be
+        obtained with :func:`sched_entity_to_task()`. Otherwise, it is a task
+        group.
+    """
+
+    def entities(cfs_rq: Object) -> Iterator[Tuple[Object, bool]]:
+        curr = cfs_rq.curr.read_()
+        if curr:
+            yield curr, True
+
+        # Since Linux kernel commit bfb068892d30 ("sched/fair: replace
+        # cfs_rq->rb_leftmost") (in v4.14), tasks_timeline is a struct
+        # rb_root_cached. Before that, it was a struct rb_root.
+        rb_root = cfs_rq.tasks_timeline
+        try:
+            rb_root = rb_root.rb_root
+        except AttributeError:
+            pass
+
+        for se in rbtree_inorder_for_each_entry(
+            "struct sched_entity", rb_root.address_of_(), "run_node"
+        ):
+            yield se, False
+
+    stack = [(entities(cfs_rq), 0)]
+    while stack:
+        it, depth = stack[-1]
+        try:
+            se, is_curr = next(it)
+        except StopIteration:
+            stack.pop()
+        else:
+            try:
+                my_q = se.my_q.read_()
+            except AttributeError:
+                my_q = None
+
+            yield se, depth, is_curr, not my_q
+
+            if my_q:
+                stack.append((entities(my_q), depth + 1))
 
 
 def task_since_last_arrival_ns(task: Object) -> int:
