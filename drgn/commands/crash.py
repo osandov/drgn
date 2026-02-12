@@ -346,13 +346,18 @@ def print_task_header(task: Object) -> None:
     _print_task_header(task, cpu=task_cpu(task))
 
 
-def _print_task_header(task: Object, *, cpu: int) -> None:
-    print(
-        f"PID: {task.pid.value_():<7}  "
-        f"TASK: {task.value_():x}  "
-        f"CPU: {cpu}  "
-        f"COMMAND: {double_quote_ascii_string(task.comm.string_())}"
-    )
+def _print_task_header(
+    task: Object, *, cpu: Optional[int], prio: bool = False, end: str = "\n"
+) -> None:
+    if prio:
+        prio_str = f"[{task.prio.value_():3}] "
+    else:
+        prio_str = ""
+    parts = [f"{prio_str}PID: {task.pid.value_():<7}", f"TASK: {task.value_():x}"]
+    if cpu is not None:
+        parts.append(f"CPU: {cpu}")
+    parts.append(f"COMMAND: {double_quote_ascii_string(task.comm.string_())}")
+    print(*parts, sep="  ", end=end)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -608,19 +613,31 @@ task = Object(prog, "struct task_struct *", address)
             assert arg[0] == "task"
             self._append_crash_task_context(arg[1])
 
-    def append_task_header(self, indent: str = "", *, variable: str = "task") -> None:
+    def append_task_header(
+        self,
+        indent: str = "",
+        *,
+        cpu: bool = True,
+        prio: bool = False,
+        variable: str = "task",
+    ) -> None:
         """Append code for getting basic information about a task."""
-        self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
-        self.append(
-            textwrap.indent(
-                f"""\
+        parts = []
+        if prio:
+            parts.append(f"prio = {variable}.prio\n")
+
+        if cpu:
+            self.add_from_import("drgn.helpers.linux.sched", "task_cpu")
+            parts.append(f"cpu = task_cpu({variable})\n")
+
+        parts.append(
+            f"""\
 pid = {variable}.pid
-cpu = task_cpu({variable})
 command = {variable}.comm
-""",
-                indent,
-            )
+"""
         )
+
+        self.append(textwrap.indent("".join(parts), indent))
 
     def append_addr_or_sym(self, arg: _ADDR_OR_SYM) -> None:
         """
