@@ -21,6 +21,7 @@ from _drgn import (
 )
 from drgn import IntegerLike, Object, Program, container_of
 from drgn.helpers.common.prog import takes_program_or_default
+from drgn.helpers.linux.cgroup import cgroup_name
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.percpu import per_cpu
 
@@ -35,6 +36,7 @@ __all__ = (
     "sched_entity_is_task",
     "sched_entity_to_task",
     "task_cpu",
+    "task_group_name",
     "task_on_cpu",
     "task_rq",
     "task_since_last_arrival_ns",
@@ -248,6 +250,19 @@ def sched_entity_to_task(se: Object) -> Object:
     :return: ``struct task_struct *``
     """
     return container_of(se, "struct task_struct", "se")
+
+
+def task_group_name(tg: Object) -> bytes:
+    """
+    Get the name of a task group.
+
+    :param tg: ``struct task_group *``
+    :return: Cgroup name, or empty byte string if not a cgroup.
+    """
+    cgrp = tg.css.cgroup.read_()
+    if not cgrp:
+        return b""
+    return cgroup_name(cgrp)
 
 
 def task_since_last_arrival_ns(task: Object) -> int:
