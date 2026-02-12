@@ -3,6 +3,7 @@
 
 import contextlib
 import os
+from pathlib import Path
 import resource
 import signal
 from threading import Condition, Thread
@@ -14,6 +15,7 @@ from drgn.helpers.linux.cgroup import cgroup_get_from_path
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.sched import (
+    cfs_rq_for_each_entity,
     cpu_curr,
     cpu_rq,
     get_task_state,
@@ -199,6 +201,37 @@ class TestSched(LinuxKernelTestCase):
             css = cgrp.subsys[self.prog["cpu_cgrp_id"]]
             task_group = container_of(css, "struct task_group", "css")
             self.assertEqual(task_group_name(task_group), cgroup_dir.name.encode())
+
+    def test_cfs_rq_for_each_entity(self):
+        old_affinity = os.sched_getaffinity(0)
+        cpu = max(old_affinity)
+        self.addCleanup(os.sched_setaffinity, 0, old_affinity)
+        os.sched_setaffinity(0, (cpu,))
+
+        with tmp_cgroup_with_cpu_controller() as cgroup_dir:
+            old_cgroup = (
+                Path("/proc/self/cgroup").read_text().strip().partition("::")[2]
+            )
+            old_cgroup_procs = (
+                cgroup_dir.parent / old_cgroup.lstrip("/") / "cgroup.procs"
+            )
+            (cgroup_dir / "cgroup.procs").write_text(str(os.getpid()))
+            try:
+                cgrp = cgroup_get_from_path(self.prog, cgroup_dir.name)
+                css = cgrp.subsys[self.prog["cpu_cgrp_id"]]
+                task_group = container_of(css, "struct task_group", "css")
+                task_group_se = task_group.se[cpu].read_()
+
+                task = find_task(self.prog, os.getpid())
+                task_se = task.se.address_of_()
+
+                entities = list(
+                    cfs_rq_for_each_entity(cpu_rq(self.prog, cpu).cfs.address_of_())
+                )
+                self.assertIn((task_group_se, 0, True, False), entities)
+                self.assertIn((task_se, 1, True, True), entities)
+            finally:
+                old_cgroup_procs.write_text(str(os.getpid()))
 
     def test_thread_group_leader(self):
         condition = Condition()
