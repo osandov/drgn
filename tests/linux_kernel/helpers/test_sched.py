@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import contextlib
 import os
 import resource
 import signal
@@ -8,6 +9,8 @@ from threading import Condition, Thread
 import time
 import unittest
 
+from drgn import container_of
+from drgn.helpers.linux.cgroup import cgroup_get_from_path
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.sched import (
@@ -18,6 +21,8 @@ from drgn.helpers.linux.sched import (
     loadavg,
     rq_for_each_fair_task,
     rq_for_each_rt_task,
+    sched_entity_is_task,
+    sched_entity_to_task,
     task_cpu,
     task_on_cpu,
     task_since_last_arrival_ns,
@@ -32,7 +37,16 @@ from tests.linux_kernel import (
     skip_unless_have_test_kmod,
     wait_until,
 )
+from tests.linux_kernel.helpers.test_cgroup import tmp_cgroup
 from util import KernelVersion
+
+
+@contextlib.contextmanager
+def tmp_cgroup_with_cpu_controller():
+    with tmp_cgroup() as cgroup_dir:
+        if "cpu" not in (cgroup_dir / "cgroup.controllers").read_text().split():
+            raise unittest.SkipTest("cgroup CPU controller not enabled")
+        yield cgroup_dir
 
 
 class TestSched(LinuxKernelTestCase):
@@ -160,6 +174,23 @@ class TestSched(LinuxKernelTestCase):
         rq = cpu_rq(self.prog, cpu)
         pids = [task.pid.value_() for task in rq_for_each_rt_task(rq)]
         self.assertIn(os.getpid(), pids)
+
+    def test_sched_entity_is_task(self):
+        task = find_task(self.prog, os.getpid())
+        self.assertTrue(sched_entity_is_task(task.se.address_of_()))
+
+    def test_sched_entity_is_task_false(self):
+        with tmp_cgroup_with_cpu_controller() as cgroup_dir:
+            cgrp = cgroup_get_from_path(self.prog, cgroup_dir.name)
+            css = cgrp.subsys[self.prog["cpu_cgrp_id"]]
+            task_group = container_of(css, "struct task_group", "css")
+            cpu = min(os.sched_getaffinity(0))
+            se = task_group.se[cpu].read_()
+            self.assertFalse(sched_entity_is_task(se))
+
+    def test_sched_entity_to_task(self):
+        task = find_task(self.prog, os.getpid())
+        self.assertEqual(sched_entity_to_task(task.se.address_of_()), task)
 
     def test_thread_group_leader(self):
         condition = Condition()

@@ -28,23 +28,29 @@ from tests.linux_kernel import (
 
 
 @contextlib.contextmanager
-def tmp_cgroups():
+def tmp_cgroup():
     for mnt in iter_mounts():
         if mnt.fstype == "cgroup2":
             break
     else:
         raise unittest.SkipTest("cgroup2 not mounted")
 
-    parent = Path(tempfile.mkdtemp(prefix="drgn-tests-", dir=mnt.mount_point))
+    path = Path(tempfile.mkdtemp(prefix="drgn-tests-", dir=mnt.mount_point))
     try:
+        yield path
+    finally:
+        path.rmdir()
+
+
+@contextlib.contextmanager
+def tmp_cgroups():
+    with tmp_cgroup() as parent:
         child = parent / "child"
         child.mkdir()
         try:
             yield parent, child
         finally:
             child.rmdir()
-    finally:
-        parent.rmdir()
 
 
 class TestCgroup(LinuxKernelTestCase):

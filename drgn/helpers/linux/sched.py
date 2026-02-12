@@ -19,7 +19,7 @@ from _drgn import (
     _linux_helper_task_on_cpu as task_on_cpu,
     _linux_helper_task_thread_info as task_thread_info,
 )
-from drgn import IntegerLike, Object, Program
+from drgn import IntegerLike, Object, Program, container_of
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.percpu import per_cpu
@@ -32,6 +32,8 @@ __all__ = (
     "loadavg",
     "rq_for_each_fair_task",
     "rq_for_each_rt_task",
+    "sched_entity_is_task",
+    "sched_entity_to_task",
     "task_cpu",
     "task_on_cpu",
     "task_rq",
@@ -221,6 +223,31 @@ def rq_for_each_rt_task(rq: Object) -> Iterator[Object]:
         yield from list_for_each_entry(
             "struct task_struct", queue.address_of_(), "rt.run_list"
         )
+
+
+def sched_entity_is_task(se: Object) -> bool:
+    """
+    Return whether a scheduler entity is a task.
+
+    :param se: ``struct sched_entity *``
+    """
+    try:
+        return not se.my_q
+    except AttributeError:
+        return True
+
+
+def sched_entity_to_task(se: Object) -> Object:
+    """
+    Get the task represented by a scheduler entity.
+
+    Note that this does not check whether the entity is actually a task; see
+    :func:`sched_entity_is_task()`.
+
+    :param se: ``struct sched_entity *``
+    :return: ``struct task_struct *``
+    """
+    return container_of(se, "struct task_struct", "se")
 
 
 def task_since_last_arrival_ns(task: Object) -> int:
