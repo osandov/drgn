@@ -986,6 +986,26 @@ static PyObject *Program_set_kernel(Program *self)
 	Py_RETURN_NONE;
 }
 
+static PyObject *Program_set_linux_kernel_custom(Program *self, PyObject *args,
+						  PyObject *kwds)
+{
+	static char *keywords[] = {"vmcoreinfo", NULL};
+	struct drgn_error *err;
+	const char *vmcoreinfo;
+	Py_ssize_t vmcoreinfo_size;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "s#:set_linux_kernel_custom", keywords,
+					 &vmcoreinfo, &vmcoreinfo_size))
+		return NULL;
+
+	err = drgn_program_set_linux_kernel_custom(&self->prog, vmcoreinfo,
+						   vmcoreinfo_size);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"pid", NULL};
@@ -2230,6 +2250,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_core_dump_DOC},
 	{"set_kernel", (PyCFunction)Program_set_kernel, METH_NOARGS,
 	 drgn_Program_set_kernel_DOC},
+	{"set_linux_kernel_custom", (PyCFunction)Program_set_linux_kernel_custom,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_linux_kernel_custom_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_pid_DOC},
 	{"modules", (PyCFunction)Program_modules, METH_NOARGS,
