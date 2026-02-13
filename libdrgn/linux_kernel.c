@@ -1666,7 +1666,8 @@ yield_vmlinux(struct linux_kernel_loaded_module_iterator *it,
 		drgn_log_debug(prog,
 			       "found kernel build ID %s in VMCOREINFO",
 			       module->build_id_str);
-	} else if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+	} else if ((prog->flags & (DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LOCAL))
+		   == (DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LOCAL)) {
 		// Before that, on the live kernel, we can get the build ID from
 		// /sys/kernel/notes.
 		_cleanup_free_ void *build_id_buf = NULL;
@@ -2340,7 +2341,8 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 	// be disabled if we encounter permission issues using
 	// /sys/module/$module/sections.
 	bool use_sys_module = false;
-	if (prog->flags & DRGN_PROGRAM_IS_LOCAL) {
+	if ((prog->flags & (DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LOCAL))
+	    == (DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LOCAL)) {
 		char *env = getenv("DRGN_USE_SYS_MODULE");
 		use_sys_module = !env || atoi(env);
 	}
