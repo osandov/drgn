@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include "test_util.h"
 #include "../bitmap.h"
 #include "../cleanup.h"
 
