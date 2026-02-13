@@ -15,6 +15,7 @@
 	ck_assert_msg(unique_err, "Assertion '%s != NULL' failed", #err);	\
 	ck_assert_int_eq(unique_err->code, (_code));				\
 	ck_assert_str_eq(unique_err->message, (_message));			\
+	drgn_error_destroy(unique_err);						\
 } while (0)
 
 #define drgn_ck_no_err(err) drgn_ck_no_err_impl(err, PP_UNIQUE(_err))
