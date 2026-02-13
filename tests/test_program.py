@@ -1177,6 +1177,7 @@ class TestSetLinuxKernelCustom(TestCase):
             "platform must be set",
             prog.set_linux_kernel_custom,
             make_vmcoreinfo(),
+            False,
         )
 
     def test_invalid_vmcoreinfo_missing_osrelease(self):
@@ -1186,26 +1187,38 @@ class TestSetLinuxKernelCustom(TestCase):
             "VMCOREINFO does not contain valid OSRELEASE",
             prog.set_linux_kernel_custom,
             b"PAGESIZE=4096\nSYMBOL(swapper_pg_dir)=ffff0000\n",
+            False,
         )
 
     def test_sets_linux_kernel_flag(self):
         prog = Program(MOCK_PLATFORM)
         self.assertFalse(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
-        prog.set_linux_kernel_custom(make_vmcoreinfo())
+        prog.set_linux_kernel_custom(make_vmcoreinfo(), False)
         self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
+
+    def test_is_live(self):
+        prog = Program(MOCK_PLATFORM)
+        self.assertFalse(prog.flags & ProgramFlags.IS_LIVE)
+        prog.set_linux_kernel_custom(make_vmcoreinfo(), True)
+        self.assertTrue(prog.flags & ProgramFlags.IS_LIVE)
+
+    def test_not_is_live(self):
+        prog = Program(MOCK_PLATFORM)
+        prog.set_linux_kernel_custom(make_vmcoreinfo(), False)
+        self.assertFalse(prog.flags & ProgramFlags.IS_LIVE)
 
     def test_idempotent(self):
         prog = Program(MOCK_PLATFORM)
-        prog.set_linux_kernel_custom(make_vmcoreinfo())
+        prog.set_linux_kernel_custom(make_vmcoreinfo(), False)
         self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
-        prog.set_linux_kernel_custom(make_vmcoreinfo())
+        prog.set_linux_kernel_custom(make_vmcoreinfo(), False)
         self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
 
     def test_with_vmcoreinfo_in_constructor(self):
         vmcoreinfo1 = make_vmcoreinfo(osrelease="5.0.0-first")
         vmcoreinfo2 = make_vmcoreinfo(osrelease="6.0.0-second")
         prog = Program(MOCK_PLATFORM, vmcoreinfo=vmcoreinfo1)
-        prog.set_linux_kernel_custom(vmcoreinfo2)
+        prog.set_linux_kernel_custom(vmcoreinfo2, False)
         self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
 
     def test_with_physical_memory_segment(self):
@@ -1217,7 +1230,7 @@ class TestSetLinuxKernelCustom(TestCase):
             lambda addr, count, off, phys: data[off : off + count],
             True,
         )
-        prog.set_linux_kernel_custom(make_vmcoreinfo())
+        prog.set_linux_kernel_custom(make_vmcoreinfo(), False)
         self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
         self.assertEqual(prog.read(0x1000, len(data), physical=True), data)
 

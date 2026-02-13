@@ -823,12 +823,13 @@ struct drgn_error *drgn_program_set_kernel(struct drgn_program *prog);
  * @param[in] vmcoreinfo Raw vmcoreinfo data. If vmcoreinfo was already set
  * when creating the program, this is ignored.
  * @param[in] vmcoreinfo_size Size of vmcoreinfo data in bytes.
+ * @param[in] is_live Whether the kernel is currently running.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_program_set_linux_kernel_custom(struct drgn_program *prog,
 				     const char *vmcoreinfo,
-				     size_t vmcoreinfo_size);
+				     size_t vmcoreinfo_size, bool is_live);
 
 /**
  * Set a @ref drgn_program to a running process.

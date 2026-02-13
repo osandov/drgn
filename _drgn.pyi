@@ -816,7 +816,9 @@ class Program:
         """
         ...
 
-    def set_linux_kernel_custom(self, vmcoreinfo: Union[str, bytes]) -> None:
+    def set_linux_kernel_custom(
+        self, vmcoreinfo: Union[str, bytes], is_live: bool
+    ) -> None:
         """
         Set the program to a custom Linux kernel target.
 
@@ -831,6 +833,7 @@ class Program:
 
         :param vmcoreinfo: Raw vmcoreinfo data. If vmcoreinfo was already set
             when creating the :class:`Program`, this is ignored.
+        :param is_live: Whether the kernel is currently running.
         """
         ...
 

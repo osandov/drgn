@@ -735,7 +735,7 @@ drgn_program_set_kernel(struct drgn_program *prog)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_linux_kernel_custom(struct drgn_program *prog,
 				     const char *vmcoreinfo,
-				     size_t vmcoreinfo_size)
+				     size_t vmcoreinfo_size, bool is_live)
 {
 	struct drgn_error *err;
 
@@ -770,11 +770,14 @@ drgn_program_set_linux_kernel_custom(struct drgn_program *prog,
 			goto out_vmcoreinfo;
 	}
 
+	enum drgn_program_flags old_flags = prog->flags;
 	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+	if (is_live)
+		prog->flags |= DRGN_PROGRAM_IS_LIVE;
 
 	err = drgn_program_finish_set_kernel(prog);
 	if (err) {
-		prog->flags &= ~DRGN_PROGRAM_IS_LINUX_KERNEL;
+		prog->flags = old_flags;
 		drgn_memory_reader_clear_virtual(&prog->reader);
 		goto out_vmcoreinfo;
 	}
