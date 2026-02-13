@@ -266,7 +266,9 @@ def _ps_last_arrival(
 
         for last_arrival, cpu, state, task in rows:
             if elapsed:
-                timestamp = _format_nanosecond_duration(rq_clocks[cpu] - last_arrival)
+                timestamp = _format_nanosecond_duration(
+                    max(rq_clocks[cpu] - last_arrival, 0)
+                )
             else:
                 timestamp = str(last_arrival)
 
