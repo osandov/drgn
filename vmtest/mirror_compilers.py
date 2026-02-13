@@ -12,10 +12,17 @@ import urllib.request
 
 import uritemplate
 
-from vmtest.config import ARCHITECTURES, compiler_url
+from vmtest.config import ARCHITECTURES, KERNEL_ORG_COMPILER_VERSION, compiler_name
 from vmtest.githubapi import GitHubApi
 
 logger = logging.getLogger(__name__)
+
+
+_KERNEL_ORG_COMPILER_URL = "https://mirrors.kernel.org/pub/tools/crosstool/"
+
+
+def _kernel_org_compiler_url(host_name: str, target_name: str) -> str:
+    return f"{_KERNEL_ORG_COMPILER_URL}files/bin/{host_name}/{KERNEL_ORG_COMPILER_VERSION}/{compiler_name(host_name, target_name)}.tar.xz"
 
 
 def main() -> None:
@@ -49,7 +56,7 @@ def main() -> None:
 
         for host_name in host_names:
             for target_name in target_names:
-                url = compiler_url(host_name, target_name)
+                url = _kernel_org_compiler_url(host_name, target_name)
                 file_name = url.rpartition("/")[2]
 
                 if file_name in available_compilers:

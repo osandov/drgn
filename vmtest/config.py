@@ -51,7 +51,6 @@ SUPPORTED_KERNEL_VERSIONS = (
     "4.9",
 )
 
-KERNEL_ORG_COMPILER_URL = "https://mirrors.kernel.org/pub/tools/crosstool/"
 KERNEL_ORG_COMPILER_VERSION = "12.5.0"
 
 
@@ -535,7 +534,7 @@ def compiler_name(host_name: str, target_name: str) -> str:
 
 
 def compiler_url(host_name: str, target_name: str) -> str:
-    return f"{KERNEL_ORG_COMPILER_URL}files/bin/{host_name}/{KERNEL_ORG_COMPILER_VERSION}/{compiler_name(host_name, target_name)}.tar.xz"
+    return f"https://github.com/osandov/drgn/releases/download/vmtest-compilers/{compiler_name(host_name, target_name)}.tar.xz"
 
 
 def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str) -> str:
