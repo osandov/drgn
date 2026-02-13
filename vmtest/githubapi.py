@@ -91,11 +91,20 @@ class _GitHubApiBase:
             "GET", url, headers={**self._headers, "Accept": "application/octet-stream"}
         )
 
-    def upload(self, url: str, data: Any, content_type: str) -> Any:
+    def upload(
+        self,
+        url: str,
+        data: Any,
+        content_type: str,
+        content_length: Optional[int] = None,
+    ) -> Any:
+        headers = {**self._headers, "Content-Type": content_type}
+        if content_length is not None:
+            headers["Content-Length"] = str(content_length)
         return self._request(
             "POST",
             url,
-            headers={**self._headers, "Content-Type": content_type},
+            headers=headers,
             data=data,
         )
 
