@@ -40,12 +40,12 @@ CFLAGS="-g -O2 -Wno-error" ./configure --disable-werror --enable-libdebuginfod -
 make -j$(($(nproc) + 1))
 make install
 
-libkdumpfile_version=0.5.5
-libkdumpfile_url=https://github.com/ptesarik/libkdumpfile/releases/download/v$libkdumpfile_version/libkdumpfile-$libkdumpfile_version.tar.gz
+libkdumpfile_version=0.5.6
+libkdumpfile_url=https://codeberg.org/ptesarik/libkdumpfile/releases/download/v$libkdumpfile_version/libkdumpfile-$libkdumpfile_version.tar.gz
 mkdir /tmp/libkdumpfile
 cd /tmp/libkdumpfile
 curl -L "$libkdumpfile_url" | tar -xz --strip-components=1
-./configure --with-libzstd --with-lzo2 --with-snappy --with-zlib --without-python --disable-kdumpid
+./configure --with-libzstd --with-lzo2 --with-snappy --with-zlib --disable-kdumpid
 make -j$(($(nproc) + 1))
 make install
 
