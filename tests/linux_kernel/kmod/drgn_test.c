@@ -303,13 +303,32 @@ static ssize_t drgn_test_blkdev_truant_store(struct device *dev,
 	return count;
 }
 
+static ssize_t drgn_test_blkdev_num_loafing_show(struct device *dev,
+						 struct device_attribute *attr,
+						 char *buf)
+{
+	struct drgn_test_blkdev *data = dev_to_disk(dev)->private_data;
+	struct list_head *pos;
+	size_t n = 0;
+
+	spin_lock(&data->lock);
+	list_for_each(pos, &data->loafing_requests)
+		n++;
+	spin_unlock(&data->lock);
+	return sprintf(buf, "%zu\n", n);
+}
+
 static struct device_attribute drgn_test_blkdev_attr_truant =
 	__ATTR(truant, 0600, drgn_test_blkdev_truant_show,
 	       drgn_test_blkdev_truant_store);
 
+static struct device_attribute drgn_test_blkdev_attr_num_loafing =
+	__ATTR(num_loafing, 0400, drgn_test_blkdev_num_loafing_show, NULL);
+
 static const struct attribute_group drgn_test_blkdev_attr_group = {
 	.attrs = (struct attribute *[]){
 		&drgn_test_blkdev_attr_truant.attr,
+		&drgn_test_blkdev_attr_num_loafing.attr,
 		NULL,
 	},
 };

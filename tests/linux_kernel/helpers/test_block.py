@@ -40,6 +40,7 @@ from tests.linux_kernel import (
     iocb,
     meminfo_field_in_pages,
     skip_unless_have_test_kmod,
+    wait_until,
 )
 
 
@@ -119,9 +120,14 @@ class TestBlock(LinuxKernelTestCase):
 
             io_submit(ctx_id, iocbs)
 
-            rq = blk_mq_rq_from_pdu(
-                self.prog["drgn_test_blkdevs"][0].loafing_requests.next
-            )
+            num_loafing = Path("/sys/block/drgntestb0/num_loafing")
+            wait_until(lambda: int(num_loafing.read_text()) > 0)
+
+            loafing_requests = self.prog["drgn_test_blkdevs"][0].loafing_requests
+            pos = loafing_requests.next.read_()
+            self.assertNotEqual(pos, loafing_requests.address_of_())
+
+            rq = blk_mq_rq_from_pdu(pos)
             self.assertEqual(req_op(rq), self.prog["REQ_OP_WRITE"])
             self.assertEqual(rq_data_dir(rq), 1)
             self.assertEqual(blk_rq_pos(rq), (6 * mmap.PAGESIZE) >> 9)
