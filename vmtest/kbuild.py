@@ -486,6 +486,7 @@ class KBuild:
             "scripts/check-local-export",
             "scripts/gcc-goto.sh",
             "scripts/gcc-version.sh",
+            "scripts/gen-btf.sh",
             "scripts/ld-version.sh",
             "scripts/mod/modpost",
             "scripts/module-common.c",
