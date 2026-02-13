@@ -80,7 +80,9 @@ def load_vmlinux_kallsyms(prog: Program) -> SymbolIndex:
 
     :returns: a symbol index containing kallsyms for the core kernel (vmlinux)
     """
-    if prog.flags & ProgramFlags.IS_LIVE and os.geteuid() == 0:
+    if (prog.flags & (ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL)) == (
+        ProgramFlags.IS_LIVE | ProgramFlags.IS_LOCAL
+    ) and os.geteuid() == 0:
         return _load_proc_kallsyms()
     else:
         return _load_builtin_kallsyms(prog)
