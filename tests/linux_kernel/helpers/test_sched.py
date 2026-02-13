@@ -41,7 +41,6 @@ from tests.linux_kernel import (
     wait_until,
 )
 from tests.linux_kernel.helpers.test_cgroup import tmp_cgroup
-from util import KernelVersion
 
 
 @contextlib.contextmanager
@@ -140,13 +139,6 @@ class TestSched(LinuxKernelTestCase):
             task = find_task(self.prog, pid)
             self.assertGreaterEqual(task_since_last_arrival_ns(task), 10000000)
 
-    # Before Linux kernel commit cac5cefbade9 ("sched/smp: Make SMP
-    # unconditional") (in v6.17), cfs_tasks does not exist on !SMP.
-    @unittest.skipIf(
-        KernelVersion(os.uname().release) < KernelVersion("6.17")
-        and "SMP" not in os.uname().version,
-        "rq_for_each_fair_task() is not supported on Linux < 6.17 !SMP",
-    )
     def test_rq_for_each_fair_task(self):
         old_affinity = os.sched_getaffinity(0)
         cpu = max(old_affinity)

@@ -206,14 +206,22 @@ def rq_for_each_fair_task(rq: Object) -> Iterator[Object]:
     Iterate over tasks on a runqueue in the fair scheduling class (EEVDF or
     CFS).
 
-    Before Linux 6.17, this is not supported on !SMP kernels; use
-    :func:`cfs_rq_for_each_entity()` instead.
-
     :param rq: ``struct rq *``
     :return: Iterator of ``struct task_struct *`` objects
     """
+    try:
+        cfs_tasks = rq.cfs_tasks
+    except AttributeError:
+        # Before Linux kernel commit cac5cefbade9 ("sched/smp: Make SMP
+        # unconditional") (in v6.17), cfs_tasks does not exist on !SMP. Fall
+        # back to walking the tasks_timeline hierarchy.
+        return (
+            sched_entity_to_task(se)
+            for se, _, _, is_task in cfs_rq_for_each_entity(rq.cfs.address_of_())
+            if is_task
+        )
     return list_for_each_entry(
-        "struct task_struct", rq.cfs_tasks.address_of_(), "se.group_node"
+        "struct task_struct", cfs_tasks.address_of_(), "se.group_node"
     )
 
 
