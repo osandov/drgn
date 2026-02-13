@@ -589,6 +589,7 @@ struct drgn_error *drgn_module_set_address_range(struct drgn_module *module,
 	int r = drgn_module_address_tree_insert(&module->prog->dbinfo.modules_by_address,
 						&module->single_address_range,
 						NULL);
+	(void)r;
 	assert(r > 0); // We checked for overlap.
 
 	module->address_ranges = &module->single_address_range;
