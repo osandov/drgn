@@ -120,6 +120,14 @@ def _cmd_crash(
         pass
 
 
+@crash_command(description="exit session")
+@crash_command(name="q", description="exit session")
+def _crash_cmd_exit(
+    prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
+) -> None:
+    raise _ExitCrash()
+
+
 @crash_custom_command(
     description="run drgn code or enter drgn interactive mode",
     usage="**drgn** [*code*]",
