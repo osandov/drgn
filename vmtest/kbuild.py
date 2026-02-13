@@ -676,6 +676,7 @@ MODULE_DESCRIPTION("Module for testing build");
                 .strip()
             )
 
+        package.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(
             prefix=package.name + ".tmp.", dir=package.parent
         ) as tmp_name:
@@ -743,7 +744,6 @@ MODULE_DESCRIPTION("Module for testing build");
             self._copy_module_build(modules_build_dir)
             await self._test_external_module_build(modules_build_dir)
 
-            package.parent.mkdir(parents=True, exist_ok=True)
             if format == "directory":
                 logger.info("renaming directory")
                 try:
