@@ -989,18 +989,20 @@ static PyObject *Program_set_kernel(Program *self)
 static PyObject *Program_set_linux_kernel_custom(Program *self, PyObject *args,
 						  PyObject *kwds)
 {
-	static char *keywords[] = {"vmcoreinfo", NULL};
+	static char *keywords[] = {"vmcoreinfo", "is_live", NULL};
 	struct drgn_error *err;
 	const char *vmcoreinfo;
 	Py_ssize_t vmcoreinfo_size;
+	int is_live;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds,
-					 "s#:set_linux_kernel_custom", keywords,
-					 &vmcoreinfo, &vmcoreinfo_size))
+					 "s#p:set_linux_kernel_custom", keywords,
+					 &vmcoreinfo, &vmcoreinfo_size,
+					 &is_live))
 		return NULL;
 
 	err = drgn_program_set_linux_kernel_custom(&self->prog, vmcoreinfo,
-						   vmcoreinfo_size);
+						   vmcoreinfo_size, is_live);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
