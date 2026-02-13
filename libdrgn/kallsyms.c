@@ -360,10 +360,58 @@ static uint64_t absolute_percpu(uint64_t base, int32_t val)
 /**
  * Load the kallsyms address information from @a prog
  *
- * Just as symbol name loading is complex, so is address loading. Addresses may
- * be stored directly as an array of pointers, but more commonly, they are
- * stored as an array of 32-bit integers which are related to an offset. This
- * function decodes the addresses into a plain array of 64-bit addresses.
+ * Built-in kallsyms can be stored in (at least) 4 different ways, depending on
+ * the kernel version and configuration. Drgn supports all of them.
+ *
+ * Absolute kallsyms: [v2.6 era, v6.11)
+ *     Kconfig: NONE (default when kallsyms is enabled)
+ *     Addresses are directly stored in: unsigned long kallsyms_addresses[]
+ *     This was the only option until v4.6, and it was used by all arches.
+ *
+ * Base relative:     [v4.6, v7.0)
+ *     Kconfig: [v4.6, 6.11): CONFIG_KALLSYMS_BASE_RELATIVE
+ *              [v6.11, v7.0): NONE (default when kallsyms is enabled)
+ *     Addresses are stored as offsets in: int kallsyms_offsets[].
+ *     The offsets are from "kallsyms_relative_base".
+ *     This was added to reduce memory usage on 64-bit architectures. It became
+ *     the de-facto default, except for architectures with large gaps in symbol
+ *     addresses (like x86_64).
+ *
+ * Absolute percpu:   [v4.6, v6.15)
+ *     Kconfig: CONFIG_KALLSYMS_ABSOLUTE_PERCPU
+ *     Addresses are encoded in: int kallsyms_offsets[].
+ *     Negative values are negated offsets from "kallsyms_relative_base".
+ *     Positive values are absolute addresses.
+ *     This alternative was added alongside base-relative encoding, mainly to
+ *     support x86_64, where percpu addresses were low addresses near zero.
+ *
+ * Place relative:    [v7.0, present)
+ *     Kconfig: NONE (default when kallsyms is enabled)
+ *     Addresses are stored as offsets in: int kallsyms_offsets[].
+ *     Offsets are relative to the memory address at which they are stored.
+ *     This was introduced as a simplification after absolute percpu was
+ *     eliminated. For some 32-bit architectures kernel relocation is not
+ *     supported, so these architectures use absolute addresses. Drgn does not
+ *     support those architectures but this code should work for them
+ *     nonetheless.
+ *
+ * In addition, to read these, the kallsyms variable locations must be encoded
+ * in VMCOREINFO. This happened in v6.0, but those commits have been backported
+ * in some distributions.
+ *
+ * Relevant commit history:
+ *
+ * v4.6 - introduces base relative and absolute percpu.
+ *     2213e9a66bb87 ("kallsyms: add support for relative offsets in kallsyms address table")
+ * v6.0 - adds kallsyms symbols to vmcoreinfo
+ *     5fd8fea935a10 ("vmcoreinfo: include kallsyms symbols")
+ *     f09bddbd86619 ("vmcoreinfo: add kallsyms_num_syms symbol")
+ * v6.11 - removes absolute kallsyms
+ *     64e166099b69b ("kallsyms: get rid of code for absolute kallsyms")
+ * v6.15 - removes absolute percpu
+ *     01157ddc58dc2 ("kallsyms: Remove KALLSYMS_ABSOLUTE_PERCPU")
+ * v7.0 - replaces base relative with place relative
+ *     a081b5789255d ("kallsyms: Get rid of kallsyms relative base")
  *
  * @param prog The program to read from
  * @param kr The symbol registry to fill
@@ -391,11 +439,7 @@ kallsyms_load_addresses(struct drgn_program *prog, struct kallsyms_reader *kr,
 		return &drgn_enomem;
 
 	if (loc->kallsyms_addresses) {
-		/*
-		 * The kallsyms addresses are stored as plain addresses in an
-		 * array of unsigned long! Read the appropriate size array and
-		 * do any necessary byte swaps.
-		 */
+		/* Absolute kallsyms */
 		if (bits64) {
 			err = drgn_program_read_memory(prog, addresses,
 						loc->kallsyms_addresses,
@@ -426,24 +470,18 @@ kallsyms_load_addresses(struct drgn_program *prog, struct kallsyms_reader *kr,
 		}
 	} else {
 		/*
-		 * The kallsyms addresses are stored in an array of 4-byte
-		 * values, which can be interpreted in two ways:
-		 * (1) if CONFIG_KALLSYMS_ABSOLUTE_PERCPU is enabled, then
-		 *     positive values are addresses, and negative values are
-		 *     offsets from a base address.
-		 * (2) otherwise, the 4-byte values are directly used as
-		 *     addresses
+		 * Relative base, absolute percpu, and place-relative.
 		 * First, read the values, then figure out which way to
 		 * interpret them.
 		 */
-		uint64_t relative_base;
-		if (bits64) {
+		uint64_t relative_base = 0;
+		if (loc->kallsyms_relative_base && bits64) {
 			// performs the bswap for us, if necessary
 			err = drgn_program_read_u64(prog, loc->kallsyms_relative_base,
 						false, &relative_base);
 			if (err)
 				return err;
-		} else {
+		} else if (loc->kallsyms_relative_base) {
 			uint32_t rel32;
 			// performs the bswap for us, if necessary
 			err = drgn_program_read_u32(prog, loc->kallsyms_relative_base,
@@ -476,18 +514,27 @@ kallsyms_load_addresses(struct drgn_program *prog, struct kallsyms_reader *kr,
 		err = search_for_string(kr, "_stext", &stext_idx);
 		if (err)
 			return err;
-		uint64_t stext_abs = relative_base + addr32[stext_idx];
-		uint64_t stext_pcpu = absolute_percpu(relative_base, (int32_t)addr32[stext_idx]);
-		if (stext_abs == loc->_stext) {
+		/* Relative base (OR: non-relocatable place-relative) */
+		uint64_t relbase = relative_base + addr32[stext_idx];
+		/* Absolute percpu (disable for place-relative) */
+		uint64_t abs_pcpu;
+		if (loc->kallsyms_relative_base)
+			abs_pcpu = absolute_percpu(relative_base, (int32_t)addr32[stext_idx]);
+		/* Place relative */
+		uint64_t prel = loc->kallsyms_offsets + 4 * stext_idx + (int32_t)addr32[stext_idx];
+		if (relbase == loc->_stext) {
 			for (int i = 0; i < kr->num_syms; i++)
 				addresses[i] = relative_base + addr32[i];
-		} else if (stext_pcpu == loc->_stext) {
+		} else if (loc->kallsyms_relative_base && abs_pcpu == loc->_stext) {
 			for (int i = 0; i < kr->num_syms; i++)
 				addresses[i] = absolute_percpu(relative_base, (int32_t)addr32[i]);
+		} else if (prel == loc->_stext) {
+			for (int i = 0; i < kr->num_syms; i++)
+				addresses[i] = loc->kallsyms_offsets + 4 * i + (int32_t)addr32[i];
 		} else {
 			err = drgn_error_create(
 				DRGN_ERROR_OTHER,
-				"Unable to interpret kallsyms address data");
+				"Unable to interpret kallsyms offset encoding");
 			if (err)
 				return err;
 		}
