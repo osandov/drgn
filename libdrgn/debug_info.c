@@ -660,6 +660,7 @@ struct drgn_error *drgn_module_set_address_ranges(struct drgn_module *module,
 		int r = drgn_module_address_tree_insert(&module->prog->dbinfo.modules_by_address,
 							&address_ranges[i],
 							NULL);
+		(void)r;
 		assert(r > 0); // We checked for overlap.
 	}
 
