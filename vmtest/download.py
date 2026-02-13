@@ -38,12 +38,13 @@ from vmtest.config import (
     Architecture,
     Compiler,
     Kernel,
+    compiler_name,
+    compiler_url,
 )
 from vmtest.githubapi import GitHubApi
 
 logger = logging.getLogger(__name__)
 
-COMPILER_URL = "https://mirrors.kernel.org/pub/tools/crosstool/"
 VMTEST_GITHUB_RELEASE = ("osandov", "drgn", "vmtest-assets")
 
 
@@ -83,11 +84,11 @@ class DownloadNotFoundError(Exception):
     pass
 
 
-_KERNEL_ORG_COMPILER_HOST_NAME = {
-    "aarch64": "arm64",
-    "ppc64": "ppc64le",
-    "x86_64": "x86_64",
-}.get(NORMALIZED_MACHINE_NAME)
+_KERNEL_ORG_COMPILER_HOST_NAME = (
+    None
+    if HOST_ARCHITECTURE is None
+    else HOST_ARCHITECTURE.kernel_org_compiler_host_name
+)
 
 
 def downloaded_compiler(download_dir: Path, target: Architecture) -> Compiler:
@@ -98,9 +99,11 @@ def downloaded_compiler(download_dir: Path, target: Architecture) -> Compiler:
     return Compiler(
         target=target,
         bin=download_dir
-        / f"{_KERNEL_ORG_COMPILER_HOST_NAME}-gcc-{KERNEL_ORG_COMPILER_VERSION}-nolibc-{target.kernel_org_compiler_name}"
+        / compiler_name(
+            _KERNEL_ORG_COMPILER_HOST_NAME, target.kernel_org_compiler_target_name
+        )
         / "bin",
-        prefix=target.kernel_org_compiler_name + "-",
+        prefix=target.kernel_org_compiler_target_name + "-",
     )
 
 
@@ -219,7 +222,11 @@ class Downloader:
                 "compiler for %s already downloaded to %s", compiler.target.name, dir
             )
         else:
-            url = f"{COMPILER_URL}files/bin/{_KERNEL_ORG_COMPILER_HOST_NAME}/{KERNEL_ORG_COMPILER_VERSION}/{dir.name}.tar.xz"
+            assert _KERNEL_ORG_COMPILER_HOST_NAME is not None
+            url = compiler_url(
+                _KERNEL_ORG_COMPILER_HOST_NAME,
+                compiler.target.kernel_org_compiler_target_name,
+            )
             logger.info(
                 "downloading compiler for %s from %s to %s",
                 compiler.target.name,
@@ -252,7 +259,7 @@ class Downloader:
                         tar_proc.returncode, tar_proc.args
                     )
                 archive_subdir = Path(
-                    f"gcc-{KERNEL_ORG_COMPILER_VERSION}-nolibc/{compiler.target.kernel_org_compiler_name}"
+                    f"gcc-{KERNEL_ORG_COMPILER_VERSION}-nolibc/{compiler.target.kernel_org_compiler_target_name}"
                 )
                 archive_bin_subdir = archive_subdir / "bin"
                 if not (tmp_dir / archive_bin_subdir).exists():
@@ -380,7 +387,7 @@ def main() -> None:
         nargs=1 if HOST_ARCHITECTURE is None else "?",
         type=lambda arg: DownloadCompiler(architecture_argparse_type(arg)),
         default=argparse.SUPPRESS,
-        help=f"download compiler for given architecture{DEFAULT_ARCH_ARGPARSE_HELP} from {COMPILER_URL}; may be given multiple times",
+        help=f"download compiler for given architecture{DEFAULT_ARCH_ARGPARSE_HELP}; may be given multiple times",
     )
     parser.add_argument(
         "-d",

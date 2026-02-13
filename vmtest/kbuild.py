@@ -30,7 +30,7 @@ from vmtest.config import (
     kconfig,
     kconfig_localversion,
 )
-from vmtest.download import COMPILER_URL, Downloader
+from vmtest.download import Downloader
 
 logger = logging.getLogger(__name__)
 
@@ -849,7 +849,7 @@ async def main() -> None:
         nargs="?",
         default=argparse.SUPPRESS,
         type=Path,
-        help=f"download a compiler from {COMPILER_URL} to the given directory ({default_download_compiler_directory} by default) and use it to build",
+        help=f"download a compiler to the given directory ({default_download_compiler_directory} by default) and use it to build",
     )
     parser.add_argument(
         "--dump-kconfig",
