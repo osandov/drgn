@@ -11,6 +11,7 @@ from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.mm import PFN_PHYS, TaskRss, phys_to_virt
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from tests.linux_kernel import (
+    skip_if_highmem,
     skip_unless_have_full_mm_support,
     skip_unless_have_test_disk,
     skip_unless_have_test_kmod,
@@ -162,6 +163,7 @@ class TestVtop(CrashCommandTestCase, MmTestCase):
         self.assertIn(cmd.drgn_option.globals["virtual_address"], virt_addrs)
         self.assertIn(cmd.drgn_option.globals["physical_address"], phys_addrs)
 
+    @skip_if_highmem
     def test_user(self):
         with self.map_pages() as (_, address, pfns):
             phys_addr = PFN_PHYS(self.prog, pfns[0]).value_()
@@ -172,6 +174,7 @@ class TestVtop(CrashCommandTestCase, MmTestCase):
         self.assertEqual(cmd.drgn_option.globals["virtual_address"], address)
         self.assertEqual(cmd.drgn_option.globals["physical_address"], phys_addr)
 
+    @skip_if_highmem
     def test_user_multiple(self):
         with self.map_pages() as (_, address, pfns):
             virt_addrs = [address, address + mmap.PAGESIZE]
