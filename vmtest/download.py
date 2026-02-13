@@ -40,6 +40,7 @@ from vmtest.config import (
     Kernel,
     compiler_name,
     compiler_url,
+    local_kernel,
 )
 from vmtest.githubapi import GitHubApi
 
@@ -126,7 +127,9 @@ class Downloader:
         return self._cached_kernel_releases
 
     def resolve_kernel(self, arch: Architecture, pattern: str) -> Kernel:
-        if pattern == glob.escape(pattern):
+        if pattern.startswith(".") or pattern.startswith("/"):
+            return local_kernel(arch, Path(pattern))
+        elif pattern == glob.escape(pattern):
             release = pattern
         else:
             try:

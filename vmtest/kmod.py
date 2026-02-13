@@ -10,7 +10,7 @@ import tempfile
 from typing import Optional, TextIO
 
 from util import nproc, out_of_date
-from vmtest.config import Kernel, local_kernel
+from vmtest.config import Kernel
 from vmtest.download import downloaded_compiler
 
 logger = logging.getLogger(__name__)
@@ -110,8 +110,7 @@ def _main() -> None:
 
     to_download = list(compilers_needed.values())
     for kernel in args.kernels:
-        if not kernel.pattern.startswith(".") and not kernel.pattern.startswith("/"):
-            to_download.append(kernel)
+        to_download.append(kernel)
     with download_in_thread(args.directory, to_download) as downloads:
         download_it = iter(downloads)
 
@@ -119,10 +118,7 @@ def _main() -> None:
             next(download_it)
 
         for kernel in args.kernels:
-            if kernel.pattern.startswith(".") or kernel.pattern.startswith("/"):
-                downloaded = local_kernel(kernel.arch, Path(kernel.pattern))
-            else:
-                downloaded = next(download_it)  # type: ignore[assignment]
+            downloaded: Kernel = next(download_it)  # type: ignore[assignment]
             print(build_kmod(args.directory, downloaded))
 
 

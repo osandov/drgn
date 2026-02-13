@@ -249,7 +249,7 @@ fi
     def run(self):
         import urllib.error
 
-        from vmtest.config import ARCHITECTURES, Kernel, local_kernel
+        from vmtest.config import ARCHITECTURES, Kernel
         from vmtest.download import DownloadCompiler, DownloadKernel, download_in_thread
 
         in_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
@@ -279,10 +279,7 @@ fi
             if self.kernels:
                 to_download.append(DownloadCompiler(ARCHITECTURES["x86_64"]))
                 for pattern in self.kernels:
-                    if not pattern.startswith(".") and not pattern.startswith("/"):
-                        to_download.append(
-                            DownloadKernel(ARCHITECTURES["x86_64"], pattern)
-                        )
+                    to_download.append(DownloadKernel(ARCHITECTURES["x86_64"], pattern))
 
             # Downloading too many files before they can be used for testing runs the
             # risk of filling up the limited disk space is Github Actions. Set a limit
@@ -315,13 +312,10 @@ fi
                         failed.append("local")
 
                 for pattern in self.kernels:
-                    if pattern.startswith(".") or pattern.startswith("/"):
-                        kernel = local_kernel(ARCHITECTURES["x86_64"], Path(pattern))
-                    else:
-                        while True:
-                            kernel = next(downloads_it)
-                            if isinstance(kernel, Kernel):
-                                break
+                    while True:
+                        kernel = next(downloads_it)
+                        if isinstance(kernel, Kernel):
+                            break
                     with github_workflow_group(
                         f"Run integration tests on Linux {kernel.release}"
                     ):

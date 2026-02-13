@@ -15,7 +15,7 @@ import tempfile
 from typing import Any, Optional, Sequence, TextIO
 
 from util import nproc, out_of_date
-from vmtest.config import HOST_ARCHITECTURE, Kernel, local_kernel
+from vmtest.config import HOST_ARCHITECTURE, Kernel
 from vmtest.download import (
     DOWNLOAD_KERNEL_ARGPARSE_METAVAR,
     Downloader,
@@ -558,12 +558,9 @@ if __name__ == "__main__":
     if args.test_kmod != TestKmodMode.NONE:
         downloader.download_compiler(downloader.resolve_compiler(args.kernel.arch))
 
-    if args.kernel.pattern.startswith(".") or args.kernel.pattern.startswith("/"):
-        kernel = local_kernel(args.kernel.arch, Path(args.kernel.pattern))
-    else:
-        kernel = downloader.download_kernel(
-            downloader.resolve_kernel(args.kernel.arch, args.kernel.pattern)
-        )
+    kernel = downloader.download_kernel(
+        downloader.resolve_kernel(args.kernel.arch, args.kernel.pattern)
+    )
 
     try:
         command = (
