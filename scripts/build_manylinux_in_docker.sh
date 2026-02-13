@@ -31,12 +31,12 @@ fi
 
 # Install a recent version of elfutils instead of whatever is in the manylinux
 # image.
-elfutils_version=0.193
+elfutils_version=0.194
 elfutils_url=https://sourceware.org/elfutils/ftp/$elfutils_version/elfutils-$elfutils_version.tar.bz2
 mkdir /tmp/elfutils
 cd /tmp/elfutils
 curl -L "$elfutils_url" | tar -xj --strip-components=1
-./configure --enable-libdebuginfod --disable-debuginfod --with-zlib --with-bzlib --with-lzma --with-zstd
+CFLAGS="-g -O2 -Wno-error" ./configure --disable-werror --enable-libdebuginfod --disable-debuginfod --with-zlib --with-bzlib --with-lzma --with-zstd
 make -j$(($(nproc) + 1))
 make install
 
