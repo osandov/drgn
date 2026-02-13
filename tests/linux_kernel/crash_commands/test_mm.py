@@ -197,7 +197,9 @@ class TestVtop(CrashCommandTestCase, MmTestCase):
         phys_addr = self.prog["drgn_test_pa"].value_()
 
         cmd = self.check_crash_command(f"vtop {virt_addr:x}")
-        self.assertRegex(cmd.stdout, f"{phys_addr:x}|ambiguous address")
+        self.assertTrue(
+            f"{phys_addr:x}" in cmd.stdout or "ambiguous address" in cmd.stderr
+        )
 
         self.assertIn("follow_phys(init_mm", cmd.drgn_option.stdout)
         self.assertIn("follow_phys(mm", cmd.drgn_option.stdout)
