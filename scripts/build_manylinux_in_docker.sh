@@ -7,6 +7,8 @@ set -eux
 # Drop into a shell if something fails.
 trap 'if [ $? -ne 0 ]; then exec bash -i; fi' EXIT
 
+BUILD_ONLY_PYTHON="${1:-}"
+
 case "$PLAT" in
 manylinux2014_*)
 	sed -i -e 's/mirrorlist/#mirrorlist/g' \
@@ -25,12 +27,6 @@ yum install -y \
 	xz-devel \
 	zlib-devel \
 	zstd
-
-BUILD_ONLY_PYTHON=""
-if [ -n "${1:-}" ]; then
-	# Translate, e.g. 3.10 -> (3, 10)
-	BUILD_ONLY_PYTHON="$(echo "$1" | perl -pe 's/(\d+)\.(\d+)/(\1, \2)/')"
-fi
 
 # Install a recent version of elfutils instead of whatever is in the manylinux
 # image.
@@ -80,7 +76,7 @@ tar -xf "/io/$SDIST" --strip-components=1
 build_for_python() {
 	if [ -n "$BUILD_ONLY_PYTHON" ]; then
 		# Build for selected Python release only
-		"$1" -c "import sys; sys.exit(sys.version_info[:2] != $BUILD_ONLY_PYTHON)"
+		"$1" -c 'import sys; sys.exit(f"{sys.version_info.major}.{sys.version_info.minor}{sys.abiflags}" != sys.argv[1])' "$BUILD_ONLY_PYTHON"
 	else
 		# Build for all supported Pythons
 		"$1" -c 'import sys; sys.exit(sys.version_info < (3, 8))'
