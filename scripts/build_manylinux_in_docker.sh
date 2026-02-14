@@ -7,9 +7,13 @@ set -eux
 # Drop into a shell if something fails.
 trap 'if [ $? -ne 0 ]; then exec bash -i; fi' EXIT
 
-sed -i -e 's/mirrorlist/#mirrorlist/g' \
-	-e 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' \
-	/etc/yum.repos.d/CentOS-*
+case "$PLAT" in
+manylinux2014_*)
+	sed -i -e 's/mirrorlist/#mirrorlist/g' \
+		-e 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' \
+		/etc/yum.repos.d/CentOS-*
+	;;
+esac
 
 yum install -y \
 	bzip2-devel \
