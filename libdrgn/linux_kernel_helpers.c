@@ -73,6 +73,16 @@ struct drgn_error *linux_helper_direct_mapping_offset(struct drgn_program *prog,
 		return NULL;
 	}
 
+	if (prog->platform.arch->linux_kernel_direct_mapping) {
+		uint64_t size;
+		err = prog->platform.arch->linux_kernel_direct_mapping(
+			prog, &prog->direct_mapping_offset, &size);
+		if (err)
+			return err;
+		prog->direct_mapping_offset_cached = true;
+		*ret = prog->direct_mapping_offset;
+	}
+
 	// The direct mapping offset can vary depending on architecture, kernel
 	// version, configuration options, and KASLR. Rather than dealing with
 	// all of that, get a virtual address in the direct mapping and
