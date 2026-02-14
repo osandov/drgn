@@ -17,7 +17,6 @@ yum install -y \
 	libcurl-devel \
 	libzstd-devel \
 	lzo-devel \
-	pcre2-devel \
 	snappy-devel \
 	xz-devel \
 	zlib-devel \
@@ -46,6 +45,15 @@ mkdir /tmp/libkdumpfile
 cd /tmp/libkdumpfile
 curl -L "$libkdumpfile_url" | tar -xz --strip-components=1
 ./configure --with-libzstd --with-lzo2 --with-snappy --with-zlib --disable-kdumpid
+make -j$(($(nproc) + 1))
+make install
+
+pcre2_version=10.47
+pcre2_url=https://github.com/PCRE2Project/pcre2/releases/download/pcre2-$pcre2_version/pcre2-$pcre2_version.tar.gz
+mkdir /tmp/pcre2
+cd /tmp/pcre2
+curl -L "$pcre2_url" | tar -xz --strip-components=1
+./configure --enable-pcre2-8 --disable-pcre2-16 --disable-pcre2-32 --enable-unicode --enable-jit
 make -j$(($(nproc) + 1))
 make install
 
