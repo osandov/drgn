@@ -99,6 +99,37 @@ def _follow_dotdot(
         mnt = mnt_parent
     return _follow_mount(mnt, dentry)
 
+S_IFMT      = 0o170000
+S_IFLNK     = 0o120000
+def is_inode_symlink(
+    inode: Object) -> bool:
+    return (inode.i_mode & S_IFMT) == S_IFLNK
+
+XFS_IFINLINE            = 0x01
+XFS_DINODE_FMT_LOCAL    = 0x01
+def xfs_get_link(
+    inode: Object) -> bytes:
+    xfs_inode = container_of(inode, "struct xfs_inode", "i_vnode")
+    ifork = xfs_inode.i_df
+    # xfs_ifork_t has different members in different versions.
+    if hasattr(ifork, "if_format") and ifork.if_format == XFS_DINODE_FMT_LOCAL:
+        return xfs_inode.i_df.if_u1.if_data.string_()
+    elif hasattr(ifork, "if_flags") and ifork.if_flags == XFS_IFINLINE:
+        return xfs_inode.i_df.if_u1.if_data.string_()
+
+    # doesn't support long symbol path yet as the path is not stored in inode.
+    return b""
+
+# caller makes sure this is a symbol link inode
+def get_link(
+    inode: Object) -> bytes:
+    if inode.i_link:
+        return inode.i_link
+
+    if inode.i_sb.s_type.name.string_() == b"xfs":
+        return xfs_get_link(inode)
+
+    return b""
 
 @takes_object_or_program_or_default
 def path_lookup(
@@ -164,6 +195,19 @@ def path_lookup(
                 failed_path = os.fsdecode(b"/".join(components[: i + 1]))
                 raise Exception(f"could not find {failed_path!r} in dcache")
             mnt, dentry = _follow_mount(mnt, dentry)
+            if dentry.d_inode and is_inode_symlink(dentry.d_inode):
+                s = get_link(dentry.d_inode)
+                if not s:
+                    raise Exception(f"could not get link from inode")
+
+                # full symbol link target path
+                if s[0:1] == b'/':
+                    link_target = s
+                else:
+                    solved_path = b"/" + b"/".join(components[0:i+1])
+                    link_target = solved_path + "/" + s
+                link_target = link_target + b"/" + b"/".join(components[i+1:])
+                return path_lookup(prog_or_root, link_target, allow_negative)
     if not allow_negative and not dentry.d_inode:
         failed_path = os.fsdecode(b"/".join(components))
         raise Exception(f"{failed_path!r} dentry is negative")
