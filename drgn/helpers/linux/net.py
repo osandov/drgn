@@ -40,6 +40,7 @@ __all__ = (
     "is_pp_page",
     "netdev_ipv4_addrs",
     "netdev_ipv6_addrs",
+    "neigh_table_for_each_neighbor",
 )
 
 
@@ -372,3 +373,15 @@ def netdev_ipv6_addrs(dev: Object) -> List[ipaddress.IPv6Address]:
             )
             ips.append(ipaddress.IPv6Address(addr_bytes))
     return ips
+
+
+def neigh_table_for_each_neighbor(table: Object) -> Iterator[Object]:
+    """
+    Get the neighbour object from the neighbour hash table
+
+    :param dev: ``struct neigh_hash_table *``
+    """
+    n_buckets = 1 << table.hash_shift.value_()
+
+    for head in table.hash_heads[:n_buckets]:
+        yield from hlist_for_each_entry("struct neighbour", head.address_of_(), "hash")

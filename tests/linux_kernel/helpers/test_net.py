@@ -17,6 +17,7 @@ from drgn.helpers.linux.net import (
     for_each_netdev,
     get_net_ns_by_fd,
     is_pp_page,
+    neigh_table_for_each_neighbor,
     netdev_for_each_tx_queue,
     netdev_get_by_index,
     netdev_get_by_name,
@@ -32,7 +33,9 @@ from tests.linux_kernel import (
     LinuxKernelTestCase,
     create_socket,
     skip_unless_have_pyroute2,
+    skip_unless_have_pyroute2_del,
     skip_unless_have_test_kmod,
+    temp_netns,
 )
 from util import KernelVersion
 
@@ -182,3 +185,33 @@ class TestNet(LinuxKernelTestCase):
             netdev_ipv6_addrs(netdev_get_by_name(self.prog, "lo")),
             expected,
         )
+
+    @skip_unless_have_pyroute2_del
+    def test_neigh_table_for_each_neighbor(self):
+        import pyroute2
+        import pyroute2.netlink.rtnl.ndmsg
+
+        with temp_netns() as (_, ns):
+            try:
+                ns.link("add", ifname="dummy0", kind="dummy")
+            except pyroute2.NetlinkError:
+                self.skipTest("kernel does not support dummy interface (CONFIG_DUMMY)")
+
+            try:
+                idx = ns.link_lookup(ifname="dummy0")[0]
+                # Add a permanent neighbor entry so there's something to find
+                ns.neigh(
+                    "add",
+                    dst="192.0.2.1",
+                    lladdr="00:11:22:33:44:55",
+                    ifindex=idx,
+                    state=pyroute2.netlink.rtnl.ndmsg.states["permanent"],
+                )
+                nht = self.prog["arp_tbl"].nht.read_()
+                neighbor_addrs = [
+                    ipaddress.IPv4Address(self.prog.read(n.primary_key.address_, 4))
+                    for n in neigh_table_for_each_neighbor(nht)
+                ]
+                self.assertIn(ipaddress.IPv4Address("192.0.2.1"), neighbor_addrs)
+            finally:
+                ns.link("delete", ifname="dummy0")
