@@ -583,18 +583,49 @@ linux_kernel_pgtable_iterator_init_x86_64(struct drgn_program *prog,
 	memset(it->index, 0xff, sizeof(it->index));
 }
 
+// pte flags
+static const uint64_t _PAGE_PRESENT = 1 << 0;
+static const uint64_t _PAGE_PROTNONE = 1 << 8;
+
+// TODO: PTE_PFN_MASK may be different because of CONFIG_DYNAMIC_PHYSICAL_MASK
+static const uint64_t PTE_PFN_MASK = UINT64_C(0xffffffffff000);
+static const int PAGE_SHIFT = 12;
+
+static inline bool __pte_needs_invert(uint64_t val)
+{
+	return val && !(val & _PAGE_PRESENT);
+}
+
+static inline uint64_t protnone_mask(uint64_t val)
+{
+	return __pte_needs_invert(val) ?  ~0ull : 0;
+}
+
+static inline uint64_t pte_flags(uint64_t pte)
+{
+	return pte & ((1 << PAGE_SHIFT) - 1);
+}
+
+static inline int pte_present(uint64_t pte)
+{
+	return pte_flags(pte) & (_PAGE_PRESENT | _PAGE_PROTNONE);
+}
+
+static inline uint64_t pte_phys(uint64_t pte)
+{
+	pte ^= protnone_mask(pte);
+	return pte & PTE_PFN_MASK;
+}
+
 static struct drgn_error *
 linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 					  struct pgtable_iterator *_it,
 					  uint64_t *virt_addr_ret,
 					  uint64_t *phys_addr_ret)
 {
-	static const int PAGE_SHIFT = 12;
 	static const int PGTABLE_SHIFT = 9;
 	static const int PGTABLE_MASK = (1 << PGTABLE_SHIFT) - 1;
-	static const uint64_t PRESENT = 0x1;
 	static const uint64_t PSE = 0x80; // a.k.a. huge page
-	static const uint64_t ADDRESS_MASK = UINT64_C(0xffffffffff000);
 	struct drgn_error *err;
 	bool bswap = drgn_platform_bswap(&prog->platform);
 	struct pgtable_iterator_x86_64 *it =
@@ -641,14 +672,14 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 			uint64_t entry = it->table[level][it->index[level]++];
 			if (bswap)
 				entry = bswap_64(entry);
-			table = entry & ADDRESS_MASK;
-			if (!(entry & PRESENT) || (entry & PSE) || level == 0) {
+			table = entry & PTE_PFN_MASK;
+			if (!(entry & _PAGE_PRESENT) || (entry & PSE) || level == 0) {
 				uint64_t mask = (UINT64_C(1) <<
 						 (PAGE_SHIFT +
 						  PGTABLE_SHIFT * level)) - 1;
 				*virt_addr_ret = virt_addr & ~mask;
-				if (entry & PRESENT)
-					*phys_addr_ret = table & ~mask;
+				if (pte_present(entry))
+					*phys_addr_ret = pte_phys(entry);
 				else
 					*phys_addr_ret = UINT64_MAX;
 				it->it.virt_addr = (virt_addr | mask) + 1;
