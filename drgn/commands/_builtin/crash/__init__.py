@@ -100,9 +100,12 @@ def _cmd_crash(
                 while True:
                     try:
                         line = input("%crash> ")
+                        if not line or line.isspace():
+                            continue
                     except EOFError:
                         break
-                    if not line or line.isspace():
+                    except KeyboardInterrupt:
+                        print("^C")
                         continue
                     try:
                         CRASH_COMMAND_NAMESPACE.run(
@@ -111,6 +114,9 @@ def _cmd_crash(
                             globals=globals,
                             onerror=_crash_interactive_onerror,
                         )
+                    except KeyboardInterrupt:
+                        print()
+                        continue
                     except _ExitToCrash:
                         continue
         finally:
