@@ -5,7 +5,6 @@ import ipaddress
 import os
 import socket
 import tempfile
-import unittest
 
 from drgn import cast
 from drgn.helpers.linux.fs import fget
@@ -32,16 +31,10 @@ from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     create_socket,
+    skip_unless_have_pyroute2,
     skip_unless_have_test_kmod,
 )
 from util import KernelVersion
-
-try:
-    import pyroute2
-
-    have_pyroute2 = True
-except ImportError:
-    have_pyroute2 = False
 
 
 class TestNet(LinuxKernelTestCase):
@@ -160,8 +153,10 @@ class TestNet(LinuxKernelTestCase):
         self.assertTrue(is_pp_page(self.prog["drgn_test_page_pool_page"]))
         self.assertFalse(is_pp_page(self.prog["drgn_test_page"]))
 
-    @unittest.skipUnless(have_pyroute2, "pyroute2 not found")
+    @skip_unless_have_pyroute2
     def test_netdev_ipv4_addrs(self):
+        import pyroute2
+
         with pyroute2.IPRoute() as ipr:
             idx = ipr.link_lookup(ifname="lo")[0]
             addrs = ipr.get_addr(index=idx, family=socket.AF_INET)
@@ -173,8 +168,10 @@ class TestNet(LinuxKernelTestCase):
             expected,
         )
 
-    @unittest.skipUnless(have_pyroute2, "pyroute2 not found")
+    @skip_unless_have_pyroute2
     def test_netdev_ipv6_addrs(self):
+        import pyroute2
+
         with pyroute2.IPRoute() as ipr:
             idx = ipr.link_lookup(ifname="lo")[0]
             addrs = ipr.get_addr(index=idx, family=socket.AF_INET6)

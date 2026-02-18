@@ -11,10 +11,12 @@ import mmap
 import os
 from pathlib import Path
 import pickle
+import random
 import re
 import signal
 import socket
 import stat
+import string
 import struct
 import subprocess
 import sys
@@ -26,6 +28,30 @@ import unittest
 from _drgn_util.platform import _IO, _IOR, NORMALIZED_MACHINE_NAME, SYS
 import drgn
 from tests import TestCase
+from util import verrevcmp
+
+try:
+    import pyroute2
+
+    have_pyroute2 = True
+
+    # Before Pyroute2 commit 1eb08312de30 ("iproute/linux: try to improve flags
+    # when sending del messages") (in v0.6.10), Pyroute2 passes an invalid flag
+    # to deletion requests, resulting in ENOTSUP errors.
+    have_pyroute2_del = verrevcmp(getattr(pyroute2, "__version__", "0"), "0.6.10") >= 0
+
+    # Before Pyroute2 commit f0df9a49b41f ("Fix "failed to open netns" error in
+    # RISCV64.") (in v0.7.10), Pyroute2 uses the wrong syscall number on
+    # RISC-V. Monkey patch the correct number.
+    if verrevcmp(
+        getattr(pyroute2, "__version__", "0"), "0.7.10"
+    ) < 0 and os.uname().machine.startswith("riscv"):
+        import pyroute2.netns
+
+        pyroute2.netns.__NR_setns = 268
+except ImportError:
+    have_pyroute2 = False
+    have_pyroute2_del = False
 
 
 class LinuxKernelTestCase(TestCase):
@@ -149,6 +175,13 @@ skip_unless_have_stack_tracing = unittest.skipUnless(
 
 skip_unless_have_memory_hotplug = unittest.skipUnless(
     Path("/sys/bus/memory").exists(), "memory hotplug is not supported"
+)
+
+
+skip_unless_have_pyroute2 = unittest.skipUnless(have_pyroute2, "pyroute2 not found")
+
+skip_unless_have_pyroute2_del = unittest.skipUnless(
+    have_pyroute2_del, "pyroute2 >= 0.6.10 not found"
 )
 
 
@@ -280,6 +313,22 @@ def meminfo_field_in_pages(name: str) -> int:
         * 1024
         // mmap.PAGESIZE
     )
+
+
+@contextlib.contextmanager
+def temp_netns():
+    while True:
+        try:
+            name = "".join(random.choice(string.ascii_letters) for _ in range(16))
+            ns = pyroute2.NetNS(name, flags=os.O_CREAT | os.O_EXCL)
+            break
+        except FileExistsError:
+            pass
+    try:
+        with ns:
+            yield name, ns
+    finally:
+        ns.remove()
 
 
 _c = ctypes.CDLL(None, use_errno=True)

@@ -2,56 +2,27 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import os
-import random
-import string
-import unittest
 
 from drgn.helpers.linux.fs import path_lookup
 from drgn.helpers.linux.net import get_net_ns_by_inode, netdev_get_by_name
 from drgn.helpers.linux.tc import qdisc_lookup
-from tests.linux_kernel import LinuxKernelTestCase
-from util import verrevcmp
-
-try:
-    import pyroute2
-
-    # Before Pyroute2 commit 1eb08312de30 ("iproute/linux: try to improve flags
-    # when sending del messages") (in v0.6.10), Pyroute2 passes an invalid flag
-    # to deletion requests, resulting in ENOTSUP errors.
-    have_pyroute2 = verrevcmp(getattr(pyroute2, "__version__", "0"), "0.6.10") >= 0
-
-    # Before Pyroute2 commit f0df9a49b41f ("Fix "failed to open netns" error in
-    # RISCV64.") (in v0.7.10), Pyroute2 uses the wrong syscall number on
-    # RISC-V. Monkey patch the correct number.
-    if (
-        have_pyroute2
-        and verrevcmp(getattr(pyroute2, "__version__", "0"), "0.7.10") < 0
-        and os.uname().machine.startswith("riscv")
-    ):
-        import pyroute2.netns
-
-        pyroute2.netns.__NR_setns = 268
-except ImportError:
-    have_pyroute2 = False
+from tests.linux_kernel import (
+    LinuxKernelTestCase,
+    skip_unless_have_pyroute2_del,
+    temp_netns,
+)
 
 
-@unittest.skipUnless(have_pyroute2, "pyroute2 >= 0.6.10 not found")
+@skip_unless_have_pyroute2_del
 class TestTc(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.ns = None
-        while cls.ns is None:
-            try:
-                cls.name = "".join(
-                    random.choice(string.ascii_letters) for _ in range(16)
-                )
-                cls.ns = pyroute2.NetNS(cls.name, flags=os.O_CREAT | os.O_EXCL)
-            except FileExistsError:
-                pass
-        cls.addClassCleanup(cls.ns.remove)
+        cls.name, cls.ns = cls.enterClassContext(temp_netns())
 
     def test_qdisc_lookup(self):
+        import pyroute2
+
         try:
             self.ns.link("add", ifname="dummy0", kind="dummy")
         except pyroute2.NetlinkError:
