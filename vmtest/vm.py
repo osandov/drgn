@@ -3,6 +3,7 @@
 
 import contextlib
 import enum
+import functools
 import os
 from pathlib import Path
 import re
@@ -210,6 +211,18 @@ def _have_setpriv_pdeathsig() -> bool:
     return b"--pdeathsig" in help
 
 
+@functools.lru_cache(maxsize=None)
+def _have_unshare_map_auto() -> bool:
+    return (
+        subprocess.run(
+            ["unshare", "--map-root-user", "--map-auto", "true"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
+
+
 class TestKmodMode(enum.Enum):
     NONE = 0
     BUILD = 1
@@ -316,8 +329,13 @@ def run_in_vm(
                 unshare_args = [
                     "unshare",
                     "--map-root-user",
-                    "--map-auto",
                 ]
+                # --map-auto maps additional UIDs/GIDs from /etc/subuid and
+                # /etc/subgid using newuidmap/newgidmap, but that doesn't work
+                # in all environments (e.g., restricted user namespaces).
+                # Additionally, unshare only supports it since util-linux 2.38.
+                if _have_unshare_map_auto():
+                    unshare_args.append("--map-auto")
             host_virtfs_args = [
                 "-virtfs",
                 f"local,path=/,mount_tag=host,{virtfs_options}",
