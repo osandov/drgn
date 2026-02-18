@@ -497,6 +497,13 @@ if __name__ == "__main__":
         help="directory to use as root directory in VM (default: / for the host architecture, $directory/$arch/rootfs otherwise)",
     )
     parser.add_argument(
+        "--use-host-rootfs",
+        choices=["never", "auto"],
+        default="auto",
+        help='if "never", use $directory/$arch/rootfs even for host architecture; '
+        'if "auto", use / for host architecture',
+    )
+    parser.add_argument(
         "--qemu-options",
         metavar="OPTIONS",
         action=_StringSplitExtendAction,
@@ -546,7 +553,10 @@ if __name__ == "__main__":
         assert HOST_ARCHITECTURE is not None
         args.kernel = DownloadKernel(HOST_ARCHITECTURE, "*")
     if not hasattr(args, "root_directory"):
-        args.root_directory = None
+        if args.use_host_rootfs == "never":
+            args.root_directory = args.directory / args.kernel.arch.name / "rootfs"
+        else:
+            args.root_directory = None
     if not hasattr(args, "qemu_options"):
         args.qemu_options = []
     if not hasattr(args, "kernel_cmdline"):
