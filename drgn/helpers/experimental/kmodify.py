@@ -943,6 +943,14 @@ class _Kmodify:
                     ]
                 ),
             ),
+            # This section and its associated symbols are required if memory
+            # allocation profiling is enabled and is ignored otherwise.
+            _ElfSection(
+                name=".codetag.alloc_tags",
+                type=SHT.PROGBITS,
+                flags=SHF.WRITE | SHF.ALLOC,
+                data=b"",
+            ),
         ]
 
         # Add the __versions section if needed.
@@ -959,6 +967,22 @@ class _Kmodify:
                 type=STT.FUNC,
                 binding=STB.GLOBAL,
                 section=".init.text",
+            ),
+            _ElfSymbol(
+                name="__start_alloc_tags",
+                value=0,
+                size=0,
+                type=STT.NOTYPE,
+                binding=STB.GLOBAL,
+                section=".codetag.alloc_tags",
+            ),
+            _ElfSymbol(
+                name="__stop_alloc_tags",
+                value=0,
+                size=0,
+                type=STT.NOTYPE,
+                binding=STB.GLOBAL,
+                section=".codetag.alloc_tags",
             ),
         ]
 
