@@ -233,8 +233,12 @@ KERNEL_FLAVORS = {
                 # and slab_def.h") (in v6.8) removed SLAB. Test this
                 # non-default SLUB option instead.
                 CONFIG_SLUB_CPU_PARTIAL=n
-                CONFIG_MODVERSIONS=y
                 CONFIG_RANDOMIZE_BASE=n
+
+                # Options that require additional metadata for kmodify.
+                CONFIG_MEM_ALLOC_PROFILING=y
+                CONFIG_MEM_ALLOC_PROFILING_ENABLED_BY_DEFAULT=y
+                CONFIG_MODVERSIONS=y
             """,
         ),
         KernelFlavor(
@@ -455,6 +459,13 @@ ARCHITECTURES = {
             kernel_config="""
                 # Needed for CONFIG_KEXEC_FILE.
                 CONFIG_CRYPTO_SHA256_S390=y
+
+                # Before Linux kernel commit e950d1f84d3c ("s390/percpu: Get
+                # rid of ARCH_MODULE_NEEDS_WEAK_PER_CPU") (in v6.19), memory
+                # allocation profiling triggers a bunch of
+                # WARN_ON(tag->counters) warnings on s390x. It's not worth
+                # dealing with.
+                CONFIG_MEM_ALLOC_PROFILING=n
             """,
             kernel_flavor_configs={},
             kernel_org_compiler_host_name=None,
@@ -548,6 +559,10 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     patch_level = 0
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
+    if flavor.name == "alternative" and KernelVersion(version) >= KernelVersion("6.10"):
+        patch_level += 1
+        if arch.name == "s390x":
+            patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 
