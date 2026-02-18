@@ -426,17 +426,14 @@ struct drgn_architecture_info {
 	apply_elf_reloc_fn *apply_elf_reloc;
 	/**
 	 * Return the address and size of the direct mapping virtual address
-	 * range, if possible.
+	 * range.
 	 *
-	 * This is only required when debugging a live Linux kernel older than
-	 * v4.11, to work around missing physical addresses in /proc/kcore.
-	 * Otherwise, it is still useful, as it can be a simpler way for @ref
-	 * linux_helper_direct_mapping_offset() to operate, without a page table
-	 * walk.
+	 * This is a hack which is only called when debugging a live Linux
+	 * kernel older than v4.11.
 	 */
-	struct drgn_error *(*linux_kernel_direct_mapping)(struct drgn_program *prog,
-							  uint64_t *address_ret,
-							  uint64_t *size_ret);
+	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *prog,
+									uint64_t *address_ret,
+									uint64_t *size_ret);
 	/** Allocate a Linux kernel page table iterator. */
 	struct drgn_error *(*linux_kernel_pgtable_iterator_create)(struct drgn_program *,
 								   struct pgtable_iterator **);
