@@ -25,7 +25,6 @@ multiple reasons:
 """
 
 import operator
-import os
 import re
 from typing import Callable, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
@@ -1634,7 +1633,7 @@ def vma_find(mm: Object, addr: IntegerLike) -> Object:
         return cast("struct vm_area_struct *", mtree_load(mt, addr))
 
 
-def vma_name(vma: Object) -> str:
+def vma_name(vma: Object) -> bytes:
     """
     Get the display name or file path for a Virtual Memory Area (VMA).
 
@@ -1647,20 +1646,20 @@ def vma_name(vma: Object) -> str:
     :return: File path or descriptive name of the VMA region. Possible return
         values include:
 
-        - **File path** (e.g., ``/usr/lib/libc.so.6``):
+        - **File path** (e.g., ``b"/usr/lib/libc.so.6"``):
           For VMAs backed by files (``vma->vm_file`` non-NULL).
-        - ``[heap]``:
+        - ``b"[heap]"``:
           Heap segment, between ``mm->start_brk`` and ``mm->brk``.
-        - ``[stack]``:
+        - ``b"[stack]"``:
           Stack segment containing ``mm->start_stack``.
-        - ``[vdso]``:
+        - ``b"[vdso]"``:
           Virtual Dynamic Shared Object area (``mm->context.vdso``).
-        - ``[vvar]``, ``[vsyscall]``, etc.:
+        - ``b"[vvar]"``, ``b"[vsyscall]"``, etc.:
           Architecture-specific special mappings from ``vm_ops->name``.
-        - ``[anon:<name>]``: private anonymous memory with a name set by
+        - ``b"[anon:<name>]"``: private anonymous memory with a name set by
           `PR_SET_VMA_ANON_NAME
           <https://man7.org/linux/man-pages/man2/PR_SET_VMA.2const.html>`_.
-        - ``[anon_shmem:<name>]``: shared memory with a name set by
+        - ``b"[anon_shmem:<name>]"``: shared memory with a name set by
           `PR_SET_VMA_ANON_NAME
           <https://man7.org/linux/man-pages/man2/PR_SET_VMA.2const.html>`_.
         - Empty string: anonymous memory.
@@ -1685,22 +1684,20 @@ def vma_name(vma: Object) -> str:
                 if anon_name.address_ != vma.shared.address_:
                     anon_name = anon_name.read_()
                     if anon_name:
-                        return f"[anon_shmem:{os.fsdecode(anon_name.name.string_())}]"
+                        return b"[anon_shmem:" + anon_name.name.string_() + b"]"
 
-        return os.fsdecode(d_path(vm_file.f_path))
+        return d_path(vm_file.f_path)
 
     vm_ops = vma.vm_ops.read_()
     if vm_ops:
         vm_ops_name = vm_ops.name.read_()
         if vm_ops_name == prog["special_mapping_name"]:
-            return (
-                cast("struct vm_special_mapping *", vma.vm_private_data)
-                .name.string_()
-                .decode()
-            )
+            return cast(
+                "struct vm_special_mapping *", vma.vm_private_data
+            ).name.string_()
 
     if not mm:
-        return "[vdso]"
+        return b"[vdso]"
 
     start = vma.vm_start.value_()
 
@@ -1715,7 +1712,7 @@ def vma_name(vma: Object) -> str:
             pass
         else:
             if start == vdso_base.value_():
-                return "[vdso]"
+                return b"[vdso]"
 
     end = vma.vm_end.value_()
 
@@ -1725,10 +1722,10 @@ def vma_name(vma: Object) -> str:
         and start <= mm.brk.value_()
         and end >= mm.start_brk.value_()
     ):
-        return "[heap]"
+        return b"[heap]"
 
     if mm.start_stack and start <= mm.start_stack.value_() <= end:
-        return "[stack]"
+        return b"[stack]"
 
     # See above regarding the existence of vma->anon_name.
     try:
@@ -1737,9 +1734,9 @@ def vma_name(vma: Object) -> str:
         pass
     else:
         if anon_name:
-            return f"[anon:{os.fsdecode(anon_name.name.string_())}]"
+            return b"[anon:" + anon_name.name.string_() + b"]"
 
-    return ""
+    return b""
 
 
 def for_each_vma(mm: Object) -> Iterator[Object]:

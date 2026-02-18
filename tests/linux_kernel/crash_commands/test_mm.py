@@ -250,7 +250,7 @@ class TestVm(CrashCommandTestCase):
                 self.assertIsInstance(cmd.drgn_option.globals[variable], Object)
         self.assertIsInstance(cmd.drgn_option.globals["cpu"], int)
         self.assertIsInstance(cmd.drgn_option.globals["rss"], TaskRss)
-        self.assertIsInstance(cmd.drgn_option.globals["file"], str)
+        self.assertIsInstance(cmd.drgn_option.globals["file"], bytes)
 
     def test_no_args(self):
         self.run_crash_command("set -p")

@@ -566,7 +566,7 @@ if mm:
                     CellFormat(vma.vm_start.value_(), "^x"),
                     CellFormat(vma.vm_end.value_(), "^x"),
                     CellFormat(vma.vm_flags.value_(), "<x"),
-                    vma_name(vma),
+                    escape_ascii_string(vma_name(vma), escape_backslash=True),
                 )
             )
         print_table(rows)

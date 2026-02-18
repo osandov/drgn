@@ -505,11 +505,11 @@ class TestMm(MmTestCase):
                     vma = vma_find(mm, map.start)
                     if vma:
                         with self.subTest(vma=map.path):
-                            self.assertEqual(vma_name(vma), map.path)
+                            self.assertEqual(vma_name(vma), os.fsencode(map.path))
                 elif not tested_file_path and map.path.startswith("/"):
                     vma = vma_find(mm, map.start)
                     with self.subTest("file"):
-                        self.assertEqual(vma_name(vma), map.path)
+                        self.assertEqual(vma_name(vma), os.fsencode(map.path))
                     tested_file_path = True
 
     def test_for_each_vma(self):
