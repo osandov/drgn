@@ -233,8 +233,12 @@ KERNEL_FLAVORS = {
                 # and slab_def.h") (in v6.8) removed SLAB. Test this
                 # non-default SLUB option instead.
                 CONFIG_SLUB_CPU_PARTIAL=n
-                CONFIG_MODVERSIONS=y
                 CONFIG_RANDOMIZE_BASE=n
+
+                # Options that require additional metadata for kmodify.
+                CONFIG_MEM_ALLOC_PROFILING=y
+                CONFIG_MEM_ALLOC_PROFILING_ENABLED_BY_DEFAULT=y
+                CONFIG_MODVERSIONS=y
             """,
         ),
         KernelFlavor(
@@ -548,6 +552,8 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     patch_level = 0
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
+    if flavor.name == "alternative" and KernelVersion(version) >= KernelVersion("6.10"):
+        patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 
