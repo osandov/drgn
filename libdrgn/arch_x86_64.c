@@ -552,6 +552,20 @@ linux_kernel_live_direct_mapping_fallback_x86_64(struct drgn_program *prog,
 	}
 }
 
+static struct drgn_error *
+linux_kernel_direct_mapping_offset_x86_64(struct drgn_program *prog,
+					  uint64_t *address_ret)
+{
+	DRGN_OBJECT(page_offset_base, prog);
+	struct drgn_error *err = drgn_program_find_object(prog, "page_offset_base",
+							  NULL, DRGN_FIND_OBJECT_VARIABLE,
+							  &page_offset_base);
+	if (err)
+		return err;
+
+	return drgn_object_read_unsigned(&page_offset_base, address_ret);
+}
+
 struct pgtable_iterator_x86_64 {
 	struct pgtable_iterator it;
 	uint16_t index[5];
@@ -707,6 +721,8 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.apply_elf_reloc = apply_elf_reloc_x86_64,
 	.linux_kernel_live_direct_mapping_fallback =
 		linux_kernel_live_direct_mapping_fallback_x86_64,
+	.linux_kernel_direct_mapping_offset =
+		linux_kernel_direct_mapping_offset_x86_64,
 	.linux_kernel_pgtable_iterator_create =
 		linux_kernel_pgtable_iterator_create_x86_64,
 	.linux_kernel_pgtable_iterator_destroy =
