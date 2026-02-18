@@ -529,9 +529,9 @@ apply_elf_reloc_x86_64(const struct drgn_relocating_section *relocating,
 }
 
 static struct drgn_error *
-linux_kernel_direct_mapping_x86_64(struct drgn_program *prog,
-				   uint64_t *address_ret,
-				   uint64_t *size_ret)
+linux_kernel_live_direct_mapping_fallback_x86_64(struct drgn_program *prog,
+						 uint64_t *address_ret,
+						 uint64_t *size_ret)
 {
 	struct drgn_error *err;
 
@@ -705,8 +705,8 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_x86_64,
 	.apply_elf_reloc = apply_elf_reloc_x86_64,
-	.linux_kernel_direct_mapping =
-		linux_kernel_direct_mapping_x86_64,
+	.linux_kernel_live_direct_mapping_fallback =
+		linux_kernel_live_direct_mapping_fallback_x86_64,
 	.linux_kernel_pgtable_iterator_create =
 		linux_kernel_pgtable_iterator_create_x86_64,
 	.linux_kernel_pgtable_iterator_destroy =

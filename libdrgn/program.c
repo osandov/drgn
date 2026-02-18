@@ -593,11 +593,11 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 	 * pass, as we may need to read virtual memory to determine the mapping.
 	 */
 	if (is_proc_kcore && !have_phys_addrs &&
-	    prog->platform.arch->linux_kernel_direct_mapping) {
+	    prog->platform.arch->linux_kernel_live_direct_mapping_fallback) {
 		uint64_t direct_mapping, direct_mapping_size;
-		err = prog->platform.arch->linux_kernel_direct_mapping(prog,
-								       &direct_mapping,
-								       &direct_mapping_size);
+		err = prog->platform.arch->linux_kernel_live_direct_mapping_fallback(prog,
+										     &direct_mapping,
+										     &direct_mapping_size);
 		if (err)
 			goto out_segments;
 
