@@ -101,6 +101,17 @@ invalid:
 	}
 	free(line);
 	fclose(file);
+
+	// Depending on sysctl kptr_restrict and perf_event_paranoid, only a
+	// user with CAP_SYSLOG can access the kallsyms addresses. We're not
+	// guaranteed to be running as root even in the live case. Given that
+	// this function is mainly used as a fallback for specific symbols, we
+	// can be reasonably confident that the expected address is not zero.
+	// Catch the case where we find the symbol and read address zero, and
+	// raise an error that will hopefully be useful to the user.
+	if (!err && *ret == 0 && geteuid() != 0)
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "drgn requires root to access /proc/kallsyms");
 	return err;
 }
 
