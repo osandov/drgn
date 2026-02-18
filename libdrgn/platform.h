@@ -434,6 +434,15 @@ struct drgn_architecture_info {
 	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *prog,
 									uint64_t *address_ret,
 									uint64_t *size_ret);
+	/**
+	 * Return the address of the direct mapping virtual address range.
+	 *
+	 * This hook is used for @ref linux_helper_direct_mapping_offset(). It
+	 * is optional: if not provided, we can infer it using a page table walk
+	 * and a symbol from the direct mapping.
+	 */
+	struct drgn_error *(*linux_kernel_direct_mapping_offset)(struct drgn_program *prog,
+								 uint64_t *address_ret);
 	/** Allocate a Linux kernel page table iterator. */
 	struct drgn_error *(*linux_kernel_pgtable_iterator_create)(struct drgn_program *,
 								   struct pgtable_iterator **);
