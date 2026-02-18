@@ -1580,6 +1580,14 @@ drgn_module_maybe_use_elf_file(struct drgn_module *module,
 		prog->tried_main_language = false;
 		module->elf_symtab_pending_files |=
 			DRGN_MODULE_FILE_MASK_DEBUG;
+		// In case primitive types have been created by drgn before
+		// loading the main debug file (e.g. by reading VMCOREINFO),
+		// clear this cache so we can look them up from the debug info.
+		// See https://github.com/osandov/drgn/issues/569 for more
+		// details.
+		if (module->kind == DRGN_MODULE_MAIN)
+			memset(module->prog->primitive_types, 0,
+			       sizeof(module->prog->primitive_types));
 	}
 	if (!prog->has_platform) {
 		drgn_log_debug(prog, "setting program platform from %s",
