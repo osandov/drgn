@@ -9,7 +9,7 @@ jobs:
   build:
     strategy:
       matrix:
-        flavor: [default, alternative, tiny]
+        flavor: [alternative]
         arch: [x86_64, aarch64, ppc64, s390x, arm, riscv64]
       fail-fast: false
       max-parallel: 6
