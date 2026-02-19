@@ -364,16 +364,10 @@ class DrgnCommandDirective(sphinx.util.docutils.SphinxDirective):
             nodes = node.children
 
         if nodes:
-            node_id = sphinx.util.nodes.make_id(
-                self.env, self.state.document, "drgncommand", name
-            )
             target = cast(docutils.nodes.Element, nodes[0])
-            target["ids"].append(node_id)
-            self.state.document.note_explicit_target(target)
-
             std = self.env.get_domain("std")
             std.note_object(  # type: ignore[attr-defined]
-                "drgncommand", name, node_id, location=target
+                "drgncommand", name, target["ids"][0], location=target
             )
 
         return nodes
