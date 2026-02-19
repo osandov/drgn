@@ -347,8 +347,8 @@ class _SlabCacheHelper:
 
 
 class _SlubPerCpuInfo(NamedTuple):
-    freelists: Set[int]
-    num_partial_list_free_objs: int
+    free_objects: Set[int]
+    num_free_objects: int
     error: Optional[Exception]
 
 
@@ -453,6 +453,31 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
 
         return _try_hardened_freelist_dereference
 
+    @staticmethod
+    def _sheaf_get_objects(sheaf: Object, result: Set[int]) -> None:
+        for object in sheaf.objects[: sheaf.size]:
+            result.add(object.value_())
+
+    def _sheaves_full_objects(self) -> Set[int]:
+        result: Set[int] = set()
+        for node in self._slab_cache.node[: nr_node_ids(self._prog)]:
+            # struct kmem_cache_node::barn was added in Linux kernel commit
+            # 2d517aa09bbc ("slab: add opt-in caching layer of percpu sheaves")
+            # (in v6.18).
+            try:
+                barn = node.barn.read_()
+            except AttributeError:
+                return result
+            if not barn:
+                continue
+            for sheaf in validate_list_for_each_entry(
+                "struct slab_sheaf",
+                barn.sheaves_full.address_of_(),
+                "barn_list",
+            ):
+                self._sheaf_get_objects(sheaf, result)
+        return result
+
     def _num_cpu_partial_list_free_objs(self, cpu: int, cpu_slab: Object) -> int:
         try:
             partial = cpu_slab.partial.read_()
@@ -503,15 +528,51 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             partial = cpu_slab.partial.read_()
         assert False  # Tell mypy that this is unreachable.
 
+    # Ugly method that gets all per-CPU information for our slab cache. If
+    # count_free_objects is False, then this builds a set of free objects not
+    # associated with a specific slab. If count_free_objects is True, then this
+    # sums up the number of free objects in any per-CPU structures.
     def _per_cpu_info(
-        self, *, count_partial_list_free_objs: bool = False, catch_errors: bool = False
+        self, *, count_free_objects: bool = False, catch_errors: bool = False
     ) -> _SlubPerCpuInfo:
-        freelists: Set[int] = set()
-        num_partial_list_free_objs = 0
+        free_objects: Set[int] = set()
+        num_free_objects = 0
         error = None
 
+        # cpu_sheaves was added in Linux kernel commit 2d517aa09bbc ("slab: add
+        # opt-in caching layer of percpu sheaves") (in v6.18).
         try:
-            # cpu_slab doesn't exist for CONFIG_SLUB_TINY.
+            cpu_sheaves = self._slab_cache.cpu_sheaves.read_()
+        except AttributeError:
+            pass
+        else:
+            if cpu_sheaves:
+                try:
+                    for cpu in for_each_online_cpu(self._prog):
+                        pcs = per_cpu_ptr(cpu_sheaves, cpu)
+                        main = pcs.main.read_()
+                        if main:
+                            if count_free_objects:
+                                num_free_objects += main.size.value_()
+                            else:
+                                self._sheaf_get_objects(main, free_objects)
+                        spare = pcs.spare.read_()
+                        if spare:
+                            if count_free_objects:
+                                num_free_objects += spare.size.value_()
+                            else:
+                                self._sheaf_get_objects(spare, free_objects)
+                except (SlabCorruptionError, FaultError) as e:
+                    if not catch_errors:
+                        raise
+                    error = e
+
+        # cpu_slab was removed in Linux kernel commit 32c894c7274b ("slab:
+        # remove struct kmem_cache_cpu") (in v7.0) in favor of cpu_sheaves.
+        # Additionally, before Linux kernel commit 31e0886fd57d ("slub: remove
+        # CONFIG_SLUB_TINY specific code paths") (in v6.19), cpu_slab didn't
+        # exist on CONFIG_SLUB_TINY.
+        try:
             cpu_slab = self._slab_cache.cpu_slab.read_()
         except AttributeError:
             pass
@@ -526,13 +587,17 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                     this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
                     slab = this_cpu_slab.member_(cpu_slab_member).read_()
                     if slab and slab.slab_cache == self._slab_cache:
-                        freelists |= self._slub_get_freelist(
+                        freelist = self._slub_get_freelist(
                             lambda: f"cpu {cpu}", this_cpu_slab.freelist
                         )
+                        if count_free_objects:
+                            num_free_objects += len(freelist)
+                        else:
+                            free_objects |= freelist
 
-                    if count_partial_list_free_objs:
-                        num_partial_list_free_objs += (
-                            self._num_cpu_partial_list_free_objs(cpu, this_cpu_slab)
+                    if count_free_objects:
+                        num_free_objects += self._num_cpu_partial_list_free_objs(
+                            cpu, this_cpu_slab
                         )
             except (SlabCorruptionError, FaultError) as e:
                 if not catch_errors:
@@ -540,8 +605,8 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                 error = e
 
         return _SlubPerCpuInfo(
-            freelists=freelists,
-            num_partial_list_free_objs=num_partial_list_free_objs,
+            free_objects=free_objects,
+            num_free_objects=num_free_objects,
             error=error,
         )
 
@@ -551,15 +616,16 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         num_slabs = 0
         num_objs = 0
         # SLUB doesn't maintain a counter of free objects. Instead, we have to
-        # compute it from three places:
+        # compute it from several places:
         #
         # 1. Per-node partial lists: sum of slab->objects - slab->inuse for
         #    each slab.
-        # 2. Per-CPU partial lists (ditto).
-        # 3. Per-CPU freelists. We can't use slab->inuse of the per-CPU active
+        # 2. Before Linux 7.0, per-CPU partial lists (ditto).
+        # 3. Since Linux 6.18, per-node full sheaves: sheaf->size.
+        # 4. Since Linux 6.18, per-CPU sheaves (ditto).
+        # 5. Per-CPU freelists. We can't use slab->inuse of the per-CPU active
         #    slabs because it is set to slab->objects for active slabs.
-        per_cpu = self._per_cpu_info(count_partial_list_free_objs=True)
-        free_objs = len(per_cpu.freelists) + per_cpu.num_partial_list_free_objs
+        free_objs = self._per_cpu_info(count_free_objects=True).num_free_objects
 
         slab_type = _get_slab_type(self._prog).type
         # Since Linux kernel commit 4da1984edbbe ("mm: combine LRU and main
@@ -578,6 +644,22 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                 ) from None
             num_slabs += nr_slabs.counter.value_()
             num_objs += node.total_objects.counter.value_()
+
+            # struct kmem_cache_node::barn was added in Linux kernel commit
+            # 2d517aa09bbc ("slab: add opt-in caching layer of percpu sheaves")
+            # (in v6.18).
+            try:
+                barn = node.barn.read_()
+            except AttributeError:
+                pass
+            else:
+                if barn:
+                    for sheaf in validate_list_for_each_entry(
+                        "struct slab_sheaf",
+                        barn.sheaves_full.address_of_(),
+                        "barn_list",
+                    ):
+                        free_objs += sheaf.size.value_()
 
             # This is racy. On live kernels, we retry a limited number of times.
             for attempts_remaining in range(num_attempts, -1, -1):
@@ -604,12 +686,14 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         addr = page_to_virt(page).value_() + self._red_left_pad
         end = addr + self._slab_cache_size * slab.objects
         while addr < end:
-            if addr not in freelist and addr not in self._cpu_freelists:
+            if addr not in freelist and addr not in self._cache_free_objects:
                 yield Object(self._prog, pointer_type, value=addr)
             addr += self._slab_cache_size
 
     def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
-        self._cpu_freelists = self._per_cpu_info().freelists
+        self._cache_free_objects = (
+            self._sheaves_full_objects() | self._per_cpu_info().free_objects
+        )
         return super().for_each_allocated_object(type)
 
     def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
@@ -618,8 +702,15 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             first_addr
             + (addr - first_addr) // self._slab_cache_size * self._slab_cache_size
         )
+        try:
+            sheaves_full_objects = self._sheaves_full_objects()
+        except (FaultError, ValidationError) as e:
+            sheaves_full_objects = set()
+            sheaves_error: Optional[Exception] = e
+        else:
+            sheaves_error = None
         per_cpu = self._per_cpu_info(catch_errors=True)
-        if address in per_cpu.freelists:
+        if address in sheaves_full_objects or address in per_cpu.free_objects:
             allocated: Optional[bool] = False
         else:
             try:
@@ -633,7 +724,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             else:
                 if address in freelist:
                     allocated = False
-                elif per_cpu.error:
+                elif sheaves_error or per_cpu.error:
                     allocated = None
                 else:
                     allocated = True
