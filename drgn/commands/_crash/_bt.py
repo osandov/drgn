@@ -5,8 +5,8 @@ from typing import Any, Iterable, Literal, Optional
 
 from drgn import Architecture, FaultError, MainModule, Object, Program, StackFrame
 from drgn.commands import argument, drgn_argument, mutually_exclusive_group
-from drgn.commands._builtin.crash._rd import _print_memory
-from drgn.commands.crash import (
+from drgn.commands._crash._rd import _print_memory
+from drgn.commands._crash.common import (
     Cpuspec,
     CrashDrgnCodeBuilder,
     _crash_foreach_subcommand,

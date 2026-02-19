@@ -5,7 +5,7 @@ import re
 
 from drgn import Object, offsetof
 from drgn.commands import CommandArgumentError
-from drgn.commands._builtin.crash._collections import _find_tree_type
+from drgn.commands._crash._collections import _find_tree_type
 from drgn.helpers.linux.rbtree import (
     rbtree_inorder_for_each,
     rbtree_inorder_for_each_entry,

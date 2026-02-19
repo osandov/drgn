@@ -8,7 +8,11 @@ from typing import Any, List, Sequence
 
 from drgn import FaultError, Object, Program, ProgramFlags
 from drgn.commands import argument, drgn_argument
-from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command, parse_cpuspec
+from drgn.commands._crash.common import (
+    CrashDrgnCodeBuilder,
+    crash_command,
+    parse_cpuspec,
+)
 from drgn.helpers.common.format import CellFormat, RowOptions, print_table
 from drgn.helpers.linux.percpu import per_cpu
 from drgn.helpers.linux.timekeeping import ktime_get_coarse_ns, ktime_to_ns

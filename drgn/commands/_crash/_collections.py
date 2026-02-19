@@ -23,7 +23,7 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands.crash import (
+from drgn.commands._crash.common import (
     CrashDrgnCodeBuilder,
     _addr_or_sym,
     _guess_type,

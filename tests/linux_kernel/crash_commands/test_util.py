@@ -4,7 +4,7 @@
 
 import unittest.mock
 
-from drgn.commands.crash import Cpuspec, parse_cpuspec
+from drgn.commands._crash.common import Cpuspec, parse_cpuspec
 from drgn.helpers.linux.sched import idle_task
 from tests import TestCase
 from tests.linux_kernel import possible_cpus
@@ -61,7 +61,7 @@ class TestParseCpuspec(TestCase):
 class TestCpuspecCpus(CrashCommandTestCase):
     def setUp(self):
         patcher = unittest.mock.patch(
-            "drgn.commands.crash.for_each_possible_cpu",
+            "drgn.commands._crash.common.for_each_possible_cpu",
             side_effect=lambda prog: (0, 1, 2, 4, 5),
         )
         patcher.start()

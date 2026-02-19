@@ -11,7 +11,7 @@ from typing import Any, Iterable, List, Sequence
 
 from drgn import Object, Program, offsetof
 from drgn.commands import _repr_black, argument, drgn_argument, mutually_exclusive_group
-from drgn.commands.crash import (
+from drgn.commands._crash.common import (
     Cpuspec,
     CrashDrgnCodeBuilder,
     _crash_foreach_subcommand,

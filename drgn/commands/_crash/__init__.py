@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import argparse
+import importlib
+import pkgutil
 import sys
 import types
 from typing import Any, Dict, Optional, Union
@@ -16,14 +18,18 @@ from drgn.commands import (
     _write_command_error,
     argument,
 )
-from drgn.commands._builtin.crash._sys import _print_sys
-from drgn.commands.crash import (
+from drgn.commands._crash._sys import _print_sys
+from drgn.commands._crash.common import (
     CRASH_COMMAND_NAMESPACE,
     crash_command,
     crash_custom_command,
 )
 from drgn.commands.linux import linux_kernel_raw_command
 from drgn.internal.repl import readline
+
+# Import all submodules, recursively.
+for _module_info in pkgutil.walk_packages(__path__, __name__ + "."):
+    importlib.import_module(_module_info.name)
 
 
 # These inherit from SystemExit to bypass things that attempt to handle most

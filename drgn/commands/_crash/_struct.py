@@ -10,7 +10,7 @@ from typing import Any, Iterable, List, Optional, Tuple, Union
 
 from drgn import Object, Program, offsetof, sizeof
 from drgn.commands import CommandError, _repr_black, argument, drgn_argument
-from drgn.commands.crash import (
+from drgn.commands._crash.common import (
     _ADDR_OR_SYM,
     _PID_OR_TASK,
     Cpuspec,

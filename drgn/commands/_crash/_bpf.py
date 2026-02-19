@@ -9,7 +9,7 @@ from typing import Any, List, Sequence
 
 from drgn import Program
 from drgn.commands import argument, drgn_argument
-from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command
+from drgn.commands._crash.common import CrashDrgnCodeBuilder, crash_command
 from drgn.helpers.common.format import CellFormat, escape_ascii_string, print_table
 from drgn.helpers.linux.bpf import (
     bpf_map_for_each,

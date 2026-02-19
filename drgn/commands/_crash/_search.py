@@ -14,8 +14,8 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands._builtin.crash._rd import _print_memory
-from drgn.commands.crash import (
+from drgn.commands._crash._rd import _print_memory
+from drgn.commands._crash.common import (
     CrashDrgnCodeBuilder,
     _addr_or_sym,
     _resolve_addr_or_sym,

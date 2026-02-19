@@ -10,7 +10,7 @@ from typing import Any, List, Sequence
 
 from drgn import Program, Symbol, SymbolKind
 from drgn.commands import _repr_black, argument, drgn_argument, mutually_exclusive_group
-from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command
+from drgn.commands._crash.common import CrashDrgnCodeBuilder, crash_command
 
 # Ignore symbols that the kernel excludes from kallsyms. See scripts/mksysmap
 # in the Linux kernel source.

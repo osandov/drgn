@@ -189,9 +189,9 @@ class CommandFormatter:
                     namespace = ""
                     enabled = "linux"
                 elif (
-                    name == "drgn.commands.crash.crash_command"
-                    or name == "drgn.commands.crash.crash_custom_command"
-                    or name == "drgn.commands.crash.crash_raw_command"
+                    name == "drgn.commands._crash.common.crash_command"
+                    or name == "drgn.commands._crash.common.crash_custom_command"
+                    or name == "drgn.commands._crash.common.crash_raw_command"
                 ):
                     namespace = "crash"
                 else:

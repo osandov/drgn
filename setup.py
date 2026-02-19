@@ -451,7 +451,10 @@ setup(
             "drgn=drgn.cli:_main",
             "drgn-crash=drgn.internal.crashcli:_main",
         ],
-        "drgn.plugins": ["builtin_commands=drgn.commands._builtin"],
+        "drgn.plugins": [
+            "builtin_commands=drgn.commands._builtin",
+            "crash_commands=drgn.commands._crash",
+        ],
     },
     python_requires=">=3.8",
     author="Omar Sandoval",

@@ -19,7 +19,7 @@ from drgn.commands import (
     drgn_argument,
     parse_shell_command,
 )
-from drgn.commands.crash import (
+from drgn.commands._crash.common import (
     _MEMBER_PATTERN,
     _TYPE_NAME_PATTERN,
     CrashDrgnCodeBuilder,

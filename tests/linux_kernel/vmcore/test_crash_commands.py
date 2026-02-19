@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-import drgn.commands._builtin  # noqa  # needed to register crash commands
+import drgn.commands._crash  # noqa  # needed to register crash commands
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from tests.linux_kernel import skip_unless_have_stack_tracing
 from tests.linux_kernel.vmcore import LinuxVMCoreCrashCommandTestCase

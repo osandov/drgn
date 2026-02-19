@@ -7,7 +7,7 @@ import sys
 
 import drgn
 import drgn.cli
-from drgn.commands._builtin.crash import _cmd_crash
+from drgn.commands._crash import _cmd_crash
 
 
 def _main() -> None:

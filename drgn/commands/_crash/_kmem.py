@@ -37,8 +37,8 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands._builtin.crash._sys import _print_sys
-from drgn.commands.crash import (
+from drgn.commands._crash._sys import _print_sys
+from drgn.commands._crash.common import (
     CrashDrgnCodeBuilder,
     _parse_members,
     _sanitize_member_name,

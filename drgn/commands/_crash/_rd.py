@@ -7,7 +7,7 @@ from typing import Any, Dict, Literal, Optional
 
 from drgn import FaultError, IntegerLike, PlatformFlags, Program
 from drgn.commands import argument, drgn_argument, mutually_exclusive_group
-from drgn.commands.crash import (
+from drgn.commands._crash.common import (
     CrashDrgnCodeBuilder,
     _resolve_addr_or_sym,
     crash_command,

@@ -16,7 +16,7 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command
+from drgn.commands._crash.common import CrashDrgnCodeBuilder, crash_command
 from drgn.helpers.common.format import CellFormat, print_table
 from drgn.helpers.linux.module import module_taints
 

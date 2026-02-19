@@ -13,7 +13,7 @@ from drgn import (
     SymbolBinding,
     SymbolKind,
 )
-from drgn.commands._builtin.crash._rd import _print_memory
+from drgn.commands._crash._rd import _print_memory
 from tests import TestCase
 
 

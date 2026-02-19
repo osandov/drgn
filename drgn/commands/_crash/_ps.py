@@ -24,7 +24,7 @@ from drgn.commands import (
     parse_shell_command,
     unquote_shell_word,
 )
-from drgn.commands.crash import (
+from drgn.commands._crash.common import (
     _CRASH_FOREACH_SUBCOMMANDS,
     Cpuspec,
     CrashDrgnCodeBuilder,

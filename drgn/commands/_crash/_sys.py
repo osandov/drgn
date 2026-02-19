@@ -30,7 +30,7 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands.crash import (
+from drgn.commands._crash.common import (
     Cpuspec,
     CrashDrgnCodeBuilder,
     _crash_get_panic_context,

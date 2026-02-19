@@ -8,7 +8,7 @@ import re
 import threading
 
 from drgn import Object
-from drgn.commands.crash import _CRASH_FOREACH_SUBCOMMANDS
+from drgn.commands._crash.common import _CRASH_FOREACH_SUBCOMMANDS
 from drgn.helpers.common.format import double_quote_ascii_string
 from drgn.helpers.linux.mm import TaskRss
 from drgn.helpers.linux.pid import find_task

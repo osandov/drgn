@@ -8,7 +8,7 @@ from typing import Any
 
 from drgn import ObjectNotFoundError, Program, sizeof
 from drgn.commands import CommandError, argument, drgn_argument
-from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command
+from drgn.commands._crash.common import CrashDrgnCodeBuilder, crash_command
 
 
 @crash_command(

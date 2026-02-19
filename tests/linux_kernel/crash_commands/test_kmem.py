@@ -8,7 +8,7 @@ import tempfile
 
 from drgn import Object
 from drgn.commands import CommandArgumentError
-from drgn.commands.crash import CRASH_COMMAND_NAMESPACE
+from drgn.commands._crash.common import CRASH_COMMAND_NAMESPACE
 from drgn.helpers.linux.mm import PageUsage
 from drgn.helpers.linux.slab import SlabTotalUsage
 from tests import with_default_prog

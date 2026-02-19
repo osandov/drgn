@@ -11,8 +11,8 @@ from typing import Any, List
 
 from drgn import Object, Program
 from drgn.commands import _repr_black, argument, drgn_argument, mutually_exclusive_group
-from drgn.commands._builtin.crash._kmem import _print_pages_default_members
-from drgn.commands.crash import (
+from drgn.commands._crash._kmem import _print_pages_default_members
+from drgn.commands._crash.common import (
     CrashDrgnCodeBuilder,
     _crash_foreach_subcommand,
     _TaskSelector,

@@ -6,7 +6,7 @@ import re
 import tempfile
 
 from drgn import Object
-from drgn.commands.crash import CRASH_COMMAND_NAMESPACE
+from drgn.commands._crash.common import CRASH_COMMAND_NAMESPACE
 from tests.linux_kernel import possible_cpus, skip_unless_have_test_kmod
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 

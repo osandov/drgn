@@ -8,7 +8,7 @@ import unittest.mock
 
 from drgn import Object
 from drgn.commands import CommandArgumentError, CommandError
-from drgn.commands.crash import crash_get_context
+from drgn.commands._crash.common import crash_get_context
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel.crash_commands import CrashCommandTestCase
 

@@ -8,7 +8,11 @@ from typing import Any, Callable, Iterable, Iterator, List, Sequence, Tuple
 
 from drgn import Object, Program
 from drgn.commands import argument, argument_group, drgn_argument
-from drgn.commands.crash import CrashDrgnCodeBuilder, crash_command, crash_get_context
+from drgn.commands._crash.common import (
+    CrashDrgnCodeBuilder,
+    crash_command,
+    crash_get_context,
+)
 from drgn.helpers.common.format import CellFormat, print_table
 from drgn.helpers.linux.ipc import (
     decode_sysv_shm_mode_flags,

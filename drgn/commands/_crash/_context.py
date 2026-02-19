@@ -14,8 +14,8 @@ from drgn.commands import (
     drgn_argument,
     mutually_exclusive_group,
 )
-from drgn.commands._builtin.crash._sys import _append_sys_drgn_task, _print_sys
-from drgn.commands.crash import (
+from drgn.commands._crash._sys import _append_sys_drgn_task, _print_sys
+from drgn.commands._crash.common import (
     CrashDrgnCodeBuilder,
     _crash_foreach_subcommand,
     _crash_get_panic_context,

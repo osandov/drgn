@@ -7,7 +7,7 @@ import os
 import sys
 import types
 
-from drgn.commands.crash import CRASH_COMMAND_NAMESPACE
+from drgn.commands._crash.common import CRASH_COMMAND_NAMESPACE
 from tests import with_default_prog
 from tests.linux_kernel import LinuxKernelTestCase
 
