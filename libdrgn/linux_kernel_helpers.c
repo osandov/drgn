@@ -76,11 +76,15 @@ struct drgn_error *linux_helper_direct_mapping_offset(struct drgn_program *prog,
 	if (prog->platform.arch->linux_kernel_direct_mapping_offset) {
 		err = prog->platform.arch->linux_kernel_direct_mapping_offset(
 			prog, &prog->direct_mapping_offset);
-		if (err)
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+			// Fall back to address translation.
+		} else if (err) {
 			return err;
-		prog->direct_mapping_offset_cached = true;
-		*ret = prog->direct_mapping_offset;
-		return NULL;
+		} else {
+			prog->direct_mapping_offset_cached = true;
+			*ret = prog->direct_mapping_offset;
+			return NULL;
+		}
 	}
 
 	// The direct mapping offset can vary depending on architecture, kernel
