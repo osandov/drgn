@@ -1,7 +1,7 @@
 dnl Copyright (c) Meta Platforms, Inc. and affiliates.
 dnl SPDX-License-Identifier: LGPL-2.1-or-later
 
-AC_INIT([libdrgn], [0.0.33],
+AC_INIT([libdrgn], [0.1.0],
 	[https://github.com/osandov/drgn/issues],,
 	[https://github.com/osandov/drgn])
 
