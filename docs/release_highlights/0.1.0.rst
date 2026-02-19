@@ -1,0 +1,301 @@
+0.1.0 (Released February 19th, 2026)
+====================================
+
+These are some of the highlights of drgn 0.1.0. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.1.0>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+.. program:: drgn
+
+Crash Compatibility Mode
+------------------------
+
+This release adds a compatibility mode emulating the `crash utility
+<https://crash-utility.github.io/>`_. Most commands have been ported. Ported
+commands also have a ``--drgn`` option that prints example drgn code for doing
+the equivalent of the command. This helps users transition from crash's UI to
+drgn's programmable API.
+
+Crash compatibility mode can be accessed with ``%crash`` from the drgn CLI or
+directly with the new :doc:`drgn-crash <../man/drgn-crash>` script.
+
+.. code-block:: console
+
+    $ drgn-crash vmlinux vmcore
+          KERNEL: vmlinux
+        DUMPFILE: vmcore
+            CPUS: 8
+            DATE: Wed Feb 18 15:37:47 PST 2026
+          UPTIME: 66 days, 17:31:41
+    ...
+    crash> ps
+               PID     PPID  CPU        TASK        ST  %MEM         VSZ     RSS  COMM
+    >        0        0    0  ffffffff9fe130c0  R    0.0           0       0  [swapper/0]
+             0        0    1  ffff8a0ac16d0000  R    0.0           0       0  [swapper/1]
+             1        0    5  ffff8a0ac10d8000  S    0.1       36132   15864  systemd
+    ...
+    crash> ps --drgn
+    from drgn.helpers.linux.mm import task_rss, task_vsize, totalram_pages
+    from drgn.helpers.linux.pid import for_each_task
+    from drgn.helpers.linux.sched import task_cpu, task_state_to_char
+
+
+    total_mem = totalram_pages()
+
+    for task in for_each_task(idle=True):
+        pid = task.pid
+        ppid = task.parent.pid
+        cpu = task_cpu(task)
+        state = task_state_to_char(task)
+        rss = task_rss(task)
+        mem_usage = rss.total / total_mem
+        vsize = task_vsize(task)
+        comm = task.comm
+
+See :doc:`../crash_compatibility` for a full list of supported commands and
+options.
+
+If you find that a command, option, or other feature that you want is missing,
+please open a `GitHub issue <https://github.com/osandov/drgn/issues>`_. In
+particular, drgn does not support all dump formats that crash supports, and a
+few commands and options were left for later, but those can be addressed if
+requested.
+
+Built-in Commands
+-----------------
+
+drgn now provides a few :doc:`built-in commands <../commands>` accessed by
+starting a line with the ``%`` character.
+
+:drgncommand:`py` runs Python code, allowing its output to be piped or
+redirected::
+
+    >>> %py stack_trace(1) | grep poll
+    #5  ep_poll (fs/eventpoll.c:2028:6)
+    #6  do_epoll_wait (fs/eventpoll.c:2473:9)
+    #7  __do_sys_epoll_wait (fs/eventpoll.c:2481:9)
+    #8  __se_sys_epoll_wait (fs/eventpoll.c:2476:1)
+    #9  __x64_sys_epoll_wait (fs/eventpoll.c:2476:1)
+
+:drgncommand:`sh` executes a shell command:
+
+.. code-block:: pycon
+    :force:
+
+    >>> %sh $EDITOR my_script.py
+
+:drgncommand:`source` runs a script::
+
+    >>> %source my_script.py
+
+Memory Searching
+----------------
+
+This release adds several functions for searching for values or patterns in
+memory. :func:`drgn.search_memory()` can search for strings, byte strings,
+integers, or :class:`drgn.Object`\ s:
+
+.. code-block:: python3
+
+    for address in search_memory(b"VMCOREINFO"):
+        print(hex(address))
+
+    ptr = stack_trace(pid)[2]["ptr"]
+    for address in search_memory(ptr):
+        print(hex(address))
+
+:func:`drgn.search_memory_u16()`, :func:`drgn.search_memory_u32()`,
+:func:`drgn.search_memory_u64()`, and :func:`drgn.search_memory_word()` can
+search for exact integers, values with a mask, or ranges:
+
+.. code-block:: python3
+
+    for address, value in search_memory_word(
+        0xdead000000000100, 0xdead000000000122
+    ):
+        print(hex(address), hex(value))
+
+    for address, value in search_memory_word(
+        0xdead000000000000, ignore_mask=0xffff
+    ):
+        print(hex(address), hex(value))
+
+    obj = prog["obj"]
+    for address, value in search_memory_word(
+        (obj.address_, obj.address_ + sizeof(obj) - 1)
+    ):
+        print(hex(address), hex(value))
+
+:func:`drgn.search_memory_regex()` can search for regular expression matches:
+
+.. code-block:: python3
+
+    # Search for anything that looks like root's password encrypted in
+    # /etc/shadow.
+    for address, match in search_memory_regex(rb"root:\$\w+\$[ -9;-~]+:"):
+        print(hex(address), match)
+
+The memory range to search can be limited; see
+:class:`drgn.MemorySearchIterator`.
+
+Address to Source Code Location Lookups
+---------------------------------------
+
+:func:`drgn.source_location()` was added. It looks up the file, line number,
+column number, and function name of a given code address, similar to
+:manpage:`addr2line(1)`. It handles function inlining, returning multiple
+locations when applicable::
+
+    >>> source_location("__schedule")
+    __schedule at kernel/sched/core.c:6646:1
+    >>> source_location("__schedule+0x2b6")
+    #0  context_switch at kernel/sched/core.c:5381:9
+    #1  __schedule at kernel/sched/core.c:6765:8
+    >>> source_location(0xffffffffb64d70a6)
+    #0  context_switch at kernel/sched/core.c:5381:9
+    #1  __schedule at kernel/sched/core.c:6765:8
+
+:meth:`drgn.StackFrame.source()` now returns a :class:`drgn.SourceLocation`
+named tuple instead of a plain tuple, providing named access to the file, line,
+column, and function name.
+
+Many More Helpers
+-------------------
+
+This release adds another 80+ helpers for various subsystems.
+
+- :func:`~drgn.helpers.linux.block.blk_mq_rq_from_pdu`
+- :func:`~drgn.helpers.linux.block.blk_mq_rq_to_pdu`
+- :func:`~drgn.helpers.linux.block.blk_rq_bytes`
+- :func:`~drgn.helpers.linux.block.blk_rq_pos`
+- :func:`~drgn.helpers.linux.block.op_is_write`
+- :func:`~drgn.helpers.linux.block.req_op`
+- :func:`~drgn.helpers.linux.block.request_queue_busy_iter`
+- :func:`~drgn.helpers.linux.block.rq_data_dir`
+- :func:`~drgn.helpers.linux.bpf.bpf_map_by_id`
+- :func:`~drgn.helpers.linux.bpf.bpf_prog_by_id`
+- :func:`~drgn.helpers.linux.bpf.bpf_prog_used_maps`
+- :func:`~drgn.helpers.linux.completion.completion_done`
+- :func:`~drgn.helpers.linux.completion.completion_for_each_task`
+- :func:`~drgn.helpers.linux.cpumask.cpumask_of`
+- :func:`~drgn.helpers.linux.device.for_each_registered_blkdev`
+- :func:`~drgn.helpers.linux.device.for_each_registered_chrdev`
+- :func:`~drgn.helpers.linux.fs.address_space_for_each_page`
+- :func:`~drgn.helpers.linux.fs.decode_file_type`
+- :func:`~drgn.helpers.linux.fs.inode_for_each_page`
+- :func:`~drgn.helpers.linux.ioport.for_each_resource`
+- :func:`~drgn.helpers.linux.ipc.decode_sysv_shm_flags`
+- :func:`~drgn.helpers.linux.ipc.decode_sysv_shm_mode_flags`
+- :func:`~drgn.helpers.linux.ipc.find_sysv_msg_queue`
+- :func:`~drgn.helpers.linux.ipc.find_sysv_sem_array`
+- :func:`~drgn.helpers.linux.ipc.find_sysv_shm`
+- :func:`~drgn.helpers.linux.ipc.for_each_sysv_msg_queue`
+- :func:`~drgn.helpers.linux.ipc.for_each_sysv_sem_array`
+- :func:`~drgn.helpers.linux.ipc.for_each_sysv_shm`
+- :func:`~drgn.helpers.linux.irq.for_each_irq_desc`
+- :func:`~drgn.helpers.linux.irq.gate_desc_func`
+- :func:`~drgn.helpers.linux.irq.irq_desc_action_names`
+- :func:`~drgn.helpers.linux.irq.irq_desc_affinity_mask`
+- :func:`~drgn.helpers.linux.irq.irq_desc_chip_name`
+- :func:`~drgn.helpers.linux.irq.irq_desc_kstat_cpu`
+- :func:`~drgn.helpers.linux.irq.irq_to_desc`
+- :func:`~drgn.helpers.linux.kthread.task_is_kthread`
+- :func:`~drgn.helpers.linux.locking.mutex_owner`
+- :func:`~drgn.helpers.linux.locking.rwsem_locked`
+- :func:`~drgn.helpers.linux.locking.rwsem_owner`
+- :func:`~drgn.helpers.linux.mm.decode_memory_block_state_value`
+- :func:`~drgn.helpers.linux.mm.mm_cmdline`
+- :func:`~drgn.helpers.linux.mm.mm_environ`
+- :func:`~drgn.helpers.linux.mm.task_vsize`
+- :func:`~drgn.helpers.linux.mm.vma_name`
+- :func:`~drgn.helpers.linux.net.for_each_netdev`
+- :func:`~drgn.helpers.linux.net.netdev_ipv4_addrs`
+- :func:`~drgn.helpers.linux.net.netdev_ipv6_addrs`
+- :func:`~drgn.helpers.linux.net.netdev_name`
+- :func:`~drgn.helpers.linux.pci.for_each_pci_dev`
+- :func:`~drgn.helpers.linux.pci.for_each_pci_root_bus`
+- :func:`~drgn.helpers.linux.pci.pci_bus_for_each_child`
+- :func:`~drgn.helpers.linux.pci.pci_bus_for_each_dev`
+- :func:`~drgn.helpers.linux.pci.pci_bus_name`
+- :func:`~drgn.helpers.linux.pci.pci_is_bridge`
+- :func:`~drgn.helpers.linux.pci.pci_name`
+- :func:`~drgn.helpers.linux.pci.pci_pcie_type`
+- :func:`~drgn.helpers.linux.resource.task_rlimits`
+- :func:`~drgn.helpers.linux.sbitmap.sbitmap_for_each_set`
+- :func:`~drgn.helpers.linux.sched.cfs_rq_for_each_entity`
+- :func:`~drgn.helpers.linux.sched.rq_for_each_fair_task`
+- :func:`~drgn.helpers.linux.sched.rq_for_each_rt_task`
+- :func:`~drgn.helpers.linux.sched.sched_entity_is_task`
+- :func:`~drgn.helpers.linux.sched.sched_entity_to_task`
+- :func:`~drgn.helpers.linux.sched.task_group_name`
+- :func:`~drgn.helpers.linux.sched.thread_group_leader`
+- :func:`~drgn.helpers.linux.signal.decode_sigaction_flags`
+- :func:`~drgn.helpers.linux.signal.decode_sigaction_flags_value`
+- :func:`~drgn.helpers.linux.signal.decode_sigset`
+- :func:`~drgn.helpers.linux.signal.sigaction_flags`
+- :func:`~drgn.helpers.linux.signal.signal_names`
+- :func:`~drgn.helpers.linux.signal.signal_numbers`
+- :func:`~drgn.helpers.linux.signal.sigpending_for_each`
+- :func:`~drgn.helpers.linux.signal.sigset_to_hex`
+- :func:`~drgn.helpers.linux.stack.kernel_stack_trace`
+- :func:`~drgn.helpers.linux.swait.swait_active`
+- :func:`~drgn.helpers.linux.swait.swait_for_each_task`
+- :func:`~drgn.helpers.linux.timekeeping.ktime_to_ns`
+- :func:`~drgn.helpers.linux.timer.hrtimer_clock_base_for_each`
+- :func:`~drgn.helpers.linux.timer.timer_base_for_each`
+- :func:`~drgn.helpers.linux.timer.timer_base_names`
+- :func:`~drgn.helpers.linux.user.kuid_val`
+
+Implicit Type Lookups for ``sizeof()``, ``alignof()``, ``offsetof()``, etc.
+---------------------------------------------------------------------------
+
+:func:`drgn.sizeof()`, :func:`drgn.alignof()`, :func:`drgn.offsetof()`,
+:func:`drgn.helpers.common.type.member_at_offset()`, and
+:func:`drgn.helpers.common.type.typeof_member()` now accept the type or object
+argument as a string, which is looked up in the default program. This avoids
+the need to manually look up a type first::
+
+    >>> sizeof("struct task_struct")
+    9728
+    >>> alignof("struct page")
+    16
+    >>> offsetof("struct task_struct", "comm")
+    3248
+
+Linux 6.19 and Tentative 7.0 Support
+------------------------------------
+
+A change in Linux 6.19 broke
+:func:`drgn.helpers.linux.mm.decode_memory_block_state()`. This error is fixed
+in this release::
+
+    >>> decode_memory_block_state(mem)
+    Traceback (most recent call last):
+      ...
+    KeyError: 0
+
+A change in Linux 6.19 broke
+:func:`~drgn.helpers.linux.module.module_taints()`. This error is fixed in this
+release::
+
+    AttributeError: 'struct taint_flag' has no member 'module'
+
+This release of drgn precedes the release of Linux 7.0 by a few days, but a
+couple of breakages introduced during the merge window have been addressed.
+
+A change in the Linux 7.0 merge window broke
+:func:`~drgn.helpers.linux.kallsyms.load_vmlinux_kallsyms()`. This error is
+fixed in this release::
+
+    >>> drgn.helpers.linux.kallsyms._load_builtin_kallsyms(prog)
+    Traceback (most recent call last):
+      ...
+    _drgn.FaultError: address is not mapped: 0x0
+
+The transition to sheaves in the slab allocator in the Linux 7.0 merge window
+made :func:`~drgn.helpers.linux.slab.slab_cache_for_each_allocated_object()`,
+:func:`~drgn.helpers.linux.slab.slab_cache_usage()`,
+:func:`~drgn.helpers.linux.slab.slab_object_info()`, and related helpers return
+inaccurate information. That was fixed in this release. Note that this also
+affected slab caches that opted into sheaves in Linux 6.18 and 6.19.
