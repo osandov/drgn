@@ -7,10 +7,12 @@
 import sys
 import drgn
 import argparse
+import platform
 
 from drgn import container_of
 from drgn.helpers.common.type import enum_type_to_class
 from drgn.helpers.linux import (
+    idr_find,
     bpf_map_for_each,
     bpf_prog_for_each,
     bpf_link_for_each,
@@ -43,6 +45,50 @@ def bpf_attach_type_to_tramp(attach_type):
     return BpfProgTrampType.BPF_TRAMP_REPLACE
 
 
+def bpf_disas(addr, len):
+    try:
+        import capstone
+    except ImportError:
+        sys.exit("Disassembly requires capstone")
+
+    arch = platform.machine()
+    if arch == "x86_64":
+        cs_arch = capstone.CS_ARCH_X86
+        cs_mode = capstone.CS_MODE_64
+    elif arch == "aarch64":
+        cs_arch = capstone.CS_ARCH_ARM64
+        cs_mode = capstone.CS_MODE_ARM
+    else:
+        sys.exit("Disassembly is only supported on x86_64 and aarch64")
+
+    b = prog.read(addr, len)
+    md = capstone.Cs(cs_arch, cs_mode)
+    for insn in md.disasm(b, addr):
+        opcode = " ".join([f"{byte:02x}" for byte in insn.bytes])
+        yield f"0x{insn.address:x}:\t{opcode:19}\t{insn.mnemonic}\t{insn.op_str}"
+
+
+class BpfKsym(object):
+    def __init__(self, ksym):
+        self.ksym = ksym
+
+    def disas(self):
+        start = self.ksym.start.value_()
+        end = self.ksym.end.value_()
+
+        return bpf_disas(start, end - start)
+
+    @property
+    def name(self):
+        return self.ksym.name.string_().decode()
+
+    def __repr__(self):
+        start = self.ksym.start.value_()
+        end = self.ksym.end.value_()
+
+        return f"{self.name:40} 0x{start:018x} {end - start} bytes"
+
+
 class BpfTramp(object):
     def __init__(self, tr):
         self.tr = tr
@@ -63,6 +109,29 @@ class BpfTramp(object):
                     yield tramp_aux.prog
         except LookupError:
             return
+
+    def get_ksym(self):
+        if not self.tr:
+            return None
+
+        try:
+            return BpfKsym(self.tr.cur_image.member_("ksym"))
+        except LookupError:
+            return None
+
+    def disas(self):
+        if not self.tr:
+            return
+
+        ksym = self.get_ksym()
+        if ksym:
+            return ksym.disas()
+
+        img = self.tr.cur_image
+        return bpf_disas(img.image.value_(), img.size.value_())
+
+    def __repr__(self):
+        return f"{self.get_ksym()}"
 
 
 class BpfMap(object):
@@ -111,12 +180,15 @@ class BpfProg(object):
             return self.__get_btf_name(aux.btf, aux.func_info[0].type_id)
         return ""
 
-    def get_ksym_name(self):
+    def get_ksym(self):
         try:
-            ksym = self.prog.aux.member_("ksym")
-            return ksym.name.string_().decode()[26:]
+            return BpfKsym(self.prog.aux.member_("ksym"))
         except LookupError:
-            return ""
+            return None
+
+    def get_ksym_name(self):
+        ksym = self.get_ksym()
+        return ksym.name[26:] if ksym else ""
 
     def get_prog_name(self):
         if self.is_subprog():
@@ -130,6 +202,11 @@ class BpfProg(object):
     def get_subprogs(self):
         for i in range(0, self.prog.aux.func_cnt.value_()):
             yield i, BpfProg(self.prog.aux.func[i])
+
+    def get_subprog(self, index):
+        if index >= self.prog.aux.func_cnt.value_():
+            return None
+        return BpfProg(self.prog.aux.func[index])
 
     def get_linked_func(self):
         kind = bpf_attach_type_to_tramp(self.prog.expected_attach_type)
@@ -147,7 +224,7 @@ class BpfProg(object):
 
     def get_attach_func(self):
         try:
-            func_ = self.prog.aux.attach_func_name
+            func_ = self.prog.aux.member_("attach_func_name")
             if func_:
                 return func_.string_().decode()
         except LookupError:
@@ -174,6 +251,12 @@ class BpfProg(object):
             return
 
         return BpfTramp(tr).get_progs()
+
+    def disas(self):
+        if self.prog.jited.value_():
+            ksym = self.get_ksym()
+            if ksym:
+                return ksym.disas()
 
     def __repr__(self):
         id_ = self.prog.aux.id.value_()
@@ -205,12 +288,28 @@ def list_bpf_progs(show_details=False):
         for map_ in bpf_prog.get_used_maps():
             print(f"\t{'used map:':9} {map_}")
 
+        ksym = bpf_prog.get_ksym()
+        if ksym:
+            print(f"\t{'ksym:':9} {ksym}")
+
         for index, subprog in bpf_prog.get_subprogs():
+            if index == 0:
+                continue
+
             print(f"\t{f'func[{index:>2}]:':9} {subprog}")
+            ksym = subprog.get_ksym()
+            if ksym:
+                print(f"\t{'funcksym:':9} {ksym}")
 
 
 def __list_bpf_progs(args):
     list_bpf_progs(args.show_details)
+
+
+def get_bpf_prog_by_id(id):
+    type_ = prog.type("struct bpf_prog *")
+    prog_ = idr_find(prog["prog_idr"].address_of_(), id)
+    return BpfProg(drgn.cast(type_, prog_))
 
 
 class BpfProgArrayMap(BpfMap):
@@ -285,6 +384,12 @@ def __list_bpf_maps(args):
     list_bpf_maps(args.show_details)
 
 
+def get_bpf_map_by_id(id):
+    type_ = prog.type("struct bpf_map *")
+    map_ = idr_find(prog["map_idr"].address_of_(), id)
+    return BpfMap(drgn.cast(type_, map_))
+
+
 class BpfLink(object):
     def __init__(self, bpf_link):
         self.link = bpf_link
@@ -304,8 +409,11 @@ class BpfTracingLink(BpfLink):
     def get_tgt_prog(self):
         return self.tracing.tgt_prog
 
+    def get_tramp(self):
+        return BpfTramp(self.tracing.trampoline)
+
     def get_linked_progs(self):
-        return BpfTramp(self.tracing.trampoline).get_progs()
+        return self.get_tramp().get_progs()
 
     def __repr__(self):
         tgt_prog = self.get_tgt_prog()
@@ -381,6 +489,12 @@ def list_bpf_links(show_details=False):
 
 def __list_bpf_links(args):
     list_bpf_links(args.show_details)
+
+
+def get_bpf_link_by_id(id):
+    type_ = prog.type("struct bpf_link *")
+    link_ = idr_find(prog["link_idr"].address_of_(), id)
+    return BpfLink(drgn.cast(type_, link_))
 
 
 def __run_interactive(args):
