@@ -42,7 +42,7 @@ of this support is:
       - ✓
     * - RISC-V
       - ✓
-      -
+      - ✓
       -
 
 .. rubric:: Key

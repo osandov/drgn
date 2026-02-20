@@ -1970,6 +1970,54 @@ static inline void drgn_test_get_pt_regs(struct pt_regs *regs)
 	asm volatile("movl %%cs, %%eax;" :"=a"(regs->cs));
 	asm volatile("pushfq; popq %0" :"=m"(regs->flags));
 	regs->ip = _THIS_IP_;
+#elif defined(__riscv)
+	unsigned long tmp;
+
+	asm volatile (
+		"auipc %1, 0x0\n"
+		REG_S " %1,  %0"
+		: "=m"(regs->epc), "=&r" (tmp)
+	);
+	asm volatile (REG_S " ra,  %0" : "=m"(regs->ra));
+	asm volatile (REG_S " sp,  %0" : "=m"(regs->sp));
+	asm volatile (REG_S " gp,  %0" : "=m"(regs->gp));
+	asm volatile (REG_S " tp,  %0" : "=m"(regs->tp));
+	asm volatile (REG_S " t0,  %0" : "=m"(regs->t0));
+	asm volatile (REG_S " t1,  %0" : "=m"(regs->t1));
+	asm volatile (REG_S " t2,  %0" : "=m"(regs->t2));
+	asm volatile (REG_S " s0,  %0" : "=m"(regs->s0));
+	asm volatile (REG_S " s1,  %0" : "=m"(regs->s1));
+	asm volatile (REG_S " a0,  %0" : "=m"(regs->a0));
+	asm volatile (REG_S " a1,  %0" : "=m"(regs->a1));
+	asm volatile (REG_S " a2,  %0" : "=m"(regs->a2));
+	asm volatile (REG_S " a3,  %0" : "=m"(regs->a3));
+	asm volatile (REG_S " a4,  %0" : "=m"(regs->a4));
+	asm volatile (REG_S " a5,  %0" : "=m"(regs->a5));
+	asm volatile (REG_S " a6,  %0" : "=m"(regs->a6));
+	asm volatile (REG_S " a7,  %0" : "=m"(regs->a7));
+	asm volatile (REG_S " s2,  %0" : "=m"(regs->s2));
+	asm volatile (REG_S " s3,  %0" : "=m"(regs->s3));
+	asm volatile (REG_S " s4,  %0" : "=m"(regs->s4));
+	asm volatile (REG_S " s5,  %0" : "=m"(regs->s5));
+	asm volatile (REG_S " s6,  %0" : "=m"(regs->s6));
+	asm volatile (REG_S " s7,  %0" : "=m"(regs->s7));
+	asm volatile (REG_S " s8,  %0" : "=m"(regs->s8));
+	asm volatile (REG_S " s9,  %0" : "=m"(regs->s9));
+	asm volatile (REG_S " s10, %0" : "=m"(regs->s10));
+	asm volatile (REG_S " s11, %0" : "=m"(regs->s11));
+	asm volatile (REG_S " t3,  %0" : "=m"(regs->t3));
+	asm volatile (REG_S " t4,  %0" : "=m"(regs->t4));
+	asm volatile (REG_S " t5,  %0" : "=m"(regs->t5));
+	asm volatile (REG_S " t6,  %0" : "=m"(regs->t6));
+
+	unsigned long status = csr_read(CSR_STATUS);
+	asm volatile (REG_S " %1,  %0" : "=m"(regs->status) : "r" (status));
+
+	unsigned long badaddr = csr_read(CSR_TVAL);
+	asm volatile (REG_S " %1,  %0" : "=m"(regs->badaddr) : "r" (badaddr));
+
+	unsigned long cause = csr_read(CSR_CAUSE);
+	asm volatile (REG_S " %1,  %0" : "=m"(regs->cause) : "r" (cause));
 #endif
 }
 
