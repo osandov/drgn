@@ -18,6 +18,8 @@ include_HEADERS = drgn.h
 ARCH_DEFS_PYS = arch_aarch64_defs.py \
 		arch_arm_defs.py \
 		arch_ppc64_defs.py \
+		arch_riscv32_defs.py \
+		arch_riscv64_defs.py \
 		arch_s390x_defs.py \
 		arch_x86_64_defs.py
 
@@ -44,7 +46,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    $(STRSWITCH_INCS) \
 			    accessors.c \
 			    arch_i386.c \
-			    arch_riscv.c \
+			    arch_riscv.h \
 			    array.h \
 			    binary_buffer.c \
 			    binary_buffer.h \
