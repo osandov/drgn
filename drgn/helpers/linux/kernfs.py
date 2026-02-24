@@ -10,9 +10,9 @@ kernfs pseudo filesystem interface in :linux:`include/linux/kernfs.h`.
 """
 
 import os
-from typing import Iterator, Optional
+from typing import Iterator, List, Optional
 
-from drgn import NULL, Object, Path
+from drgn import NULL, Object, Path, Program, cast, container_of
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 __all__ = (
@@ -22,6 +22,10 @@ __all__ = (
     "kernfs_root",
     "kernfs_walk",
     "kernfs_children",
+    "sysfs_lookup_node",
+    "sysfs_lookup_kobject",
+    "sysfs_lookup",
+    "sysfs_listdir",
 )
 
 
@@ -150,3 +154,119 @@ def kernfs_children(kn: Object) -> Optional[Iterator[Object]]:
     return rbtree_inorder_for_each_entry(
         "struct kernfs_node", kn.dir.children.address_of_(), "rb"
     )
+
+
+def sysfs_lookup_node(prog: Program, path: str) -> Optional[Object]:
+    """
+    Look up a ``struct kernfs_node *`` for a given sysfs path.
+
+    The path may be provided either relative to ``/sys`` (e.g.,
+    ``devices/system/cpu``) or as an absolute path beginning with
+    ``/sys``. Leading slashes are ignored.
+
+    If the path is empty or refers to ``/sys`` itself, this returns
+    the sysfs root node.
+
+    :param prog: ``struct drgn_program *``
+    :param path: Sysfs path (absolute or relative to ``/sys``)
+    :return: ``struct kernfs_node *`` or ``NULL``
+    :raises LookupError: If ``sysfs_root`` symbol is not present
+    """
+    try:
+        root = prog["sysfs_root"]
+    except KeyError as e:
+        raise LookupError("sysfs_root symbol not found") from e
+
+    path = path.strip()
+
+    if not path:
+        return root.kn
+
+    path = path.lstrip("/")
+
+    if path == "sys":
+        return root.kn
+
+    if path.startswith("sys/"):
+        path = path[4:]
+
+    if not path:
+        return root.kn
+
+    return kernfs_walk(root.kn, path)
+
+
+def sysfs_lookup_kobject(prog: Program, path: str) -> Optional[Object]:
+    """
+    Look up the ``struct kobject *`` corresponding to a sysfs path.
+
+    If the path refers to a directory, this returns ``kn->priv``.
+    If the path refers to a file (attribute), this returns the
+    parent kobject (i.e., ``kn->__parent->priv``).
+
+    :param prog: ``struct drgn_program *``
+    :param path: Sysfs path relative to ``/sys``
+    :return: ``struct kobject *`` or ``NULL``
+    """
+    kn = sysfs_lookup_node(prog, path)
+    if not kn:
+        return None
+
+    if _kernfs_node_type(kn, "KERNFS_DIR"):
+        return cast("struct kobject *", kn.priv)
+
+    parent = kn.__parent
+    if not parent:
+        return None
+
+    return cast("struct kobject *", parent.priv)
+
+
+def sysfs_lookup(prog: Program, path: str) -> Optional[Object]:
+    """
+    Look up the object represented by a sysfs path.
+
+    If the resolved kobject corresponds to a ``struct device``,
+    return the containing ``struct device *``. Otherwise, return
+    the ``struct kobject *``.
+
+    :param prog: ``struct drgn_program *``
+    :param path: Sysfs path relative to ``/sys``
+    :return: ``struct device *`` or ``struct kobject *`` or ``NULL``
+    """
+    kobj = sysfs_lookup_kobject(prog, path)
+    if not kobj:
+        return None
+
+    try:
+        device_ktype = prog["device_ktype"].address_of_()
+    except KeyError:
+        return kobj
+
+    if kobj.ktype == device_ktype:
+        return container_of(kobj, "struct device", "kobj")
+
+    return kobj
+
+
+def sysfs_listdir(prog: Program, path: str) -> List[str]:
+    """
+    List the children of a sysfs directory.
+
+    :param prog: ``struct drgn_program *``
+    :param path: Sysfs directory path relative to ``/sys``
+    :return: ``List[str]`` of child entry names
+    :raises ValueError: If path is not found or not a directory
+    """
+    kn = sysfs_lookup_node(prog, path)
+    if not kn:
+        raise ValueError(f"{path}: not found")
+
+    if not _kernfs_node_type(kn, "KERNFS_DIR"):
+        raise ValueError(f"{path}: not a directory")
+
+    children_iter = kernfs_children(kn)
+    if children_iter is None:
+        return []
+
+    return [child.name.string_().decode() for child in children_iter]
