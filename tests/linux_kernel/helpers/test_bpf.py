@@ -14,6 +14,7 @@ from drgn.helpers.linux.bpf import (
     bpf_link_for_each,
     bpf_map_by_id,
     bpf_map_for_each,
+    bpf_map_memory_usage,
     bpf_prog_by_id,
     bpf_prog_for_each,
     bpf_prog_used_maps,
@@ -390,3 +391,88 @@ class TestBpf(BpfTestCase):
 
         non_existent_map = bpf_map_by_id(self.prog, 0x7FFFFFFF)
         self.assertEqual(non_existent_map.value_(), 0)
+
+    def test_bpf_map_memory_usage(self):
+        """
+        Test bpf_map_memory_usage() helper function.
+
+        This test verifies that the helper correctly calculates memory usage
+        for BPF maps across different kernel versions and map types.
+
+        The test validates against the memlock field in /proc/self/fdinfo/<fd>,
+        which is populated by the kernel's bpf_map_show_fdinfo() function
+        (see kernel/bpf/syscall.c).
+
+        On kernels v4.10-5.10 with actual memory tracking, the helper should
+        exactly match fdinfo. On v5.11+ kernels, both the helper and kernel
+        use approximations, but the kernel's fdinfo uses complex per-map-type
+        calculations that we can't perfectly replicate, so we verify the
+        helper returns a reasonable value.
+        """
+        test_cases = [
+            (BPF_MAP_TYPE_HASH, 8, 8, 8, "HASH 8/8/8"),
+            (BPF_MAP_TYPE_HASH, 4, 16, 16, "HASH 4/16/16"),
+            (BPF_MAP_TYPE_HASH, 16, 32, 32, "HASH 16/32/32"),
+        ]
+
+        for map_type, key_size, value_size, max_entries, desc in test_cases:
+            with self.subTest(desc=desc):
+                fd = bpf_map_create(map_type, key_size, value_size, max_entries)
+                self.addCleanup(os.close, fd)
+
+                try:
+                    map_id = bpf_map_get_info_by_fd(fd).id
+                except OSError as e:
+                    if e.errno != errno.EINVAL:
+                        raise
+                    self.skipTest("kernel does not support BPF_MAP_GET_NEXT_ID")
+
+                bpf_map = bpf_map_by_id(self.prog, map_id)
+                self.assertNotEqual(bpf_map.value_(), 0)
+
+                memlock = bpf_map_memory_usage(bpf_map)
+
+                self.assertIsNotNone(memlock)
+                self.assertIsInstance(memlock, int)
+                self.assertGreater(memlock, 0)
+
+                # Check if this kernel has actual memory tracking
+                has_memory_tracking = False
+                try:
+                    _ = bpf_map.memory.pages
+                    has_memory_tracking = True
+                except AttributeError:
+                    try:
+                        _ = bpf_map.pages
+                        has_memory_tracking = True
+                    except AttributeError:
+                        pass
+
+                fdinfo_path = f"/proc/self/fdinfo/{fd}"
+                try:
+                    with open(fdinfo_path, "r") as f:
+                        fdinfo_content = f.read()
+
+                    fdinfo_memlock = None
+                    for line in fdinfo_content.split("\n"):
+                        if line.startswith("memlock:"):
+                            fdinfo_memlock = int(line.split(":")[1].strip())
+                            break
+
+                    if fdinfo_memlock is not None:
+                        if has_memory_tracking:
+                            # On kernels with actual tracking, should match exactly
+                            self.assertEqual(
+                                memlock,
+                                fdinfo_memlock,
+                                f"{desc}: helper returned {memlock}, fdinfo shows {fdinfo_memlock}",
+                            )
+                        else:
+                            self.assertGreater(memlock, 0)
+                            self.assertLess(
+                                memlock,
+                                fdinfo_memlock * 3,
+                                f"{desc}: helper {memlock} too far from fdinfo {fdinfo_memlock}",
+                            )
+                except (FileNotFoundError, PermissionError):
+                    pass

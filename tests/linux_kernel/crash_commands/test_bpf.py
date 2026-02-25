@@ -116,3 +116,79 @@ class TestBpf(CrashCommandTestCase, BpfTestCase):
             self.check_crash_command,
             "bpf -p 1$^7",
         )
+
+    def test_bpf_map_by_id(self):
+        with contextlib.ExitStack() as exit_stack:
+            map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 4, 8, 256)
+            exit_stack.callback(os.close, map_fd)
+
+            map_info = bpf_map_get_info_by_fd(map_fd)
+            map_id = map_info.id
+
+            cmd = self.check_crash_command(f"bpf -m {map_id}")
+
+            self.assertIn("BPF_MAP_TYPE", cmd.stdout)
+
+            self.assertRegex(
+                cmd.stdout,
+                rf"(?sm)ID\s+.*BPF_MAP.*^\s*{map_id}\s+.*HASH\s+",
+            )
+
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\s*KEY_SIZE:\s*4\s+VALUE_SIZE:\s*8\s+MAX_ENTRIES:\s*256",
+            )
+
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)NAME:\s*(\(unused\)|\(unknown\)|\"[^\"]*\")\s+UID:\s*(\d+|\(unknown\)|\(unused\))",
+            )
+
+    def test_bpf_map_by_id_with_program(self):
+        with contextlib.ExitStack() as exit_stack:
+            map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 8, 8, 16)
+            exit_stack.callback(os.close, map_fd)
+
+            prog_insns = BPF_LD_MAP_FD(BPF_REG_0, map_fd) + self.INSNS
+            prog_fd = bpf_prog_load(BPF_PROG_TYPE_SOCKET_FILTER, prog_insns, b"GPL")
+            exit_stack.callback(os.close, prog_fd)
+
+            map_info = bpf_map_get_info_by_fd(map_fd)
+            map_id = map_info.id
+
+            cmd = self.check_crash_command(f"bpf -m {map_id}")
+
+            self.assertIn(f"{map_id}", cmd.stdout)
+            self.assertIn("HASH", cmd.stdout)
+            self.assertIn("KEY_SIZE:", cmd.stdout)
+            self.assertIn("VALUE_SIZE:", cmd.stdout)
+            self.assertIn("MAX_ENTRIES:", cmd.stdout)
+
+    def test_bpf_map_by_id_invalid(self):
+        self.assertRaises(
+            Exception,
+            self.check_crash_command,
+            "bpf -m abc",
+        )
+
+        self.assertRaises(
+            Exception,
+            self.check_crash_command,
+            "bpf -m 1$^7",
+        )
+
+    def test_bpf_command_shows_maps(self):
+        with contextlib.ExitStack() as exit_stack:
+            map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 8, 8, 8)
+            exit_stack.callback(os.close, map_fd)
+
+            map_id = bpf_map_get_info_by_fd(map_fd).id
+
+            cmd = self.check_crash_command("bpf")
+
+            self.assertIn("BPF_MAP", cmd.stdout)
+
+            self.assertRegex(
+                cmd.stdout,
+                rf"(?sm)^\s*{map_id}\s+.*HASH\s+",
+            )
