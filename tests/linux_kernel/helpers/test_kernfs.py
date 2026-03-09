@@ -36,13 +36,16 @@ class TestKernfs(LinuxKernelTestCase):
             )
 
     def test_kernfs_root(self):
+        # Since Linux kernel commit 6138f3451516, "sysfs_root" is ambiguous.
+        # Ensure we resolve the symbol from sysfs (mount.c).
+        expected_root = self.prog.object("sysfs_root", filename="mount.c")
         for path in ("/sys", "/sys/kernel", "/sys/kernel/vmcoreinfo"):
             with self.subTest(path=path):
                 fd = os.open(path, os.O_RDONLY)
                 try:
                     self.assertEqual(
                         kernfs_root(self.kernfs_node_from_fd(fd)),
-                        self.prog["sysfs_root"],
+                        expected_root,
                     )
                 finally:
                     os.close(fd)
