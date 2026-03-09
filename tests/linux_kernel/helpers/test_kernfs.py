@@ -36,13 +36,14 @@ class TestKernfs(LinuxKernelTestCase):
             )
 
     def test_kernfs_root(self):
+        expected_root = kernfs_root(self.prog["sysfs_root_kn"])
         for path in ("/sys", "/sys/kernel", "/sys/kernel/vmcoreinfo"):
             with self.subTest(path=path):
                 fd = os.open(path, os.O_RDONLY)
                 try:
                     self.assertEqual(
                         kernfs_root(self.kernfs_node_from_fd(fd)),
-                        self.prog["sysfs_root"],
+                        expected_root,
                     )
                 finally:
                     os.close(fd)
