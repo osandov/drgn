@@ -1,0 +1,183 @@
+# (C) Copyright IBM Corp. 2026
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+import os
+
+from drgn import NULL
+from drgn.helpers.linux.sysfs import (
+    sysfs_listdir,
+    sysfs_lookup,
+    sysfs_lookup_kobject,
+    sysfs_lookup_node,
+)
+from tests.linux_kernel import LinuxKernelTestCase
+
+
+class TestSysfs(LinuxKernelTestCase):
+    @classmethod
+    def kernfs_node_from_fd(cls, fd):
+        from drgn.helpers.linux.fs import fget
+        from drgn.helpers.linux.pid import find_task
+        from drgn import cast
+        import os
+
+        file = fget(find_task(cls.prog, os.getpid()), fd)
+        return cast("struct kernfs_node *", file.f_inode.i_private)
+    
+    def test_sysfs_lookup_node(self):
+        fds = []
+        try:
+            for path in ("/sys", "/sys/kernel", "/sys/kernel/vmcoreinfo"):
+                fds.append(os.open(path, os.O_RDONLY))
+
+            kns = [self.kernfs_node_from_fd(fd) for fd in fds]
+
+            self.assertEqual(sysfs_lookup_node(self.prog, ""), kns[0])
+            self.assertEqual(sysfs_lookup_node(self.prog, "/sys"), kns[0])
+            self.assertEqual(sysfs_lookup_node(self.prog, "/sys/"), kns[0])
+
+            self.assertEqual(sysfs_lookup_node(self.prog, "kernel"), kns[1])
+            self.assertEqual(sysfs_lookup_node(self.prog, "/sys/kernel"), kns[1])
+            self.assertEqual(
+                sysfs_lookup_node(self.prog, "sys/kernel"),
+                NULL(self.prog, "struct kernfs_node *"),
+            )
+
+            self.assertEqual(sysfs_lookup_node(self.prog, "kernel/vmcoreinfo"), kns[2])
+            self.assertEqual(
+                sysfs_lookup_node(self.prog, "/sys/kernel/vmcoreinfo"), kns[2]
+            )
+            self.assertEqual(
+                sysfs_lookup_node(self.prog, "sys/kernel/vmcoreinfo"),
+                NULL(self.prog, "struct kernfs_node *"),
+            )
+
+            self.assertEqual(
+                sysfs_lookup_node(self.prog, "/kernel"),
+                NULL(self.prog, "struct kernfs_node *"),
+            )
+            self.assertEqual(
+                sysfs_lookup_node(self.prog, "kernel/foobar"),
+                NULL(self.prog, "struct kernfs_node *"),
+            )
+
+        finally:
+            for fd in fds:
+                os.close(fd)
+
+    def test_sysfs_lookup_kobject(self):
+        kernel_kobj = self.prog["kernel_kobj"]
+
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, ""), NULL(self.prog, "struct kobject *")
+        )
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "/sys"), NULL(self.prog, "struct kobject *")
+        )
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "/sys/"),
+            NULL(self.prog, "struct kobject *"),
+        )
+
+        self.assertEqual(sysfs_lookup_kobject(self.prog, "kernel"), kernel_kobj)
+        self.assertEqual(sysfs_lookup_kobject(self.prog, "/sys/kernel"), kernel_kobj)
+
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "kernel/vmcoreinfo"), kernel_kobj
+        )
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "/sys/kernel/vmcoreinfo"), kernel_kobj
+        )
+
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "kernel"),
+            sysfs_lookup_kobject(self.prog, "kernel/vmcoreinfo"),
+        )
+
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "sys/kernel"),
+            NULL(self.prog, "struct kobject *"),
+        )
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "sys/kernel/vmcoreinfo"),
+            NULL(self.prog, "struct kobject *"),
+        )
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "/"),
+            NULL(self.prog, "struct kobject *"),
+        )
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "/kernel"),
+            NULL(self.prog, "struct kobject *"),
+        )
+        self.assertEqual(
+            sysfs_lookup_kobject(self.prog, "kernel/foobar"),
+            NULL(self.prog, "struct kobject *"),
+        )
+
+    def test_sysfs_lookup(self):
+        kernel_kobj = self.prog["kernel_kobj"]
+
+        self.assertEqual(
+            sysfs_lookup(self.prog, ""), NULL(self.prog, "struct kobject *")
+        )
+        self.assertEqual(
+            sysfs_lookup(self.prog, "/sys"), NULL(self.prog, "struct kobject *")
+        )
+        self.assertEqual(
+            sysfs_lookup(self.prog, "/sys/"), NULL(self.prog, "struct kobject *")
+        )
+
+        self.assertEqual(sysfs_lookup(self.prog, "kernel"), kernel_kobj)
+        self.assertEqual(sysfs_lookup(self.prog, "/sys/kernel"), kernel_kobj)
+
+        self.assertEqual(sysfs_lookup(self.prog, "kernel/vmcoreinfo"), kernel_kobj)
+        self.assertEqual(sysfs_lookup(self.prog, "/sys/kernel/vmcoreinfo"), kernel_kobj)
+
+        self.assertEqual(
+            sysfs_lookup(self.prog, "kernel"),
+            sysfs_lookup(self.prog, "kernel/vmcoreinfo"),
+        )
+
+        self.assertEqual(
+            sysfs_lookup(self.prog, "sys/kernel"),
+            NULL(self.prog, "struct kobject *"),
+        )
+        self.assertEqual(
+            sysfs_lookup(self.prog, "sys/kernel/vmcoreinfo"),
+            NULL(self.prog, "struct kobject *"),
+        )
+        self.assertEqual(
+            sysfs_lookup(self.prog, "/kernel"), NULL(self.prog, "struct kobject *")
+        )
+        self.assertEqual(
+            sysfs_lookup(self.prog, "kernel/foobar"),
+            NULL(self.prog, "struct kobject *"),
+        )
+
+        # Device case
+        if "device_ktype" in self.prog:
+            path = "/sys/block"
+            if os.path.exists(path):
+                with os.scandir(path) as entries:
+                    entry = next((e for e in entries if e.is_dir()), None)
+                    if entry:
+                        dev = sysfs_lookup(self.prog, entry.path[5:])
+                        self.assertTrue(dev)
+                        self.assertEqual(dev.type_.type_name(), "struct device *")
+
+    def test_sysfs_listdir(self):
+        expected = os.listdir(b"/sys/kernel")
+
+        self.assertCountEqual(sysfs_listdir(self.prog, "kernel"), expected)
+        self.assertCountEqual(sysfs_listdir(self.prog, "/sys/kernel"), expected)
+
+        self.assertRaisesRegex(
+            ValueError, r": not found$", sysfs_listdir, self.prog, "sys/kernel"
+        )
+        self.assertRaisesRegex(
+            ValueError, r": not found$", sysfs_listdir, self.prog, "kernel/foobar"
+        )
+        self.assertRaisesRegex(
+            ValueError, "not a directory", sysfs_listdir, self.prog, "kernel/vmcoreinfo"
+        )
