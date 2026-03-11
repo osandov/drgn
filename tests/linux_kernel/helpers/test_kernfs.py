@@ -13,6 +13,10 @@ from drgn.helpers.linux.kernfs import (
     kernfs_path,
     kernfs_root,
     kernfs_walk,
+    sysfs_listdir,
+    sysfs_lookup,
+    sysfs_lookup_kobject,
+    sysfs_lookup_node,
 )
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import LinuxKernelTestCase
@@ -142,3 +146,185 @@ class TestKernfs(LinuxKernelTestCase):
             self.assertEqual(str(context.exception), "not a directory")
         finally:
             os.close(fd)
+
+    def get_kernfs_nodes(self, paths):
+        fds = [os.open(path, os.O_RDONLY) for path in paths]
+        kns = [self.kernfs_node_from_fd(fd) for fd in fds]
+        return fds, kns
+
+    def test_sysfs_lookup_node(self):
+        fds = []
+        try:
+            fds, kns = self.get_kernfs_nodes(
+                ["/sys", "/sys/kernel", "/sys/kernel/vmcoreinfo"]
+            )
+
+            cases = [
+                (kns[0], ["", "/", "sys", "/sys", "/sys/"]),
+                (kns[1], ["kernel", "/sys/kernel", "sys/kernel", "  kernel  "]),
+                (
+                    kns[2],
+                    [
+                        "kernel/vmcoreinfo",
+                        "/sys/kernel/vmcoreinfo",
+                        "sys/kernel/vmcoreinfo",
+                    ],
+                ),
+            ]
+
+            for expected, paths in cases:
+                for path in paths:
+                    with self.subTest(path=path):
+                        self.assertEqual(sysfs_lookup_node(self.prog, path), expected)
+
+            self.assertEqual(
+                sysfs_lookup_node(self.prog, "kernel/foobar"),
+                NULL(self.prog, "struct kernfs_node *"),
+            )
+
+            self.assertEqual(
+                kernfs_root(sysfs_lookup_node(self.prog, "kernel/vmcoreinfo")),
+                kernfs_root(self.prog["sysfs_root_kn"]),
+            )
+
+        finally:
+            for fd in fds:
+                os.close(fd)
+
+    def test_sysfs_lookup_kobject(self):
+        fds = []
+        try:
+            fds, kns = self.get_kernfs_nodes(["/sys", "/sys/kernel"])
+
+            kobj_root = cast("struct kobject *", kns[0].priv)
+            kobj_kernel = cast("struct kobject *", kns[1].priv)
+
+            root_cases = ["", "/", "sys", "/sys", "/sys/"]
+            for path in root_cases:
+                with self.subTest(path=path):
+                    self.assertEqual(
+                        sysfs_lookup_kobject(self.prog, path),
+                        kobj_root,
+                    )
+
+            kernel_cases = ["kernel", "/sys/kernel", "sys/kernel", "  kernel  "]
+            for path in kernel_cases:
+                with self.subTest(path=path):
+                    self.assertEqual(
+                        sysfs_lookup_kobject(self.prog, path),
+                        kobj_kernel,
+                    )
+
+            file_cases = [
+                "kernel/vmcoreinfo",
+                "/sys/kernel/vmcoreinfo",
+                "sys/kernel/vmcoreinfo",
+            ]
+
+            for path in file_cases:
+                with self.subTest(path=path):
+                    self.assertEqual(
+                        sysfs_lookup_kobject(self.prog, path),
+                        kobj_kernel,
+                    )
+
+            self.assertEqual(
+                sysfs_lookup_kobject(self.prog, "kernel"),
+                sysfs_lookup_kobject(self.prog, "kernel/vmcoreinfo"),
+            )
+
+            self.assertIsNone(sysfs_lookup_kobject(self.prog, "kernel/foobar"))
+
+        finally:
+            for fd in fds:
+                os.close(fd)
+
+    def test_sysfs_lookup(self):
+        fds = []
+        try:
+            fds, kns = self.get_kernfs_nodes(["/sys/kernel"])
+
+            kobj_kernel = cast("struct kobject *", kns[0].priv)
+
+            root_cases = ["", "/", "sys", "/sys", "/sys/"]
+            for path in root_cases:
+                with self.subTest(path=path):
+                    self.assertIsNone(sysfs_lookup(self.prog, path))
+
+            kernel_cases = ["kernel", "/sys/kernel", "sys/kernel", "  kernel  "]
+            for path in kernel_cases:
+                with self.subTest(path=path):
+                    self.assertEqual(
+                        sysfs_lookup(self.prog, path),
+                        kobj_kernel,
+                    )
+
+            file_cases = [
+                "kernel/vmcoreinfo",
+                "/sys/kernel/vmcoreinfo",
+                "sys/kernel/vmcoreinfo",
+            ]
+
+            for path in file_cases:
+                with self.subTest(path=path):
+                    self.assertEqual(
+                        sysfs_lookup(self.prog, path),
+                        kobj_kernel,
+                    )
+
+            self.assertEqual(
+                sysfs_lookup(self.prog, "kernel"),
+                sysfs_lookup(self.prog, "kernel/vmcoreinfo"),
+            )
+
+            self.assertIsNone(sysfs_lookup(self.prog, "kernel/foobar"))
+
+            # Device case
+            if "device_ktype" in self.prog:
+                path = "/sys/block"
+                if os.path.exists(path):
+                    with os.scandir(path) as entries:
+                        # Pick the first directory inside /sys/block (e.g., "sda", "loop0").
+                        # These represent block devices, so we use one valid device entry
+                        # to test sysfs_lookup() for device kobjects.
+                        entry = next((e for e in entries if e.is_dir()), None)
+                        if entry:
+                            dev = sysfs_lookup(self.prog, entry.path[5:])
+                            self.assertIsNotNone(dev)
+
+        finally:
+            for fd in fds:
+                os.close(fd)
+
+    def test_sysfs_listdir(self):
+        path = "/sys/kernel"
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            expected = os.listdir(path)
+
+            result = sysfs_listdir(self.prog, "kernel")
+
+            self.assertCountEqual(result, expected)
+
+        finally:
+            os.close(fd)
+
+        for path in ["kernel", "/sys/kernel", "sys/kernel", "  kernel  "]:
+            with self.subTest(path=path):
+                self.assertCountEqual(
+                    sysfs_listdir(self.prog, path),
+                    os.listdir("/sys/kernel"),
+                )
+
+        with self.assertRaises(ValueError) as context:
+            sysfs_listdir(self.prog, "kernel/foobar")
+
+        self.assertEqual(str(context.exception), "kernel/foobar: not found")
+
+        with self.assertRaises(ValueError) as context:
+            sysfs_listdir(self.prog, "kernel/vmcoreinfo")
+
+        self.assertEqual(
+            str(context.exception),
+            "kernel/vmcoreinfo: not a directory",
+        )
