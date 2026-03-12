@@ -17,6 +17,7 @@ from drgn.helpers.linux.kernfs import (
     _kernfs_node_type,
     kernfs_children,
     kernfs_parent,
+    kernfs_path,
     kernfs_walk,
 )
 
@@ -25,6 +26,7 @@ __all__ = (
     "sysfs_lookup_kobject",
     "sysfs_lookup",
     "sysfs_listdir",
+    "sysfs_kobject_path",
 )
 
 
@@ -180,3 +182,19 @@ def sysfs_listdir(prog: Program, path: str) -> List[bytes]:
         raise ValueError(f"{path}: not found")
 
     return [child.name.string_() for child in kernfs_children(kn)]
+
+
+def sysfs_kobject_path(kobj: Object) -> bytes:
+    """
+    Return the sysfs path corresponding to a ``struct kobject *``.
+
+    :param kobj: ``struct kobject *``
+    :return: Full sysfs path as bytes
+    """
+    kn = kobj.sd
+    path = kernfs_path(kn)
+
+    if path == b"/":
+        return b"/sys"
+
+    return b"/sys" + path
