@@ -226,13 +226,29 @@ def sysfs_lookup(prog: Program, path: str) -> Optional[Object]:
     """
     Look up the object represented by a sysfs path.
 
-    If the resolved kobject corresponds to a ``struct device``,
-    return the containing ``struct device *``. Otherwise, return
-    the ``struct kobject *``.
+    Resolve the ``struct kobject`` corresponding to a sysfs entry and,
+    when possible, return the kernel structure which contains that
+    kobject.
+
+    Depending on the kobject type, this helper may return:
+
+    - ``struct device *``
+    - ``struct class *``
+    - ``struct bus_type *``
+    - ``struct device_driver *``
+    - ``struct module_kobject *``
+
+    For class and bus objects, the container is reconstructed through
+    ``struct subsys_private`` and the associated ``kset``. For driver
+    objects, the container is obtained through ``struct driver_private``.
+
+    If the kobject type does not correspond to a known container
+    structure, the function returns the ``struct kobject *``.
 
     :param prog: ``struct drgn_program *``
     :param path: Sysfs path relative to ``/sys``
-    :return: ``struct device *`` or ``struct kobject *`` or ``NULL``
+    :return: Corresponding container structure pointer or
+        ``struct kobject *``
     """
     kobj = sysfs_lookup_kobject(prog, path)
     if not kobj:
@@ -240,11 +256,43 @@ def sysfs_lookup(prog: Program, path: str) -> Optional[Object]:
 
     try:
         device_ktype = prog["device_ktype"].address_of_()
+        if kobj.ktype == device_ktype:
+            return container_of(kobj, "struct device", "kobj")
     except KeyError:
-        return kobj
+        pass
 
-    if kobj.ktype == device_ktype:
-        return container_of(kobj, "struct device", "kobj")
+    try:
+        module_ktype = prog["module_ktype"].address_of_()
+        if kobj.ktype == module_ktype:
+            return container_of(kobj, "struct module_kobject", "kobj")
+    except KeyError:
+        pass
+
+    try:
+        driver_ktype = prog["driver_ktype"].address_of_()
+        if kobj.ktype == driver_ktype:
+            drv_priv = container_of(kobj, "struct driver_private", "kobj")
+            return drv_priv.driver
+    except KeyError:
+        pass
+
+    try:
+        class_ktype = prog["class_ktype"].address_of_()
+        if kobj.ktype == class_ktype:
+            kset = container_of(kobj, "struct kset", "kobj")
+            subsys = container_of(kset, "struct subsys_private", "subsys")
+            return getattr(subsys, "class")
+    except KeyError:
+        pass
+
+    try:
+        bus_ktype = prog["bus_ktype"].address_of_()
+        if kobj.ktype == bus_ktype:
+            kset = container_of(kobj, "struct kset", "kobj")
+            subsys = container_of(kset, "struct subsys_private", "subsys")
+            return subsys.bus
+    except KeyError:
+        pass
 
     return kobj
 
