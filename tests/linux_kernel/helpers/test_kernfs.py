@@ -13,6 +13,7 @@ from drgn.helpers.linux.kernfs import (
     kernfs_path,
     kernfs_root,
     kernfs_walk,
+    sysfs_kobject_path,
 )
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import LinuxKernelTestCase
@@ -140,5 +141,38 @@ class TestKernfs(LinuxKernelTestCase):
             with self.assertRaises(ValueError) as context:
                 kernfs_children(kn)
             self.assertEqual(str(context.exception), "not a directory")
+        finally:
+            os.close(fd)
+
+    def test_sysfs_kobject_path(self):
+        fd = os.open("/sys/kernel", os.O_RDONLY)
+        try:
+            kn = self.kernfs_node_from_fd(fd)
+            kobj = cast("struct kobject *", kn.priv)
+
+            with self.subTest(case="valid_kobject"):
+                self.assertEqual(
+                    sysfs_kobject_path(self.prog, kobj),
+                    "/sys/kernel",
+                )
+
+            with self.subTest(case="integer_pointer"):
+                self.assertEqual(
+                    sysfs_kobject_path(self.prog, int(kobj)),
+                    "/sys/kernel",
+                )
+
+            with self.subTest(case="null_pointer"):
+                with self.assertRaises(ValueError):
+                    sysfs_kobject_path(self.prog, 0)
+
+            with self.subTest(case="wrong_type"):
+                with self.assertRaises(TypeError):
+                    sysfs_kobject_path(self.prog, kn)
+
+            with self.subTest(case="invalid_pointer"):
+                with self.assertRaises(ValueError):
+                    sysfs_kobject_path(self.prog, 1)
+
         finally:
             os.close(fd)
