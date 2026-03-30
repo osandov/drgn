@@ -44,8 +44,10 @@ drgn_program_is_irq_regs(struct drgn_program *prog, uint64_t addr,
 #define KDUMP_SIGNATURE "KDUMP   "
 #define KDUMP_SIG_LEN (sizeof(KDUMP_SIGNATURE) - 1)
 
-#define FLATTENED_SIGNATURE "makedumpfile"
-#define FLATTENED_SIG_LEN (sizeof(FLATTENED_SIGNATURE) - 1)
+// For the makedumpfile flattened format, the signature is "makedumpfile"
+// null-padded to 16 bytes (the string literal has an implicit null terminator)
+#define FLATTENED_SIGNATURE "makedumpfile\0\0\0"
+#define FLATTENED_SIG_LEN sizeof(FLATTENED_SIGNATURE)
 
 #ifdef WITH_LIBKDUMPFILE
 struct drgn_error *drgn_program_cache_kdump_threads(struct drgn_program *prog);
