@@ -36,9 +36,26 @@ try:
     have_pyroute2 = True
 
     # Before Pyroute2 commit 1eb08312de30 ("iproute/linux: try to improve flags
-    # when sending del messages") (in v0.6.10), Pyroute2 passes an invalid flag
-    # to deletion requests, resulting in ENOTSUP errors.
-    have_pyroute2_del = verrevcmp(getattr(pyroute2, "__version__", "0"), "0.6.10") >= 0
+    # when sending del messages") (in v0.6.10), Pyroute2 incorrectly passes the
+    # NLM_F_CREATE and NLM_F_EXCL flags to deletion requests, which fails with
+    # ENOTSUP since Linux kernel commit 545528d78855 ("net: netlink: add
+    # NLM_F_BULK delete request modifier") (in v5.19). Monkey patch the put()
+    # method to strip these flags.
+    if verrevcmp(getattr(pyroute2, "__version__", "0"), "0.6.10") < 0:
+        # RTNL_API was named IPRouteMixin before Pyroute2 0.5.2 and was in
+        # pyroute2.iproute instead of pyroute2.iproute.linux.
+        try:
+            from pyroute2.iproute.linux import RTNL_API as _rtnl_api
+        except ImportError:
+            from pyroute2.iproute import IPRouteMixin as _rtnl_api
+
+        def _fixed_put(self, msg, msg_type, msg_flags=0x1, *args, **kwargs):
+            # RTM_DEL* message types have msg_type % 4 == 1.
+            if msg_type >= 16 and msg_type % 4 == 1:
+                msg_flags &= ~0x600  # NLM_F_CREATE | NLM_F_EXCL
+            return super(_rtnl_api, self).put(msg, msg_type, msg_flags, *args, **kwargs)
+
+        _rtnl_api.put = _fixed_put
 
     # Before Pyroute2 commit f0df9a49b41f ("Fix "failed to open netns" error in
     # RISCV64.") (in v0.7.10), Pyroute2 uses the wrong syscall number on
@@ -51,7 +68,6 @@ try:
         pyroute2.netns.__NR_setns = 268
 except ImportError:
     have_pyroute2 = False
-    have_pyroute2_del = False
 
 
 class LinuxKernelTestCase(TestCase):
@@ -179,10 +195,6 @@ skip_unless_have_memory_hotplug = unittest.skipUnless(
 
 
 skip_unless_have_pyroute2 = unittest.skipUnless(have_pyroute2, "pyroute2 not found")
-
-skip_unless_have_pyroute2_del = unittest.skipUnless(
-    have_pyroute2_del, "pyroute2 >= 0.6.10 not found"
-)
 
 
 # PRNG used by the test kernel module.

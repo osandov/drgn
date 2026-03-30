@@ -8,12 +8,12 @@ from drgn.helpers.linux.net import get_net_ns_by_inode, netdev_get_by_name
 from drgn.helpers.linux.tc import qdisc_lookup
 from tests.linux_kernel import (
     LinuxKernelTestCase,
-    skip_unless_have_pyroute2_del,
+    skip_unless_have_pyroute2,
     temp_netns,
 )
 
 
-@skip_unless_have_pyroute2_del
+@skip_unless_have_pyroute2
 class TestTc(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
