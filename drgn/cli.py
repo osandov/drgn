@@ -176,9 +176,20 @@ def _set_kernel_with_sudo_fallback(prog: drgn.Program) -> None:
 def _identify_script(path: str) -> str:
     EI_NIDENT = 16
     SIZEOF_E_TYPE = 2
+    KDUMP_SIGNATURE = b"KDUMP   "
+    FLATTENED_SIGNATURE = b"makedumpfile\0\0\0\0"
 
     with open(path, "rb") as f:
-        header = f.read(EI_NIDENT + SIZEOF_E_TYPE)
+        header = f.read(
+            max(
+                EI_NIDENT + SIZEOF_E_TYPE,
+                len(KDUMP_SIGNATURE),
+                len(FLATTENED_SIGNATURE),
+            )
+        )
+
+    if header.startswith(KDUMP_SIGNATURE) or header.startswith(FLATTENED_SIGNATURE):
+        return "core"
 
     ELFMAG = b"\177ELF"
     EI_DATA = 5
