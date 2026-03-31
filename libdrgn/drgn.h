@@ -797,7 +797,7 @@ struct drgn_error *drgn_program_set_core_dump(struct drgn_program *prog,
 /**
  * Set a @ref drgn_program to a core dump from a file descriptor.
  *
- * @param[in] path Core dump file descriptor.
+ * @param[in] fd Core dump file descriptor.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_set_core_dump_fd(struct drgn_program *prog, int fd);
