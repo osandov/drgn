@@ -128,10 +128,11 @@ def version_header() -> str:
     debuginfod = f'with{"" if drgn._have_debuginfod else "out"} debuginfod'
     if drgn._enable_dlopen_debuginfod:
         debuginfod += " (dlopen)"
+    json_c = f'with{"" if drgn._with_json_c else "out"} json-c'
     libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
     lzma = f'with{"" if drgn._with_lzma else "out"} lzma'
     pcre2 = f'with{"" if drgn._with_pcre2 else "out"} pcre2'
-    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {debuginfod}, {libkdumpfile}, {lzma}, {pcre2})"
+    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {debuginfod}, {json_c}, {libkdumpfile}, {lzma}, {pcre2})"
 
 
 def default_globals(prog: drgn.Program) -> Dict[str, Any]:

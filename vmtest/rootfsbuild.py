@@ -26,6 +26,7 @@ _ROOTFS_PACKAGES = (
     "git",
     "libdw-dev",
     "libelf-dev",
+    "libjson-c-dev",
     "libkdumpfile-dev",
     "liblzma-dev",
     "libpcre2-dev",

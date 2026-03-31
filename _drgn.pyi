@@ -4101,6 +4101,7 @@ class OutOfBoundsError(Exception):
 _elfutils_version: str
 _have_debuginfod: bool
 _enable_dlopen_debuginfod: bool
+_with_json_c: bool
 _with_libkdumpfile: bool
 _with_lzma: bool
 _with_pcre2: bool

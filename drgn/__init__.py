@@ -118,6 +118,7 @@ from _drgn import (  # noqa: F401
     _elfutils_version as _elfutils_version,
     _enable_dlopen_debuginfod as _enable_dlopen_debuginfod,
     _have_debuginfod as _have_debuginfod,
+    _with_json_c as _with_json_c,
     _with_libkdumpfile as _with_libkdumpfile,
     _with_lzma as _with_lzma,
     _with_pcre2 as _with_pcre2,

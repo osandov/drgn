@@ -429,6 +429,15 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		    ))
 		goto err;
 
+	if (add_bool(m, "_with_json_c",
+#ifdef WITH_JSON_C
+		     true
+#else
+		     false
+#endif
+		    ))
+		goto err;
+
 	if (add_bool(m, "_with_libkdumpfile",
 #ifdef WITH_LIBKDUMPFILE
 		     true

@@ -144,6 +144,20 @@ AS_CASE(["x$with_pcre2"],
 AM_CONDITIONAL([WITH_PCRE2], [test "x$with_pcre2" = xyes])
 AM_COND_IF([WITH_PCRE2], [AC_DEFINE(WITH_PCRE2)])
 
+AC_ARG_WITH([json_c],
+	    [AS_HELP_STRING([--with-json-c],
+			    [build with support for JSON (needed for QEMU
+			     Machine Protocol support)
+			     @<:@default=auto@:>@])],
+			     [], [with_json_c=auto])
+AS_CASE(["x$with_json_c"],
+	[xyes], [PKG_CHECK_MODULES(json_c, [json-c])],
+	[xauto], [PKG_CHECK_MODULES(json_c, [json-c],
+				    [with_json_c=yes],
+				    [with_json_c=no])])
+AM_CONDITIONAL([WITH_JSON_C], [test "x$with_json_c" = xyes])
+AM_COND_IF([WITH_JSON_C], [AC_DEFINE(WITH_JSON_C)])
+
 dnl We need check for running tests, but we don't want to fail the build over
 dnl it. Instead, if it's not found, set variables so that only `make check`
 dnl fails.

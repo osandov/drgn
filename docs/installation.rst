@@ -21,6 +21,8 @@ It optionally depends on:
   support
 - `PCRE2 <https://www.pcre.org/>`_ for searching memory with regular
   expressions.
+- `json-c <https://github.com/json-c/json-c>`_ for QEMU Machine Protocol
+  support
 
 The build requires:
 
