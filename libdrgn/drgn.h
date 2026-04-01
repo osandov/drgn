@@ -842,6 +842,26 @@ drgn_program_set_linux_kernel_custom(struct drgn_program *prog,
 struct drgn_error *drgn_program_set_pid(struct drgn_program *prog, pid_t pid);
 
 /**
+ * Set a @ref drgn_program to a QEMU guest over the QEMU Machine Protocol (QMP).
+ *
+ * @param[in] address QMP socket address (Unix domain socket path or TCP address
+ * in `host:port` format).
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_qemu_qmp(struct drgn_program *prog,
+					     const char *address);
+
+/**
+ * Set a @ref drgn_program to a QEMU guest over a QEMU Machine Protocol (QMP)
+ * file descriptor.
+ *
+ * @param[in] fd QMP socket file descriptor.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_qemu_qmp_fd(struct drgn_program *prog,
+						int fd);
+
+/**
  * Create a @ref drgn_program from a core dump file.
  *
  * The type of program (e.g., userspace or kernel) is determined automatically.

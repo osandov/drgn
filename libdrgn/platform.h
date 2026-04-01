@@ -173,8 +173,8 @@ typedef struct drgn_error *
  *     - @ref register_by_name = @ref drgn_register_by_name_unknown
  * - Add an `extern` declaration of `arch_info_foo` to `libdrgn/platform.h`.
  * - Handle the architecture in @ref drgn_platform_from_kdump(), @ref
- *   drgn_host_platform, @ref drgn_platform_create(), and @ref
- *   drgn_platform_from_elf().
+ *   drgn_host_platform, @ref drgn_platform_create(), @ref
+ *   drgn_platform_from_elf(), and @ref qmp_detect_platform().
  * - Update `docs/support_matrix.rst`.
  *
  * To support Linux kernel loadable modules:

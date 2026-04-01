@@ -1024,6 +1024,47 @@ static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 	Py_RETURN_NONE;
 }
 
+static PyObject *Program_set_qemu_qmp(Program *self, PyObject *args,
+				      PyObject *kwds)
+{
+	static char *keywords[] = {"address", NULL};
+	struct drgn_error *err;
+	PyObject *address;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:set_qemu_qmp", keywords,
+					 &address))
+		return NULL;
+
+	if (PyIndex_Check(address)) {
+		int overflow;
+		long fd = PyLong_AsLongAndOverflow(address, &overflow);
+		if (fd == -1 && PyErr_Occurred())
+			return NULL;
+		if (overflow > 0 || fd > INT_MAX) {
+			PyErr_SetString(PyExc_OverflowError,
+					"fd is greater than maximum");
+			return NULL;
+		}
+		if (fd < 0) {
+			PyErr_SetString(PyExc_ValueError, "fd is negative");
+			return NULL;
+		}
+		err = drgn_program_set_qemu_qmp_fd(&self->prog, fd);
+	} else if (PyUnicode_Check(address)) {
+		const char *s = PyUnicode_AsUTF8(address);
+		if (!s)
+			return NULL;
+		err = drgn_program_set_qemu_qmp(&self->prog, s);
+	} else {
+		return PyErr_Format(PyExc_TypeError,
+				    "address must be str or int, not %s",
+				    Py_TYPE(address)->tp_name);
+	}
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static ModuleIterator *Program_modules(Program *self)
 {
 	struct drgn_error *err;
@@ -2256,6 +2297,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_linux_kernel_custom_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_pid_DOC},
+	{"set_qemu_qmp", (PyCFunction)Program_set_qemu_qmp,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_qemu_qmp_DOC},
 	{"modules", (PyCFunction)Program_modules, METH_NOARGS,
 	 drgn_Program_modules_DOC},
 	{"loaded_modules", (PyCFunction)Program_loaded_modules, METH_NOARGS,

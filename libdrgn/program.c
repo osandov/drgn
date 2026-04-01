@@ -142,6 +142,7 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_program_init_types(prog);
 	drgn_debug_info_init(&prog->dbinfo, prog);
 	prog->core_fd = -1;
+	drgn_qmp_conn_init(&prog->qmp_conn);
 	if (platform)
 		drgn_program_set_platform(prog, platform);
 	drgn_thread_set_init(&prog->thread_set);
@@ -185,6 +186,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	free(prog->vmcoreinfo.raw);
 	free(prog->irq_regs_cached);
 
+	drgn_qmp_conn_deinit(&prog->qmp_conn);
 #ifdef WITH_LIBKDUMPFILE
 	if (prog->kdump_ctx)
 		kdump_free(prog->kdump_ctx);
@@ -291,7 +293,7 @@ DRGN_PROGRAM_FINDER(object)
 DRGN_PROGRAM_FINDER(symbol)
 #undef DRGN_PROGRAM_FINDER
 
-static struct drgn_error *
+struct drgn_error *
 drgn_program_check_initialized(struct drgn_program *prog)
 {
 	if (prog->core_fd != -1 || !drgn_memory_reader_empty(&prog->reader)) {
@@ -846,6 +848,23 @@ out_fd:
 	prog->core_fd = -1;
 	return err;
 }
+
+#ifndef WITH_JSON_C
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
+{
+	close(fd);
+	return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+				 "drgn was not built with json-c");
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_qemu_qmp(struct drgn_program *prog, const char *address)
+{
+	return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+				 "drgn was not built with json-c");
+}
+#endif
 
 struct drgn_error *drgn_program_cache_auxv(struct drgn_program *prog)
 {

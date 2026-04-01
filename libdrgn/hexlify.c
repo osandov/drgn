@@ -30,19 +30,6 @@ char *ahexlify(const void *in, size_t in_len)
 	return out;
 }
 
-static inline bool hex_digit_to_nibble(char c, uint8_t *ret)
-{
-	if ('0' <= c && c <= '9')
-		*ret = c - '0';
-	else if ('a' <= c && c <= 'f')
-		*ret = c - 'a' + 10;
-	else if ('A' <= c && c <= 'F')
-		*ret = c - 'A' + 10;
-	else
-		return false;
-	return true;
-}
-
 bool unhexlify(const char *in, size_t in_len, void *out)
 {
 	if (in_len % 2)

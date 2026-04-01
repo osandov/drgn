@@ -26,6 +26,7 @@
 #include "memory_reader.h"
 #include "platform.h"
 #include "pp.h"
+#include "qemu_machine_protocol.h"
 #include "type.h"
 #include "vector.h"
 
@@ -80,6 +81,7 @@ struct drgn_program {
 #ifdef WITH_LIBKDUMPFILE
 	kdump_ctx_t *kdump_ctx;
 #endif
+	struct drgn_qmp_conn qmp_conn;
 
 	/*
 	 * Types.
@@ -312,6 +314,12 @@ void drgn_program_init(struct drgn_program *prog,
 
 /** Deinitialize a @ref drgn_program. */
 void drgn_program_deinit(struct drgn_program *prog);
+
+/**
+ * Return an error if the program's memory has already been initialized or its
+ * target has been set.
+ */
+struct drgn_error *drgn_program_check_initialized(struct drgn_program *prog);
 
 /**
  * Set the @ref drgn_platform of a @ref drgn_program if it hasn't been set

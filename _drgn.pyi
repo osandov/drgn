@@ -849,6 +849,25 @@ class Program:
         """
         ...
 
+    def set_qemu_qmp(self, address: Union[str, int]) -> None:
+        """
+        Set the program to a QEMU guest over the QEMU Machine Protocol (QMP).
+
+        This does not load any debugging symbols; see
+        :meth:`load_default_debug_info()`.
+
+        :param address: QMP socket address or file descriptor. If the address
+            is in the format ``host:port``, where ``host`` is a hostname, IP
+            address, or empty (for localhost) and ``port`` is a valid port
+            number (decimal integer 1-65535), then it is interpreted as a TCP
+            address. Otherwise, it is interpreted as a Unix domain socket path.
+
+            Note that hostnames may not begin with ``/`` or ``.``, so a Unix
+            domain socket path containing ``:`` may be prefixed with one of
+            those to disambiguate it.
+        """
+        ...
+
     def modules(self) -> Iterator[Module]:
         """Get an iterator over all of the created modules in the program."""
 

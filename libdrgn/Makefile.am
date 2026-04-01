@@ -122,6 +122,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    pp.h \
 			    program.c \
 			    program.h \
+			    qemu_machine_protocol.h \
 			    register_state.c \
 			    register_state.h \
 			    serialize.c \
@@ -151,6 +152,10 @@ else
 libdrgn_common_la_CFLAGS += $(libdebuginfod_CFLAGS)
 libdrgn_common_la_LIBADD += $(libdebuginfod_LIBS)
 endif
+endif
+
+if WITH_JSON_C
+libdrgn_common_la_SOURCES += qemu_machine_protocol.c
 endif
 
 if WITH_LIBKDUMPFILE
