@@ -40,6 +40,7 @@ __all__ = (
     "is_pp_page",
     "netdev_ipv4_addrs",
     "netdev_ipv6_addrs",
+    "neigh_table_for_each_neighbor",
 )
 
 
@@ -372,3 +373,28 @@ def netdev_ipv6_addrs(dev: Object) -> List[ipaddress.IPv6Address]:
             )
             ips.append(ipaddress.IPv6Address(addr_bytes))
     return ips
+
+
+def neigh_table_for_each_neighbor(table: Object) -> Iterator[Object]:
+    """
+    Get the neighbour object from the neighbour hash table
+
+    :param dev: ``struct neigh_hash_table *``
+    """
+    n_buckets = 1 << table.hash_shift.value_()
+    # Since Linux kernel commit 41b3caa7c076 ("neighbour: Add hlist_node to
+    # struct neighbour") (in v6.13), neighbors are in an hlist in struct
+    # neigh_hash_table::hash_heads. Before that, they are in a manual linked
+    # list in struct neigh_hash_table::hash_buckets.
+    try:
+        hash_heads = table.hash_heads
+    except AttributeError:
+        for neigh in table.hash_buckets[:n_buckets]:
+            while neigh := neigh.read_():
+                yield neigh
+                neigh = neigh.next
+    else:
+        for head in hash_heads[:n_buckets]:
+            yield from hlist_for_each_entry(
+                "struct neighbour", head.address_of_(), "hash"
+            )
