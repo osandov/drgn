@@ -20,6 +20,13 @@
 ssize_t read_all(int fd, void *buf, size_t count);
 
 /**
+ * Wrapper around \manpage{write,2} that never writes less bytes than requested.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int write_all(int fd, const void *buf, size_t count);
+
+/**
  * Wrapper around \manpage{pread,2} that never returns less bytes than requested unless
  * it hits end-of-file.
  */

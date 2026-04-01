@@ -30,6 +30,21 @@ ssize_t read_all(int fd, void *buf, size_t count)
 	return n;
 }
 
+int write_all(int fd, const void *buf, size_t count)
+{
+	size_t n = 0;
+	while (n < count) {
+		ssize_t r = write(fd, (const char *)buf + n, count - n);
+		if (r < 0) {
+			if (errno == EINTR)
+				continue;
+			return -1;
+		}
+		n += r;
+	}
+	return 0;
+}
+
 ssize_t pread_all(int fd, void *buf, size_t count, off_t offset)
 {
 	if (count > SSIZE_MAX) {
