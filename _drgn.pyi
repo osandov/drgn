@@ -856,6 +856,23 @@ class Program:
         This does not load any debugging symbols; see
         :meth:`load_default_debug_info()`.
 
+        .. note::
+
+            This can identify Linux kernel guests automatically. To do so, you
+            must:
+
+            1. Use a Unix domain socket for the QMP connection (e.g., run QEMU
+               with ``-qmp unix:/path/to/sock,server=on,wait=off``).
+            2. Use a Linux kernel version >= 4.17 in the guest.
+            3. Run QEMU with ``-device vmcoreinfo``.
+            4. Set ``CONFIG_KEXEC=y`` and ``CONFIG_FW_CFG_SYSFS=y`` in the
+               guest kernel's configuration. (Alternatively, you can use
+               ``CONFIG_FW_CFG_SYSFS=m`` and ensure that the ``qemu_fw_cfg``
+               kernel module is loaded.)
+
+            Otherwise, you may need to pass *vmcoreinfo* explicitly to
+            :class:`Program()`.
+
         :param address: QMP socket address or file descriptor. If the address
             is in the format ``host:port``, where ``host`` is a hostname, IP
             address, or empty (for localhost) and ``port`` is a valid port

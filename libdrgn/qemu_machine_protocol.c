@@ -2,19 +2,24 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <errno.h>
+#include <gelf.h>
 #include <inttypes.h>
 #include <json-c/json.h>
 #include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
 #include "cleanup.h"
 #include "drgn_internal.h"
+#include "elf_notes.h"
+#include "error.h"
 #include "hexlify.h"
 #include "io.h"
+#include "linux_kernel.h"
 #include "minmax.h"
 #include "platform.h"
 #include "plugins.h"
@@ -142,6 +147,53 @@ static struct drgn_error *qmp_execute_str(struct drgn_qmp_conn *conn,
 #define QMP_CMD_NO_ARGS(cmd) "{\"execute\":\"" cmd "\"}\r\n"
 #define QMP_EXECUTE_NO_ARGS(conn, cmd, ret) \
 	qmp_execute_str(conn, QMP_CMD_NO_ARGS(cmd), sizeof(QMP_CMD_NO_ARGS(cmd)) - 1, ret)
+
+// Send a QMP command with an fd as SCM_RIGHTS ancillary data.
+static struct drgn_error *qmp_send_fd(struct drgn_qmp_conn *conn,
+				      const char *cmd, size_t cmd_len, int fd)
+{
+	struct drgn_error *err;
+
+	struct iovec iov = { .iov_base = (void *)cmd, .iov_len = cmd_len };
+	union {
+		char buf[CMSG_SPACE(sizeof(int))];
+		struct cmsghdr align;
+	} cmsg_buf;
+	struct msghdr msg = {
+		.msg_iov = &iov,
+		.msg_iovlen = 1,
+		.msg_control = cmsg_buf.buf,
+		.msg_controllen = sizeof(cmsg_buf.buf),
+	};
+	struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = SOL_SOCKET;
+	cmsg->cmsg_type = SCM_RIGHTS;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+	memcpy(CMSG_DATA(cmsg), &fd, sizeof(int));
+
+	ssize_t r;
+	do {
+		r = sendmsg(conn->fd, &msg, 0);
+	} while (r < 0 && errno == EINTR);
+	if (r < 0)
+		return drgn_error_create_os("sendmsg", errno, NULL);
+
+	// In the unlikely case that sendmsg() didn't send the full command,
+	// send the rest with write_all(). The fd should only be sent once.
+	if (r < cmd_len && write_all(conn->fd, cmd + r, cmd_len - r))
+		return drgn_error_create_os("write", errno, NULL);
+
+	_cleanup_json_object_ struct json_object *response = NULL;
+	err = qmp_recv_msg(conn, &response);
+	if (err)
+		return err;
+
+	struct json_object *error;
+	if (json_object_object_get_ex(response, "error", &error))
+		return drgn_error_qmp(error);
+
+	return NULL;
+}
 
 static struct drgn_error *qmp_negotiate(struct drgn_qmp_conn *conn)
 {
@@ -305,6 +357,158 @@ static struct drgn_error *drgn_qmp_read_memory(void *buf, uint64_t address,
 	return NULL;
 }
 
+#define _cleanup_elf_end_ _cleanup_(elf_endp)
+static inline void elf_endp(Elf **elfp)
+{
+	elf_end(*elfp);
+}
+
+static struct drgn_error *parse_vmcoreinfo_from_dump(struct drgn_program *prog,
+						     int fd)
+{
+	struct drgn_error *err;
+
+	elf_version(EV_CURRENT);
+	_cleanup_elf_end_ Elf *elf = elf_begin(fd, ELF_C_READ, NULL);
+	if (!elf)
+		return drgn_error_libelf();
+
+	const void *desc;
+	size_t size;
+	if (find_elf_note(elf, "VMCOREINFO", 0, &desc, &size))
+		return drgn_error_libelf();
+
+	if (!desc)
+		return NULL;
+
+	err = drgn_program_parse_vmcoreinfo(prog, desc, size);
+	if (err)
+		return err;
+
+	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+	if (prog->platform.arch->linux_kernel_pgtable_iterator_next) {
+		err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
+						      read_memory_via_pgtable,
+						      prog, false);
+		if (err)
+			return err;
+	}
+	return drgn_program_finish_set_kernel(prog);
+}
+
+// Find a valid RAM address by parsing "info mtree -f" output.
+static struct drgn_error *qmp_find_ram_address(struct drgn_qmp_conn *conn,
+					       uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	static const char cmd[] =
+		"{\"execute\":\"human-monitor-command\","
+		"\"arguments\":{\"command-line\":"
+		"\"info mtree -f\"}}\r\n";
+	_cleanup_json_object_ struct json_object *result = NULL;
+	err = qmp_execute_str(conn, cmd, sizeof(cmd) - 1, &result);
+	if (err)
+		return err;
+
+	if (!json_object_is_type(result, json_type_string)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "QMP human-monitor-command info mtree return value is not string");
+	}
+
+	// The format is "  START-END (prio N, TYPE): NAME". Find a line with
+	// TYPE == "ram".
+	const char *s = json_object_get_string(result);
+	for (;;) {
+		const char *ram = strstr(s, ", ram):");
+		if (!ram) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "could not find RAM region in QEMU memory tree");
+		}
+		const char *line = ram;
+		while (line > s && line[-1] != '\n')
+			line--;
+		char *end;
+		uint64_t address = strtoull(line, &end, 16);
+		if (end > line && *end == '-') {
+			*ret = address;
+			return NULL;
+		}
+		// Couldn't parse this line, try the next match.
+		s = ram + 1;
+	}
+}
+
+// Read VMCOREINFO over QMP if possible.
+//
+// Unfortunately, QMP does not provide a straightforward way to read VMCOREINFO.
+// Our extremely hacky approach is to use the dump-guest-memory command with a
+// minimal memory range, which produces a tiny core dump that includes the
+// VMCOREINFO note (as long as the guest is configured properly).
+//
+// Since the dump is written to a file, this only works if the QEMU process is
+// local. The QEMU process may also be sandboxed, containerized, etc., so it may
+// not be able to write to a path that we can also access.
+//
+// dump-guest-memory can write to an fd that is passed via SCM_RIGHTS (which
+// requires that the QMP connection is a Unix domain socket). We do that instead
+// (using a memfd to avoid polluting the filesystem).
+static struct drgn_error *qmp_read_vmcoreinfo(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+	struct drgn_qmp_conn *conn = &prog->qmp_conn;
+
+	// Check that the connection is a Unix domain socket.
+	struct sockaddr sa;
+	socklen_t sa_len = sizeof(sa);
+	if (getsockname(conn->fd, &sa, &sa_len) < 0 || sa.sa_family != AF_UNIX)
+		return NULL;
+
+	// dump-guest-memory requires a valid address, and there's nothing we
+	// can hard-code that works on all architectures/machines.
+	uint64_t ram_address;
+	err = qmp_find_ram_address(conn, &ram_address);
+	if (err)
+		return err;
+
+	_cleanup_close_ int fd = memfd_create("drgn-qmp-dump", 0);
+	if (fd < 0)
+		return drgn_error_create_os("memfd_create", errno, NULL);
+
+	static const char getfd_cmd[] =
+		"{\"execute\":\"getfd\","
+		"\"arguments\":{\"fdname\":\"drgn-dump\"}}\r\n";
+	err = qmp_send_fd(conn, getfd_cmd, sizeof(getfd_cmd) - 1, fd);
+	if (err)
+		return err;
+
+	conn->write_buf.len = 0;
+	if (!string_builder_appendf(&conn->write_buf,
+				    "{\"execute\":\"dump-guest-memory\","
+				    "\"arguments\":{\"paging\":false,"
+				    "\"protocol\":\"fd:drgn-dump\","
+				    "\"begin\":%" PRIu64 ",\"length\":1}}\r\n",
+				    ram_address))
+		return &drgn_enomem;
+	err = qmp_execute_str(conn, conn->write_buf.str, conn->write_buf.len,
+			      NULL);
+	if (err) {
+		// dump-guest-memory normally closes the fd itself. If it failed
+		// before retrieving the fd, QEMU still has it from getfd, so
+		// try to close it.
+		static const char closefd_cmd[] =
+			"{\"execute\":\"closefd\","
+			"\"arguments\":{\"fdname\":\"drgn-dump\"}}\r\n";
+		struct drgn_error *close_err =
+			qmp_execute_str(conn, closefd_cmd,
+					sizeof(closefd_cmd) - 1, NULL);
+		drgn_error_destroy(close_err);
+		return err;
+	}
+
+	return parse_vmcoreinfo_from_dump(prog, fd);
+}
+
 static struct drgn_error *qmp_connect_unix(const char *address, int *ret)
 {
 	struct sockaddr_un sa = { .sun_family = AF_UNIX };
@@ -405,6 +609,7 @@ drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
 	struct drgn_error *err;
 	enum drgn_program_flags old_flags = prog->flags;
 	bool had_platform = prog->has_platform;
+	bool had_vmcoreinfo = prog->vmcoreinfo.raw;
 
 	prog->qmp_conn.fd = fd;
 	prog->qmp_conn.json_tok = json_tokener_new();
@@ -434,6 +639,12 @@ drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
 	if (err)
 		goto err;
 
+	if (!had_vmcoreinfo) {
+		err = qmp_read_vmcoreinfo(prog);
+		if (err)
+			goto err;
+	}
+
 	prog->flags |= DRGN_PROGRAM_IS_LIVE;
 
 	drgn_call_plugins_prog("drgn_prog_set", prog);
@@ -443,6 +654,10 @@ err:
 	drgn_memory_reader_clear(&prog->reader);
 	drgn_qmp_conn_deinit(&prog->qmp_conn);
 	drgn_qmp_conn_init(&prog->qmp_conn);
+	if (!had_vmcoreinfo) {
+		free(prog->vmcoreinfo.raw);
+		memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
+	}
 	prog->has_platform = had_platform;
 	prog->flags = old_flags;
 	return err;
