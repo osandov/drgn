@@ -475,6 +475,14 @@ def _main() -> None:
         type=int,
         help="debug the running process with the given PID",
     )
+    program_group.add_argument(
+        "--qemu",
+        metavar="ADDRESS",
+        type=str,
+        help="debug a QEMU guest over the QEMU Machine Protocol (QMP) "
+        "at the given address, which may be a Unix domain socket path "
+        "or a TCP address as host:port",
+    )
 
     symbol_group = parser.add_argument_group("debugging symbols")
     symbol_group.add_argument(
@@ -678,6 +686,8 @@ def _main() -> None:
                 sys.exit(
                     f"{e}\nerror: attaching to live process requires ptrace attach permissions"
                 )
+        elif args.qemu is not None:
+            prog.set_qemu_qmp(args.qemu)
         else:
             _set_kernel_with_sudo_fallback(prog)
     except OSError as e:

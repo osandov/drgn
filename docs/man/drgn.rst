@@ -60,6 +60,12 @@ One of these options may be given to specify what program to debug.
 
     Debug the running process with the given process ID.
 
+.. option:: --qemu {ADDRESS}
+
+   Debug a QEMU guest over the QEMU Machine Protocol (QMP) at the given
+   address, which may be a Unix domain socket path or a TCP address as
+   ``host:port``.
+
 Debugging Symbols
 ^^^^^^^^^^^^^^^^^
 
