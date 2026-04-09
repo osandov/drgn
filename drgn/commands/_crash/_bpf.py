@@ -9,7 +9,11 @@ from typing import Any, List, Sequence
 
 from drgn import Program
 from drgn.commands import argument, drgn_argument
-from drgn.commands._crash.common import CrashDrgnCodeBuilder, crash_command
+from drgn.commands._crash.common import (
+    CrashDrgnCodeBuilder,
+    _object_format_options,
+    crash_command,
+)
 from drgn.helpers.common.format import (
     CellFormat,
     double_quote_ascii_string,
@@ -44,6 +48,29 @@ from drgn.helpers.linux.user import kuid_val
             dest="map_id",
             type=int,
             help="display additional information for the specified BPF map ID",
+        ),
+        argument(
+            "-s",
+            dest="show_struct",
+            action="store_true",
+            default=False,
+            help="display the full struct bpf_map (with -m) or struct bpf_prog and "
+            "struct bpf_prog_aux (with -p); combine with -x or -d to control "
+            "integer formatting in the struct dump",
+        ),
+        argument(
+            "-x",
+            dest="integer_base",
+            action="store_const",
+            const=16,
+            help="output integers in hexadecimal format in the -s struct dump",
+        ),
+        argument(
+            "-d",
+            dest="integer_base",
+            action="store_const",
+            const=10,
+            help="output integers in decimal format in the -s struct dump",
         ),
         drgn_argument,
     ),
@@ -164,6 +191,15 @@ for bpf_map in bpf_map_for_each(prog):
 
         print(f"     GPL_COMPATIBLE: {gpl_compat}  NAME: {prog_name}  UID: {uid}")
 
+        if args.show_struct:
+            print()
+            format_options = _object_format_options(prog, args.integer_base)
+            print(bpf_prog[0].format_(**format_options))
+
+            print()
+
+            print(aux[0].format_(**format_options))
+
         return
 
     if args.map_id is not None:
@@ -258,6 +294,11 @@ for bpf_map in bpf_map_for_each(prog):
                 uid_str = "(unknown)"
 
         print(f"     NAME: {map_name}  UID: {uid_str}")
+
+        if args.show_struct:
+            print()
+            format_options = _object_format_options(prog, args.integer_base)
+            print(bpf_map[0].format_(**format_options))
 
         return
 
