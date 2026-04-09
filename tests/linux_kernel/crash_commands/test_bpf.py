@@ -192,3 +192,36 @@ class TestBpf(CrashCommandTestCase, BpfTestCase):
                 cmd.stdout,
                 rf"(?sm)^\s*{map_id}\s+.*HASH\s+",
             )
+
+    def test_bpf_map_show_struct(self):
+        with contextlib.ExitStack() as exit_stack:
+            map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 4, 8, 256)
+            exit_stack.callback(os.close, map_fd)
+
+            map_info = bpf_map_get_info_by_fd(map_fd)
+            map_id = map_info.id
+
+            cmd = self.check_crash_command(f"bpf -m {map_id} -s")
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\(struct bpf_map\){",
+            )
+
+    def test_bpf_prog_show_struct(self):
+        with contextlib.ExitStack() as exit_stack:
+            prog_fd = bpf_prog_load(BPF_PROG_TYPE_KPROBE, self.INSNS, b"GPL")
+            exit_stack.callback(os.close, prog_fd)
+
+            prog_info = bpf_prog_get_info_by_fd(prog_fd)
+            prog_id = prog_info.id
+
+            cmd = self.check_crash_command(f"bpf -p {prog_id} -s")
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\(struct bpf_prog\){",
+            )
+
+    def test_bpf_map_show_struct_invalid_id(self):
+        cmd = self.check_crash_command("bpf -m 99999999999999999 -s")
+        self.assertIn("invalid BPF map ID", cmd.stdout)
+        self.assertNotIn("struct bpf_map", cmd.stdout)
