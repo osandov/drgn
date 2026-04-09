@@ -192,3 +192,133 @@ class TestBpf(CrashCommandTestCase, BpfTestCase):
                 cmd.stdout,
                 rf"(?sm)^\s*{map_id}\s+.*HASH\s+",
             )
+
+    def test_bpf_map_show_struct(self):
+        with contextlib.ExitStack() as exit_stack:
+            map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 4, 8, 256)
+            exit_stack.callback(os.close, map_fd)
+
+            map_info = bpf_map_get_info_by_fd(map_fd)
+            map_id = map_info.id
+
+            cmd = self.check_crash_command(f"bpf -m {map_id} -s")
+
+            self.assertIn("BPF_MAP_TYPE", cmd.stdout)
+            self.assertRegex(
+                cmd.stdout,
+                rf"(?sm)ID\s+.*BPF_MAP.*^\s*{map_id}\s+.*HASH\s+",
+            )
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\s*KEY_SIZE:\s*4\s+VALUE_SIZE:\s*8\s+MAX_ENTRIES:\s*256",
+            )
+
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\(struct bpf_map\){",
+            )
+            self.assertIn("key_size", cmd.stdout)
+            self.assertIn("value_size", cmd.stdout)
+            self.assertIn("max_entries", cmd.stdout)
+            self.assertIn("map_type", cmd.stdout)
+
+    def test_bpf_prog_show_struct(self):
+        with contextlib.ExitStack() as exit_stack:
+            prog_fd = bpf_prog_load(BPF_PROG_TYPE_KPROBE, self.INSNS, b"GPL")
+            exit_stack.callback(os.close, prog_fd)
+
+            prog_info = bpf_prog_get_info_by_fd(prog_fd)
+            prog_id = prog_info.id
+            prog_tag = "".join(f"{b:02x}" for b in prog_info.tag)
+
+            cmd = self.check_crash_command(f"bpf -p {prog_id} -s")
+
+            self.assertRegex(
+                cmd.stdout,
+                rf"(?sm)ID\s+.*BPF_PROG_TYPE.*^\s*{prog_id}\s+.*KPROBE\s+.*{prog_tag}\s*$",
+            )
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\s*GPL_COMPATIBLE:\s*(yes|no)\s+NAME:\s*(\(unused\)|\(unknown\)|\S+)\s+UID:\s*\d+",
+            )
+            self.assertRegex(
+                cmd.stdout,
+                r"(?sm)^\(struct bpf_prog\){",
+            )
+            self.assertIn("len", cmd.stdout)
+            self.assertIn("jited_len", cmd.stdout)
+            self.assertIn("gpl_compatible", cmd.stdout)
+
+    def test_bpf_show_struct_without_id_is_ignored(self):
+        with contextlib.ExitStack() as exit_stack:
+            map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 8, 8, 8)
+            exit_stack.callback(os.close, map_fd)
+
+            cmd = self.check_crash_command("bpf -s")
+            self.assertNotIn("(struct bpf_map){", cmd.stdout)
+            self.assertNotIn("(struct bpf_prog){", cmd.stdout)
+
+    def test_bpf_map_show_struct_invalid_id(self):
+        cmd = self.check_crash_command("bpf -m 99999999999999999 -s")
+        self.assertIn("invalid BPF map ID", cmd.stdout)
+        self.assertNotIn("struct bpf_map", cmd.stdout)
+
+    def test_bpf_map_show_struct_hex(self):
+        with contextlib.ExitStack() as exit_stack:
+            map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 4, 8, 256)
+            exit_stack.callback(os.close, map_fd)
+
+            map_info = bpf_map_get_info_by_fd(map_fd)
+            map_id = map_info.id
+
+            cmd = self.check_crash_command(f"bpf -m {map_id} -s -x")
+
+            self.assertRegex(cmd.stdout, r"(?sm)^\(struct bpf_map\){")
+            self.assertRegex(cmd.stdout, r"(?sm)key_size\s*=\s*(?:\([^)]+\))?\s*0x4\b")
+            self.assertRegex(
+                cmd.stdout, r"(?sm)max_entries\s*=\s*(?:\([^)]+\))?\s*0x100\b"
+            )
+
+    def test_bpf_map_show_struct_decimal(self):
+        with contextlib.ExitStack() as exit_stack:
+            map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 4, 8, 256)
+            exit_stack.callback(os.close, map_fd)
+
+            map_info = bpf_map_get_info_by_fd(map_fd)
+            map_id = map_info.id
+
+            cmd = self.check_crash_command(f"bpf -m {map_id} -s -d")
+
+            self.assertRegex(cmd.stdout, r"(?sm)^\(struct bpf_map\){")
+            self.assertRegex(cmd.stdout, r"(?sm)key_size\s*=\s*(?:\([^)]+\))?\s*4\b")
+            self.assertRegex(
+                cmd.stdout, r"(?sm)max_entries\s*=\s*(?:\([^)]+\))?\s*256\b"
+            )
+
+    def test_bpf_prog_show_struct_hex(self):
+        with contextlib.ExitStack() as exit_stack:
+            prog_fd = bpf_prog_load(BPF_PROG_TYPE_KPROBE, self.INSNS, b"GPL")
+            exit_stack.callback(os.close, prog_fd)
+
+            prog_info = bpf_prog_get_info_by_fd(prog_fd)
+            prog_id = prog_info.id
+
+            cmd = self.check_crash_command(f"bpf -p {prog_id} -s -x")
+
+            self.assertRegex(cmd.stdout, r"(?sm)^\(struct bpf_prog\){")
+            self.assertRegex(cmd.stdout, r"(?sm)^\(struct bpf_prog_aux\){")
+            self.assertRegex(cmd.stdout, r"(?sm)\b0x[0-9a-f]+\b")
+
+    def test_bpf_prog_show_struct_decimal(self):
+        with contextlib.ExitStack() as exit_stack:
+            prog_fd = bpf_prog_load(BPF_PROG_TYPE_KPROBE, self.INSNS, b"GPL")
+            exit_stack.callback(os.close, prog_fd)
+
+            prog_info = bpf_prog_get_info_by_fd(prog_fd)
+            prog_id = prog_info.id
+
+            cmd = self.check_crash_command(f"bpf -p {prog_id} -s -d")
+
+            self.assertRegex(cmd.stdout, r"(?sm)^\(struct bpf_prog\){")
+            self.assertRegex(cmd.stdout, r"(?sm)^\(struct bpf_prog_aux\){")
+            self.assertRegex(cmd.stdout, r"(?sm)len\s*=\s*(?:\([^)]+\))?\s*\d+\b")
