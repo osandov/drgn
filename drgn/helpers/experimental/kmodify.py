@@ -68,6 +68,7 @@ from drgn.helpers.common.prog import takes_program_or_default
 
 __all__ = (
     "call_function",
+    "call_functions",
     "pass_pointer",
     "write_memory",
     "write_object",
@@ -1336,100 +1337,9 @@ def _default_argument_promotions(obj: Object) -> Object:
         return obj
 
 
-@takes_program_or_default
-def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object:
-    """
-    Call a function in the kernel.
-
-    >>> task = find_task(99)
-    >>> if task:
-    ...     call_function("wake_up_process", task)
-    ...
-    (int)1
-
-    Arguments can be either :class:`~drgn.Object`\\ s or Python values. The
-    function return value is returned as an :class:`~drgn.Object`:
-
-    >>> # GFP_KERNEL isn't in the kernel debug info
-    >>> # We have to use this trick to get it.
-    >>> for flag in prog["gfpflag_names"]:
-    ...     if flag.name.string_() == b"GFP_KERNEL":
-    ...             GFP_KERNEL = flag.mask
-    ...             break
-    ...
-    >>> # kmalloc() is actually a macro.
-    >>> # We have to call the underlying function.
-    >>> p = call_function("__kmalloc_noprof", 13, GFP_KERNEL)
-    >>> p
-    (void *)0xffff991701ef43c0
-    >>> identify_address(p)
-    'slab object: kmalloc-16+0x0'
-    >>> call_function("kfree", p)
-    (void)<absent>
-    >>> identify_address(p)
-    'free slab object: kmalloc-16+0x0'
-
-    Variadic functions are also supported:
-
-    >>> call_function("_printk", "Hello, world! %d\\n", Object(prog, "int", 1234))
-    (int)18
-    >>> os.system("dmesg | tail -1")
-    [ 1138.223004] Hello, world! 1234
-
-    Constructed values can be passed by pointer using :class:`pass_pointer()`:
-
-    >>> sb = prog["init_fs"].root.mnt.mnt_sb
-    >>> sb.s_shrink.scan_objects
-    (unsigned long (*)(struct shrinker *, struct shrink_control *))super_cache_scan+0x0 = 0xffffffffbda4c487
-    >>> sc = pass_pointer(Object(prog, "struct shrink_control",
-    ...                   {"gfp_mask": GFP_KERNEL, "nr_to_scan": 100, "nr_scanned": 100}))
-    >>> call_function(sb.s_shrink.scan_objects, sb.s_shrink, sc)
-    (unsigned long)31
-
-    If the function modifies the passed value, the :class:`pass_pointer` object
-    is updated:
-
-    >>> sc.object
-    (struct shrink_control){
-            .gfp_mask = (gfp_t)3264,
-            .nid = (int)0,
-            .nr_to_scan = (unsigned long)1,
-            .nr_scanned = (unsigned long)100,
-            .memcg = (struct mem_cgroup *)0x0,
-    }
-
-    .. note::
-        It is not possible to call some functions, including inlined functions
-        and function-like macros. If the unavailable function is a wrapper
-        around another function, sometimes the wrapped function can be called
-        instead.
-
-    .. warning::
-        Calling a function incorrectly may cause the kernel to crash or
-        misbehave in various ways.
-
-        The function is called from process context. Note that the function may
-        have context, locking, or reference counting requirements.
-
-    :param func: Function to call. May be a function name, function object, or
-        function pointer object.
-    :param args: Function arguments. :class:`int`, :class:`float`, and
-        :class:`bool` arguments are converted as "literals" with
-        ``Object(prog, value=...)``. :class:`str` and :class:`bytes` arguments
-        are converted to ``char`` array objects. :class:`pass_pointer`
-        arguments are copied to the kernel, passed by pointer, and copied back.
-    :return: Function return value.
-    :raises TypeError: if the passed arguments have incorrect types for the
-        function
-    :raises ObjectAbsentError: if the function cannot be called because it is
-        inlined
-    :raises LookupError: if a function with the given name is not found
-        (possibly because it is actually a function-like macro)
-    """
+def _resolve_function(prog: Program, func: Union[str, Object]) -> Tuple[Type, Object]:
     if not isinstance(func, Object):
         func = prog.function(func)
-
-    kmodify = _Kmodify(prog)
 
     func_type = func.type_.unaliased()
     try:
@@ -1445,6 +1355,18 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
     except ObjectAbsentError:
         raise ObjectAbsentError("function is absent, likely inlined") from None
 
+    return func_type, func_pointer
+
+
+def _prepare_call_args(
+    prog: Program,
+    func_type: Type,
+    func_pointer: Object,
+    args: Sequence[Any],
+    data: bytearray,
+    data_alignment: int,
+    out_pointers: List[Tuple["pass_pointer", int]],
+) -> Tuple[List[Union[_Integer, _Symbol]], int]:
     return_type = func_type.type.unaliased()
     if return_type.kind not in {
         TypeKind.VOID,
@@ -1461,9 +1383,6 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
         raise TypeError(f"too many arguments for {func_pointer}; got {len(args)}")
 
     call_args: List[Union[_Integer, _Symbol]] = []
-    out_pointers = []
-    data = bytearray()
-    data_alignment = 1
 
     def align_data(alignment: int) -> None:
         nonlocal data_alignment
@@ -1561,29 +1480,20 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
 
             call_args.append(_Integer(sizeof(type), arg.value_()))
 
-    function_body: List[_FunctionBodyNode] = [_Call(_Symbol("func"), call_args)]
-    symbols = [
-        _ElfSymbol(
-            name="func",
-            value=func_pointer.value_(),
-            size=0,
-            type=STT.FUNC,
-            binding=STB.LOCAL,
-            section=SHN.ABS,
-        )
-    ]
+    return call_args, data_alignment
 
-    if return_type.kind != TypeKind.VOID:
-        align_data(alignof(return_type))
-        return_offset = len(data)
-        return_size = sizeof(return_type)
-        data.extend(bytes(return_size))
-        function_body.append(
-            _StoreReturnValue(
-                return_size,
-                _Symbol(".data", section=True, offset=return_offset),
-            )
-        )
+
+def _insert_call_function(
+    kmodify: _Kmodify,
+    *,
+    name: str,
+    function_body: List[_FunctionBodyNode],
+    symbols: List[_ElfSymbol],
+    data: bytearray,
+    data_alignment: int,
+    out_pointers: List[Tuple["pass_pointer", int]],
+) -> Any:
+    prog = kmodify.prog
 
     # copy_to_user() is the more obvious choice, but it's an inline function.
     copy_to_user_nofault_address = None
@@ -1607,13 +1517,17 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
         raise LookupError("copy_to_user_nofault not found")
 
     sizeof_int = sizeof(prog.type("int"))
+    out_buf = None
     if data:
         out_buf = ctypes.create_string_buffer(len(data))
         function_body.append(
             _Call(
                 _Symbol(copy_to_user_nofault),
                 [
-                    _Integer(sizeof(prog.type("void *")), ctypes.addressof(out_buf)),
+                    _Integer(
+                        sizeof(prog.type("void *")),
+                        ctypes.addressof(out_buf),
+                    ),
                     _Symbol(".data", section=True),
                     _Integer(sizeof(prog.type("size_t")), len(data)),
                 ],
@@ -1637,16 +1551,8 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
 
     code, code_relocations = kmodify.arch.code_gen(_Function(function_body))
 
-    kmod_name = "call"
-    try:
-        symbol_name_match = re.match(r"[0-9a-zA-Z_]+", prog.symbol(func_pointer).name)
-        if symbol_name_match:
-            kmod_name = "call_" + symbol_name_match.group()
-    except LookupError:
-        pass
-
     ret = kmodify.insert(
-        name=kmod_name,
+        name=name,
         code=code,
         code_relocations=code_relocations,
         data=data,
@@ -1661,8 +1567,159 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
 
     for out_pointer, offset in out_pointers:
         out_pointer.object = Object.from_bytes_(
-            prog, out_pointer.object.type_, out_buf, bit_offset=offset * 8
+            prog,
+            out_pointer.object.type_,
+            out_buf,  # type: ignore[arg-type]  # out_buf can't be None here.
+            bit_offset=offset * 8,
         )
+
+    return out_buf
+
+
+@takes_program_or_default
+def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object:
+    """
+    Call a function in the kernel.
+
+    >>> task = find_task(99)
+    >>> if task:
+    ...     call_function("wake_up_process", task)
+    ...
+    (int)1
+
+    Arguments can be either :class:`~drgn.Object`\\ s or Python values. The
+    function return value is returned as an :class:`~drgn.Object`:
+
+    >>> # GFP_KERNEL isn't in the kernel debug info
+    >>> # We have to use this trick to get it.
+    >>> for flag in prog["gfpflag_names"]:
+    ...     if flag.name.string_() == b"GFP_KERNEL":
+    ...             GFP_KERNEL = flag.mask
+    ...             break
+    ...
+    >>> # kmalloc() is actually a macro.
+    >>> # We have to call the underlying function.
+    >>> p = call_function("__kmalloc_noprof", 13, GFP_KERNEL)
+    >>> p
+    (void *)0xffff991701ef43c0
+    >>> identify_address(p)
+    'slab object: kmalloc-16+0x0'
+    >>> call_function("kfree", p)
+    (void)<absent>
+    >>> identify_address(p)
+    'free slab object: kmalloc-16+0x0'
+
+    Variadic functions are also supported:
+
+    >>> call_function("_printk", "Hello, world! %d\\n", Object(prog, "int", 1234))
+    (int)18
+    >>> os.system("dmesg | tail -1")
+    [ 1138.223004] Hello, world! 1234
+
+    Constructed values can be passed by pointer using :class:`pass_pointer()`:
+
+    >>> sb = prog["init_fs"].root.mnt.mnt_sb
+    >>> sb.s_shrink.scan_objects
+    (unsigned long (*)(struct shrinker *, struct shrink_control *))super_cache_scan+0x0 = 0xffffffffbda4c487
+    >>> sc = pass_pointer(Object(prog, "struct shrink_control",
+    ...                   {"gfp_mask": GFP_KERNEL, "nr_to_scan": 100, "nr_scanned": 100}))
+    >>> call_function(sb.s_shrink.scan_objects, sb.s_shrink, sc)
+    (unsigned long)31
+
+    If the function modifies the passed value, the :class:`pass_pointer` object
+    is updated:
+
+    >>> sc.object
+    (struct shrink_control){
+            .gfp_mask = (gfp_t)3264,
+            .nid = (int)0,
+            .nr_to_scan = (unsigned long)1,
+            .nr_scanned = (unsigned long)100,
+            .memcg = (struct mem_cgroup *)0x0,
+    }
+
+    .. note::
+        It is not possible to call some functions, including inlined functions
+        and function-like macros. If the unavailable function is a wrapper
+        around another function, sometimes the wrapped function can be called
+        instead.
+
+    .. warning::
+        Calling a function incorrectly may cause the kernel to crash or
+        misbehave in various ways.
+
+        The function is called from process context. Note that the function may
+        have context, locking, or reference counting requirements.
+
+    :param func: Function to call. May be a function name, function object, or
+        function pointer object.
+    :param args: Function arguments. :class:`int`, :class:`float`, and
+        :class:`bool` arguments are converted as "literals" with
+        ``Object(prog, value=...)``. :class:`str` and :class:`bytes` arguments
+        are converted to ``char`` array objects. :class:`pass_pointer`
+        arguments are copied to the kernel, passed by pointer, and copied back.
+    :return: Function return value.
+    :raises TypeError: if the passed arguments have incorrect types for the
+        function
+    :raises ObjectAbsentError: if the function cannot be called because it is
+        inlined
+    :raises LookupError: if a function with the given name is not found
+        (possibly because it is actually a function-like macro)
+    """
+    kmodify = _Kmodify(prog)
+    func_type, func_pointer = _resolve_function(prog, func)
+
+    out_pointers: List[Tuple[pass_pointer, int]] = []
+    data = bytearray()
+    call_args, data_alignment = _prepare_call_args(
+        prog, func_type, func_pointer, args, data, 1, out_pointers
+    )
+
+    function_body: List[_FunctionBodyNode] = [_Call(_Symbol("func"), call_args)]
+    symbols = [
+        _ElfSymbol(
+            name="func",
+            value=func_pointer.value_(),
+            size=0,
+            type=STT.FUNC,
+            binding=STB.LOCAL,
+            section=SHN.ABS,
+        )
+    ]
+
+    return_type = func_type.type.unaliased()
+    if return_type.kind != TypeKind.VOID:
+        alignment = alignof(return_type)
+        if alignment > data_alignment:
+            data_alignment = alignment
+        data.extend(bytes(-len(data) % alignment))
+        return_offset = len(data)
+        return_size = sizeof(return_type)
+        data.extend(bytes(return_size))
+        function_body.append(
+            _StoreReturnValue(
+                return_size,
+                _Symbol(".data", section=True, offset=return_offset),
+            )
+        )
+
+    kmod_name = "call"
+    try:
+        symbol_name_match = re.match(r"[0-9a-zA-Z_]+", prog.symbol(func_pointer).name)
+        if symbol_name_match:
+            kmod_name = "call_" + symbol_name_match.group()
+    except LookupError:
+        pass
+
+    out_buf = _insert_call_function(
+        kmodify,
+        name=kmod_name,
+        function_body=function_body,
+        symbols=symbols,
+        data=data,
+        data_alignment=data_alignment,
+        out_pointers=out_pointers,
+    )
 
     if return_type.kind == TypeKind.VOID:
         return Object(prog, func_type.type)
@@ -1670,6 +1727,95 @@ def call_function(prog: Program, func: Union[str, Object], *args: Any) -> Object
         return Object.from_bytes_(
             prog, func_type.type, out_buf, bit_offset=return_offset * 8
         )
+
+
+@takes_program_or_default
+def call_functions(prog: Program, calls: Sequence[Sequence[Any]]) -> None:
+    """
+    Call multiple functions in the kernel.
+
+    This is more efficient than calling :func:`call_function()` multiple times
+    because it only inserts one kernel module.
+
+    >>> leaked_namespaces
+    [Object(prog, 'struct net *', value=0xffff8f568869af80), ...]
+    >>> call_functions([("netns_put", ns) for ns in leaked_namespaces])
+
+    Function return values are ignored. Use :func:`call_function()` if you need
+    the return value.
+
+    .. warning::
+        See :func:`call_function()` for warnings about calling kernel
+        functions.
+
+    :param calls: List of calls, where each call is a tuple of
+        ``(func, *args)``. See :func:`call_function()` for details on *func*
+        and *args*.
+    """
+    kmodify = _Kmodify(prog)
+
+    function_body: List[_FunctionBodyNode] = []
+    symbols: List[_ElfSymbol] = []
+    out_pointers: List[Tuple[pass_pointer, int]] = []
+    data = bytearray()
+    data_alignment = 1
+
+    first_func_value = None
+    multiple_func_values = False
+    for call_i, call in enumerate(calls):
+        func_type, func_pointer = _resolve_function(prog, call[0])
+
+        call_args, data_alignment = _prepare_call_args(
+            prog, func_type, func_pointer, call[1:], data, data_alignment, out_pointers
+        )
+
+        symbol_name = f"func{call_i}"
+        function_body.append(_Call(_Symbol(symbol_name), call_args))
+        func_value = func_pointer.value_()
+        symbols.append(
+            _ElfSymbol(
+                name=symbol_name,
+                value=func_value,
+                size=0,
+                type=STT.FUNC,
+                binding=STB.LOCAL,
+                section=SHN.ABS,
+            )
+        )
+
+        if first_func_value is None:
+            first_func_value = func_value
+        elif func_value != first_func_value:
+            multiple_func_values = True
+
+    kmod_name = "call"
+    if first_func_value is not None:
+        try:
+            symbol_name_match = re.match(
+                r"[0-9a-zA-Z_]+", prog.symbol(first_func_value).name
+            )
+            if symbol_name_match:
+                kmod_name = "call_" + symbol_name_match.group()
+        except LookupError:
+            pass
+
+        if multiple_func_values:
+            if kmod_name == "call":
+                kmod_name = "call_multiple"
+            else:
+                kmod_name += "_and_more"
+        elif len(calls) > 1:
+            kmod_name += f"_{len(calls)}x"
+
+    _insert_call_function(
+        kmodify,
+        name=kmod_name,
+        function_body=function_body,
+        symbols=symbols,
+        data=data,
+        data_alignment=data_alignment,
+        out_pointers=out_pointers,
+    )
 
 
 class pass_pointer:
@@ -1681,7 +1827,8 @@ class pass_pointer:
 
     def __init__(self, object: Any) -> None:
         """
-        Wrapper used to pass values to :func:`call_function()` by pointer.
+        Wrapper used to pass values to :func:`call_function()` or
+        :func:`call_functions()` by pointer.
 
         :param object: :class:`~drgn.Object` or Python value to wrap.
         """

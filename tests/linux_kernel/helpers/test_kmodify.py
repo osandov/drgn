@@ -10,6 +10,7 @@ from _drgn_util.platform import NORMALIZED_MACHINE_NAME
 from drgn import NULL, FaultError, Object
 from drgn.helpers.experimental.kmodify import (
     call_function,
+    call_functions,
     clear_bit,
     pass_pointer,
     set_bit,
@@ -256,6 +257,90 @@ class TestCallFunction(LinuxKernelTestCase):
                 Object(self.prog, "unsigned long long", 4115226303292181070),
             ],
         )
+
+
+@skip_unless_have_test_kmod
+@skip_unless_have_kmodify
+class TestCallFunctions(LinuxKernelTestCase):
+    def test_multiple_calls(self):
+        names = ["void_return", "int_return", "unsigned_long_return"]
+        before = {
+            name: self.prog[f"drgn_kmodify_test_{name}_called"].read_()
+            for name in names
+        }
+        call_functions(
+            self.prog,
+            [(f"drgn_kmodify_test_{name}",) for name in names],
+        )
+        for name in names:
+            self.assertEqual(
+                self.prog[f"drgn_kmodify_test_{name}_called"].read_(),
+                before[name] + 1,
+            )
+
+    def test_with_args(self):
+        before_signed = self.prog["drgn_kmodify_test_signed_args_called"].read_()
+        before_unsigned = self.prog["drgn_kmodify_test_unsigned_args_called"].read_()
+        call_functions(
+            self.prog,
+            [
+                (
+                    "drgn_kmodify_test_signed_args",
+                    Object(self.prog, "signed char", -66),
+                    Object(self.prog, "short", -666),
+                    Object(self.prog, "int", -12345),
+                    Object(self.prog, "long", -2468013579),
+                    Object(self.prog, "long long", -9080706050403020100),
+                ),
+                (
+                    "drgn_kmodify_test_unsigned_args",
+                    Object(self.prog, "unsigned char", 200),
+                    Object(self.prog, "unsigned short", 7777),
+                    Object(self.prog, "unsigned int", 54321),
+                    Object(self.prog, "unsigned long", 4000000000),
+                    Object(self.prog, "unsigned long long", 12345678909876543210),
+                ),
+            ],
+        )
+        self.assertEqual(
+            self.prog["drgn_kmodify_test_signed_args_called"].read_(),
+            before_signed + 1,
+        )
+        self.assertEqual(
+            self.prog["drgn_kmodify_test_unsigned_args_called"].read_(),
+            before_unsigned + 1,
+        )
+
+    def test_with_out_pointers(self):
+        args = [
+            pass_pointer(Object(self.prog, "signed char", -66)),
+            pass_pointer(Object(self.prog, "short", -666)),
+            pass_pointer(-12345),
+            pass_pointer(Object(self.prog, "long", -2468013579)),
+            pass_pointer(Object(self.prog, "long long", -9080706050403020100)),
+        ]
+        before = self.prog["drgn_kmodify_test_integer_out_params_called"].read_()
+        call_functions(
+            self.prog,
+            [("drgn_kmodify_test_integer_out_params", *args)],
+        )
+        self.assertEqual(
+            self.prog["drgn_kmodify_test_integer_out_params_called"].read_(),
+            before + 1,
+        )
+        self.assertIdentical(
+            [ptr.object for ptr in args],
+            [
+                Object(self.prog, "signed char", 33),
+                Object(self.prog, "short", 333),
+                Object(self.prog, "int", 23456),
+                Object(self.prog, "long", 2222222222),
+                Object(self.prog, "long long", 9090909090909090909),
+            ],
+        )
+
+    def test_empty(self):
+        call_functions(self.prog, [])
 
 
 @skip_unless_have_test_kmod
