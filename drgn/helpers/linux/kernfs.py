@@ -10,9 +10,9 @@ kernfs pseudo filesystem interface in :linux:`include/linux/kernfs.h`.
 """
 
 import os
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Union
 
-from drgn import NULL, Object, Path
+from drgn import NULL, FaultError, Object, Path, Program
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 __all__ = (
@@ -22,6 +22,7 @@ __all__ = (
     "kernfs_root",
     "kernfs_walk",
     "kernfs_children",
+    "sysfs_kobject_path",
 )
 
 
@@ -150,3 +151,67 @@ def kernfs_children(kn: Object) -> Optional[Iterator[Object]]:
     return rbtree_inorder_for_each_entry(
         "struct kernfs_node", kn.dir.children.address_of_(), "rb"
     )
+
+
+def sysfs_kobject_path(prog: Program, kobj: Union[int, Object]) -> str:
+    """
+    Return the sysfs path corresponding to a ``struct kobject``.
+
+    This reconstructs the full ``/sys/...`` path by walking the underlying
+    ``struct kernfs_node`` hierarchy starting from ``kobj.sd`` and following
+    parent nodes up to the sysfs root.
+
+    The ``kobj`` argument may be either a ``struct kobject *`` drgn object
+    or a raw integer pointer value. If an integer is provided, it is
+    converted into a ``struct kobject *`` object.
+
+    :param prog: ``struct drgn_program *``
+    :param kobj: ``struct kobject *`` or pointer to one
+    :return: Full sysfs path as a string
+
+    :raises ValueError:
+        If the pointer is NULL, invalid, or the kobject is not present in sysfs.
+
+    :raises TypeError:
+        If the provided object is not a ``struct kobject``.
+    """
+
+    # normalize input
+    if isinstance(kobj, str):
+        try:
+            kobj = int(kobj, 0)
+        except ValueError:
+            raise TypeError("invalid string pointer")
+
+    if isinstance(kobj, int):
+        if kobj == 0:
+            raise ValueError("NULL pointer")
+        kobj = Object(prog, "struct kobject *", value=kobj)
+
+    if not hasattr(kobj, "sd"):
+        raise TypeError("object is not a struct kobject")
+
+    try:
+        kn = kobj.sd
+        if not kn:
+            raise ValueError("kobject not present in sysfs")
+    except FaultError:
+        raise ValueError("invalid kobject pointer")
+
+    path_components = []
+
+    try:
+        while kn:
+            name = kernfs_name(kn)
+            if name != b"/":
+                path_components.append(name.decode())
+            kn = kernfs_parent(kn)
+    except (FaultError, AttributeError):
+        raise ValueError("invalid kernfs node while walking sysfs tree")
+
+    path_components.reverse()
+
+    if not path_components:
+        return "/sys"
+
+    return "/sys/" + "/".join(path_components)
