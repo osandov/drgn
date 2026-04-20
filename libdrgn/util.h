@@ -33,7 +33,7 @@
 #ifdef NDEBUG
 #define UNREACHABLE() __builtin_unreachable()
 #else
-#define UNREACHABLE() assert(!"reachable")
+#define UNREACHABLE() assert(false && "should not be reachable")
 #endif
 
 #define HOST_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
