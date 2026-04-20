@@ -10,7 +10,7 @@ kernfs pseudo filesystem interface in :linux:`include/linux/kernfs.h`.
 """
 
 import os
-from typing import Iterator, Optional
+from typing import Iterator
 
 from drgn import NULL, Object, Path
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
@@ -136,13 +136,13 @@ def kernfs_walk(parent: Object, path: Path, follow_symlinks: bool = True) -> Obj
     return parent
 
 
-def kernfs_children(kn: Object) -> Optional[Iterator[Object]]:
+def kernfs_children(kn: Object) -> Iterator[Object]:
     """
-    Get an iterator over the children of the given kernfs node if the node
-    represents a directory.
+    Get an iterator over the children of the given kernfs node.
 
     :param kn: ``struct kernfs_node *``
     :return: Iterator of ``struct kernfs_node *`` objects.
+    :raises ValueError: if the kernfs node is not a directory
     """
     if not _kernfs_node_type(kn, "KERNFS_DIR"):
         raise ValueError("not a directory")
