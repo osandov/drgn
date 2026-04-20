@@ -44,6 +44,8 @@ struct drgn_register {
 	size_t num_names;
 	/** Internal register number. */
 	drgn_register_number regno;
+	/** Architecture that this register is from. */
+	const struct drgn_architecture_info *arch;
 };
 
 /** Offset and size of a register in @ref drgn_register_state::buf. */
