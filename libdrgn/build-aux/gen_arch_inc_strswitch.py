@@ -158,6 +158,7 @@ def validate_register_defs(
 
 
 def gen_arch_inc_strswitch(
+    arch_name: str,
     registers: Sequence[DrgnRegister],
     register_layout: Sequence[DrgnRegisterLayout],
     stack_pointer_register: str,
@@ -180,7 +181,9 @@ def gen_arch_inc_strswitch(
     out_file.write("};\n")
 
     out_file.write("\n")
-    out_file.write("static const struct drgn_register_layout register_layout[] = {\n")
+    out_file.write(
+        f"static const struct drgn_register_layout register_layout_{arch_name}[] = {{\n"
+    )
     for layout in register_layout:
         out_file.write(
             f"\t{{ offsetof(struct drgn_arch_register_layout, {layout.identifier}), {layout.size} }},\n"
@@ -189,7 +192,7 @@ def gen_arch_inc_strswitch(
 
     out_file.write("\n")
     out_file.write(
-        "static drgn_register_number dwarf_regno_to_internal(uint64_t dwarf_regno)\n"
+        f"static drgn_register_number dwarf_regno_to_internal_{arch_name}(uint64_t dwarf_regno)\n"
     )
     out_file.write("{\n")
     out_file.write("\tswitch (dwarf_regno) {\n")
@@ -203,7 +206,7 @@ def gen_arch_inc_strswitch(
     out_file.write("}\n")
 
     out_file.write("\n")
-    out_file.write("static const struct drgn_register registers[] = {\n")
+    out_file.write(f"static const struct drgn_register registers_{arch_name}[] = {{\n")
     for register in registers:
         out_file.write("\t{\n")
         out_file.write("\t\t.names = (const char * const []){\n")
@@ -217,14 +220,14 @@ def gen_arch_inc_strswitch(
 
     out_file.write("\n")
     out_file.write(
-        "static const struct drgn_register *register_by_name(const char *name)\n"
+        f"static const struct drgn_register *register_by_name_{arch_name}(const char *name)\n"
     )
     out_file.write("{\n")
     out_file.write("\t@strswitch (name)@\n")
     for i, register in enumerate(registers):
         for name in register.names:
             out_file.write(f"\t@case {c_string_literal(name)}@\n")
-            out_file.write(f"\t\treturn &registers[{i}];\n")
+            out_file.write(f"\t\treturn &registers_{arch_name}[{i}];\n")
     out_file.write("\t@default@\n")
     out_file.write("\t\treturn NULL;\n")
     out_file.write("\t@endswitch@\n")
@@ -232,14 +235,16 @@ def gen_arch_inc_strswitch(
 
     out_file.write("\n")
     out_file.write("#define DRGN_ARCHITECTURE_REGISTERS \\\n")
-    out_file.write("\t.register_layout = register_layout, \\\n")
-    out_file.write("\t.dwarf_regno_to_internal = dwarf_regno_to_internal, \\\n")
-    out_file.write("\t.registers = registers, \\\n")
+    out_file.write(f"\t.register_layout = register_layout_{arch_name}, \\\n")
+    out_file.write(
+        f"\t.dwarf_regno_to_internal = dwarf_regno_to_internal_{arch_name}, \\\n"
+    )
+    out_file.write(f"\t.registers = registers_{arch_name}, \\\n")
     out_file.write(f"\t.num_registers = {len(registers)}, \\\n")
     out_file.write(
         f"\t.stack_pointer_regno = DRGN_REGISTER_NUMBER__{stack_pointer_register}, \\\n"
     )
-    out_file.write("\t.register_by_name = register_by_name\n")
+    out_file.write(f"\t.register_by_name = register_by_name_{arch_name}\n")
 
 
 def main() -> None:
@@ -248,6 +253,11 @@ def main() -> None:
     )
     parser.add_argument("input", metavar="FILE", help="input arch_foo_defs.py file")
     args = parser.parse_args()
+
+    match = re.fullmatch(r"(?:.*/)?arch_([a-zA-Z0-9_]+)_defs.py", args.input)
+    if not match:
+        sys.exit("could not determine architecture name from input file name")
+    arch_name = match.group(1)
 
     try:
         defs = runpy.run_path(
@@ -264,7 +274,7 @@ def main() -> None:
         except KeyError as e:
             sys.exit(f"{e.args[0]} is not defined")
         gen_arch_inc_strswitch(
-            registers, register_layout, stack_pointer_register, sys.stdout
+            arch_name, registers, register_layout, stack_pointer_register, sys.stdout
         )
     except ArchDefsError as e:
         sys.exit(e)
