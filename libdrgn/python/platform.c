@@ -197,8 +197,14 @@ static PyObject *Register_repr(Register *self)
 	return PyUnicode_FromFormat("Register(%R)", names_obj);
 }
 
+static PyObject *Register_get_size(Register *self, void *arg)
+{
+	return PyLong_FromSize_t(drgn_register_size(self->reg));
+}
+
 static PyGetSetDef Register_getset[] = {
 	{"names", (getter)Register_get_names, NULL, drgn_Register_names_DOC},
+	{"size", (getter)Register_get_size, NULL, drgn_Register_size_DOC},
 	{},
 };
 

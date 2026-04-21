@@ -213,6 +213,11 @@ drgn_register_names(const struct drgn_register *reg, size_t *num_names_ret)
 	return reg->names;
 }
 
+LIBDRGN_PUBLIC size_t drgn_register_size(const struct drgn_register *reg)
+{
+	return reg->arch->register_layout[reg->regno].size;
+}
+
 struct drgn_error drgn_invalid_relocation_offset = {
 	.code = DRGN_ERROR_OTHER,
 	.message = "invalid relocation offset",

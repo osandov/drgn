@@ -483,6 +483,9 @@ extern const struct drgn_platform drgn_host_platform;
 const char * const *drgn_register_names(const struct drgn_register *reg,
 					size_t *num_names_ret);
 
+/** Get the size of a @ref drgn_register in bytes. */
+size_t drgn_register_size(const struct drgn_register *reg);
+
 /** @} */
 
 struct drgn_object;

@@ -2375,6 +2375,9 @@ class Register:
     names: Final[Sequence[str]]
     """Names of this register."""
 
+    size: Final[int]
+    """Size of this register in bytes."""
+
 host_platform: Platform
 """The platform of the host which is running drgn."""
 
