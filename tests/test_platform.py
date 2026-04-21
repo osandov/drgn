@@ -23,6 +23,9 @@ class TestPlatform(TestCase):
     def test_register(self):
         self.assertIn("rax", Platform(Architecture.X86_64).register("rax").names)
 
+    def test_register_size(self):
+        self.assertEqual(Platform(Architecture.X86_64).register("rax").size, 8)
+
     def test_register_bad_name(self):
         self.assertRaises(TypeError, Platform(Architecture.X86_64).register, None)
         self.assertRaises(TypeError, Platform(Architecture.X86_64).register, b"foo")
