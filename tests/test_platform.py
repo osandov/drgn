@@ -19,3 +19,21 @@ class TestPlatform(TestCase):
             ),
         )
         self.assertEqual(Platform(Architecture.UNKNOWN, PlatformFlags(0)).registers, ())
+
+    def test_register(self):
+        self.assertIn("rax", Platform(Architecture.X86_64).register("rax").names)
+
+    def test_register_bad_name(self):
+        self.assertRaises(TypeError, Platform(Architecture.X86_64).register, None)
+        self.assertRaises(TypeError, Platform(Architecture.X86_64).register, b"foo")
+        self.assertRaises(TypeError, Platform(Architecture.X86_64).register, 1)
+
+    def test_unknown_register(self):
+        self.assertRaises(LookupError, Platform(Architecture.X86_64).register, "foo")
+
+    def test_register_unknown_architecture(self):
+        self.assertRaises(
+            LookupError,
+            Platform(Architecture.UNKNOWN, PlatformFlags(0)).register,
+            "rax",
+        )
