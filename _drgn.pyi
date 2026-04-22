@@ -2316,6 +2316,15 @@ class Platform:
     registers: Final[Sequence[Register]]
     """Processor registers on this platform."""
 
+    def register(self, name: str, /) -> Register:
+        """
+        Get a processor register on this platform by name.
+
+        :param name: Register name.
+        :raises LookupError: if there is no register with the given name
+        """
+        ...
+
 class Architecture(enum.Enum):
     """An ``Architecture`` represents an instruction set architecture."""
 

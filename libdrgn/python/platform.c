@@ -68,6 +68,33 @@ static PyObject *Platform_richcompare(Platform *self, PyObject *other, int op)
 	Py_RETURN_BOOL(ret);
 }
 
+static PyObject *Register_wrap(const struct drgn_register *reg)
+{
+	Register *ret = call_tp_alloc(Register);
+	if (!ret)
+		return NULL;
+	ret->reg = reg;
+	return (PyObject *)ret;
+}
+
+static PyObject *Platform_register(Platform *self, PyObject *arg)
+{
+	if (!PyUnicode_Check(arg)) {
+		PyErr_SetString(PyExc_TypeError, "name must be str");
+		return NULL;
+	}
+	const char *name = PyUnicode_AsUTF8(arg);
+	if (!name)
+		return NULL;
+	const struct drgn_register *reg =
+		drgn_platform_register_by_name(self->platform, name);
+	if (!reg) {
+		return PyErr_Format(PyExc_LookupError, "unknown register %R",
+				    arg);
+	}
+	return Register_wrap(reg);
+}
+
 static PyObject *Platform_get_arch(Platform *self, void *arg)
 {
 	return PyObject_CallFunction(Architecture_class, "k",
@@ -89,11 +116,10 @@ static PyObject *Platform_get_registers(Platform *self, void *arg)
 	for (size_t i = 0; i < num_registers; i++) {
 		const struct drgn_register *reg =
 			drgn_platform_register(self->platform, i);
-		Register *item = call_tp_alloc(Register);
+		PyObject *item = Register_wrap(reg);
 		if (!item)
 			return NULL;
-		item->reg = reg;
-		PyTuple_SET_ITEM(tuple, i, (PyObject *)item);
+		PyTuple_SET_ITEM(tuple, i, item);
 	}
 	return_ptr(tuple);
 }
@@ -108,6 +134,12 @@ static PyObject *Platform_repr(Platform *self)
 		return NULL;
 	return PyUnicode_FromFormat("Platform(%R, %R)", arch_obj, flags_obj);
 }
+
+static PyMethodDef Platform_methods[] = {
+	{"register", (PyCFunction)Platform_register, METH_O,
+	 drgn_Platform_register_DOC},
+	{},
+};
 
 static PyGetSetDef Platform_getset[] = {
 	{"arch", (getter)Platform_get_arch, NULL, drgn_Platform_arch_DOC},
@@ -127,6 +159,7 @@ PyTypeObject Platform_type = {
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_Platform_DOC,
 	.tp_richcompare = (richcmpfunc)Platform_richcompare,
+	.tp_methods = Platform_methods,
 	.tp_getset = Platform_getset,
 	.tp_new = (newfunc)Platform_new,
 };
