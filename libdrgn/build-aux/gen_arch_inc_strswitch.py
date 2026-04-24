@@ -240,6 +240,15 @@ def gen_arch_inc_strswitch(
     out_file.write("}\n")
 
     out_file.write("\n")
+    out_file.write(
+        f"_Static_assert({len(registers)} <= DRGN_REGISTER_STATE_MAX_REGISTERS,\n"
+    )
+    out_file.write(
+        '\t       "too many registers; increase DRGN_REGISTER_STATE_KNOWN_NUM_BITS");'
+    )
+    out_file.write("\n")
+
+    out_file.write("\n")
     out_file.write("#define DRGN_ARCHITECTURE_REGISTERS \\\n")
     out_file.write(f"\t.register_layout = register_layout_{arch_name}, \\\n")
     out_file.write(

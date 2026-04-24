@@ -216,6 +216,7 @@ def _identify_script(path: str) -> str:
 
 
 _DISPLAY_STR_TYPES: Tuple[Type[Any], ...] = (
+    drgn.RegisterState,
     drgn.SourceLocation,
     drgn.SourceLocationList,
     drgn.StackFrame,

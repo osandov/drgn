@@ -12,6 +12,8 @@
 
 #include <assert.h>
 
+#include "bitmap.h"
+
 // Used for functions that are inline inside of libdrgn and also have an
 // external definition.
 #ifndef DRGN_ACCESSOR_LINKAGE
@@ -253,6 +255,66 @@ static inline void drgn_type_init_die_addr(struct drgn_type *type,
 {
 	assert(drgn_type_has_die_addr(type));
 	((struct drgn_extended_type *)type)->_die_addr = die_addr;
+}
+
+#define DRGN_REGISTER_STATE_KNOWN_NUM_BITS 64
+#define DRGN_REGISTER_STATE_MAX_REGISTERS (DRGN_REGISTER_STATE_KNOWN_NUM_BITS - 2)
+
+/**
+ * State of processor registers (e.g., in a stack frame), including the program
+ * counter and Canonical Frame Address (some of which may not be known).
+ */
+struct drgn_register_state {
+	/** @privatesection */
+	struct drgn_program *prog;
+	/**
+	 * Bitmap of which register values are known.
+	 *
+	 * Bit 0 is whether the PC is known. Bit 1 is whether the CFA is known.
+	 * The remaining bits are whether each register is known.
+	 */
+	DRGN_DECLARE_BITMAP(known, DRGN_REGISTER_STATE_KNOWN_NUM_BITS);
+	/** Program counter. Access with @ref drgn_register_state_pc(). */
+	uint64_t _pc;
+	/**
+	 * Canonical Frame Address. Access with @ref drgn_register_state_cfa().
+	 */
+	uint64_t _cfa;
+	/**
+	 * Buffer of register values.
+	 *
+	 * The layout of the register values is architecture-specific and
+	 * defined by @ref DRGN_ARCH_REGISTER_LAYOUT.
+	 */
+	unsigned char *buf;
+	/** Allocated size of @ref drgn_register_state::buf */
+	size_t buf_capacity;
+	/**
+	 * Cached @ref drgn_module that contains the program counter. Access
+	 * with @ref drgn_register_state_module().
+	 */
+	struct drgn_module *_module;
+	/** Whether this frame was interrupted (e.g., by a signal). */
+	bool interrupted;
+	/** Whether @ref drgn_register_state::_module has been cached. */
+	bool module_cached;
+	/**
+	 * Whether the register state cannot be modified because it is in use by
+	 * drgn (e.g., by a stack trace).
+	 */
+	bool frozen;
+};
+
+DRGN_ACCESSOR_LINKAGE struct drgn_program *
+drgn_register_state_program(const struct drgn_register_state *regs)
+{
+	return regs->prog;
+}
+
+DRGN_ACCESSOR_LINKAGE
+bool drgn_register_state_interrupted(const struct drgn_register_state *regs)
+{
+	return regs->interrupted;
 }
 
 #endif /* DRGN_INTERNAL_H */

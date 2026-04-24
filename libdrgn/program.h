@@ -313,6 +313,9 @@ struct drgn_program {
 	bool default_progress_file;
 };
 
+void drgn_program_incref(struct drgn_program *prog);
+void drgn_program_decref(struct drgn_program *prog);
+
 /** Initialize a @ref drgn_program. */
 void drgn_program_init(struct drgn_program *prog,
 		       const struct drgn_platform *platform);

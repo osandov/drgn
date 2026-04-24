@@ -312,6 +312,11 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_register_state regs;
+} RegisterState;
+
+typedef struct {
+	PyObject_HEAD
 	uint64_t kinds;
 } TypeKindSet;
 
@@ -370,6 +375,7 @@ extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject ObjectNotFoundError_type;
 extern PyTypeObject Platform_type;
 extern PyTypeObject Program_type;
+extern PyTypeObject RegisterState_type;
 extern PyTypeObject Register_type;
 extern PyTypeObject RelocatableModule_type;
 extern PyTypeObject SharedLibraryModule_type;

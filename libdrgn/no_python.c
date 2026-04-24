@@ -6,6 +6,8 @@
 #include "error.h"
 #include "plugins.h"
 #include "program.h"
+#include "register_state.h"
+#include "util.h"
 
 void drgn_error_resolve(struct drgn_error *err)
 {
@@ -53,3 +55,67 @@ drgn_blocking_check_signals(drgn_blocking_state *statep)
 {
 	return NULL;
 }
+
+// drgn_program is currently only reference-counted in Python builds.
+void drgn_program_incref(struct drgn_program *prog) {}
+void drgn_program_decref(struct drgn_program *prog) {}
+
+struct drgn_refcount {
+	// Saturates and leaks at SIZE_MAX.
+	size_t counter;
+};
+
+static inline void drgn_refcount_init(struct drgn_refcount *rc)
+{
+	rc->counter = 1;
+}
+
+static inline void drgn_refcount_inc(struct drgn_refcount *rc)
+{
+	if (rc->counter < SIZE_MAX)
+		rc->counter++;
+}
+
+static inline bool drgn_refcount_dec(struct drgn_refcount *rc)
+{
+	return rc->counter != SIZE_MAX && --rc->counter == 0;
+}
+
+// Define fallback reference counting functions for the given type for builds
+// without Python support.
+#define DEFINE_REFCOUNT_WRAPPER(type)						\
+DEFINE_REFCOUNT_WRAPPER_ALLOC(type)					\
+										\
+LIBDRGN_PUBLIC void type##_incref(struct type *x)				\
+{										\
+	struct type##_refcount *rc = container_of(x, struct type##_refcount, x);\
+	drgn_refcount_inc(&rc->refcount);					\
+}										\
+										\
+LIBDRGN_PUBLIC void type##_decref(struct type *x)				\
+{										\
+	if (!x)									\
+		return;								\
+	struct type##_refcount *rc = container_of(x, struct type##_refcount, x);\
+	if (!drgn_refcount_dec(&rc->refcount))					\
+		return;								\
+	type##_deinit(x);							\
+	free(rc);								\
+}
+
+#define DEFINE_REFCOUNT_WRAPPER_ALLOC(type)			\
+struct type##_refcount {					\
+	struct drgn_refcount refcount;				\
+	struct type x;						\
+};								\
+								\
+struct type *type##_alloc(void)					\
+{								\
+	struct type##_refcount *rc = calloc(1, sizeof(*rc));	\
+	if (!rc)						\
+		return NULL;					\
+	drgn_refcount_init(&rc->refcount);			\
+	return &rc->x;						\
+}
+
+DEFINE_REFCOUNT_WRAPPER(drgn_register_state)

@@ -17,6 +17,17 @@
 #include "../util.h"
 #include "../vector.h"
 
+void drgn_program_incref(struct drgn_program *prog)
+{
+	Py_INCREF(container_of(prog, Program, prog));
+}
+
+void drgn_program_decref(struct drgn_program *prog)
+{
+	if (prog)
+		Py_DECREF(container_of(prog, Program, prog));
+}
+
 DEFINE_HASH_SET(pyobjectp_set, PyObject *, ptr_key_hash_pair, scalar_key_eq);
 
 static PyObject *percent_s;
