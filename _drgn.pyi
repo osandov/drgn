@@ -3533,10 +3533,35 @@ class StackFrame:
         """
         ...
 
+    def register_state(self) -> RegisterState:
+        """
+        Get the state of all available registers at this stack frame.
+
+        >>> regs = stack_trace(1)[0].register_state()
+        >>> regs
+        PC = 0xffffffff9f1fb808 CFA = 0xffffd40a400abb70
+        rbx     0xffff8f588f432cc0
+        rbp     0xffff8f55410b30c0
+        rsp     0xffffd40a400abb20
+        r12     0xffffffffa0613180
+        r13     0x0000000000000000
+        r14     0xffff8f55410b3cd8
+        r15     0xffff8f56f3214240
+        rip     0xffffffff9f1fb808
+        >>> regs.get("rbx")
+        18446620209256279232
+
+        The returned register state cannot be modified.
+        """
+        ...
+
     def registers(self) -> Dict[str, int]:
         """
         Get the values of all available registers at this stack frame as a
         dictionary with the register names as keys.
+
+        Unless a dictionary is needed, :meth:`register_state()` should be
+        preferred.
         """
         ...
 

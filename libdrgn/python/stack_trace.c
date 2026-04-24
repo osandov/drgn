@@ -279,6 +279,15 @@ static PyObject *StackFrame_register(StackFrame *self, PyObject *arg)
 	return PyLong_FromUInt64(value);
 }
 
+static RegisterState *StackFrame_register_state(StackFrame *self)
+{
+	struct drgn_register_state *regs =
+		drgn_stack_frame_register_state(self->trace->trace, self->i);
+	RegisterState *regs_obj = container_of(regs, RegisterState, regs);
+	Py_INCREF(regs_obj);
+	return regs_obj;
+}
+
 static PyObject *StackFrame_registers(StackFrame *self)
 {
 	_cleanup_pydecref_ PyObject *dict = PyDict_New();
@@ -377,6 +386,8 @@ static PyMethodDef StackFrame_methods[] = {
 	 drgn_StackFrame_symbol_DOC},
 	{"register", (PyCFunction)StackFrame_register,
 	 METH_O, drgn_StackFrame_register_DOC},
+	{"register_state", (PyCFunction)StackFrame_register_state, METH_NOARGS,
+	 drgn_StackFrame_register_state_DOC},
 	{"registers", (PyCFunction)StackFrame_registers,
 	 METH_NOARGS, drgn_StackFrame_registers_DOC},
 	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
