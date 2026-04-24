@@ -12,6 +12,7 @@ static const uint8_t binary[] = {
 	0xdf, 0x9e, 0x8d, 0x1e, 0x59, 0x68, 0xf7, 0xd5, 0x48, 0x19,
 };
 static const char str[] = "19291d9ac4f34c4201eedf9e8d1e5968f7d54819";
+static const char str_reversed[] = "1948d5f768591e8d9edfee01424cf3c49a1d2919";
 
 #suite hexlify
 
@@ -23,6 +24,16 @@ static const char str[] = "19291d9ac4f34c4201eedf9e8d1e5968f7d54819";
 	out[sizeof(out) - 1] = '~';
 	hexlify(binary, sizeof(binary), out);
 	ck_assert_mem_eq(out, str, sizeof(out) - 1);
+	// Test that the string wasn't null-terminated.
+	ck_assert_int_eq(out[sizeof(out) - 1], '~');
+}
+
+#test hexlify_reversed_simple
+{
+	char out[2 * sizeof(binary) + 1];
+	out[sizeof(out) - 1] = '~';
+	hexlify_reversed(binary, sizeof(binary), out);
+	ck_assert_mem_eq(out, str_reversed, sizeof(out) - 1);
 	// Test that the string wasn't null-terminated.
 	ck_assert_int_eq(out[sizeof(out) - 1], '~');
 }
