@@ -283,6 +283,22 @@ def dentry_path(dentry: Object) -> bytes:
     return b"/".join(reversed(components))
 
 
+def _d_alias_member(prog: Program) -> str:
+    try:
+        return prog.cache["d_alias_member"]
+    except KeyError:
+        pass
+    # Before Linux kernel commit 3b7d764a37d0 ("struct dentry: make ->d_u
+    # anonymous") (in v7.1), the union containing d_alias was named d_u, not
+    # anonymous.
+    if prog.type("struct dentry").has_member("d_alias"):
+        member = "d_alias"
+    else:
+        member = "d_u.d_alias"
+    prog.cache["d_alias_member"] = member
+    return member
+
+
 def inode_path(inode: Object) -> Optional[bytes]:
     """
     Return any path of an inode from the root of its filesystem.
@@ -293,7 +309,11 @@ def inode_path(inode: Object) -> Optional[bytes]:
     if hlist_empty(inode.i_dentry):
         return None
     return dentry_path(
-        container_of(inode.i_dentry.first, "struct dentry", "d_u.d_alias")
+        container_of(
+            inode.i_dentry.first,
+            "struct dentry",
+            _d_alias_member(inode.prog_),
+        )
     )
 
 
@@ -307,7 +327,9 @@ def inode_paths(inode: Object) -> Iterator[bytes]:
     return (
         dentry_path(dentry)
         for dentry in hlist_for_each_entry(
-            "struct dentry", inode.i_dentry.address_of_(), "d_u.d_alias"
+            "struct dentry",
+            inode.i_dentry.address_of_(),
+            _d_alias_member(inode.prog_),
         )
     )
 
