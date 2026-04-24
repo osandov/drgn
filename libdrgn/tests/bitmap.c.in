@@ -50,3 +50,21 @@
 	ck_assert(!drgn_bitmap_test_bit(bitmap, 7));
 	ck_assert(drgn_bitmap_test_bit(bitmap, 8));
 }
+
+#test bitmap_last_set
+{
+	_cleanup_free_ unsigned long *bitmap = drgn_bitmap_create(100);
+	ck_assert_ptr_nonnull(bitmap);
+
+	ck_assert_int_eq(drgn_bitmap_last_set(bitmap, 100), 100);
+	ck_assert_int_eq(drgn_bitmap_last_set(bitmap, 10), 10);
+	ck_assert_int_eq(drgn_bitmap_last_set(bitmap, 0), 0);
+
+	drgn_bitmap_set_bit(bitmap, 13);
+	drgn_bitmap_set_bit(bitmap, 66);
+
+	ck_assert_int_eq(drgn_bitmap_last_set(bitmap, 100), 66);
+	ck_assert_int_eq(drgn_bitmap_last_set(bitmap, 60), 13);
+	ck_assert_int_eq(drgn_bitmap_last_set(bitmap, 10), 10);
+	ck_assert_int_eq(drgn_bitmap_last_set(bitmap, 0), 0);
+}
