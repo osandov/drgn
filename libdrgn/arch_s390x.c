@@ -74,26 +74,24 @@ pt_regs_get_initial_registers_s390x_impl(struct drgn_program *prog,
 					 struct drgn_register_state **ret)
 {
 	struct drgn_register_state *regs =
-		drgn_register_state_create(pswa, true);
+		drgn_register_state_create_id(prog, true, pswa);
 	if (!regs)
 		return &drgn_enomem;
-	drgn_register_state_set_range_from_buffer(regs, r6, r15,
-						  (uint64_t *)buf + 9);
-	drgn_register_state_set_range_from_buffer(regs, r0, r5,
-						  (uint64_t *)buf + 3);
-	drgn_register_state_set_range_from_buffer(regs, pswm, pswa,
-						  (uint64_t *)buf + 1);
-	drgn_register_state_set_pc_from_register(prog, regs, pswa);
+	drgn_register_state_set_raw_range(regs, r6, r15, (uint64_t *)buf + 9);
+	drgn_register_state_set_raw_range(regs, r0, r5, (uint64_t *)buf + 3);
+	drgn_register_state_set_raw_range(regs, pswm, pswa,
+					  (uint64_t *)buf + 1);
+	drgn_register_state_set_pc_from_register_id(regs, pswa);
 	*ret = regs;
 	return NULL;
 }
 
 static struct drgn_error *
-fallback_unwind_s390x(struct drgn_program *prog,
-		      struct drgn_register_state *regs,
+fallback_unwind_s390x(struct drgn_register_state *regs,
 		      struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
+	struct drgn_program *prog = drgn_register_state_program(regs);
 
 	// For userspace, we can't rely on the backchain entry because it is
 	// normally compiled without -mbackchain.
@@ -102,8 +100,8 @@ fallback_unwind_s390x(struct drgn_program *prog,
 
 	// For the Linux kernel, we assume -mpacked-stack.
 
-	struct optional_uint64 r15 = drgn_register_state_get_u64(prog, regs,
-								 r15);
+	struct drgn_optional_u64 r15 =
+		drgn_register_state_get_u64_id(regs, r15);
 	if (!r15.has_value)
 		return &drgn_stop;
 
@@ -137,11 +135,11 @@ fallback_unwind_s390x(struct drgn_program *prog,
 		goto err;
 
 	struct drgn_register_state *unwound =
-		drgn_register_state_create(r15, false);
+		drgn_register_state_create_id(prog, false, r15);
 	if (!unwound)
 		return &drgn_enomem;
-	drgn_register_state_set_range_from_buffer(unwound, r14, r15, buf);
-	drgn_register_state_set_pc_from_register(prog, unwound, r14);
+	drgn_register_state_set_raw_range(unwound, r14, r15, buf);
+	drgn_register_state_set_pc_from_register_id(unwound, r14);
 	*ret = unwound;
 	return NULL;
 
@@ -183,14 +181,14 @@ prstatus_get_initial_registers_s390x(struct drgn_program *prog,
 		(const uint64_t *)((const char *)prstatus + pr_reg_offset);
 
 	struct drgn_register_state *regs =
-		drgn_register_state_create(a15, true);
+		drgn_register_state_create_id(prog, true, a15);
 	if (!regs)
 		return &drgn_enomem;
-	drgn_register_state_set_range_from_buffer(regs, r0, r5, buf + 2);
-	drgn_register_state_set_range_from_buffer(regs, r6, r15, buf + 8);
-	drgn_register_state_set_range_from_buffer(regs, pswm, pswa, buf);
-	drgn_register_state_set_range_from_buffer(regs, a0, a15, buf + 18);
-	drgn_register_state_set_pc_from_register(prog, regs, pswa);
+	drgn_register_state_set_raw_range(regs, r0, r5, buf + 2);
+	drgn_register_state_set_raw_range(regs, r6, r15, buf + 8);
+	drgn_register_state_set_raw_range(regs, pswm, pswa, buf);
+	drgn_register_state_set_raw_range(regs, a0, a15, buf + 18);
+	drgn_register_state_set_pc_from_register_id(regs, pswa);
 	*ret = regs;
 	return NULL;
 }
@@ -227,11 +225,11 @@ linux_kernel_get_initial_registers_s390x(const struct drgn_object *task_obj,
 		return err;
 
 	struct drgn_register_state *regs =
-		drgn_register_state_create(r15, false);
+		drgn_register_state_create_id(prog, false, r15);
 	if (!regs)
 		return &drgn_enomem;
-	drgn_register_state_set_range_from_buffer(regs, r6, r15, buf);
-	drgn_register_state_set_pc_from_register(prog, regs, r14);
+	drgn_register_state_set_raw_range(regs, r6, r15, buf);
+	drgn_register_state_set_pc_from_register_id(regs, r14);
 	*ret = regs;
 	return NULL;
 }

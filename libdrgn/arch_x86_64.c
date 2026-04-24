@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "array.h"
+#include "cleanup.h"
 #include "drgn_internal.h"
 #include "error.h"
 #include "linux_kernel.h"
@@ -225,28 +226,28 @@ get_registers_from_frame_pointer(struct drgn_program *prog,
 		return err;
 
 	struct drgn_register_state *regs =
-		drgn_register_state_create(rbp, false);
+		drgn_register_state_create_id(prog, false, rbp);
 	if (!regs)
 		return &drgn_enomem;
-	drgn_register_state_set_from_buffer(regs, rip, &frame[1]);
-	drgn_register_state_set_from_u64(prog, regs, rsp,
-					 frame_pointer + sizeof(frame));
-	drgn_register_state_set_from_buffer(regs, rbp, &frame[0]);
-	drgn_register_state_set_pc_from_register(prog, regs, rip);
+	drgn_register_state_set_raw_id(regs, rip, &frame[1]);
+	drgn_register_state_set_u64_id(regs, rsp,
+				       frame_pointer + sizeof(frame));
+	drgn_register_state_set_raw_id(regs, rbp, &frame[0]);
+	drgn_register_state_set_pc_from_register_id(regs, rip);
 	*ret = regs;
 	return NULL;
 }
 
 // Unwind a single call instruction.
 static struct drgn_error *
-bad_call_unwind_x86_64(struct drgn_program *prog,
-		       struct drgn_register_state *regs,
+bad_call_unwind_x86_64(struct drgn_register_state *regs,
 		       struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
+	struct drgn_program *prog = drgn_register_state_program(regs);
 
-	struct optional_uint64 rsp =
-		drgn_register_state_get_u64(prog, regs, rsp);
+	struct drgn_optional_u64 rsp =
+		drgn_register_state_get_u64_id(regs, rsp);
 	if (!rsp.has_value)
 		return &drgn_stop;
 
@@ -262,15 +263,15 @@ bad_call_unwind_x86_64(struct drgn_program *prog,
 	}
 
 	// Most of the registers are unchanged.
-	struct drgn_register_state *tmp = drgn_register_state_dup(regs);
+	struct drgn_register_state *tmp = drgn_register_state_copy(regs);
 	if (!tmp)
 		return &drgn_enomem;
 
 	// The PC and rip are the return address we just read.
-	drgn_register_state_set_pc(prog, tmp, ret_addr);
-	drgn_register_state_set_from_u64(prog, tmp, rip, ret_addr);
+	drgn_register_state_set_pc_internal(tmp, ret_addr);
+	drgn_register_state_set_u64_id(tmp, rip, ret_addr);
 	// rsp is after the saved return address.
-	drgn_register_state_set_from_u64(prog, tmp, rsp, rsp.value + 8);
+	drgn_register_state_set_u64_id(tmp, rsp, rsp.value + 8);
 	*ret = tmp;
 	return NULL;
 }
@@ -292,39 +293,38 @@ get_initial_registers_from_struct_x86_64(struct drgn_program *prog,
 
 	struct drgn_register_state *regs;
 	if (full_regset)
-		regs = drgn_register_state_create(gs, true);
+		regs = drgn_register_state_create_id(prog, true, gs);
 	else
-		regs = drgn_register_state_create(ss, true);
+		regs = drgn_register_state_create_id(prog, true, ss);
 	if (!regs)
 		return &drgn_enomem;
 
-	drgn_register_state_set_from_buffer(regs, rip, (uint64_t *)buf + 16);
-	drgn_register_state_set_from_buffer(regs, rsp, (uint64_t *)buf + 19);
-	drgn_register_state_set_range_from_buffer(regs, r15, rdi, buf);
-	drgn_register_state_set_range_from_buffer(regs, cs, rflags,
-						  (uint64_t *)buf + 17);
+	drgn_register_state_set_raw_id(regs, rip, (uint64_t *)buf + 16);
+	drgn_register_state_set_raw_id(regs, rsp, (uint64_t *)buf + 19);
+	drgn_register_state_set_raw_range(regs, r15, rdi, buf);
+	drgn_register_state_set_raw_range(regs, cs, rflags,
+					  (uint64_t *)buf + 17);
 	if (full_regset) {
-		drgn_register_state_set_range_from_buffer(regs, ss, gs,
-							  (uint64_t *)buf + 20);
+		drgn_register_state_set_raw_range(regs, ss, gs,
+						  (uint64_t *)buf + 20);
 	} else {
-		drgn_register_state_set_from_buffer(regs, ss,
-						    (uint64_t *)buf + 20);
+		drgn_register_state_set_raw_id(regs, ss, (uint64_t *)buf + 20);
 	}
-	drgn_register_state_set_pc_from_register(prog, regs, rip);
+	drgn_register_state_set_pc_from_register_id(regs, rip);
 
 	*ret = regs;
 	return NULL;
 }
 
 static struct drgn_error *
-fallback_unwind_x86_64(struct drgn_program *prog,
-		       struct drgn_register_state *regs,
+fallback_unwind_x86_64(struct drgn_register_state *regs,
 		       struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
+	struct drgn_program *prog = drgn_register_state_program(regs);
 
-	struct optional_uint64 rbp =
-		drgn_register_state_get_u64(prog, regs, rbp);
+	struct drgn_optional_u64 rbp =
+		drgn_register_state_get_u64_id(regs, rbp);
 	if (!rbp.has_value)
 		return &drgn_stop;
 
@@ -356,7 +356,7 @@ fallback_unwind_x86_64(struct drgn_program *prog,
 				err = &drgn_stop;
 			return err;
 		}
-		drgn_register_state_set_cfa(prog, regs, rbp.value + 16);
+		drgn_register_state_set_cfa(regs, rbp.value + 16);
 	}
 	return NULL;
 }
@@ -402,8 +402,8 @@ get_initial_registers_inactive_task_frame(struct drgn_object *frame_obj,
 	const char *frame_buf = drgn_object_buffer(frame_obj);
 	size_t frame_size = drgn_object_size(frame_obj);
 
-	struct drgn_register_state *regs =
-		drgn_register_state_create(rbx, false);
+	_cleanup_register_state_ struct drgn_register_state *regs =
+		drgn_register_state_create_id(prog, false, rbx);
 	if (!regs)
 		return &drgn_enomem;
 
@@ -413,14 +413,12 @@ get_initial_registers_inactive_task_frame(struct drgn_object *frame_obj,
 	err = drgn_type_find_member(frame_obj->type, member_name, &member,	\
 				    &bit_offset);				\
 	if (err)								\
-		goto err;							\
+		return err;							\
 	if (bit_offset / 8 + DRGN_REGISTER_SIZE(id) > frame_size) {		\
-		err = drgn_error_create(DRGN_ERROR_OUT_OF_BOUNDS,		\
-					"out of bounds of value");		\
-		goto err;							\
+		return drgn_error_create(DRGN_ERROR_OUT_OF_BOUNDS,		\
+					 "out of bounds of value");		\
 	}									\
-	drgn_register_state_set_from_buffer(regs, id,				\
-					    frame_buf + bit_offset / 8);	\
+	drgn_register_state_set_raw_id(regs, id, frame_buf + bit_offset / 8);	\
 } while (0)
 
 	COPY_REGISTER(rip, "ret_addr");
@@ -433,15 +431,11 @@ get_initial_registers_inactive_task_frame(struct drgn_object *frame_obj,
 
 #undef COPY_REGISTER
 
-	drgn_register_state_set_from_u64(prog, regs, rsp, address + frame_size);
-	drgn_register_state_set_pc_from_register(prog, regs, rip);
+	drgn_register_state_set_u64_id(regs, rsp, address + frame_size);
+	drgn_register_state_set_pc_from_register_id(regs, rip);
 
-	*ret = regs;
+	*ret = no_cleanup_ptr(regs);
 	return NULL;
-
-err:
-	drgn_register_state_destroy(regs);
-	return err;
 }
 
 static struct drgn_error *

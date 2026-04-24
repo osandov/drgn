@@ -116,6 +116,11 @@ Symbols
 .. drgndoc:: SymbolKind
 .. drgndoc:: SymbolIndex
 
+Register States
+---------------
+
+.. drgndoc:: RegisterState
+
 Stack Traces
 ------------
 

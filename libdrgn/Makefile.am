@@ -184,6 +184,7 @@ libdrgn_common_python_la_SOURCES = python/constants.c \
 				   python/platform.c \
 				   python/plugins.c \
 				   python/program.c \
+				   python/register_state.c \
 				   python/source_location.c \
 				   python/stack_trace.c \
 				   python/symbol.c \

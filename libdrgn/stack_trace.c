@@ -88,12 +88,12 @@ LIBDRGN_PUBLIC void drgn_stack_trace_destroy(struct drgn_stack_trace *trace)
 		struct drgn_register_state *regs = NULL;
 		for (size_t i = 0; i < trace->num_frames; i++) {
 			if (trace->frames[i].regs != regs) {
-				drgn_register_state_destroy(regs);
+				drgn_register_state_decref(regs);
 				regs = trace->frames[i].regs;
 			}
 			free(trace->frames[i].scopes);
 		}
-		drgn_register_state_destroy(regs);
+		drgn_register_state_decref(regs);
 		free(trace);
 	}
 }
@@ -120,13 +120,13 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 			return &drgn_enomem;
 
 		struct drgn_register_state *regs = trace->frames[frame].regs;
-		struct optional_uint64 pc;
+		struct drgn_optional_u64 pc;
 		const char *function_name =
 			drgn_stack_frame_function_name(trace, frame);
 		if (function_name) {
 			if (!string_builder_append(&str, function_name))
 				return &drgn_enomem;
-		} else if ((pc = drgn_register_state_get_pc(regs)).has_value) {
+		} else if ((pc = drgn_register_state_pc(regs)).has_value) {
 			_cleanup_symbol_ struct drgn_symbol *sym = NULL;
 			err = drgn_program_find_symbol_by_address_internal(trace->prog,
 									   pc.value - !regs->interrupted,
@@ -183,7 +183,7 @@ drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret
 	if (!string_builder_appendf(&str, "#%zu at ", frame))
 		return &drgn_enomem;
 
-	struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+	struct drgn_optional_u64 pc = drgn_register_state_pc(regs);
 	if (pc.has_value) {
 		if (!string_builder_appendf(&str, "%#" PRIx64, pc.value))
 			return &drgn_enomem;
@@ -289,7 +289,7 @@ struct drgn_error *drgn_stack_frame_name(struct drgn_stack_trace *trace,
 		name = strdup(function_name);
 	} else {
 		struct drgn_register_state *regs = trace->frames[frame].regs;
-		struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+		struct drgn_optional_u64 pc = drgn_register_state_pc(regs);
 		if (pc.has_value) {
 			_cleanup_symbol_ struct drgn_symbol *sym = NULL;
 			err = drgn_program_find_symbol_by_address_internal(trace->prog,
@@ -336,7 +336,7 @@ drgn_stack_frame_source_name(struct drgn_stack_trace *trace, size_t frame,
 			return &drgn_enomem;
 	} else {
 		struct drgn_register_state *regs = trace->frames[frame].regs;
-		struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+		struct drgn_optional_u64 pc = drgn_register_state_pc(regs);
 		if (pc.has_value) {
 			_cleanup_symbol_ struct drgn_symbol *sym = NULL;
 			err = drgn_program_find_symbol_by_address_internal(trace->prog,
@@ -417,13 +417,14 @@ drgn_stack_frame_source(struct drgn_stack_trace *trace, size_t frame,
 		return filename;
 	} else if (trace->frames[frame].num_scopes > 0) {
 		struct drgn_register_state *regs = trace->frames[frame].regs;
-		if (!regs->module)
+		struct drgn_module *module = drgn_register_state_module(regs);
+		if (!module)
 			return NULL;
 
-		struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+		struct drgn_optional_u64 pc = drgn_register_state_pc(regs);
 		if (!pc.has_value)
 			return NULL;
-		pc.value -= !regs->interrupted + regs->module->debug_file_bias;
+		pc.value -= !regs->interrupted + module->debug_file_bias;
 
 		Dwarf_Die *scopes = trace->frames[frame].scopes;
 		size_t num_scopes = trace->frames[frame].num_scopes;
@@ -457,8 +458,8 @@ LIBDRGN_PUBLIC bool drgn_stack_frame_interrupted(struct drgn_stack_trace *trace,
 LIBDRGN_PUBLIC bool drgn_stack_frame_pc(struct drgn_stack_trace *trace,
 					size_t frame, uint64_t *ret)
 {
-	struct optional_uint64 pc =
-		drgn_register_state_get_pc(trace->frames[frame].regs);
+	struct drgn_optional_u64 pc =
+		drgn_register_state_pc(trace->frames[frame].regs);
 	if (pc.has_value)
 		*ret = pc.value;
 	return pc.has_value;
@@ -470,7 +471,7 @@ LIBDRGN_PUBLIC bool drgn_stack_frame_sp(struct drgn_stack_trace *trace,
 	struct drgn_program *prog = trace->prog;
 	drgn_register_number regno = prog->platform.arch->stack_pointer_regno;
 	struct drgn_register_state *regs = trace->frames[frame].regs;
-	if (!drgn_register_state_has_register(regs, regno))
+	if (!drgn_register_state_is_set_internal(regs, regno))
 		return false;
 	const struct drgn_register_layout *layout =
 		&prog->platform.arch->register_layout[regno];
@@ -485,7 +486,7 @@ drgn_stack_frame_symbol(struct drgn_stack_trace *trace, size_t frame,
 			struct drgn_symbol **ret)
 {
 	struct drgn_register_state *regs = trace->frames[frame].regs;
-	struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+	struct drgn_optional_u64 pc = drgn_register_state_pc(regs);
 	if (!pc.has_value) {
 		return drgn_error_create(DRGN_ERROR_LOOKUP,
 					 "program counter is not known at stack frame");
@@ -598,9 +599,9 @@ not_found:;
 		}
 	}
 
-	const struct drgn_register_state *regs = frame->regs;
+	struct drgn_register_state *regs = frame->regs;
 	struct drgn_elf_file *file =
-		drgn_module_find_dwarf_file(regs->module,
+		drgn_module_find_dwarf_file(drgn_register_state_module(regs),
 					    dwarf_cu_getdwarf(die.cu));
 	if (!file) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
@@ -636,7 +637,7 @@ LIBDRGN_PUBLIC bool drgn_stack_frame_register(struct drgn_stack_trace *trace,
 {
 	struct drgn_program *prog = trace->prog;
 	struct drgn_register_state *regs = trace->frames[frame].regs;
-	if (!drgn_register_state_has_register(regs, reg->regno))
+	if (!drgn_register_state_is_set_internal(regs, reg->regno))
 		return false;
 	const struct drgn_register_layout *layout =
 		&prog->platform.arch->register_layout[reg->regno];
@@ -950,7 +951,8 @@ drgn_stack_trace_add_frames(struct drgn_stack_trace **trace,
 {
 	struct drgn_error *err;
 
-	if (!regs->module) {
+	struct drgn_module *module = drgn_register_state_module(regs);
+	if (!module) {
 		err = drgn_stack_trace_append_frame(trace, trace_capacity, regs,
 						    NULL, 0, 0);
 		goto out;
@@ -960,7 +962,7 @@ drgn_stack_trace_add_frames(struct drgn_stack_trace **trace,
 	uint64_t bias;
 	Dwarf_Die *scopes;
 	size_t num_scopes;
-	err = drgn_module_find_dwarf_scopes(regs->module, pc, &bias, &scopes,
+	err = drgn_module_find_dwarf_scopes(module, pc, &bias, &scopes,
 					    &num_scopes);
 	if (err)
 		goto out;
@@ -1079,7 +1081,7 @@ out_scopes:
 	free(scopes);
 out:
 	if (err)
-		drgn_register_state_destroy(regs);
+		drgn_register_state_decref(regs);
 	return err;
 }
 
@@ -1095,7 +1097,7 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 	case DRGN_CFI_RULE_UNDEFINED:
 		return &drgn_not_found;
 	case DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET: {
-		struct optional_uint64 cfa = drgn_register_state_get_cfa(regs);
+		struct drgn_optional_u64 cfa = drgn_register_state_cfa(regs);
 		if (!cfa.has_value)
 			return &drgn_not_found;
 		err = drgn_program_read_memory(prog, buf,
@@ -1104,7 +1106,7 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 		break;
 	}
 	case DRGN_CFI_RULE_CFA_PLUS_OFFSET: {
-		struct optional_uint64 cfa = drgn_register_state_get_cfa(regs);
+		struct drgn_optional_u64 cfa = drgn_register_state_cfa(regs);
 		if (!cfa.has_value)
 			return &drgn_not_found;
 		cfa.value += rule->offset;
@@ -1114,7 +1116,7 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 	}
 	case DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET:
 	case DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET: {
-		if (!drgn_register_state_has_register(regs, rule->regno))
+		if (!drgn_register_state_is_set_internal(regs, rule->regno))
 			return &drgn_not_found;
 		const struct drgn_register_layout *layout =
 			&prog->platform.arch->register_layout[rule->regno];
@@ -1132,7 +1134,7 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 		break;
 	}
 	case DRGN_CFI_RULE_REGISTER_PLUS_OFFSET: {
-		if (!drgn_register_state_has_register(regs, rule->regno))
+		if (!drgn_register_state_is_set_internal(regs, rule->regno))
 			return &drgn_not_found;
 		const struct drgn_register_layout *layout =
 			&prog->platform.arch->register_layout[rule->regno];
@@ -1184,7 +1186,7 @@ static struct drgn_error *drgn_unwind_cfa(struct drgn_program *prog,
 		copy_lsbytes(&cfa, sizeof(cfa), HOST_LITTLE_ENDIAN, buf,
 			     address_size,
 			     drgn_platform_is_little_endian(&prog->platform));
-		drgn_register_state_set_cfa(prog, regs, cfa);
+		err = drgn_register_state_set_cfa(regs, cfa);
 	} else if (err == &drgn_not_found) {
 		err = NULL;
 	}
@@ -1198,22 +1200,23 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 {
 	struct drgn_error *err;
 
-	if (!regs->module)
+	struct drgn_module *module = drgn_register_state_module(regs);
+	if (!module)
 		return &drgn_not_found;
 
 	struct drgn_elf_file *file;
 	bool interrupted;
 	drgn_register_number ret_addr_regno;
 	/* If we found the module, then we must have the PC. */
-	err = drgn_module_find_cfi(prog, regs->module,
-				   regs->_pc - !regs->interrupted, &file, row,
-				   &interrupted, &ret_addr_regno);
+	err = drgn_module_find_cfi(prog, module, regs->_pc - !regs->interrupted,
+				   &file, row, &interrupted, &ret_addr_regno);
 	if (err)
 		return err;
 
 	err = drgn_unwind_cfa(prog, file, *row, regs);
 	if (err)
 		return err;
+	drgn_register_state_freeze(regs);
 
 	size_t num_regs = (*row)->num_regs;
 	if (num_regs == 0)
@@ -1221,9 +1224,10 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 
 	const struct drgn_register_layout *layout =
 		&prog->platform.arch->register_layout[num_regs - 1];
-	struct drgn_register_state *unwound =
-		drgn_register_state_create_impl(layout->offset + layout->size,
-						num_regs, interrupted);
+	_cleanup_register_state_ struct drgn_register_state *unwound =
+		drgn_register_state_create_internal(prog, interrupted,
+						    layout->offset
+						    + layout->size);
 	if (!unwound)
 		return &drgn_enomem;
 
@@ -1236,23 +1240,21 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 					       &unwound->buf[layout->offset],
 					       layout->size);
 		if (!err) {
-			drgn_register_state_set_has_register(unwound, regno);
+			drgn_register_state_set_register_known(unwound, regno);
 			has_any_register = true;
 		} else if (err != &drgn_not_found) {
-			drgn_register_state_destroy(unwound);
 			return err;
 		}
 	}
 	if (!has_any_register) {
 		/* Couldn't unwind any registers. We're done. */
-		drgn_register_state_destroy(unwound);
 		return &drgn_stop;
 	}
 	if (prog->platform.arch->demangle_cfi_registers)
-		prog->platform.arch->demangle_cfi_registers(prog, unwound);
-	if (drgn_register_state_has_register(unwound, ret_addr_regno)) {
+		prog->platform.arch->demangle_cfi_registers(unwound);
+	if (drgn_register_state_is_set_internal(unwound, ret_addr_regno)) {
 		layout = &prog->platform.arch->register_layout[ret_addr_regno];
-		drgn_register_state_set_pc_from_register_impl(prog, unwound,
+		drgn_register_state_set_pc_from_register_impl(unwound,
 							      ret_addr_regno,
 							      layout->offset,
 							      layout->size);
@@ -1261,12 +1263,10 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 		 * CFI rule for it, then we should try the fallback unwinder. */
 		struct drgn_cfi_rule rule;
 		drgn_cfi_row_get_register(*row, ret_addr_regno, &rule);
-		if (rule.kind != DRGN_CFI_RULE_UNDEFINED) {
-			drgn_register_state_destroy(unwound);
+		if (rule.kind != DRGN_CFI_RULE_UNDEFINED)
 			return &drgn_not_found;
-		}
 	}
-	*ret = unwound;
+	*ret = no_cleanup_ptr(unwound);
 	return NULL;
 }
 
@@ -1277,7 +1277,7 @@ static bool drgn_is_bad_call(const struct drgn_register_state *regs)
 	// program counter from a valid program counter that we don't know about
 	// (e.g., because it's JIT compiled). We can add heuristics in the
 	// future.
-	struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+	struct drgn_optional_u64 pc = drgn_register_state_pc(regs);
 	return pc.has_value && pc.value == 0;
 }
 
@@ -1326,12 +1326,10 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 		if (err == &drgn_not_found) {
 			if (drgn_is_bad_call(regs)
 			    && prog->platform.arch->bad_call_unwind) {
-				err = prog->platform.arch->bad_call_unwind(prog,
-									   regs,
+				err = prog->platform.arch->bad_call_unwind(regs,
 									   &regs);
 			} else {
-				err = prog->platform.arch->fallback_unwind(prog,
-									   regs,
+				err = prog->platform.arch->fallback_unwind(regs,
 									   &regs);
 			}
 		}
@@ -1375,9 +1373,13 @@ drgn_program_stack_trace_from_pcs(struct drgn_program *prog, const uint64_t *pcs
 	trace->prog = prog;
 	trace->num_frames = 0;
 	for (size_t i = 0; i != pcs_size; ++i) {
-		struct drgn_register_state *regs =
-			drgn_register_state_create_impl(0, 0, false);
-		drgn_register_state_set_pc(prog, regs, pcs[i]);
+		struct drgn_register_state *regs;
+		err = drgn_register_state_create(prog, false, &regs);
+		if (err) {
+			drgn_stack_trace_destroy(trace);
+			return err;
+		}
+		drgn_register_state_set_pc_internal(regs, pcs[i]);
 
 		err = drgn_stack_trace_add_frames(&trace, &trace_capacity, regs);
 		if (err) {
@@ -1521,9 +1523,13 @@ drgn_program_source_location(struct drgn_program *prog, uint64_t address,
 	trace->prog = prog;
 	trace->num_frames = 0;
 
-	struct drgn_register_state *regs =
-		drgn_register_state_create_impl(0, 0, true);
-	drgn_register_state_set_pc(prog, regs, address);
+	struct drgn_register_state *regs;
+	err = drgn_register_state_create(prog, true, &regs);
+	if (err) {
+		drgn_stack_trace_destroy(trace);
+		return err;
+	}
+	drgn_register_state_set_pc_internal(regs, address);
 	err = drgn_stack_trace_add_frames(&trace, &trace_capacity, regs);
 	if (err) {
 		drgn_stack_trace_destroy(trace);
