@@ -95,6 +95,11 @@ static inline PyObject *PyLong_FromUInt16(uint16_t value)
 }
 int PyLong_AsUInt16(PyObject *obj, uint16_t *value);
 
+// Get the binary representation of the value of a Python integer object,
+// truncating to the given size.
+int drgn_pylong_to_bytes(PyObject *obj, void *buf, Py_ssize_t size,
+			 bool little_endian);
+
 #define Py_RETURN_BOOL(cond) do {	\
 	if (cond)			\
 		Py_RETURN_TRUE;		\
