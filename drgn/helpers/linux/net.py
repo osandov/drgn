@@ -313,7 +313,19 @@ def is_pp_page(page: Object) -> bool:
         this kernel. This is the case from Linux 4.18 (when page_pool was
         introduced) up to and including Linux 5.13.
     """
-    PP_SIGNATURE = _poison_pointer_delta(page.prog_) + 0x40
+    prog = page.prog_
+
+    # Since Linux kernel commit db359fccf212 ("mm: introduce a new page type
+    # for page pool in page type") (in v7.1), page pool pages are identified
+    # by PGTY_netpp in page->page_type instead of the pp_magic signature.
+    try:
+        PGTY_netpp = prog["PGTY_netpp"]
+    except KeyError:
+        pass
+    else:
+        return page.page_type.value_() >> 24 == PGTY_netpp.value_()
+
+    PP_SIGNATURE = _poison_pointer_delta(prog) + 0x40
     PP_MAGIC_MASK = ~0x3
 
     try:
@@ -323,7 +335,7 @@ def is_pp_page(page: Object) -> bool:
     # Before Linux kernel commit ff7d6b27f894 ("page_pool: refurbish version of
     # page_pool code") (in v4.18), page_pool didn't exist.
     try:
-        page.prog_.type("struct page_pool")
+        prog.type("struct page_pool")
     except LookupError:
         return False
     # Between that and Linux kernel commit c07aea3ef4d4 ("mm: add a signature
