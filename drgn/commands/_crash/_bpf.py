@@ -5,11 +5,16 @@
 
 import argparse
 from datetime import datetime
-from typing import Any, List, Sequence
+import re
+from typing import Any, Dict, List, Sequence
 
-from drgn import Program
+from drgn import Object, Program
 from drgn.commands import argument, drgn_argument
-from drgn.commands._crash.common import CrashDrgnCodeBuilder, crash_command
+from drgn.commands._crash.common import (
+    CrashDrgnCodeBuilder,
+    _object_format_options,
+    crash_command,
+)
 from drgn.helpers.common.format import (
     CellFormat,
     double_quote_ascii_string,
@@ -30,6 +35,28 @@ from drgn.helpers.linux.timekeeping import (
 from drgn.helpers.linux.user import kuid_val
 
 
+def _format_crash_struct(
+    obj: Object,
+    type_name: str,
+    format_options: Dict[str, Any],
+) -> str:
+    opts = dict(format_options)
+    opts["type_name"] = False
+    opts["member_type_names"] = False
+    opts["symbolize"] = False
+
+    raw = obj.format_(**opts)
+    s = raw.replace("{", f"struct {type_name} {{", 1)
+
+    def repl_tab(m: Any) -> str:
+        return "  " * len(m.group(1))
+
+    s = re.sub(r"^(\t+)", repl_tab, s, flags=re.MULTILINE)
+    s = re.sub(r"^( +)\.", r"\1", s, flags=re.MULTILINE)
+
+    return s
+
+
 @crash_command(
     description="display loaded eBPF programs and maps",
     arguments=(
@@ -44,6 +71,13 @@ from drgn.helpers.linux.user import kuid_val
             dest="map_id",
             type=int,
             help="display additional information for the specified BPF map ID",
+        ),
+        argument(
+            "-s",
+            dest="show_struct",
+            action="store_true",
+            default=False,
+            help="display the full struct bpf_map (with -m) or struct bpf_prog (with -p)",
         ),
         drgn_argument,
     ),
@@ -164,6 +198,17 @@ for bpf_map in bpf_map_for_each(prog):
 
         print(f"     GPL_COMPATIBLE: {gpl_compat}  NAME: {prog_name}  UID: {uid}")
 
+        if args.show_struct:
+            print()
+            format_options = _object_format_options(prog, None)
+            struct_obj = Object(prog, "struct bpf_prog", address=bpf_prog.value_())
+            print(_format_crash_struct(struct_obj, "bpf_prog", format_options))
+
+            print()
+
+            aux_obj = Object(prog, "struct bpf_prog_aux", address=aux.value_())
+            print(_format_crash_struct(aux_obj, "bpf_prog_aux", format_options))
+
         return
 
     if args.map_id is not None:
@@ -258,6 +303,12 @@ for bpf_map in bpf_map_for_each(prog):
                 uid_str = "(unknown)"
 
         print(f"     NAME: {map_name}  UID: {uid_str}")
+
+        if args.show_struct:
+            print()
+            format_options = _object_format_options(prog, None)
+            struct_obj = Object(prog, "struct bpf_map", address=bpf_map.value_())
+            print(_format_crash_struct(struct_obj, "bpf_map", format_options))
 
         return
 
