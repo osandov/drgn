@@ -9,8 +9,7 @@
 
 #test bitmap_set_bit
 {
-	_cleanup_free_ unsigned long *bitmap = drgn_bitmap_create(9);
-	ck_assert_ptr_nonnull(bitmap);
+	DRGN_DECLARE_BITMAP(bitmap, 9) = {};
 
 	drgn_bitmap_set_bit(bitmap, 0);
 	drgn_bitmap_set_bit(bitmap, 1);
@@ -32,10 +31,8 @@
 
 #test bitmap_clear_bit
 {
-	_cleanup_free_ unsigned long *bitmap = drgn_bitmap_create(9);
-	ck_assert_ptr_nonnull(bitmap);
+	DRGN_DECLARE_BITMAP(bitmap, 9) = { ~0UL };
 
-	bitmap[0] = ~0UL;
 	drgn_bitmap_clear_bit(bitmap, 4);
 	drgn_bitmap_clear_bit(bitmap, 6);
 	drgn_bitmap_clear_bit(bitmap, 7);
@@ -53,8 +50,7 @@
 
 #test bitmap_last_set
 {
-	_cleanup_free_ unsigned long *bitmap = drgn_bitmap_create(100);
-	ck_assert_ptr_nonnull(bitmap);
+	DRGN_DECLARE_BITMAP(bitmap, 100) = {};
 
 	ck_assert_int_eq(drgn_bitmap_last_set(bitmap, 100), 100);
 	ck_assert_int_eq(drgn_bitmap_last_set(bitmap, 10), 10);
