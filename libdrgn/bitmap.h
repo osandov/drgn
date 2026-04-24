@@ -17,7 +17,7 @@ static inline unsigned long *drgn_bitmap_create(size_t num_bits)
 		      sizeof(unsigned long));
 }
 
-static inline bool drgn_bitmap_test_bit(unsigned long *bitmap, size_t i)
+static inline bool drgn_bitmap_test_bit(const unsigned long *bitmap, size_t i)
 {
 	return bitmap[i / DRGN_BITMAP_WORD_BITS]
 	       & (1UL << (i % DRGN_BITMAP_WORD_BITS));
