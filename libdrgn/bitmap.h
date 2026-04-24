@@ -10,6 +10,10 @@
 
 #define DRGN_BITMAP_WORD_BITS (sizeof(unsigned long) * CHAR_BIT)
 
+#define DRGN_DECLARE_BITMAP(name, num_bits)			\
+	unsigned long name[(num_bits) / DRGN_BITMAP_WORD_BITS	\
+			   + ((num_bits) % DRGN_BITMAP_WORD_BITS ? 1 : 0)]
+
 static inline unsigned long *drgn_bitmap_create(size_t num_bits)
 {
 	return calloc(num_bits / DRGN_BITMAP_WORD_BITS
