@@ -356,3 +356,34 @@ int PyLong_AsUInt16(PyObject *obj, uint16_t *value)
 	*value = v;
 	return 0;
 }
+
+int drgn_pylong_to_bytes(PyObject *obj, void *buf, Py_ssize_t size,
+			 bool little_endian)
+{
+#if PY_VERSION_HEX >= 0x030d00a4
+	Py_ssize_t r = PyLong_AsNativeBytes(obj, buf, size,
+					    (little_endian
+					     ? Py_ASNATIVEBYTES_LITTLE_ENDIAN
+					     : Py_ASNATIVEBYTES_BIG_ENDIAN)
+					    | Py_ASNATIVEBYTES_UNSIGNED_BUFFER);
+	if (r < 0)
+		return -1;
+#else
+	if (!PyLong_Check(obj)) {
+		PyErr_Format(PyExc_TypeError, "expect int, got %T", obj);
+		return -1;
+	}
+	// _PyLong_AsByteArray() still returns the least significant bytes on
+	// OverflowError unless the object is negative and is_signed is false.
+	// So, we always pass is_signed as true.
+	int r = _PyLong_AsByteArray((PyLongObject *)obj, buf, size,
+				    little_endian, true);
+	if (r) {
+		if (PyErr_ExceptionMatches(PyExc_OverflowError))
+			PyErr_Clear();
+		else
+			return -1;
+	}
+#endif
+	return 0;
+}
