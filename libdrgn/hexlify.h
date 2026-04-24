@@ -39,6 +39,9 @@
  */
 void hexlify(const void *in, size_t in_len, char *out);
 
+/** Like @ref hexlify(), but bytes are reversed. */
+void hexlify_reversed(const void *in, size_t in_len, char *out);
+
 /**
  * Allocate and encode binary data to a hexadecimal string.
  *

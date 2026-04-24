@@ -6,13 +6,23 @@
 
 #include "hexlify.h"
 
+static const char nibble_to_hex_digit[] = "0123456789abcdef";
+
 void hexlify(const void *in, size_t in_len, char *out)
 {
-	static const char nibble_to_hex_digit[] = "0123456789abcdef";
 	for (size_t i = 0; i < in_len; i++) {
 		uint8_t byte = ((uint8_t *)in)[i];
 		out[2 * i] = nibble_to_hex_digit[byte >> 4];
 		out[2 * i + 1] = nibble_to_hex_digit[byte & 0xf];
+	}
+}
+
+void hexlify_reversed(const void *in, size_t in_len, char *out)
+{
+	for (size_t i = 0; i < in_len; i++) {
+		uint8_t byte = ((uint8_t *)in)[i];
+		out[2 * (in_len - i) - 2] = nibble_to_hex_digit[byte >> 4];
+		out[2 * (in_len - i) - 1] = nibble_to_hex_digit[byte & 0xf];
 	}
 }
 
