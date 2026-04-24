@@ -35,4 +35,6 @@ static inline void drgn_bitmap_clear_bit(unsigned long *bitmap, size_t i)
 		~(1UL << (i % DRGN_BITMAP_WORD_BITS));
 }
 
+size_t drgn_bitmap_last_set(const unsigned long *bitmap, size_t num_bits);
+
 #endif /* DRGN_BITMAP_H */
