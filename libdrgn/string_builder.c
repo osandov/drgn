@@ -105,3 +105,20 @@ bool string_builder_line_break(struct string_builder *sb)
 		return true;
 	return string_builder_appendc(sb, '\n');
 }
+
+bool string_builder_space_break(struct string_builder *sb)
+{
+	if (!sb->len)
+		return true;
+	switch (sb->str[sb->len - 1]) {
+	case ' ':
+	case '\f':
+	case '\n':
+	case '\r':
+	case '\t':
+	case '\v':
+		return true;
+	default:
+		return string_builder_appendc(sb, ' ');
+	}
+}
