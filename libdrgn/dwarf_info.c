@@ -3691,9 +3691,8 @@ drgn_dwarf_location(struct drgn_elf_file *file, Dwarf_Attribute *attr,
 						     offset, &offset))))
 			return err;
 
-		struct optional_uint64 pc;
-		if (!regs ||
-		    !(pc = drgn_register_state_get_pc(regs)).has_value) {
+		struct drgn_optional_u64 pc;
+		if (!regs || !(pc = drgn_register_state_pc(regs)).has_value) {
 			*expr_ret = NULL;
 			*expr_size_ret = 0;
 			return NULL;
@@ -4029,7 +4028,8 @@ breg:
 				return &drgn_not_found;
 			drgn_register_number regno =
 				dwarf_regno_to_internal(dwarf_regno);
-			if (!drgn_register_state_has_register(ctx->regs, regno))
+			if (!drgn_register_state_is_set_internal(ctx->regs,
+								 regno))
 				return &drgn_not_found;
 			const struct drgn_register_layout *layout =
 				&register_layout[regno];
@@ -4116,8 +4116,8 @@ deref:
 			 * they push the CFA and thus depend on it anyways, so
 			 * we don't bother enforcing it.
 			 */
-			struct optional_uint64 cfa =
-				drgn_register_state_get_cfa(ctx->regs);
+			struct drgn_optional_u64 cfa =
+				drgn_register_state_cfa(ctx->regs);
 			if (!cfa.has_value)
 				return &drgn_not_found;
 			PUSH(cfa.value);
@@ -4388,8 +4388,8 @@ reg:
 					return &drgn_not_found;
 				drgn_register_number regno =
 					dwarf_regno_to_internal(dwarf_regno);
-				if (!drgn_register_state_has_register(regs,
-								      regno))
+				if (!drgn_register_state_is_set_internal(regs,
+									 regno))
 					return &drgn_not_found;
 				const struct drgn_register_layout *layout =
 					&register_layout[regno];
@@ -4856,8 +4856,8 @@ reg:
 				if (!regs)
 					goto absent;
 				regno = dwarf_regno_to_internal(dwarf_regno);
-				if (!drgn_register_state_has_register(regs,
-								      regno))
+				if (!drgn_register_state_is_set_internal(regs,
+									 regno))
 					goto absent;
 				const struct drgn_register_layout *layout =
 					&register_layout[regno];
@@ -7783,7 +7783,7 @@ drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
 	VECTOR(uint64_vector, stack);
 
 	if (rule->push_cfa) {
-		struct optional_uint64 cfa = drgn_register_state_get_cfa(regs);
+		struct drgn_optional_u64 cfa = drgn_register_state_cfa(regs);
 		if (!cfa.has_value)
 			return &drgn_not_found;
 		if (!uint64_vector_append(&stack, &cfa.value))

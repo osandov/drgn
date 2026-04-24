@@ -35,8 +35,7 @@ static const struct drgn_cfi_row default_dwarf_cfi_row_arm = DRGN_CFI_ROW(
 	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r14)),
 );
 
-static struct drgn_error *fallback_unwind_arm(struct drgn_program *prog,
-					      struct drgn_register_state *regs,
+static struct drgn_error *fallback_unwind_arm(struct drgn_register_state *regs,
 					      struct drgn_register_state **ret)
 {
 	// GCC and Clang generate different frame pointer layouts. See "GCC/LLVM
@@ -60,19 +59,17 @@ get_initial_registers_from_struct_arm(struct drgn_program *prog,
 	}
 
 	struct drgn_register_state *regs =
-		drgn_register_state_create(cpsr, true);
+		drgn_register_state_create_id(prog, true, cpsr);
 	if (!regs)
 		return &drgn_enomem;
 
-	drgn_register_state_set_range_from_buffer(regs, r13, r14,
-						  (uint32_t *)buf + 13);
-	drgn_register_state_set_range_from_buffer(regs, r4, r11,
-						  (uint32_t *)buf + 4);
-	drgn_register_state_set_range_from_buffer(regs, r0, r3, buf);
-	drgn_register_state_set_from_buffer(regs, r12, (uint32_t *)buf + 12);
-	drgn_register_state_set_range_from_buffer(regs, r15, cpsr,
-						  (uint32_t *)buf + 15);
-	drgn_register_state_set_pc_from_register(prog, regs, r15);
+	drgn_register_state_set_raw_range(regs, r13, r14, (uint32_t *)buf + 13);
+	drgn_register_state_set_raw_range(regs, r4, r11, (uint32_t *)buf + 4);
+	drgn_register_state_set_raw_range(regs, r0, r3, buf);
+	drgn_register_state_set_raw_id(regs, r12, (uint32_t *)buf + 12);
+	drgn_register_state_set_raw_range(regs, r15, cpsr,
+					  (uint32_t *)buf + 15);
+	drgn_register_state_set_pc_from_register_id(regs, r15);
 
 	*ret = regs;
 	return NULL;
@@ -133,14 +130,13 @@ linux_kernel_get_initial_registers_arm(const struct drgn_object *task_obj,
 
 	const void *buf = drgn_object_buffer(&cpu_context_obj);
 	struct drgn_register_state *regs =
-		drgn_register_state_create(r15, false);
+		drgn_register_state_create_id(prog, false, r15);
 	if (!regs)
 		return &drgn_enomem;
 
-	drgn_register_state_set_range_from_buffer(regs, r13, r14,
-						  (uint32_t *)buf + 8);
-	drgn_register_state_set_range_from_buffer(regs, r4, r11, buf);
-	drgn_register_state_set_pc_from_register(prog, regs, r14);
+	drgn_register_state_set_raw_range(regs, r13, r14, (uint32_t *)buf + 8);
+	drgn_register_state_set_raw_range(regs, r4, r11, buf);
+	drgn_register_state_set_pc_from_register_id(regs, r14);
 	*ret = regs;
 	return NULL;
 }

@@ -46,13 +46,14 @@ static const struct drgn_cfi_row default_dwarf_cfi_row_ppc64 = DRGN_CFI_ROW(
 // allocate a stack frame, so this may skip the caller of a leaf function. I
 // don't know of a good way around that.
 static struct drgn_error *
-fallback_unwind_ppc64(struct drgn_program *prog,
-		      struct drgn_register_state *regs,
+fallback_unwind_ppc64(struct drgn_register_state *regs,
 		      struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
+	struct drgn_program *prog = drgn_register_state_program(regs);
 
-	struct optional_uint64 r1 = drgn_register_state_get_u64(prog, regs, r1);
+	struct drgn_optional_u64 r1 =
+		drgn_register_state_get_u64_id(regs, r1);
 	if (!r1.has_value)
 		return &drgn_stop;
 
@@ -82,14 +83,14 @@ fallback_unwind_ppc64(struct drgn_program *prog,
 	}
 
 	struct drgn_register_state *unwound =
-		drgn_register_state_create(r1, false);
+		drgn_register_state_create_id(prog, false, r1);
 	if (!unwound)
 		return &drgn_enomem;
-	drgn_register_state_set_from_buffer(unwound, lr, &saved_lr);
-	drgn_register_state_set_from_u64(prog, unwound, r1, unwound_r1);
-	drgn_register_state_set_pc_from_register(prog, unwound, lr);
+	drgn_register_state_set_raw_id(unwound, lr, &saved_lr);
+	drgn_register_state_set_u64_id(unwound, r1, unwound_r1);
+	drgn_register_state_set_pc_from_register_id(unwound, lr);
 	*ret = unwound;
-	drgn_register_state_set_cfa(prog, regs, unwound_r1);
+	drgn_register_state_set_cfa(regs, unwound_r1);
 	return NULL;
 }
 
@@ -108,7 +109,7 @@ get_initial_registers_from_struct_ppc64(struct drgn_program *prog,
 	bool bswap = drgn_platform_bswap(&prog->platform);
 
 	struct drgn_register_state *regs =
-		drgn_register_state_create(cr7, true);
+		drgn_register_state_create_id(prog, true, cr7);
 	if (!regs)
 		return &drgn_enomem;
 
@@ -147,19 +148,18 @@ get_initial_registers_from_struct_ppc64(struct drgn_program *prog,
 	memcpy(&pc, (uint64_t *)buf + (r1_is_for_lr ? 36 : 32), sizeof(pc));
 	if (bswap)
 		pc = bswap_64(pc);
-	drgn_register_state_set_pc(prog, regs, pc);
+	drgn_register_state_set_pc_internal(regs, pc);
 
 	// Switched out tasks in the Linux kernel only save r14-r31, nip, and
 	// ccr.
 	if (!linux_kernel_switched_out) {
 		if (!linux_kernel_prstatus) {
-			drgn_register_state_set_from_buffer(regs, lr,
-							    (uint64_t *)buf + 36);
+			drgn_register_state_set_raw_id(regs, lr,
+						       (uint64_t *)buf + 36);
 		}
-		drgn_register_state_set_range_from_buffer(regs, r0, r13, buf);
+		drgn_register_state_set_raw_range(regs, r0, r13, buf);
 	}
-	drgn_register_state_set_range_from_buffer(regs, r14, r31,
-						  (uint64_t *)buf + 14);
+	drgn_register_state_set_raw_range(regs, r14, r31, (uint64_t *)buf + 14);
 
 	uint64_t ccr;
 	memcpy(&ccr, (uint64_t *)regs + 38, sizeof(ccr));
@@ -173,7 +173,7 @@ get_initial_registers_from_struct_ppc64(struct drgn_program *prog,
 		for (int i = 0; i < 8; i++)
 			cr[i] = ccr & (UINT64_C(0xf) << (28 - 4 * i));
 	}
-	drgn_register_state_set_range_from_buffer(regs, cr0, cr7, cr);
+	drgn_register_state_set_raw_range(regs, cr0, cr7, cr);
 
 	*ret = regs;
 	return NULL;
@@ -258,7 +258,7 @@ linux_kernel_get_initial_registers_ppc64(const struct drgn_object *task_obj,
 	if (err)
 		return err;
 
-	drgn_register_state_set_from_u64(prog, *ret, r1, r1);
+	drgn_register_state_set_u64_id(*ret, r1, r1);
 	return NULL;
 }
 

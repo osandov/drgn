@@ -52,22 +52,22 @@ static const struct drgn_cfi_row default_dwarf_cfi_row_aarch64 = DRGN_CFI_ROW(
 );
 
 // Mask out the pointer authentication code from x30/lr.
-static void demangle_cfi_registers_aarch64(struct drgn_program *prog,
-					   struct drgn_register_state *regs)
+static void demangle_cfi_registers_aarch64(struct drgn_register_state *regs)
 {
-	struct optional_uint64 ra_sign_state =
-		drgn_register_state_get_u64(prog, regs, ra_sign_state);
+	struct drgn_program *prog = drgn_register_state_program(regs);
+	struct drgn_optional_u64 ra_sign_state =
+		drgn_register_state_get_u64_id(regs, ra_sign_state);
 	if (!ra_sign_state.has_value || !(ra_sign_state.value & 1))
 		return;
-	struct optional_uint64 ra =
-		drgn_register_state_get_u64(prog, regs, x30);
+	struct drgn_optional_u64 ra =
+		drgn_register_state_get_u64_id(regs, x30);
 	if (!ra.has_value)
 		return;
 	if (ra.value & (UINT64_C(1) << 55))
 		ra.value |= prog->aarch64_insn_pac_mask;
 	else
 		ra.value &= ~prog->aarch64_insn_pac_mask;
-	drgn_register_state_set_from_u64(prog, regs, x30, ra.value);
+	drgn_register_state_set_u64_id(regs, x30, ra.value);
 }
 
 // elf_gregset_t (in PRSTATUS) and struct user_pt_regs have the same layout.
@@ -84,17 +84,16 @@ get_initial_registers_from_struct_aarch64(struct drgn_program *prog,
 	}
 
 	struct drgn_register_state *regs =
-		drgn_register_state_create(pstate, true);
+		drgn_register_state_create_id(prog, true, pstate);
 	if (!regs)
 		return &drgn_enomem;
 
-	drgn_register_state_set_from_buffer(regs, pc, (uint64_t *)buf + 32);
-	drgn_register_state_set_from_buffer(regs, sp, (uint64_t *)buf + 31);
-	drgn_register_state_set_range_from_buffer(regs, x19, x30,
-						  (uint64_t *)buf + 19);
-	drgn_register_state_set_range_from_buffer(regs, x0, x18, buf);
-	drgn_register_state_set_from_buffer(regs, pstate, (uint64_t *)buf + 33);
-	drgn_register_state_set_pc_from_register(prog, regs, pc);
+	drgn_register_state_set_raw_id(regs, pc, (uint64_t *)buf + 32);
+	drgn_register_state_set_raw_id(regs, sp, (uint64_t *)buf + 31);
+	drgn_register_state_set_raw_range(regs, x19, x30, (uint64_t *)buf + 19);
+	drgn_register_state_set_raw_range(regs, x0, x18, buf);
+	drgn_register_state_set_raw_id(regs, pstate, (uint64_t *)buf + 33);
+	drgn_register_state_set_pc_from_register_id(regs, pc);
 
 	*ret = regs;
 	return NULL;
@@ -205,15 +204,14 @@ fallback_unwind_try_pt_regs(struct drgn_program *prog, uint64_t fp,
 // stack frame, so this may skip the caller of a leaf function. I don't know of
 // a good way around that.
 static struct drgn_error *
-fallback_unwind_aarch64(struct drgn_program *prog,
-		       struct drgn_register_state *regs,
-		       struct drgn_register_state **ret)
+fallback_unwind_aarch64(struct drgn_register_state *regs,
+			struct drgn_register_state **ret)
 {
 
 	struct drgn_error *err;
+	struct drgn_program *prog = drgn_register_state_program(regs);
 
-	struct optional_uint64 fp =
-		drgn_register_state_get_u64(prog, regs, x29);
+	struct drgn_optional_u64 fp = drgn_register_state_get_u64_id(regs, x29);
 	if (!fp.has_value)
 		return &drgn_stop;
 
@@ -259,21 +257,20 @@ fallback_unwind_aarch64(struct drgn_program *prog,
 	}
 
 	struct drgn_register_state *unwound =
-		drgn_register_state_create(x30, false);
+		drgn_register_state_create_id(prog, false, x30);
 	if (!unwound)
 		return &drgn_enomem;
-	drgn_register_state_set_from_buffer(unwound, x30, &frame[1]);
-	drgn_register_state_set_from_buffer(unwound, x29, &frame[0]);
+	drgn_register_state_set_raw_id(unwound, x30, &frame[1]);
+	drgn_register_state_set_raw_id(unwound, x29, &frame[0]);
 	// We don't know whether the return address is signed, so just assume
 	// that it is if pointer authentication is enabled. If we're wrong, the
 	// worst that can happen is that we'll "correct" incorrect sign
 	// extension bits or clear an address tag.
 	if (prog->aarch64_insn_pac_mask) {
-		drgn_register_state_set_from_u64(prog, unwound, ra_sign_state,
-						 1);
-		demangle_cfi_registers_aarch64(prog, unwound);
+		drgn_register_state_set_u64_id(unwound, ra_sign_state, 1);
+		demangle_cfi_registers_aarch64(unwound);
 	}
-	drgn_register_state_set_pc_from_register(prog, unwound, x30);
+	drgn_register_state_set_pc_from_register_id(unwound, x30);
 	// The location of the frame record within the stack frame is not
 	// specified, so we can't determine the stack pointer.
 	*ret = unwound;
@@ -282,25 +279,23 @@ fallback_unwind_aarch64(struct drgn_program *prog,
 
 // Unwind a single bl or blr instruction.
 static struct drgn_error *
-bad_call_unwind_aarch64(struct drgn_program *prog,
-			struct drgn_register_state *regs,
+bad_call_unwind_aarch64(struct drgn_register_state *regs,
 			struct drgn_register_state **ret)
 {
-	struct optional_uint64 lr =
-		drgn_register_state_get_u64(prog, regs, x30);
+	struct drgn_optional_u64 lr = drgn_register_state_get_u64_id(regs, x30);
 	if (!lr.has_value)
 		return &drgn_stop;
 
-	struct drgn_register_state *tmp = drgn_register_state_dup(regs);
+	struct drgn_register_state *tmp = drgn_register_state_copy(regs);
 	if (!tmp)
 		return &drgn_enomem;
 
 	// lr contains the the old pc + 4.
-	drgn_register_state_set_pc(prog, tmp, lr.value - 4);
+	drgn_register_state_set_pc_internal(tmp, lr.value - 4);
 	// We don't know the old lr.
-	drgn_register_state_unset_has_register(tmp, DRGN_REGISTER_NUMBER(x30));
+	drgn_register_state_unset_id(tmp, x30);
 	// The interrupted pc is no longer applicable.
-	drgn_register_state_unset_has_register(tmp, DRGN_REGISTER_NUMBER(pc));
+	drgn_register_state_unset_id(tmp, pc);
 	*ret = tmp;
 	return NULL;
 }
@@ -363,14 +358,14 @@ linux_kernel_get_initial_registers_aarch64(const struct drgn_object *task_obj,
 
 	const void *buf = drgn_object_buffer(&cpu_context_obj);
 	struct drgn_register_state *regs =
-		drgn_register_state_create(x30, false);
+		drgn_register_state_create_id(prog, false, x30);
 	if (!regs)
 		return &drgn_enomem;
 
-	drgn_register_state_set_from_buffer(regs, x30, (uint64_t *)buf + 12);
-	drgn_register_state_set_from_buffer(regs, sp, (uint64_t *)buf + 11);
-	drgn_register_state_set_range_from_buffer(regs, x19, x29, buf);
-	drgn_register_state_set_pc_from_register(prog, regs, x30);
+	drgn_register_state_set_raw_id(regs, x30, (uint64_t *)buf + 12);
+	drgn_register_state_set_raw_id(regs, sp, (uint64_t *)buf + 11);
+	drgn_register_state_set_raw_range(regs, x19, x29, buf);
+	drgn_register_state_set_pc_from_register_id(regs, x30);
 	*ret = regs;
 	return NULL;
 }

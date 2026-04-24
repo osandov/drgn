@@ -4197,6 +4197,204 @@ bool drgn_symbol_eq(struct drgn_symbol *a, struct drgn_symbol *b);
 /** @} */
 
 /**
+ * @defgroup RegisterStates Register states
+ *
+ * Captured processor registers.
+ *
+ * @{
+ */
+
+/**
+ * @struct drgn_register_state
+ *
+ * Captured state of processor registers.
+ *
+ * This type is reference counted.
+ */
+struct drgn_register_state;
+
+/**
+ * Create a @ref drgn_register_state.
+ *
+ * It initially has 1 reference.
+ *
+ * @param[in] interrupted See @ref drgn_register_state_interrupted().
+ */
+struct drgn_error *drgn_register_state_create(struct drgn_program *prog,
+					      bool interrupted,
+					      struct drgn_register_state **ret);
+
+/** Take a reference on a @ref drgn_register_state. */
+void drgn_register_state_incref(struct drgn_register_state *regs)
+	__attribute__((__nonnull__(1)));
+
+/**
+ * Release a reference on a @ref drgn_register_state.
+ *
+ * @p regs may be @c NULL, in which case this does nothing.
+ */
+void drgn_register_state_decref(struct drgn_register_state *regs);
+
+/**
+ * Create a copy of a @ref drgn_register_state.
+ *
+ * The new register state has 1 reference.
+ *
+ * @return New register state on success, @c NULL on failure to allocate memory.
+ */
+struct drgn_register_state *
+drgn_register_state_copy(const struct drgn_register_state *regs);
+
+/** Get the @ref drgn_program that a @ref drgn_register_state came from. */
+DRGN_ACCESSOR_LINKAGE struct drgn_program *
+drgn_register_state_program(const struct drgn_register_state *regs);
+
+/**
+ * Get a @ref drgn_register in a @ref drgn_register_state by its name.
+ *
+ * This is a shortcut for
+ * `drgn_platform_register_by_name(drgn_program_platform(drgn_register_state_program(regs)), name)`.
+ */
+const struct drgn_register *
+drgn_register_state_register_by_name(const struct drgn_register_state *regs,
+				     const char *name);
+
+/** Format the contents of a register state as a string. */
+struct drgn_error *
+drgn_format_register_state(const struct drgn_register_state *regs, char **ret);
+
+/**
+ * Return whether a register state was collected while interrupted (e.g., by a
+ * signal).
+ */
+DRGN_ACCESSOR_LINKAGE
+bool drgn_register_state_interrupted(const struct drgn_register_state *regs);
+
+/**
+ * Set whether a register state was collected while interrupted.
+ *
+ * @return @c NULL on success, non-@c NULL on error (if the register state
+ * cannot be modified).
+ */
+struct drgn_error *
+drgn_register_state_set_interrupted(struct drgn_register_state *regs,
+				    bool interrupted);
+
+/** A 64-bit unsigned integer which may or may not be present. */
+struct drgn_optional_u64 {
+	uint64_t value;
+	bool has_value;
+};
+
+/** Get the value of the program counter in a register state if set. */
+struct drgn_optional_u64
+drgn_register_state_pc(const struct drgn_register_state *regs)
+	__attribute__((__pure__));
+
+/**
+ * Set the value of the program counter in a register state.
+ *
+ * @return @c NULL on success, non-@c NULL on error (if the register state
+ * cannot be modified).
+ */
+struct drgn_error *drgn_register_state_set_pc(struct drgn_register_state *regs,
+					      uint64_t pc);
+
+/**
+ * Unset the program counter in a register state.
+ *
+ * @return @c NULL on success, non-@c NULL on error (if the register state
+ * cannot be modified).
+ */
+struct drgn_error *
+drgn_register_state_unset_pc(struct drgn_register_state *regs);
+
+/** Get the Canonical Frame Address (CFA) in a register state if set. */
+struct drgn_optional_u64
+drgn_register_state_cfa(const struct drgn_register_state *regs)
+	__attribute__((__pure__));
+
+/**
+ * Set the Canonical Frame Address (CFA) in a register state.
+ *
+ * @return @c NULL on success, non-@c NULL on error (if the register state
+ * cannot be modified).
+ */
+struct drgn_error *drgn_register_state_set_cfa(struct drgn_register_state *regs,
+					       uint64_t cfa);
+
+/**
+ * Unset the Canonical Frame Address (CFA) in a register state.
+ */
+struct drgn_error *
+drgn_register_state_unset_cfa(struct drgn_register_state *regs);
+
+/** Return whether a register is set in a register state. */
+bool drgn_register_state_is_set(const struct drgn_register_state *regs,
+				const struct drgn_register *reg)
+	__attribute__((__pure__));
+
+/**
+ * Get the 64-bit unsigned integer value of a register in a register state if
+ * set.
+ *
+ * If the register is smaller than 64 bits, then it is zero-extended. If it is
+ * larger, it is truncated.
+ */
+struct drgn_optional_u64
+drgn_register_state_get_u64(const struct drgn_register_state *regs,
+			    const struct drgn_register *reg)
+	__attribute__((__pure__));
+
+/**
+ * Get the binary representation of a register in a register state if set.
+ *
+ * @param[out] buf Returned value in program byte order. Size must be
+ * `drgn_register_size(reg)`.
+ * @return @c true if set, @c false if not set, in which case @p buf is not
+ * modified.
+ */
+bool drgn_register_state_get_raw(const struct drgn_register_state *regs,
+				 const struct drgn_register *reg, void *buf);
+
+/**
+ * Set a register in a register state from a 64-bit unsigned integer.
+ *
+ * If the register is smaller than 64 bits, then @p value is truncated. If it is
+ * larger, then @p value is zero-extended.
+ *
+ * @return @c NULL on success, non-@c NULL on error (if the register state
+ * cannot be modified, if @p reg is from the wrong architecture, or on failure
+ * to allocate memory).
+ */
+struct drgn_error *
+drgn_register_state_set_u64(struct drgn_register_state *regs,
+			    const struct drgn_register *reg, uint64_t value);
+
+/**
+ * Set a register in a register state from its binary representation.
+ *
+ * @param[in] buf Value to set to. Size must be `drgn_register_size(reg)`.
+ * @return @c NULL on success, non-@c NULL on error (if the register state
+ * cannot be modified, if @p reg is from the wrong architecture, or on failure
+ * to allocate memory).
+ */
+struct drgn_error *drgn_register_state_set_raw(struct drgn_register_state *regs,
+					       const struct drgn_register *reg,
+					       const void *buf);
+
+/**
+ * Unset a register in a register state.
+ *
+ * @return @c NULL on success, non-@c NULL on error (if the register state
+ * cannot be modified or if @p reg is from the wrong architecture).
+ */
+struct drgn_error *drgn_register_state_unset(struct drgn_register_state *regs,
+					     const struct drgn_register *reg);
+
+/** @} */
+
+/**
  * @defgroup StackTraces Stack traces
  *
  * Call stacks and stack frames.

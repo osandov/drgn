@@ -3254,6 +3254,106 @@ class SymbolKind(enum.Enum):
     IFUNC = ...
     """`Indirect function <https://sourceware.org/glibc/wiki/GNU_IFUNC>`_."""
 
+class RegisterState:
+    """
+    Captured state of processor registers.
+
+    This comprises the program counter (PC), Canonical Frame Address (CFA), and
+    processor registers (some of which may not be known).
+
+    Registers can be read and written. However, if the state is in use
+    internally by drgn (e.g., in a stack trace), then it cannot be modified.
+    """
+
+    prog: Final[Program]
+    """Program that this register state is from."""
+    interrupted: bool
+    """
+    Whether this register state was collected while interrupted (e.g., by a
+    hardware interrupt, signal, trap, etc.).
+    """
+    pc: Optional[int]
+    """Program counter, or ``None`` if not set."""
+    cfa: Optional[int]
+    """Canonical Frame Address, or ``None`` if not set."""
+
+    def __new__(cls, prog: Program, interrupted: bool) -> Self:
+        """
+        Create a new register state.
+
+        :param interrupted: :attr:`RegisterState.interrupted`
+        """
+        ...
+
+    def is_set(self, reg: Union[str, Register]) -> bool:
+        """
+        Return whether a register is set (i.e., known) in this state.
+
+        :param reg: Register name or :class:`Register` object.
+        """
+        ...
+
+    def get(self, reg: Union[str, Register]) -> Optional[int]:
+        """
+        Get the integer value of a register in this state.
+
+        :param reg: Register name or :class:`Register` object.
+        :return: Unsigned integer, or ``None`` if not set.
+        """
+        ...
+
+    def get_raw(self, reg: Union[str, Register]) -> Optional[bytes]:
+        """
+        Get the binary representation of a register in this state.
+
+        :param reg: Register name or :class:`Register` object.
+        :return: Bytes in program byte order, or ``None`` if not set.
+        """
+        ...
+
+    def set(self, reg: Union[str, Register], value: IntegerLike) -> None:
+        """
+        Set a register in this state to an integer.
+
+        :param reg: Register name or :class:`Register` object.
+        :param value: Integer value. Truncated if larger than the register
+            size.
+        :raises ValueError: if this state cannot be modified because it is in
+            use internally by drgn
+        """
+        ...
+
+    def set_raw(self, reg: Union[str, Register], value: Buffer) -> None:
+        """
+        Set a register in this state from its binary representation.
+
+        :param reg: Register name or :class:`Register` object.
+        :param value: Bytes in program byte order.
+        :raises ValueError: if this state cannot be modified because it is in
+            use internally by drgn
+        """
+        ...
+
+    def unset(self, reg: Union[str, Register]) -> None:
+        """
+        Unset a register in this state.
+
+        :param reg: Register name or :class:`Register` object.
+        :raises ValueError: if this state cannot be modified because it is in
+            use internally by drgn
+        """
+        ...
+
+    def copy(self) -> RegisterState:
+        """
+        Create a register state with the same :attr:`interrupted`, :attr:`pc`,
+        :attr:`cfa`, and register values as this state.
+        """
+        ...
+
+    def __copy__(self) -> RegisterState: ...
+    def __deepcopy__(self, memo: Any) -> RegisterState: ...
+
 class StackTrace:
     """
     A ``StackTrace`` is a :ref:`sequence <python:typesseq-common>` of

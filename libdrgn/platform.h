@@ -342,8 +342,7 @@ struct drgn_architecture_info {
 	 *
 	 * This should be `NULL` if not needed.
 	 */
-	void (*demangle_cfi_registers)(struct drgn_program *,
-				       struct drgn_register_state *);
+	void (*demangle_cfi_registers)(struct drgn_register_state *);
 	/**
 	 * Try to unwind a stack frame if CFI wasn't found. Returns &@ref
 	 * drgn_stop if we couldn't.
@@ -352,8 +351,7 @@ struct drgn_architecture_info {
 	 * read memory, translate @ref DRGN_ERROR_FAULT errors to &@ref
 	 * drgn_stop.
 	 */
-	struct drgn_error *(*fallback_unwind)(struct drgn_program *,
-					      struct drgn_register_state *,
+	struct drgn_error *(*fallback_unwind)(struct drgn_register_state *,
 					      struct drgn_register_state **);
 	/**
 	 * Try to unwind a stack frame assuming that a call was made to a bad
@@ -363,8 +361,7 @@ struct drgn_architecture_info {
 	 * and nothing more. If this has to read memory, translate @ref
 	 * DRGN_ERROR_FAULT errors to &@ref drgn_stop.
 	 */
-	struct drgn_error *(*bad_call_unwind)(struct drgn_program *,
-					      struct drgn_register_state *,
+	struct drgn_error *(*bad_call_unwind)(struct drgn_register_state *,
 					      struct drgn_register_state **);
 	/**
 	 * Create a @ref drgn_register_state from a Linux `struct pt_regs`.

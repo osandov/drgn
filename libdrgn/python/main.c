@@ -372,6 +372,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    PyType_Ready(&ObjectIterator_type) ||
 	    add_type(m, &Platform_type) ||
 	    add_type(m, &Program_type) ||
+	    add_type(m, &RegisterState_type) ||
 	    add_type(m, &Register_type) ||
 	    add_type(m, &SourceLocationList_type) ||
 	    add_SourceLocation(m) ||
