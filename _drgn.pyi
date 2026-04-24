@@ -79,12 +79,12 @@ class Program:
     :meth:`[] <.__getitem__>` operator.
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         platform: Optional[Platform] = None,
         *,
         vmcoreinfo: Union[bytes, str, None] = None,
-    ) -> None:
+    ) -> Self:
         """
         Create a ``Program`` with no target program. It is usually more
         convenient to use one of the :ref:`api-program-constructors`.
@@ -1603,8 +1603,8 @@ class DebugInfoOptions:
     All of these options can be reassigned.
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         __options: Optional[DebugInfoOptions] = None,
         *,
         directories: Iterable[Path] = ...,
@@ -1617,7 +1617,7 @@ class DebugInfoOptions:
         try_supplementary: bool = ...,
         kernel_directories: Iterable[Path] = ...,
         try_kmod: KmodSearchMethod = ...,
-    ) -> None:
+    ) -> Self:
         """
         Create a ``DebugInfoOptions``.
 
@@ -2296,9 +2296,7 @@ class Platform:
     a program runs on.
     """
 
-    def __init__(
-        self, arch: Architecture, flags: Optional[PlatformFlags] = None
-    ) -> None:
+    def __new__(cls, arch: Architecture, flags: Optional[PlatformFlags] = None) -> Self:
         """
         Create a ``Platform``.
 
@@ -2475,8 +2473,8 @@ class Object:
     """
 
     @overload
-    def __init__(
-        self,
+    def __new__(
+        cls,
         prog: Program,
         type: Union[str, Type],
         # This should use numbers.Number, but mypy doesn't support it yet; see
@@ -2486,7 +2484,7 @@ class Object:
         value: Union[IntegerLike, float, bool, Mapping[str, Any], Sequence[Any]],
         *,
         bit_field_size: Optional[IntegerLike] = None,
-    ) -> None:
+    ) -> Self:
         """
         Create a value object given its type and value.
 
@@ -2499,7 +2497,7 @@ class Object:
         ...
 
     @overload
-    def __init__(self, prog: Program, *, value: Union[int, float, bool]) -> None:
+    def __new__(cls, prog: Program, *, value: Union[int, float, bool]) -> Self:
         """
         Create a value object from a "literal".
 
@@ -2512,15 +2510,15 @@ class Object:
         ...
 
     @overload
-    def __init__(
-        self,
+    def __new__(
+        cls,
         prog: Program,
         type: Union[str, Type],
         *,
         address: IntegerLike,
         bit_offset: IntegerLike = 0,
         bit_field_size: Optional[IntegerLike] = None,
-    ) -> None:
+    ) -> Self:
         """
         Create a reference object.
 
@@ -2531,14 +2529,14 @@ class Object:
         ...
 
     @overload
-    def __init__(
-        self,
+    def __new__(
+        cls,
         prog: Program,
         type: Union[str, Type],
         *,
         absence_reason: AbsenceReason = AbsenceReason.OTHER,
         bit_field_size: Optional[IntegerLike] = None,
-    ) -> None:
+    ) -> Self:
         """Create an absent object."""
         ...
     prog_: Final[Program]
@@ -3094,14 +3092,14 @@ class Symbol:
     identifier along with its corresponding address range in the program.
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         name: str,
         address: int,
         size: int,
         binding: SymbolBinding,
         kind: SymbolKind,
-    ) -> None:
+    ) -> Self:
         """
         Create a ``Symbol``.
 
@@ -3158,7 +3156,7 @@ class SymbolIndex:
         Symbol(name='foo', address=0x123, size=0x1, binding=<SymbolBinding.GLOBAL: 2>, kind=<SymbolKind.OBJECT: 1>)
     """
 
-    def __init__(self, symbols: Iterable[Symbol]) -> None:
+    def __new__(cls, symbols: Iterable[Symbol]) -> Self:
         """
         Create a ``SymbolIndex`` from a sequence of symbols
 
@@ -3735,12 +3733,12 @@ class TypeMember:
     A ``TypeMember`` represents a member of a structure, union, or class type.
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         object_or_type: Union[Object, Type, Callable[[], Union[Object, Type]]],
         name: Optional[str] = None,
         bit_offset: int = 0,
-    ) -> None:
+    ) -> Self:
         """
         Create a ``TypeMember``.
 
@@ -3805,7 +3803,7 @@ class TypeEnumerator:
     0
     """
 
-    def __init__(self, name: str, value: int) -> None:
+    def __new__(cls, name: str, value: int) -> Self:
         """
         Create a ``TypeEnumerator``.
 
@@ -3827,13 +3825,13 @@ class TypeParameter:
     A ``TypeParameter`` represents a parameter of a function type.
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         default_argument_or_type: Union[
             Object, Type, Callable[[], Union[Object, Type]]
         ],
         name: Optional[str] = None,
-    ) -> None:
+    ) -> Self:
         """
         Create a ``TypeParameter``.
 
@@ -3878,12 +3876,12 @@ class TypeTemplateParameter:
     union, class, or function type.
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         argument: Union[Type, Object, Callable[[], Union[Type, Object]]],
         name: Optional[str] = None,
         is_default: bool = False,
-    ) -> None:
+    ) -> Self:
         """
         Create a ``TypeTemplateParameter``.
 

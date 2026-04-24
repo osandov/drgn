@@ -394,30 +394,31 @@ class Formatter:
     ) -> List[str]:
         node = resolved.node
 
-        init_signatures: List[FunctionSignature] = []
-        try:
-            init = resolved.attr("__init__")
-        except KeyError:
-            pass
-        else:
-            if isinstance(init.node, Function):
-                init_signatures = [
-                    signature
-                    for signature in init.node.signatures
-                    if signature.docstring is not None
-                ]
+        init_signatures: List[Tuple[Function, FunctionSignature]] = []
+        for init_attr in ("__init__", "__new__"):
+            try:
+                init = resolved.attr(init_attr)
+            except KeyError:
+                continue
+            if not isinstance(init.node, Function):
+                continue
 
-                init_context_class = resolved.name
-                if context_class:
-                    init_context_class = context_class + "." + init_context_class
+            for signature in init.node.signatures:
+                if signature.docstring is not None:
+                    init_signatures.append((init, signature))
+
+        if init_signatures:
+            init_context_class = resolved.name
+            if context_class:
+                init_context_class = context_class + "." + init_context_class
 
         lines = []
 
         if rst and len(init_signatures) == 1 and node.docstring is None:
             class_signature, class_docstring_lines = self._format_function_signature(
-                init_signatures[0],
-                init.modules,
-                init.classes,
+                init_signatures[0][1],
+                init_signatures[0][0].modules,
+                init_signatures[0][0].classes,
                 context_module,
                 init_context_class,
                 rst,
@@ -461,14 +462,14 @@ class Formatter:
             else:
                 lines.extend(class_docstring_lines)
 
-        for i, signature_node in enumerate(init_signatures):
+        for i, (function_node, signature_node) in enumerate(init_signatures):
             if lines:
                 lines.append("")
 
             signature, signature_lines = self._format_function_signature(
                 signature_node,
-                init.modules,
-                init.classes,
+                function_node.modules,
+                function_node.classes,
                 context_module,
                 init_context_class,
                 rst,
