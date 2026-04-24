@@ -49,8 +49,8 @@ The generated file includes "arch_register_layout.h" and defines several things:
    static drgn_register_number dwarf_regno_to_internal(uint64_t dwarf_regno);
 
 7. A macro containing initializers for the "register_layout",
-   "dwarf_regno_to_internal", "registers", "num_registers",
-   "stack_pointer_regno", and "register_by_name" members of
+   "register_layout_size", "dwarf_regno_to_internal", "registers",
+   "num_registers", "stack_pointer_regno", and "register_by_name" members of
    "struct drgn_architecture_info":
    #define DRGN_ARCHITECTURE_REGISTERS ...
 """
@@ -242,6 +242,9 @@ def gen_arch_inc_strswitch(
     out_file.write("\n")
     out_file.write("#define DRGN_ARCHITECTURE_REGISTERS \\\n")
     out_file.write(f"\t.register_layout = register_layout_{arch_name}, \\\n")
+    out_file.write(
+        "\t.register_layout_size = sizeof(struct drgn_arch_register_layout), \\\n"
+    )
     out_file.write(
         f"\t.dwarf_regno_to_internal = dwarf_regno_to_internal_{arch_name}, \\\n"
     )

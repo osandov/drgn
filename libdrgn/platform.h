@@ -323,6 +323,12 @@ struct drgn_architecture_info {
 	 */
 	const struct drgn_register_layout *register_layout;
 	/**
+	 * Size of entire register layout.
+	 *
+	 * This is set by `DRGN_ARCHITECTURE_REGISTERS`.
+	 */
+	size_t register_layout_size;
+	/**
 	 * Return the internal register number for the given DWARF register
 	 * number, or @ref DRGN_REGISTER_NUMBER_UNKNOWN if it is not recognized.
 	 *
