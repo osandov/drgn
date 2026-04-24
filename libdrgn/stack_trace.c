@@ -649,6 +649,12 @@ LIBDRGN_PUBLIC bool drgn_stack_frame_register(struct drgn_stack_trace *trace,
 	return true;
 }
 
+LIBDRGN_PUBLIC struct drgn_register_state *
+drgn_stack_frame_register_state(struct drgn_stack_trace *trace, size_t frame)
+{
+	return trace->frames[frame].regs;
+}
+
 static struct drgn_error *
 drgn_get_stack_trace_obj(struct drgn_object *res,
 			 const struct drgn_object *thread_obj,

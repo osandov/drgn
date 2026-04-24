@@ -4574,6 +4574,16 @@ bool drgn_stack_frame_register(struct drgn_stack_trace *trace, size_t frame,
 			       const struct drgn_register *reg, uint64_t *ret);
 
 /**
+ * Get the state of all available registers at this stack frame.
+ *
+ * This returns a borrowed reference. It cannot be modified. If it is needed
+ * after @p trace is destroyed, a reference must be taken with @ref
+ * drgn_register_state_incref().
+ */
+struct drgn_register_state *
+drgn_stack_frame_register_state(struct drgn_stack_trace *trace, size_t frame);
+
+/**
  * Get a stack trace for the thread with the given thread ID.
  *
  * @param[out] ret Returned stack trace. On success, it should be freed with

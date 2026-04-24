@@ -32,6 +32,24 @@ class TestLinuxUserspaceCoreDump(TestCase):
         self.assertIsNone(self.trace[7].function_name)
         self.assertIsNone(self.trace[8].function_name)
 
+    def test_register_state(self):
+        regs = self.trace[0].register_state()
+
+        # Shouldn't be able to modify it.
+        self.assertRaises(ValueError, setattr, regs, "interrupted", False)
+        self.assertRaises(ValueError, setattr, regs, "pc", 0)
+        self.assertRaises(ValueError, setattr, regs, "pc", None)
+        self.assertRaises(ValueError, setattr, regs, "cfa", 0)
+        self.assertRaises(ValueError, setattr, regs, "cfa", None)
+        self.assertRaises(ValueError, regs.set, "rax", 0)
+        self.assertRaises(ValueError, regs.set_raw, "rax", bytes(8))
+        self.assertRaises(ValueError, regs.unset, "rax")
+
+        # Should be able to modify a copy.
+        copied = regs.copy()
+        copied.set("rax", 0)
+        self.assertEqual(copied.get("rax"), 0)
+
     def test_stack_trace_type_error(self):
         self.assertRaises(
             TypeError,
