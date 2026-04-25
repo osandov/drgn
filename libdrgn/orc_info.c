@@ -227,6 +227,12 @@ static int orc_version_from_header(const void *buffer)
 	// the kernel source tree with:
 	// sh ./scripts/orc_hash.sh < arch/x86/include/asm/orc_types.h | sed -e 's/^#define ORC_HASH //' -e 's/,/, /g'
 
+	// Linux kernel commit 1735858caa4b ("objtool/x86: Reorder ORC register
+	// numbering") (in v7.1)
+	static const uint8_t orc_hash_7_1[ORC_HEADER_SIZE] = {
+		0x13, 0x7c, 0x36, 0xad, 0x76, 0x27, 0xc4, 0xdd, 0x55, 0x93,
+		0x21, 0x76, 0xbb, 0x0e, 0xcd, 0xbd, 0x50, 0x41, 0xfc, 0x82,
+	};
 	// Linux kernel commit fb799447ae29 ("x86,objtool: Split
 	// UNWIND_HINT_EMPTY in two") (in v6.4)
 	static const uint8_t orc_hash_6_4[ORC_HEADER_SIZE] = {
@@ -240,7 +246,9 @@ static int orc_version_from_header(const void *buffer)
 		0x17, 0xf8, 0xf7, 0x97, 0x83, 0xca, 0x98, 0x5c, 0x2c, 0x51,
 	};
 
-	if (memcmp(buffer, orc_hash_6_4, ORC_HEADER_SIZE) == 0)
+	if (memcmp(buffer, orc_hash_7_1, ORC_HEADER_SIZE) == 0)
+		return 4;
+	else if (memcmp(buffer, orc_hash_6_4, ORC_HEADER_SIZE) == 0)
 		return 3;
 	else if (memcmp(buffer, orc_hash_6_3, ORC_HEADER_SIZE) == 0)
 		return 2;
@@ -636,40 +644,69 @@ struct drgn_error *drgn_module_parse_orc(struct drgn_module *module,
 			entries[i].bp_offset = bswap_16(entries[i].bp_offset);
 			entries[i].flags = bswap_16(entries[i].flags);
 		}
-		// "Upgrade" the format to version 3. See struct
-		// drgn_orc_type::flags.
-		if (version == 2) {
-			// There are no UNDEFINED or END_OF_STACK types in
-			// versions 1 and 2. Instead, sp_reg ==
-			// ORC_REG_UNDEFINED && !end is equivalent to UNDEFINED,
-			// and sp_reg == ORC_REG_UNDEFINED && end is equivalent
-			// to END_OF_STACK.
-			int type;
-			if ((entries[i].flags & 0x80f) == 0)
-				type = DRGN_ORC_TYPE_UNDEFINED << 8;
-			else if ((entries[i].flags & 0x80f) == 0x800)
-				type = DRGN_ORC_TYPE_END_OF_STACK << 8;
-			else
-				type = (entries[i].flags & 0x300) + 0x200;
-			int signal = (entries[i].flags & 0x400) << 1;
-			entries[i].flags = ((entries[i].flags & 0xff)
-					    | type
-					    | signal);
-		} else if (version == 1) {
-			int type;
-			if ((entries[i].flags & 0x40f) == 0)
-				type = DRGN_ORC_TYPE_UNDEFINED << 8;
-			else if ((entries[i].flags & 0x40f) == 0x400)
-				type = DRGN_ORC_TYPE_END_OF_STACK << 8;
-			else
-				type = (entries[i].flags & 0x300) + 0x200;
-			// There is no signal flag in version 1. Instead,
-			// ORC_TYPE_REGS and ORC_TYPE_REGS_PARTIAL imply the
-			// signal flag, and ORC_TYPE_CALL does not.
-			int signal = (entries[i].flags & 0x300) > 0 ? 0x800 : 0;
-			entries[i].flags = ((entries[i].flags & 0xff)
-					    | type
-					    | signal);
+		// "Upgrade" the format to version 4. See struct
+		// drgn_orc_entry::flags and the DRGN_ORC_REG_* enum.
+		if (version <= 3) {
+			// Versions 1 and 2 need type/signal flag upgrades to
+			// the version 3 layout first.
+			if (version == 2) {
+				// There are no UNDEFINED or END_OF_STACK types
+				// in versions 1 and 2. Instead, sp_reg ==
+				// ORC_REG_UNDEFINED && !end is equivalent to
+				// UNDEFINED, and sp_reg == ORC_REG_UNDEFINED &&
+				// end is equivalent to END_OF_STACK.
+				int type;
+				if ((entries[i].flags & 0x80f) == 0)
+					type = DRGN_ORC_TYPE_UNDEFINED << 8;
+				else if ((entries[i].flags & 0x80f) == 0x800)
+					type = DRGN_ORC_TYPE_END_OF_STACK << 8;
+				else
+					type = (entries[i].flags & 0x300) + 0x200;
+				int signal = (entries[i].flags & 0x400) << 1;
+				entries[i].flags = ((entries[i].flags & 0xff)
+						    | type
+						    | signal);
+			} else if (version == 1) {
+				int type;
+				if ((entries[i].flags & 0x40f) == 0)
+					type = DRGN_ORC_TYPE_UNDEFINED << 8;
+				else if ((entries[i].flags & 0x40f) == 0x400)
+					type = DRGN_ORC_TYPE_END_OF_STACK << 8;
+				else
+					type = (entries[i].flags & 0x300) + 0x200;
+				// There is no signal flag in version 1.
+				// Instead, ORC_TYPE_REGS and
+				// ORC_TYPE_REGS_PARTIAL imply the signal flag,
+				// and ORC_TYPE_CALL does not.
+				int signal = (entries[i].flags & 0x300) > 0 ? 0x800 : 0;
+				entries[i].flags = ((entries[i].flags & 0xff)
+						    | type
+						    | signal);
+			}
+			// Remap register numbers from the pre-v7.1 numbering to
+			// the current numbering.
+			static const uint8_t reg_map[] = {
+				[0] = DRGN_ORC_REG_UNDEFINED,
+				[1] = DRGN_ORC_REG_PREV_SP,
+				[2] = DRGN_ORC_REG_DX,
+				[3] = DRGN_ORC_REG_DI,
+				[4] = DRGN_ORC_REG_BP,
+				[5] = DRGN_ORC_REG_SP,
+				[6] = DRGN_ORC_REG_R10,
+				[7] = DRGN_ORC_REG_R13,
+				[8] = DRGN_ORC_REG_BP_INDIRECT,
+				[9] = DRGN_ORC_REG_SP_INDIRECT,
+				[10] = DRGN_ORC_REG_AX,
+			};
+			int sp_reg = entries[i].flags & 0xf;
+			int bp_reg = (entries[i].flags >> 4) & 0xf;
+			if (sp_reg < sizeof(reg_map))
+				sp_reg = reg_map[sp_reg];
+			if (bp_reg < sizeof(reg_map))
+				bp_reg = reg_map[bp_reg];
+			entries[i].flags = ((entries[i].flags & 0xff00)
+					    | (bp_reg << 4)
+					    | sp_reg);
 		}
 		pc_offsets[i] = UINT64_C(4) * index + offset - UINT64_C(4) * i;
 	}

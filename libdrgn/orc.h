@@ -14,7 +14,9 @@
  *
  * There are multiple versions of the ORC format for x86-64:
  *
- * - Version 3 since since Linux kernel commit fb799447ae29 ("x86,objtool: Split
+ * - Version 4 since Linux kernel commit 1735858caa4b ("objtool/x86: Reorder
+ *   ORC register numbering") (in v7.1).
+ * - Version 3 since Linux kernel commit fb799447ae29 ("x86,objtool: Split
  *   UNWIND_HINT_EMPTY in two") (in v6.4).
  * - Version 2 between that and Linux kernel commit ffb1b4a41016
  *   ("x86/unwind/orc: Add 'signal' field to ORC metadata") (in v6.3).
@@ -24,8 +26,9 @@
  * (The version numbers are our own invention and aren't used in the Linux
  * kernel.)
  *
- * So far, the format changes only affect the interpretation of @ref
- * drgn_orc_entry::flags. The getters assume the latest version.
+ * The format changes affect the interpretation of @ref drgn_orc_entry::flags
+ * (versions 1-3) and the register numbering (version 4). The getters assume
+ * the latest version.
  */
 
 #ifndef DRGN_ORC_H
@@ -64,15 +67,16 @@ enum {
 
 enum {
 	DRGN_ORC_REG_UNDEFINED = 0,
-	DRGN_ORC_REG_PREV_SP = 1,
+	DRGN_ORC_REG_AX = 1,
 	DRGN_ORC_REG_DX = 2,
-	DRGN_ORC_REG_DI = 3,
+	DRGN_ORC_REG_SP = 3,
 	DRGN_ORC_REG_BP = 4,
-	DRGN_ORC_REG_SP = 5,
+	DRGN_ORC_REG_DI = 5,
 	DRGN_ORC_REG_R10 = 6,
 	DRGN_ORC_REG_R13 = 7,
-	DRGN_ORC_REG_BP_INDIRECT = 8,
+	DRGN_ORC_REG_PREV_SP = 8,
 	DRGN_ORC_REG_SP_INDIRECT = 9,
+	DRGN_ORC_REG_BP_INDIRECT = 10,
 };
 
 static inline int drgn_orc_sp_reg(const struct drgn_orc_entry *orc)

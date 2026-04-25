@@ -91,6 +91,11 @@ drgn_orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 		rule.regno = DRGN_REGISTER_NUMBER(rdx);
 		rule.offset = 0;
 		break;
+	case DRGN_ORC_REG_AX:
+		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(rax);
+		rule.offset = 0;
+		break;
 	default:
 		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "unknown ORC SP base register %d",
