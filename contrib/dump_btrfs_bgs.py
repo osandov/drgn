@@ -12,32 +12,6 @@ from drgn import NULL, Object, cast, container_of, execscript, \
 from drgn.helpers.linux import *
 from drgn.helpers.common import decode_flags
 
-BTRFS_BLOCK_GROUP_FLAGS = [
-        ("BTRFS_BLOCK_GROUP_DATA", 0),
-        ("BTRFS_BLOCK_GROUP_SYSTEM", 1),
-        ("BTRFS_BLOCK_GROUP_METADATA", 2),
-        ("BTRFS_BLOCK_GROUP_RAID0", 3),
-        ("BTRFS_BLOCK_GROUP_RAID1", 4),
-        ("BTRFS_BLOCK_GROUP_DUP", 5),
-        ("BTRFS_BLOCK_GROUP_RAID10", 6),
-        ("BTRFS_BLOCK_GROUP_RAID5", 9),
-        ("BTRFS_BLOCK_GROUP_RAID6", 8),
-        ("BTRFS_BLOCK_GROUP_RAID1C3", 9),
-        ("BTRFS_BLOCK_GROUP_RAID1C4", 10)
-        ]
-
-BTRFS_BLOCK_GROUP_RUNTIME_FLAGS = [
-        ("BLOCK_GROUP_FLAG_IREF", 0),
-        ("BLOCK_GROUP_FLAG_REMOVED", 1),
-        ("BLOCK_GROUP_FLAG_TO_COPY", 2),
-        ("BLOCK_GROUP_FLAG_RELOCATING_REPAIR", 3),
-        ("BLOCK_GROUP_FLAG_CHUNK_ITEM_INSERTED", 4),
-        ("BLOCK_GROUP_FLAG_ZONE_IS_ACTIVE", 5),
-        ("BLOCK_GROUP_FLAG_ZONED_DATA_RELOC", 6),
-        ("BLOCK_GROUP_FLAG_NEEDS_FREE_SPACE", 7),
-        ("BLOCK_GROUP_FLAG_SEQUENTIAL_ZONE", 8)
-        ]
-
 if len(sys.argv) > 1:
     mnt_path = sys.argv[1]
     mnt_path = mnt_path.rstrip('/')
