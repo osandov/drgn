@@ -18,7 +18,17 @@ Linux slab allocator.
 import functools
 import operator
 import os
-from typing import Callable, Dict, Iterator, NamedTuple, Optional, Set, Tuple, Union
+from typing import (
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    NamedTuple,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 from drgn import (
     NULL,
@@ -353,6 +363,36 @@ class _SlubPerCpuInfo(NamedTuple):
 
 
 class _SlabCacheHelperSlub(_SlabCacheHelper):
+    def _for_each_per_node(self) -> Iterable[Object]:
+        # Since Linux kernel commit 5ba6bc27b1f9 ("slab: decouple pointer to
+        # barn from kmem_cache_node") (in v7.1), this returns the struct
+        # kmem_cache_per_node_ptrs array in struct kmem_cache::per_node, and
+        # _per_node_to_node() gets struct kmem_cache_per_node_ptrs::node.
+        # Before that, this returns the struct kmem_cache_node array in struct
+        # kmem_cache::node, and _per_node_to_node() is the identity function.
+        try:
+            per_node = self._slab_cache.per_node
+        except AttributeError:
+            self._per_node_to_node: Callable[[Object], Object] = (
+                lambda per_node: per_node
+            )
+            return self._slab_cache.node[: nr_node_ids(self._prog)]
+        self._per_node_to_node = lambda per_node: per_node.node.read_()
+        return per_node[: nr_node_ids(self._prog)]
+
+    def _per_node_to_barn(self, per_node: Object) -> Optional[Object]:
+        # Since Linux kernel commit 5ba6bc27b1f9 ("slab: decouple pointer to
+        # barn from kmem_cache_node") (in v7.1), this gets struct
+        # kmem_cache_per_node_ptrs::barn. Between that and Linux kernel commit
+        # 2d517aa09bbc ("slab: add opt-in caching layer of percpu sheaves") (in
+        # v6.18), this gets struct kmem_cache_node::barn. Before that, barns
+        # don't exist, so we replace this method with a dummy implementation.
+        try:
+            return per_node.barn.read_()
+        except AttributeError:
+            self._per_node_to_barn = lambda per_node: None  # type: ignore[method-assign]
+            return None
+
     @functools.cached_property
     def _red_left_pad(self) -> int:
         try:
@@ -460,14 +500,8 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
 
     def _sheaves_full_objects(self) -> Set[int]:
         result: Set[int] = set()
-        for node in self._slab_cache.node[: nr_node_ids(self._prog)]:
-            # struct kmem_cache_node::barn was added in Linux kernel commit
-            # 2d517aa09bbc ("slab: add opt-in caching layer of percpu sheaves")
-            # (in v6.18).
-            try:
-                barn = node.barn.read_()
-            except AttributeError:
-                return result
+        for per_node in self._for_each_per_node():
+            barn = self._per_node_to_barn(per_node)
             if not barn:
                 continue
             for sheaf in validate_list_for_each_entry(
@@ -635,7 +669,8 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         # instead of lru") (in v5.2), the SLUB code still uses struct page::lru,
         # but it is an alias of struct page::slab_list.)
         slab_list_member = "slab_list" if slab_type.has_member("slab_list") else "lru"
-        for node in self._slab_cache.node[: nr_node_ids(self._prog)]:
+        for per_node in self._for_each_per_node():
+            node = self._per_node_to_node(per_node)
             try:
                 nr_slabs = node.nr_slabs
             except AttributeError:
@@ -645,21 +680,14 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             num_slabs += nr_slabs.counter.value_()
             num_objs += node.total_objects.counter.value_()
 
-            # struct kmem_cache_node::barn was added in Linux kernel commit
-            # 2d517aa09bbc ("slab: add opt-in caching layer of percpu sheaves")
-            # (in v6.18).
-            try:
-                barn = node.barn.read_()
-            except AttributeError:
-                pass
-            else:
-                if barn:
-                    for sheaf in validate_list_for_each_entry(
-                        "struct slab_sheaf",
-                        barn.sheaves_full.address_of_(),
-                        "barn_list",
-                    ):
-                        free_objs += sheaf.size.value_()
+            barn = self._per_node_to_barn(per_node)
+            if barn:
+                for sheaf in validate_list_for_each_entry(
+                    "struct slab_sheaf",
+                    barn.sheaves_full.address_of_(),
+                    "barn_list",
+                ):
+                    free_objs += sheaf.size.value_()
 
             # This is racy. On live kernels, we retry a limited number of times.
             for attempts_remaining in range(num_attempts, -1, -1):
