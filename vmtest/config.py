@@ -15,6 +15,7 @@ from util import KernelVersion, out_of_date
 # Kernel versions that we run tests on and therefore support. Keep this in sync
 # with docs/support_matrix.rst.
 SUPPORTED_KERNEL_VERSIONS = (
+    "7.1",
     "7.0",
     "6.19",
     "6.18",
