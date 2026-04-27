@@ -319,6 +319,14 @@ Some of drgn's behavior can be modified through environment variables:
     Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default
     is 0. This functionality will be removed in the future.
 
+.. envvar:: DRGN_PREFER_PGTABLE_READER
+
+    Whether drgn should prefer reading virtual memory addresses by doing its own
+    page table translation, instead of relying on libkdumpfile and libaddrxlat.
+    This can be useful in unusual debugging circumstances, such as debugging the
+    dump capture kernel from a vmcore created by a hypervisor. This setting is
+    only respected when using libkdumpfile to debug a core dump file.
+
 .. envvar:: DRGN_USE_SYS_MODULE
 
     Whether drgn should use ``/sys/module`` to find information about loaded
