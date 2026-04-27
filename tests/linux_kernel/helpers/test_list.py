@@ -175,7 +175,14 @@ class TestList(LinuxKernelTestCase):
     def test_validate_list(self):
         for head in (self.empty, self.full, self.singular):
             validate_list(head)
-        self.assertRaises(ValidationError, validate_list, self.corrupted)
+        for head in (
+            self.corrupted,
+            self.prog["drgn_test_list_cycle1"].address_of_(),
+            self.prog["drgn_test_list_cycle2"].address_of_(),
+            self.prog["drgn_test_list_cycle3"].address_of_(),
+            self.prog["drgn_test_list_self_cycle"].address_of_(),
+        ):
+            self.assertRaises(ValidationError, validate_list, head)
 
     def test_validate_list_count_nodes(self):
         self.assertEqual(validate_list_count_nodes(self.empty), 0)

@@ -203,7 +203,8 @@ def list_for_each_entry_reverse(
 
 def validate_list(head: Object) -> None:
     """
-    Validate that the ``next`` and ``prev`` pointers in a list are consistent.
+    Validate that the ``next`` and ``prev`` pointers in a list are consistent
+    and that the list does not contain any cycles.
 
     >>> validate_list(prog["my_list"].address_of_())
     drgn.helpers.ValidationError: (struct list_head *)0xffffffffc029e460 next 0xffffffffc029e000 has prev 0xffffffffc029e450
@@ -230,12 +231,26 @@ def validate_list_for_each(head: Object) -> Iterator[Object]:
     Like :func:`list_for_each()`, but validates the list like
     :func:`validate_list()` while iterating.
 
+    Note that this may yield duplicate nodes before a cycle is detected.
+
     :param head: ``struct list_head *``
     :raises ValidationError: if the list is invalid
     """
+    # Brent's algorithm for cycle detection.
     head = head.read_()
+    saved_pos = head
     pos = head.next.read_()
+    power = n = 1
     while pos != head:
+        if pos == saved_pos:
+            raise ValidationError(
+                f"cycle around {pos.format_(dereference=False, symbolize=False)}"
+            )
+        if power == n:
+            saved_pos = pos
+            power <<= 1
+            n = 0
+
         yield pos
         next = pos.next.read_()
         next_prev = next.prev.read_()
@@ -246,6 +261,7 @@ def validate_list_for_each(head: Object) -> Iterator[Object]:
                 f" has prev {next_prev.format_(dereference=False, symbolize=False, type_name=False)}"
             )
         pos = next
+        n += 1
 
 
 def validate_list_for_each_entry(
@@ -254,6 +270,8 @@ def validate_list_for_each_entry(
     """
     Like :func:`list_for_each_entry()`, but validates the list like
     :func:`validate_list()` while iterating.
+
+    Note that this may yield duplicate entries before a cycle is detected.
 
     .. code-block:: python3
 
