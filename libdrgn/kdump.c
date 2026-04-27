@@ -125,6 +125,12 @@ static struct drgn_error *drgn_read_kdump(void *buf, uint64_t address,
 	return NULL;
 }
 
+static bool prefer_drgn_vaddr_reader(void)
+{
+	const char *env = getenv("DRGN_PREFER_PGTABLE_READER");
+	return (env && atoi(env));
+}
+
 struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 {
 	struct drgn_error *err;
@@ -255,8 +261,21 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 		drgn_program_set_platform(prog, &platform);
 	}
 
-	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
-					      drgn_read_kdump, ctx, false);
+	// Drgn has fallback logic for some architectures which allows it to
+	// figure out the virtual memory mappings of the kernel. Sometimes
+	// libkdumpfile gets it wrong, for example when we're trying to debug
+	// the dump capture kernel itself: libkdumpfile will still attempt to
+	// use the original kernel's virtual memory mapping, while drgn knows
+	// the correct mapping from the kdump kernel's vmcoreinfo. Use an
+	// environment variable knob to opt-in to drgn's virtual memory reading
+	// logic instead of libkdumpfile's.
+	if (prefer_drgn_vaddr_reader())
+		err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
+						      read_memory_via_pgtable,
+						      prog, false);
+	else
+		err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
+						      drgn_read_kdump, ctx, false);
 	if (err)
 		goto err_platform;
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
