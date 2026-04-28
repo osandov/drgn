@@ -16,14 +16,15 @@ from tests.linux_kernel import LinuxKernelTestCase
 class TestSysfs(LinuxKernelTestCase):
     @classmethod
     def kernfs_node_from_fd(cls, fd):
+        import os
+
+        from drgn import cast
         from drgn.helpers.linux.fs import fget
         from drgn.helpers.linux.pid import find_task
-        from drgn import cast
-        import os
 
         file = fget(find_task(cls.prog, os.getpid()), fd)
         return cast("struct kernfs_node *", file.f_inode.i_private)
-    
+
     def test_sysfs_lookup_node(self):
         fds = []
         try:
@@ -165,6 +166,60 @@ class TestSysfs(LinuxKernelTestCase):
                         dev = sysfs_lookup(self.prog, entry.path[5:])
                         self.assertTrue(dev)
                         self.assertEqual(dev.type_.type_name(), "struct device *")
+
+        # Module case
+        if "module_ktype" in self.prog:
+            path = "/sys/module"
+            if os.path.exists(path):
+                with os.scandir(path) as entries:
+                    entry = next((e for e in entries if e.is_dir()), None)
+                    if entry:
+                        mod = sysfs_lookup(self.prog, entry.path[5:])
+                        self.assertTrue(mod)
+                        self.assertEqual(
+                            mod.type_.type_name(), "struct module_kobject *"
+                        )
+
+        # Driver case
+        if "driver_ktype" in self.prog:
+            path = "/sys/bus"
+            if os.path.exists(path):
+                with os.scandir(path) as buses:
+                    bus = next((b for b in buses if b.is_dir()), None)
+                    if bus:
+                        drv_dir = os.path.join(bus.path, "drivers")
+                        if os.path.exists(drv_dir):
+                            with os.scandir(drv_dir) as drivers:
+                                drv = next((d for d in drivers if d.is_dir()), None)
+                                if drv:
+                                    driver = sysfs_lookup(self.prog, drv.path[5:])
+                                    self.assertTrue(driver)
+                                    self.assertEqual(
+                                        driver.type_.type_name(),
+                                        "struct device_driver *",
+                                    )
+
+        # Class case
+        if "class_ktype" in self.prog:
+            path = "/sys/class"
+            if os.path.exists(path):
+                with os.scandir(path) as entries:
+                    entry = next((e for e in entries if e.is_dir()), None)
+                    if entry:
+                        cls = sysfs_lookup(self.prog, entry.path[5:])
+                        self.assertTrue(cls)
+                        self.assertIn("struct class *", cls.type_.type_name())
+
+        # Bus case
+        if "bus_ktype" in self.prog:
+            path = "/sys/bus"
+            if os.path.exists(path):
+                with os.scandir(path) as entries:
+                    entry = next((e for e in entries if e.is_dir()), None)
+                    if entry:
+                        bus = sysfs_lookup(self.prog, entry.path[5:])
+                        self.assertTrue(bus)
+                        self.assertIn("struct bus_type *", bus.type_.type_name())
 
     def test_sysfs_listdir(self):
         expected = os.listdir(b"/sys/kernel")
