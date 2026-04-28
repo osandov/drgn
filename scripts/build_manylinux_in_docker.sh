@@ -30,12 +30,20 @@ yum install -y \
 
 # Install a recent version of elfutils instead of whatever is in the manylinux
 # image.
-elfutils_version=0.194
+elfutils_version=0.195
 elfutils_url=https://sourceware.org/elfutils/ftp/$elfutils_version/elfutils-$elfutils_version.tar.bz2
 mkdir /tmp/elfutils
 cd /tmp/elfutils
 curl -L "$elfutils_url" | tar -xj --strip-components=1
 CFLAGS="-g -O2 -Wno-error" ./configure --disable-werror --enable-libdebuginfod --disable-debuginfod --with-zlib --with-bzlib --with-lzma --with-zstd
+case "$PLAT" in
+manylinux2014_*)
+	# Releases of elfutils starting with 0.195 were generated with a
+	# version of gettext that requires GNU Make >= 4.0, but manylinux2014
+	# (CentOS 7) has 3.82. Skip building translations.
+	sed -i 's/ po / /' Makefile
+	;;
+esac
 make -j$(($(nproc) + 1))
 make install
 
