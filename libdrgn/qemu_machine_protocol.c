@@ -8,7 +8,7 @@
 #include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
+#include <sys/syscall.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -471,7 +471,7 @@ static struct drgn_error *qmp_read_vmcoreinfo(struct drgn_program *prog)
 	if (err)
 		return err;
 
-	_cleanup_close_ int fd = memfd_create("drgn-qmp-dump", 0);
+	_cleanup_close_ int fd = syscall(SYS_memfd_create, "drgn-qmp-dump", 0U);
 	if (fd < 0)
 		return drgn_error_create_os("memfd_create", errno, NULL);
 
