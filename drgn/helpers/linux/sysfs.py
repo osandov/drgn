@@ -26,7 +26,7 @@ __all__ = (
     "sysfs_lookup_kobject",
     "sysfs_lookup",
     "sysfs_listdir",
-    "sysfs_kobject_path",
+    "kobject_path",
 )
 
 
@@ -184,12 +184,12 @@ def sysfs_listdir(prog: Program, path: str) -> List[bytes]:
     return [child.name.string_() for child in kernfs_children(kn)]
 
 
-def sysfs_kobject_path(kobj: Object) -> bytes:
+def kobject_path(kobj: Object) -> bytes:
     """
     Return the sysfs path corresponding to a ``struct kobject *``.
 
     :param kobj: ``struct kobject *``
-    :return: Full sysfs path as bytes
+    :return: Absolute path in sysfs
     """
     kn = kobj.sd
     path = kernfs_path(kn)
