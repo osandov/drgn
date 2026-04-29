@@ -557,6 +557,9 @@ py_debug_info_find_fn(struct drgn_module * const *modules, size_t num_modules,
 	return NULL;
 }
 
+#define debug_info_finder_arg(self, fn) PyObject *arg = fn;
+#define debug_info_finder_set_ops ops.find = py_debug_info_find_fn;
+
 static inline struct drgn_error *
 py_type_find_fn_common(PyObject *type_obj, void *arg,
 		       struct drgn_qualified_type *ret)
@@ -605,6 +608,12 @@ static struct drgn_error *py_type_find_fn(uint64_t kinds, const char *name,
 		return &drgn_not_found;
 	return py_type_find_fn_common(type_obj, arg, ret);
 }
+
+#define type_finder_arg(self, fn)						\
+	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);	\
+	if (!arg)								\
+		return NULL;
+#define type_finder_set_ops ops.find = py_type_find_fn;
 
 // Old version for add_type_finder().
 static struct drgn_error *py_type_find_fn_old(uint64_t kinds, const char *name,
@@ -669,6 +678,9 @@ static struct drgn_error *py_object_find_fn(const char *name, size_t name_len,
 
 	return drgn_object_copy(ret, &((DrgnObject *)obj)->obj);
 }
+
+#define object_finder_arg(self, fn) PyObject *arg = fn;
+#define object_finder_set_ops ops.find = py_object_find_fn;
 
 static struct drgn_error *
 py_symbol_find_fn(const char *name, uint64_t addr,
@@ -747,26 +759,22 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 	return NULL;
 }
 
-#define debug_info_finder_arg(self, fn) PyObject *arg = fn;
-#define type_finder_arg(self, fn)						\
+#define symbol_finder_arg(self, fn)						\
 	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);	\
 	if (!arg)								\
 		return NULL;
-#define object_finder_arg(self, fn) PyObject *arg = fn;
-#define symbol_finder_arg type_finder_arg
+#define symbol_finder_set_ops ops.find = py_symbol_find_fn;
 
-#define DEFINE_PROGRAM_FINDER_METHODS(which)					\
-static PyObject *Program_register_##which##_finder(Program *self,		\
-						   PyObject *args,		\
-						   PyObject *kwds)		\
+#define X(which)								\
+static PyObject *Program_register_##which(Program *self, PyObject *args,	\
+					  PyObject *kwds)			\
 {										\
 	struct drgn_error *err;							\
 	static char *keywords[] = {"name", "fn", "enable_index", NULL};		\
 	const char *name;							\
 	PyObject *fn;								\
 	PyObject *enable_index_obj = Py_None;					\
-	if (!PyArg_ParseTupleAndKeywords(args, kwds,				\
-					 "sO|$O:register_" #which "_finder",	\
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sO|$O:register_" #which,	\
 					 keywords, &name, &fn,			\
 					 &enable_index_obj))			\
 		return NULL;							\
@@ -797,23 +805,22 @@ static PyObject *Program_register_##which##_finder(Program *self,		\
 			 * If the index happens to be the			\
 			 * DRGN_HANDLER_REGISTER_DONT_ENABLE sentinel		\
 			 * (SIZE_MAX - 1), set it to something else; it's	\
-			 * impossible to have this many finders anyways.	\
+			 * impossible to have this many handlers anyways.	\
 			 */							\
 			if (enable_index == DRGN_HANDLER_REGISTER_DONT_ENABLE)	\
 				enable_index--;					\
 		}								\
 	}									\
 										\
-	which##_finder_arg(self, fn)						\
+	which##_arg(self, fn)							\
 	_cleanup_held_objects_ struct drgnpy_held_objects *held =		\
 		drgnpy_held_object_create(arg);					\
 	if (!held)								\
 		return NULL;							\
-	const struct drgn_##which##_finder_ops ops = {				\
-		.find = py_##which##_find_fn,					\
-	};									\
-	err = drgn_program_register_##which##_finder(&self->prog, name, &ops,	\
-						     arg, enable_index);	\
+	struct drgn_##which##_ops ops = {};					\
+	which##_set_ops								\
+	err = drgn_program_register_##which(&self->prog, name, &ops, arg,	\
+					    enable_index);			\
 	if (err)								\
 		return set_drgn_error(err);					\
 	Program_hold_objects(self, no_cleanup_ptr(held));			\
@@ -821,13 +828,12 @@ static PyObject *Program_register_##which##_finder(Program *self,		\
 										\
 }										\
 										\
-static PyObject *Program_registered_##which##_finders(Program *self)		\
+static PyObject *Program_registered_##which##s(Program *self)			\
 {										\
 	struct drgn_error *err;							\
 	_cleanup_free_ const char **names = NULL;				\
 	size_t count;								\
-	err = drgn_program_registered_##which##_finders(&self->prog, &names,	\
-							&count);		\
+	err = drgn_program_registered_##which##s(&self->prog, &names, &count);	\
 	if (err)								\
 		return set_drgn_error(err);					\
 	_cleanup_pydecref_ PyObject *res = PySet_New(NULL);			\
@@ -844,16 +850,15 @@ static PyObject *Program_registered_##which##_finders(Program *self)		\
 	return_ptr(res);							\
 }										\
 										\
-static PyObject *Program_set_enabled_##which##_finders(Program *self,		\
-						       PyObject *args,		\
-						       PyObject *kwds)		\
+static PyObject *Program_set_enabled_##which##s(Program *self, PyObject *args,	\
+						PyObject *kwds)			\
 {										\
 	struct drgn_error *err;							\
 	static char *keywords[] = {"names", NULL};				\
 	PyObject *names_obj;							\
 	if (!PyArg_ParseTupleAndKeywords(args, kwds,				\
-					 "O:set_enabled_" #which "_finders",	\
-					 keywords, &names_obj))			\
+					 "O:set_enabled_" #which "s", keywords,	\
+					 &names_obj))				\
 		return NULL;							\
 	_cleanup_pydecref_ PyObject *names_seq =				\
 		PySequence_Fast(names_obj, "names must be sequence");		\
@@ -869,20 +874,18 @@ static PyObject *Program_set_enabled_##which##_finders(Program *self,		\
 		if (!names[i])							\
 			return NULL;						\
 	}									\
-	err = drgn_program_set_enabled_##which##_finders(&self->prog, names,	\
-							 count);		\
+	err = drgn_program_set_enabled_##which##s(&self->prog, names, count);	\
 	if (err)								\
 		return set_drgn_error(err);					\
 	Py_RETURN_NONE;								\
 }										\
 										\
-static PyObject *Program_enabled_##which##_finders(Program *self)		\
+static PyObject *Program_enabled_##which##s(Program *self)			\
 {										\
 	struct drgn_error *err;							\
 	_cleanup_free_ const char **names = NULL;				\
 	size_t count;								\
-	err = drgn_program_enabled_##which##_finders(&self->prog, &names,	\
-						     &count);			\
+	err = drgn_program_enabled_##which##s(&self->prog, &names, &count);	\
 	if (err)								\
 		return set_drgn_error(err);					\
 	_cleanup_pydecref_ PyObject *res = PyList_New(count);			\
@@ -896,11 +899,8 @@ static PyObject *Program_enabled_##which##_finders(Program *self)		\
 	}									\
 	return_ptr(res);							\
 }
-
-DEFINE_PROGRAM_FINDER_METHODS(debug_info)
-DEFINE_PROGRAM_FINDER_METHODS(type)
-DEFINE_PROGRAM_FINDER_METHODS(object)
-DEFINE_PROGRAM_FINDER_METHODS(symbol)
+DRGN_PROGRAM_HANDLERS
+#undef X
 
 static PyObject *deprecated_finder_name_obj(PyObject *fn)
 {
@@ -2293,29 +2293,20 @@ static int Program_set_language(Program *self, PyObject *value, void *arg)
 	return 0;
 }
 
-#define PROGRAM_FINDER_METHOD_DEFS(which)					\
-	{"register_" #which "_finder",						\
-	 (PyCFunction)Program_register_##which##_finder,			\
-	 METH_VARARGS | METH_KEYWORDS,						\
-	 drgn_Program_register_##which##_finder_DOC},				\
-	{"registered_" #which "_finders",					\
-	 (PyCFunction)Program_registered_##which##_finders, METH_NOARGS,	\
-	 drgn_Program_registered_##which##_finders_DOC},			\
-	{"set_enabled_" #which "_finders",					\
-	 (PyCFunction)Program_set_enabled_##which##_finders,			\
-	 METH_VARARGS | METH_KEYWORDS,						\
-	 drgn_Program_set_enabled_##which##_finders_DOC},			\
-	{"enabled_" #which "_finders",						\
-	 (PyCFunction)Program_enabled_##which##_finders, METH_NOARGS,		\
-	 drgn_Program_enabled_##which##_finders_DOC}
-
 static PyMethodDef Program_methods[] = {
 	{"add_memory_segment", (PyCFunction)Program_add_memory_segment,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_memory_segment_DOC},
-	PROGRAM_FINDER_METHOD_DEFS(debug_info),
-	PROGRAM_FINDER_METHOD_DEFS(type),
-	PROGRAM_FINDER_METHOD_DEFS(object),
-	PROGRAM_FINDER_METHOD_DEFS(symbol),
+#define X(which)								\
+	{"register_" #which, (PyCFunction)Program_register_##which,		\
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_register_##which##_DOC},	\
+	{"registered_" #which "s", (PyCFunction)Program_registered_##which##s,	\
+	 METH_NOARGS, drgn_Program_registered_##which##s_DOC},			\
+	{"set_enabled_" #which "s", (PyCFunction)Program_set_enabled_##which##s,\
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_enabled_##which##s_DOC},\
+	{"enabled_" #which "s", (PyCFunction)Program_enabled_##which##s,	\
+	 METH_NOARGS, drgn_Program_enabled_##which##s_DOC},
+	DRGN_PROGRAM_HANDLERS
+#undef X
 	{"add_type_finder", (PyCFunction)Program_add_type_finder,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_type_finder_DOC},
 	{"add_object_finder", (PyCFunction)Program_add_object_finder,
