@@ -1090,79 +1090,6 @@ drgn_module_set_object(struct drgn_module *module, const struct drgn_object *obj
 	return drgn_object_copy(&module->object, obj);
 }
 
-static struct drgn_error *
-drgn_program_register_debug_info_finder_impl(struct drgn_program *prog,
-					     struct drgn_debug_info_finder *finder,
-					     const char *name,
-					     const struct drgn_debug_info_finder_ops *ops,
-					     void *arg, size_t enable_index)
-{
-	struct drgn_error *err;
-	bool should_free = !finder;
-	if (finder) {
-		finder->handler.name = name;
-	} else {
-		finder = malloc(sizeof(*finder));
-		if (!finder)
-			return &drgn_enomem;
-		finder->handler.name = strdup(name);
-		if (!finder->handler.name) {
-			free(finder);
-			return &drgn_enomem;
-		}
-	}
-	finder->handler.free = should_free;
-	finder->ops = *ops;
-	finder->arg = arg;
-	err = drgn_handler_list_register(&prog->dbinfo.debug_info_finders,
-					 &finder->handler, enable_index,
-					 "module debug info finder");
-	if (err && should_free) {
-		free((char *)finder->handler.name);
-		free(finder);
-	}
-	return err;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_register_debug_info_finder(struct drgn_program *prog,
-					const char *name,
-					const struct drgn_debug_info_finder_ops *ops,
-					void *arg, size_t enable_index)
-{
-	return drgn_program_register_debug_info_finder_impl(prog, NULL, name,
-							    ops, arg,
-							    enable_index);
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_registered_debug_info_finders(struct drgn_program *prog,
-					   const char ***names_ret,
-					   size_t *count_ret)
-{
-	return drgn_handler_list_registered(&prog->dbinfo.debug_info_finders,
-					    names_ret, count_ret);
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_set_enabled_debug_info_finders(struct drgn_program *prog,
-					    const char * const *names,
-					    size_t count)
-{
-	return drgn_handler_list_set_enabled(&prog->dbinfo.debug_info_finders,
-					     names, count,
-					     "module debug info finder");
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_enabled_debug_info_finders(struct drgn_program *prog,
-					const char ***names_ret,
-					size_t *count_ret)
-{
-	return drgn_handler_list_enabled(&prog->dbinfo.debug_info_finders,
-					 names_ret, count_ret);
-}
-
 LIBDRGN_PUBLIC struct drgn_debug_info_options *
 drgn_program_debug_info_options(struct drgn_program *prog)
 {
@@ -5441,7 +5368,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 			prog->dbinfo.supplementary_file_generation;
 		drgn_handler_list_for_each_enabled(struct drgn_debug_info_finder,
 						   finder,
-						   &prog->dbinfo.debug_info_finders) {
+						   &prog->debug_info_finders) {
 			err = finder->ops.find(wanted_modules,
 					       num_wanted_modules, finder->arg);
 			if (err)
@@ -5554,8 +5481,7 @@ drgn_load_module_debug_info(struct drgn_module **modules, size_t *num_modulesp)
 
 	const size_t orig_num_wanted_modules = num_wanted_modules;
 	drgn_handler_list_for_each_enabled(struct drgn_debug_info_finder,
-					   finder,
-					   &prog->dbinfo.debug_info_finders) {
+					   finder, &prog->debug_info_finders) {
 		err = finder->ops.find(modules, num_wanted_modules,
 				       finder->arg);
 		if (err)
@@ -5671,11 +5597,6 @@ void drgn_debug_info_deinit(struct drgn_debug_info *dbinfo)
 	if (dbinfo->debuginfod_client)
 		drgn_debuginfod_end(dbinfo->debuginfod_client);
 #endif
-	drgn_handler_list_deinit(struct drgn_debug_info_finder, finder,
-				 &dbinfo->debug_info_finders,
-		if (finder->ops.destroy)
-			finder->ops.destroy(finder->arg);
-	);
 	drgn_dwarf_info_deinit(dbinfo);
 	hash_table_for_each(drgn_module_table, it, &dbinfo->modules) {
 		struct drgn_module *module = *it.entry;

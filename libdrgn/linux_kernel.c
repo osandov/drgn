@@ -738,7 +738,7 @@ struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog)
 	// Linux kernel downloads. It's painfully slow everywhere else, so
 	// disable it.
 	if (!is_fedora_kernel(prog->vmcoreinfo.osrelease)
-	    && drgn_handler_list_disable(&prog->dbinfo.debug_info_finders,
+	    && drgn_handler_list_disable(&prog->debug_info_finders,
 					 "debuginfod"))
 		drgn_log_debug(prog, "disabled debuginfod for Linux kernel");
 

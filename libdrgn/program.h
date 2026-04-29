@@ -116,6 +116,7 @@ struct drgn_program {
 	 */
 	struct drgn_handler_list object_finders;
 	struct drgn_debug_info dbinfo;
+	struct drgn_handler_list debug_info_finders;
 	struct drgn_handler_list symbol_finders;
 
 	/*
@@ -482,7 +483,8 @@ drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 #define DRGN_PROGRAM_HANDLERS	\
 	X(type_finder)		\
 	X(object_finder)	\
-	X(symbol_finder)
+	X(symbol_finder)	\
+	X(debug_info_finder)
 
 #define X(which)								\
 struct drgn_error *								\
