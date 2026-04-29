@@ -1377,12 +1377,6 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 	hash_table_for_each(drgn_dedupe_type_set, it, &prog->dedupe_types)
 		free(*it.entry);
 	drgn_dedupe_type_set_deinit(&prog->dedupe_types);
-
-	drgn_handler_list_deinit(struct drgn_type_finder, finder,
-				 &prog->type_finders,
-		if (finder->ops.destroy)
-			finder->ops.destroy(finder->arg);
-	);
 }
 
 struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,

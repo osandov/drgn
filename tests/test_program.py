@@ -1249,7 +1249,7 @@ class TestSymbolFinders(TestCase):
     def test_register_duplicate(self):
         self.assertRaisesRegex(
             ValueError,
-            "duplicate symbol finder",
+            "duplicate",
             Program().register_symbol_finder,
             "elf",
             dummy_symbol_finder,

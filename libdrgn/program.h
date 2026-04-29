@@ -479,26 +479,20 @@ drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 					     uint64_t address,
 					     struct drgn_symbol **ret);
 
-struct drgn_error *
-drgn_program_register_type_finder_impl(struct drgn_program *prog,
-				       struct drgn_type_finder *finder,
-				       const char *name,
-				       const struct drgn_type_finder_ops *ops,
-				       void *arg, size_t enable_index);
+#define DRGN_PROGRAM_HANDLERS	\
+	X(type_finder)		\
+	X(object_finder)	\
+	X(symbol_finder)
 
-struct drgn_error *
-drgn_program_register_object_finder_impl(struct drgn_program *prog,
-					 struct drgn_object_finder *finder,
-					 const char *name,
-					 const struct drgn_object_finder_ops *ops,
-					 void *arg, size_t enable_index);
-
-struct drgn_error *
-drgn_program_register_symbol_finder_impl(struct drgn_program *prog,
-					 struct drgn_symbol_finder *finder,
-					 const char *name,
-					 const struct drgn_symbol_finder_ops *ops,
-					 void *arg, size_t enable_index);
+#define X(which)								\
+struct drgn_error *								\
+drgn_program_register_##which##_impl(struct drgn_program *prog,			\
+				     struct drgn_##which *handler,		\
+				     const char *name,				\
+				     const struct drgn_##which##_ops *ops,	\
+				     void *arg, size_t enable_index);
+DRGN_PROGRAM_HANDLERS
+#undef X
 
 /** Opaque state used for blocking operations. */
 typedef struct drgn_blocking_state *drgn_blocking_state;
