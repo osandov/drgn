@@ -1,0 +1,131 @@
+0.2.0 (Released April 28th, 2026)
+====================================
+
+These are some of the highlights of drgn 0.2.0. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.2.0>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+.. program:: drgn
+
+Debugging QEMU Over QMP
+-----------------------
+
+drgn can now debug QEMU guests over the `QEMU Machine Protocol (QMP)
+<https://wiki.qemu.org/Documentation/QMP>`_. This is typically slower than
+running drgn inside of the virtual machine, but it has a few benefits:
+
+* It requires less setup and fewer resources in the VM itself.
+* It can be used when the VM is hung or in a bad state.
+
+To use this, run QEMU with ``-qmp unix:/path/to/sock,server=on,wait=off -device vmcoreinfo``,
+then run drgn with :option:`--qemu`:
+
+.. code-block:: console
+
+    $ drgn --qemu /path/to/qmp.sock --kernel-directory /path/to/kernel
+    ...
+    >>> prog["UTS_RELEASE"]
+    (const char [24])"7.0.1"
+    >>> for task in for_each_task():
+    ...     print(task.comm)
+    ...
+
+The programmatic equivalent is :meth:`drgn.Program.set_qemu_qmp()`.
+
+(You can also use a TCP socket or omit the vmcoreinfo device, but then you will
+need to provide the vmcoreinfo to drgn manually.)
+
+Sysfs Helpers
+-------------
+
+Muskan Goyal contributed several helpers for working with :manpage:`sysfs(5)`.
+
+:func:`~drgn.helpers.linux.sysfs.sysfs_lookup_node()` finds the ``struct
+kernfs_node *`` for a given sysfs path::
+
+    >>> sysfs_lookup_node("/sys/block/nvme0n1")
+    *(struct kernfs_node *)0xffff8f554b396110 = {...}
+
+:func:`~drgn.helpers.linux.sysfs.sysfs_lookup_kobject()` similarly finds the
+``struct kobject *``::
+
+    >>> sysfs_lookup_kobject("/sys/block/nvme0n1")
+    *(struct kobject *)0xffff8f554e85eb10 = {...}
+
+:func:`~drgn.helpers.linux.sysfs.sysfs_lookup()` finds a more specific
+structure if possible, like a ``struct device *``::
+
+    >>> sysfs_lookup("/sys/block/nvme0n1")
+    *(struct device *)0xffff8f554e85eb10 = {...}
+
+:func:`~drgn.helpers.linux.sysfs.sysfs_listdir()` lists the contents of a sysfs
+directory::
+
+    >>> sysfs_listdir("/sys/block/nvme0n1")
+    [b'uevent', b'ext_range', ...]
+
+:func:`~drgn.helpers.linux.sysfs.kobject_path()` gets the canonical sysfs path
+of a ``struct kobject *``::
+
+    >>> kobject_path(sysfs_lookup_kobject("/sys/block/nvme0n1"))
+    b'/sys/devices/pci0000:00/0000:00:06.0/0000:04:00.0/nvme/nvme0/nvme0n1'
+
+Calling Multiple Functions with Kmodify
+---------------------------------------
+
+:func:`drgn.helpers.experimental.kmodify.call_functions()` was added. It calls
+multiple functions in the kernel at once much more efficiently than separate
+:func:`~drgn.helpers.experimental.kmodify.call_function()` calls by inserting a
+single kernel module for all of the calls. This is useful for tasks like
+cleaning up after reference leaks::
+
+    >>> leaked_namespaces
+    [Object(prog, 'struct net *', value=0xffff8f568869af80), ...]
+    >>> call_functions([("netns_put", ns) for ns in leaked_namespaces])
+
+Linux 7.1 Support
+-----------------
+
+This release contains several updates to handle changes in Linux 7.1.
+
+A change to the ORC unwinder format used for x86-64 in Linux 7.1 broke stack
+unwinding. This error is fixed in this release::
+
+    >>> stack_trace(1)
+      ...
+    Exception: unrecognized .orc_header
+
+A change in Linux 7.1 broke
+:func:`~drgn.helpers.linux.slab.slab_cache_for_each_allocated_object()`,
+:func:`~drgn.helpers.linux.slab.slab_cache_usage()`, and
+:func:`~drgn.helpers.linux.slab.slab_object_info()`. This error is fixed in
+this release::
+
+    >>> slab_cache_usage(prog["mnt_cache"])
+    Traceback (most recent call last):
+      ...
+    AttributeError: 'struct kmem_cache' has no member 'node'
+
+A change in Linux 7.1 broke :func:`~drgn.helpers.linux.mm.PageCompound()`,
+:func:`~drgn.helpers.linux.mm.PageHead()`,
+:func:`~drgn.helpers.linux.mm.PageTail()`, and
+:func:`~drgn.helpers.linux.mm.compound_head()`. This error is fixed in this
+release::
+
+    >>> compound_head(page)
+    Traceback (most recent call last):
+      ...
+    AttributeError: 'struct page' has no member 'compound_head'
+
+A change in Linux 7.1 made :func:`~drgn.helpers.linux.net.is_pp_page()` always
+return false.
+
+A change in Linux 7.1 broke :func:`~drgn.helpers.linux.fs.inode_path()` and
+:func:`~drgn.helpers.linux.fs.inode_paths()`. This error is fixed in this
+release::
+
+    >>> inode_path(inode)
+    Traceback (most recent call last):
+      ...
+    LookupError: 'struct dentry' has no member 'd_u'
