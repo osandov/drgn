@@ -42,7 +42,7 @@
 /** Major version of drgn. */
 #define DRGN_VERSION_MAJOR 0
 /** Minor version of drgn. */
-#define DRGN_VERSION_MINOR 1
+#define DRGN_VERSION_MINOR 2
 /** Patch level of drgn. */
 #define DRGN_VERSION_PATCH 0
 
