@@ -109,7 +109,6 @@ struct drgn_debug_info {
 	/** DWARF debugging information. */
 	struct drgn_dwarf_info dwarf;
 
-	struct drgn_handler_list debug_info_finders;
 	struct drgn_debug_info_finder standard_debug_info_finder;
 	struct drgn_debug_info_options options;
 	/**
