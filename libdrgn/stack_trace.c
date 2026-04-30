@@ -655,8 +655,9 @@ drgn_get_stack_trace_obj(struct drgn_object *res,
 	struct drgn_program *prog = drgn_object_program(res);
 
 	struct drgn_type *type = drgn_underlying_type(thread_obj->type);
-	if (drgn_type_kind(type) == DRGN_TYPE_STRUCT &&
-	    strcmp(drgn_type_tag(type), "pt_regs") == 0) {
+	const char *tag;
+	if (drgn_type_kind(type) == DRGN_TYPE_STRUCT
+	    && (tag = drgn_type_tag(type)) && strcmp(tag, "pt_regs") == 0) {
 		*is_pt_regs_ret = true;
 		return drgn_object_read(res, thread_obj);
 	}
@@ -664,14 +665,15 @@ drgn_get_stack_trace_obj(struct drgn_object *res,
 	if (drgn_type_kind(type) != DRGN_TYPE_POINTER)
 		goto type_error;
 	type = drgn_underlying_type(drgn_type_type(type).type);
-	if (drgn_type_kind(type) != DRGN_TYPE_STRUCT)
+	if (drgn_type_kind(type) != DRGN_TYPE_STRUCT
+	    || !(tag = drgn_type_tag(type)))
 		goto type_error;
 
-	if ((prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
-	    strcmp(drgn_type_tag(type), "task_struct") == 0) {
+	if ((prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+	    && strcmp(tag, "task_struct") == 0) {
 		*is_pt_regs_ret = false;
 		return drgn_object_read(res, thread_obj);
-	} else if (strcmp(drgn_type_tag(type), "pt_regs") == 0) {
+	} else if (strcmp(tag, "pt_regs") == 0) {
 		*is_pt_regs_ret = true;
 		/*
 		 * If the drgn_object_read() call fails, we're breaking

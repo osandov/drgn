@@ -1,7 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from drgn import Program
+from drgn import Object, Program
 from tests import TestCase
 from tests.resources import get_resource
 
@@ -31,3 +31,25 @@ class TestLinuxUserspaceCoreDump(TestCase):
         self.assertIsNone(self.trace[5].function_name)
         self.assertIsNone(self.trace[7].function_name)
         self.assertIsNone(self.trace[8].function_name)
+
+    def test_stack_trace_type_error(self):
+        self.assertRaises(
+            TypeError,
+            self.prog.stack_trace,
+            Object(self.prog, self.prog.void_type(), address=0),
+        )
+        self.assertRaises(
+            TypeError,
+            self.prog.stack_trace,
+            Object(self.prog, self.prog.pointer_type(self.prog.void_type()), 0),
+        )
+        self.assertRaises(
+            TypeError,
+            self.prog.stack_trace,
+            Object(self.prog, self.prog.struct_type(None), address=0),
+        )
+        self.assertRaises(
+            TypeError,
+            self.prog.stack_trace,
+            Object(self.prog, self.prog.pointer_type(self.prog.struct_type(None)), 0),
+        )
