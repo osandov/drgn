@@ -137,6 +137,7 @@ static void drgn_##which##_destroy(struct drgn_##which *handler)		\
 {										\
 	if (handler->ops.destroy)						\
 		handler->ops.destroy(handler->arg);				\
+	drgn_##which##_deinit(handler);						\
 	drgn_handler_destroy(&handler->handler);				\
 }										\
 										\
@@ -174,13 +175,20 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 		       sizeof(handler->ops) - ops_size);			\
 	}									\
 	handler->arg = arg;							\
+	err = drgn_##which##_init(prog, handler);				\
+	if (err)								\
+		goto err_free;							\
 	err = drgn_handler_list_register(&prog->which##s, &handler->handler,	\
 					 enable_index, #which);			\
-	if (err) {								\
-		drgn_handler_destroy(&handler->handler);			\
-		return err;							\
-	}									\
+	if (err)								\
+		goto err_deinit;						\
 	return NULL;								\
+										\
+err_deinit:									\
+	drgn_##which##_deinit(handler);						\
+err_free:									\
+	drgn_handler_destroy(&handler->handler);				\
+	return err;								\
 }										\
 										\
 LIBDRGN_PUBLIC struct drgn_error *						\

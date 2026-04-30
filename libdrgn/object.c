@@ -2562,3 +2562,13 @@ struct drgn_error *drgn_op_not_impl(struct drgn_object *res,
 					 "invalid result type for not");
 	}
 }
+
+struct drgn_error *drgn_object_finder_init(struct drgn_program *prog,
+					   struct drgn_object_finder *finder)
+{
+	if (!finder->ops.find) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "drgn_object_finder_ops::find is required");
+	}
+	return NULL;
+}

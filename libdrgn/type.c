@@ -1768,3 +1768,13 @@ drgn_type_has_member_len(struct drgn_type *type, const char *member_name,
 	*ret = member != NULL;
 	return NULL;
 }
+
+struct drgn_error *drgn_type_finder_init(struct drgn_program *prog,
+					 struct drgn_type_finder *finder)
+{
+	if (!finder->ops.find) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "drgn_type_finder_ops::find is required");
+	}
+	return NULL;
+}

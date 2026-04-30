@@ -617,6 +617,8 @@ struct drgn_type_finder_ops {
 	/**
 	 * Callback for finding a type.
 	 *
+	 * This must NOT be @c NULL.
+	 *
 	 * @param[in] kinds Kinds of types to find, as a bitmask of bits shifted
 	 * by @ref drgn_type_kind. E.g., `(1 << DRGN_TYPE_STRUCT) | (1 <<
 	 * DRGN_TYPE_CLASS)` means to find a structure or class type.
@@ -716,6 +718,8 @@ struct drgn_object_finder_ops {
 	void (*destroy)(void *arg);
 	/**
 	 * Callback for finding an object.
+	 *
+	 * This must NOT be @c NULL.
 	 *
 	 * @param[in] name Name of object. This is @em not null-terminated.
 	 * @param[in] name_len Length of @p name.
@@ -1343,6 +1347,8 @@ struct drgn_symbol_finder_ops {
 	/**
 	 * Callback for finding one or more symbols.
 	 *
+	 * This must NOT be @c NULL.
+	 *
 	 * The callback should perform a symbol lookup based on the flags given
 	 * in @p flags. When multiple flags are provided, the effect should be
 	 * treated as a logical AND. Symbol results should be added to the
@@ -1905,6 +1911,8 @@ struct drgn_debug_info_finder_ops {
 	void (*destroy)(void *arg);
 	/**
 	 * Callback for finding debug info.
+	 *
+	 * This must NOT be @c NULL.
 	 *
 	 * @param[in] modules Array of modules that want debugging information.
 	 * @param[in] num_modules Number of modules in @p modules.

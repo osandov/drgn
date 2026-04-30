@@ -5752,3 +5752,13 @@ drgn_module_find_cfi(struct drgn_program *prog, struct drgn_module *module,
 
 	return &drgn_not_found;
 }
+
+struct drgn_error *drgn_debug_info_finder_init(struct drgn_program *prog,
+					       struct drgn_debug_info_finder *finder)
+{
+	if (!finder->ops.find) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "drgn_debug_info_finder_ops::find is required");
+	}
+	return NULL;
+}

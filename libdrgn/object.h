@@ -41,6 +41,11 @@ struct drgn_object_finder {
 	void *arg;
 };
 
+struct drgn_error *drgn_object_finder_init(struct drgn_program *prog,
+					   struct drgn_object_finder *finder);
+
+static inline void drgn_object_finder_deinit(struct drgn_object_finder *finder) {}
+
 /** Allocate a zero-initialized @ref drgn_value. */
 static inline bool drgn_value_zalloc(uint64_t size, union drgn_value *value_ret,
 				     char **buf_ret)

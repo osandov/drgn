@@ -76,6 +76,13 @@ struct drgn_debug_info_finder {
 	void *arg;
 };
 
+struct drgn_error *
+drgn_debug_info_finder_init(struct drgn_program *prog,
+			    struct drgn_debug_info_finder *finder);
+
+static inline void
+drgn_debug_info_finder_deinit(struct drgn_debug_info_finder *finder) {}
+
 /** Cache of debugging information. */
 struct drgn_debug_info {
 	/** Program owning this cache. */

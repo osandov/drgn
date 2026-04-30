@@ -56,6 +56,11 @@ struct drgn_type_finder {
 	void *arg;
 };
 
+struct drgn_error *drgn_type_finder_init(struct drgn_program *prog,
+					 struct drgn_type_finder *finder);
+
+static inline void drgn_type_finder_deinit(struct drgn_type_finder *finder) {}
+
 DEFINE_HASH_SET_TYPE(drgn_dedupe_type_set, struct drgn_type *);
 
 /** <tt>(type, member name)</tt> pair. */

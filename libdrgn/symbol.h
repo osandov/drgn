@@ -30,6 +30,11 @@ struct drgn_symbol_finder {
 	void *arg;
 };
 
+struct drgn_error *drgn_symbol_finder_init(struct drgn_program *prog,
+					   struct drgn_symbol_finder *finder);
+
+static inline void drgn_symbol_finder_deinit(struct drgn_symbol_finder *finder) {}
+
 DEFINE_VECTOR_TYPE(symbolp_vector, struct drgn_symbol *);
 
 struct drgn_symbol_result_builder {
