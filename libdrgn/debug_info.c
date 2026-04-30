@@ -5548,18 +5548,21 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 	};
 	drgn_program_register_type_finder_impl(prog, &dbinfo->type_finder,
 					       "dwarf", &type_finder_ops,
-					       dbinfo, 0);
+					       sizeof(type_finder_ops), dbinfo,
+					       0);
 	const struct drgn_object_finder_ops object_finder_ops = {
 		.find = drgn_debug_info_find_object,
 	};
 	drgn_program_register_object_finder_impl(prog, &dbinfo->object_finder,
 						 "dwarf", &object_finder_ops,
+						 sizeof(object_finder_ops),
 						 dbinfo, 0);
 	const struct drgn_symbol_finder_ops symbol_finder_ops = {
 		.find = elf_symbols_search,
 	};
 	drgn_program_register_symbol_finder_impl(prog, &dbinfo->symbol_finder,
 						 "elf", &symbol_finder_ops,
+						 sizeof(symbol_finder_ops),
 						 prog, 0);
 	const struct drgn_debug_info_finder_ops
 		standard_debug_info_finder_ops = {
@@ -5569,6 +5572,7 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 					&dbinfo->standard_debug_info_finder,
 					"standard",
 					&standard_debug_info_finder_ops,
+					sizeof(standard_debug_info_finder_ops),
 					&dbinfo->options, 0);
 	drgn_debug_info_options_init(&dbinfo->options);
 #if WITH_DEBUGINFOD
@@ -5582,6 +5586,7 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 					&dbinfo->debuginfod_debug_info_finder,
 					"debuginfod",
 					&debuginfod_debug_info_finder_ops,
+					sizeof(debuginfod_debug_info_finder_ops),
 					prog,
 					DRGN_HANDLER_REGISTER_ENABLE_LAST);
 	}

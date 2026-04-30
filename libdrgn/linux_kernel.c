@@ -728,7 +728,8 @@ struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog)
 	const struct drgn_object_finder_ops ops = {
 		.find = linux_kernel_object_find,
 	};
-	err = drgn_program_register_object_finder(prog, "linux", &ops, prog, 0);
+	err = drgn_program_register_object_finder(prog, "linux", &ops,
+						  sizeof(ops), prog, 0);
 	if (err)
 		return err;
 	if (!prog->lang)

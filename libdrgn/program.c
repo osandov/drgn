@@ -145,9 +145,15 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 				     struct drgn_##which *handler,		\
 				     const char *name,				\
 				     const struct drgn_##which##_ops *ops,	\
-				     void *arg, size_t enable_index)		\
+				     size_t ops_size, void *arg,		\
+				     size_t enable_index)			\
 {										\
 	struct drgn_error *err;							\
+	if (ops_size > sizeof(*ops)						\
+	    && !mem_is_zero(ops + 1, ops_size - sizeof(*ops))) {		\
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
+					 "drgn_" #which "_ops size is too large");\
+	}									\
 	if (handler) {								\
 		handler->handler.name = name;					\
 		handler->handler.free = false;					\
@@ -162,7 +168,11 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 		}								\
 		handler->handler.free = true;					\
 	}									\
-	memcpy(&handler->ops, ops, sizeof(handler->ops));			\
+	memcpy(&handler->ops, ops, min(ops_size, sizeof(handler->ops)));	\
+	if (ops_size < sizeof(handler->ops)) {					\
+		memset((char *)&handler->ops + ops_size, 0,			\
+		       sizeof(handler->ops) - ops_size);			\
+	}									\
 	handler->arg = arg;							\
 	err = drgn_handler_list_register(&prog->which##s, &handler->handler,	\
 					 enable_index, #which);			\
@@ -175,10 +185,11 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 										\
 LIBDRGN_PUBLIC struct drgn_error *						\
 drgn_program_register_##which(struct drgn_program *prog, const char *name,	\
-			      const struct drgn_##which##_ops *ops, void *arg,	\
-			      size_t enable_index)				\
+			      const struct drgn_##which##_ops *ops,		\
+			      size_t ops_size, void *arg, size_t enable_index)	\
 {										\
-	return drgn_program_register_##which##_impl(prog, NULL, name, ops, arg,	\
+	return drgn_program_register_##which##_impl(prog, NULL, name, ops,	\
+						    ops_size, arg,		\
 						    enable_index);		\
 }										\
 										\
