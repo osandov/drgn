@@ -167,6 +167,20 @@ static inline bool alloc_or_reuse(void **buf, size_t *capacity, size_t size)
 	return true;
 }
 
+/**
+ * Return whether a memory area is all zero.
+ *
+ * If @p n is 0, then this returns true.
+ */
+static inline bool mem_is_zero(const void *s, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		if (((unsigned char *)s)[i] != 0)
+			return false;
+	}
+	return true;
+}
+
 /** Return the maximum value of an @p n-byte unsigned integer. */
 static inline uint64_t uint_max(int n)
 {

@@ -819,8 +819,8 @@ static PyObject *Program_register_##which(Program *self, PyObject *args,	\
 		return NULL;							\
 	struct drgn_##which##_ops ops = {};					\
 	which##_set_ops								\
-	err = drgn_program_register_##which(&self->prog, name, &ops, arg,	\
-					    enable_index);			\
+	err = drgn_program_register_##which(&self->prog, name, &ops,		\
+					    sizeof(ops), arg, enable_index);	\
 	if (err)								\
 		return set_drgn_error(err);					\
 	Program_hold_objects(self, no_cleanup_ptr(held));			\
@@ -949,8 +949,8 @@ static PyObject *Program_add_type_finder(Program *self, PyObject *args,
 	const struct drgn_type_finder_ops ops = {
 		.find = py_type_find_fn_old,
 	};
-	err = drgn_program_register_type_finder(&self->prog, name, &ops, arg,
-						0);
+	err = drgn_program_register_type_finder(&self->prog, name, &ops,
+						sizeof(ops), arg, 0);
 	if (err)
 		return set_drgn_error(err);
 	Program_hold_objects(self, no_cleanup_ptr(held));
@@ -987,8 +987,8 @@ static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 	const struct drgn_object_finder_ops ops = {
 		.find = py_object_find_fn,
 	};
-	err = drgn_program_register_object_finder(&self->prog, name, &ops, fn,
-						  0);
+	err = drgn_program_register_object_finder(&self->prog, name, &ops,
+						  sizeof(ops), fn, 0);
 	if (err)
 		return set_drgn_error(err);
 	Program_hold_objects(self, no_cleanup_ptr(held));

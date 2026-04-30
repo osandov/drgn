@@ -657,6 +657,7 @@ struct drgn_type_finder_ops {
  *
  * @param[in] name Finder name. This is copied.
  * @param[in] ops Callback table. This is copied.
+ * @param[in] ops_size ``sizeof(*ops)`` (for backward/forward compatibility).
  * @param[in] arg Argument to pass to callbacks.
  * @param[in] enable_index Insert the finder into the list of enabled finders at
  * the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or greater than
@@ -666,7 +667,8 @@ struct drgn_type_finder_ops {
 struct drgn_error *
 drgn_program_register_type_finder(struct drgn_program *prog, const char *name,
 				  const struct drgn_type_finder_ops *ops,
-				  void *arg, size_t enable_index);
+				  size_t ops_size, void *arg,
+				  size_t enable_index);
 
 /**
  * Get the names of all registered type finders.
@@ -754,6 +756,7 @@ struct drgn_object_finder_ops {
  *
  * @param[in] name Finder name. This is copied.
  * @param[in] ops Callback table. This is copied.
+ * @param[in] ops_size ``sizeof(*ops)`` (for backward/forward compatibility).
  * @param[in] arg Argument to pass to callbacks.
  * @param[in] enable_index Insert the finder into the list of enabled finders at
  * the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or greater than
@@ -763,7 +766,8 @@ struct drgn_object_finder_ops {
 struct drgn_error *
 drgn_program_register_object_finder(struct drgn_program *prog, const char *name,
 				    const struct drgn_object_finder_ops *ops,
-				    void *arg, size_t enable_index);
+				    size_t ops_size, void *arg,
+				    size_t enable_index);
 
 /**
  * Get the names of all registered object finders.
@@ -1382,6 +1386,7 @@ struct drgn_symbol_finder_ops {
  *
  * @param[in] name Finder name. This is copied.
  * @param[in] ops Callback table. This is copied.
+ * @param[in] ops_size ``sizeof(*ops)`` (for backward/forward compatibility).
  * @param[in] arg Argument to pass to callbacks.
  * @param[in] enable_index Insert the finder into the list of enabled finders at
  * the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or greater than
@@ -1391,7 +1396,8 @@ struct drgn_symbol_finder_ops {
 struct drgn_error *
 drgn_program_register_symbol_finder(struct drgn_program *prog, const char *name,
 				    const struct drgn_symbol_finder_ops *ops,
-				    void *arg, size_t enable_index);
+				    size_t ops_size, void *arg,
+				    size_t enable_index);
 
 /**
  * Get the names of all registered symbol finders.
@@ -1931,6 +1937,7 @@ struct drgn_debug_info_finder_ops {
  *
  * @param[in] name Finder name. This is copied.
  * @param[in] ops Callback table. This is copied.
+ * @param[in] ops_size ``sizeof(*ops)`` (for backward/forward compatibility).
  * @param[in] arg Argument to pass to callbacks.
  * @param[in] enable_index Insert the finder into the list of enabled finders at
  * the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or greater than
@@ -1941,7 +1948,8 @@ struct drgn_error *
 drgn_program_register_debug_info_finder(struct drgn_program *prog,
 					const char *name,
 					const struct drgn_debug_info_finder_ops *ops,
-					void *arg, size_t enable_index);
+					size_t ops_size, void *arg,
+					size_t enable_index);
 
 /**
  * Get the names of all registered debugging information finders.
