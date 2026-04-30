@@ -62,6 +62,9 @@ struct drgn_error *drgn_handler_list_enabled(struct drgn_handler_list *list,
 bool drgn_handler_list_disable(struct drgn_handler_list *list,
 			       const char *name);
 
+struct drgn_handler *
+drgn_handler_list_unregister(struct drgn_handler_list *list, const char *name);
+
 static inline bool drgn_handler_list_has_enabled(struct drgn_handler_list *list)
 {
 	return list->head && list->head->enabled;
