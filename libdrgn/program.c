@@ -133,6 +133,13 @@ void drgn_program_set_platform(struct drgn_program *prog,
 }
 
 #define X(which)								\
+static void drgn_##which##_destroy(struct drgn_##which *handler)		\
+{										\
+	if (handler->ops.destroy)						\
+		handler->ops.destroy(handler->arg);				\
+	drgn_handler_destroy(&handler->handler);				\
+}										\
+										\
 struct drgn_error *								\
 drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 				     struct drgn_##which *handler,		\
@@ -159,11 +166,11 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 	handler->arg = arg;							\
 	err = drgn_handler_list_register(&prog->which##s, &handler->handler,	\
 					 enable_index, #which);			\
-	if (err && handler->handler.free) {					\
-		free((char *)handler->handler.name);				\
-		free(handler);							\
+	if (err) {								\
+		drgn_handler_destroy(&handler->handler);			\
+		return err;							\
 	}									\
-	return err;								\
+	return NULL;								\
 }										\
 										\
 LIBDRGN_PUBLIC struct drgn_error *						\
@@ -236,10 +243,9 @@ void drgn_program_deinit(struct drgn_program *prog)
 	drgn_object_deinit(&prog->vmemmap);
 
 #define X(which)								\
-	drgn_handler_list_deinit(struct drgn_##which, handler, &prog->which##s,	\
-		if (handler->ops.destroy)					\
-			handler->ops.destroy(handler->arg);			\
-	);
+	drgn_handler_list_for_each_safe(struct drgn_##which, handler, next,	\
+					&prog->which##s)			\
+		drgn_##which##_destroy(handler);
 	DRGN_PROGRAM_HANDLERS
 #undef X
 	drgn_program_deinit_types(prog);

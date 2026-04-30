@@ -23,6 +23,14 @@ struct drgn_handler {
 	bool free;
 };
 
+static inline void drgn_handler_destroy(struct drgn_handler *handler)
+{
+	if (handler->free) {
+		free((char *)handler->name);
+		free(handler);
+	}
+}
+
 // This is optimized for frequent drgn_handler_list_for_each_enabled()
 // operations; everything else is expected to be rare, so we keep this as small
 // as possible.
@@ -59,26 +67,14 @@ static inline bool drgn_handler_is_last_enabled(struct drgn_handler *handler)
 	return handler->enabled && (!handler->next || !handler->next->enabled);
 }
 
-// Helper to simplify the casting and naming in drgn_handler_list_deinit().
-static inline struct drgn_handler *
-drgn_handler_free_and_next(struct drgn_handler *handler)
-{
-	struct drgn_handler *next = handler->next;
-	if (handler->free) {
-		free((char *)handler->name);
-		free(handler);
-	}
-	return next;
-}
-
-// Free all registered handlers, optionally executing a statement for each one.
-#define drgn_handler_list_deinit(type, handler, list, ...) do {	\
-	type *handler = (type *)(list)->head;			\
-	while (handler) {					\
-		__VA_ARGS__					\
-		handler = (type *)drgn_handler_free_and_next((struct drgn_handler *)handler);\
-	}							\
-} while (0)
+#define drgn_handler_list_for_each_safe(type, handler, next, list)		\
+	for (type *handler = (type *)(list)->head,				\
+	     *next = handler							\
+		     ? (type *)((struct drgn_handler *)handler)->next : NULL;	\
+	     handler;								\
+	     handler = next,							\
+	     next = handler							\
+		     ? (type *)((struct drgn_handler *)handler)->next : NULL)
 
 #define drgn_handler_list_for_each_enabled(type, handler, list)		\
 	for (type *handler = (type *)(list)->head;			\
