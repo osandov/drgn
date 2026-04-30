@@ -222,6 +222,19 @@ drgn_program_enabled_##which##s(struct drgn_program *prog,			\
 				const char ***names_ret, size_t *count_ret)	\
 {										\
 	return drgn_handler_list_enabled(&prog->which##s, names_ret, count_ret);\
+}										\
+										\
+/*										\
+ * This may only be used to clean up a handler that was just registered before	\
+ * it could be exposed to the user.						\
+ */										\
+void drgn_program_unregister_##which(struct drgn_program *prog,			\
+				     const char *name)				\
+{										\
+	struct drgn_handler *handler =						\
+		drgn_handler_list_unregister(&prog->which##s, name);		\
+	if (handler)								\
+		drgn_##which##_destroy((void *)handler);			\
 }
 DRGN_PROGRAM_HANDLERS
 #undef X

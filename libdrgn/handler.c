@@ -160,3 +160,19 @@ bool drgn_handler_list_disable(struct drgn_handler_list *list,
 	*handlerp = handler;
 	return true;
 }
+
+struct drgn_handler *
+drgn_handler_list_unregister(struct drgn_handler_list *list, const char *name)
+{
+	struct drgn_handler **handlerp = &list->head;
+	struct drgn_handler *handler = list->head;
+	while (handler) {
+		if (strcmp(handler->name, name) == 0) {
+			*handlerp = handler->next;
+			return handler;
+		}
+		handlerp = &handler->next;
+		handler = handler->next;
+	}
+	return NULL;
+}

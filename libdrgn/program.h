@@ -493,7 +493,9 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 				     const char *name,				\
 				     const struct drgn_##which##_ops *ops,	\
 				     size_t ops_size, void *arg,		\
-				     size_t enable_index);
+				     size_t enable_index);			\
+void drgn_program_unregister_##which(struct drgn_program *prog,			\
+				     const char *name);
 DRGN_PROGRAM_HANDLERS
 #undef X
 
