@@ -132,6 +132,74 @@ void drgn_program_set_platform(struct drgn_program *prog,
 	}
 }
 
+#define X(which)								\
+struct drgn_error *								\
+drgn_program_register_##which##_impl(struct drgn_program *prog,			\
+				     struct drgn_##which *handler,		\
+				     const char *name,				\
+				     const struct drgn_##which##_ops *ops,	\
+				     void *arg, size_t enable_index)		\
+{										\
+	struct drgn_error *err;							\
+	if (handler) {								\
+		handler->handler.name = name;					\
+		handler->handler.free = false;					\
+	} else {								\
+		handler = malloc(sizeof(*handler));				\
+		if (!handler)							\
+			return &drgn_enomem;					\
+		handler->handler.name = strdup(name);				\
+		if (!handler->handler.name) {					\
+			free(handler);						\
+			return &drgn_enomem;					\
+		}								\
+		handler->handler.free = true;					\
+	}									\
+	memcpy(&handler->ops, ops, sizeof(handler->ops));			\
+	handler->arg = arg;							\
+	err = drgn_handler_list_register(&prog->which##s, &handler->handler,	\
+					 enable_index, #which);			\
+	if (err && handler->handler.free) {					\
+		free((char *)handler->handler.name);				\
+		free(handler);							\
+	}									\
+	return err;								\
+}										\
+										\
+LIBDRGN_PUBLIC struct drgn_error *						\
+drgn_program_register_##which(struct drgn_program *prog, const char *name,	\
+			      const struct drgn_##which##_ops *ops, void *arg,	\
+			      size_t enable_index)				\
+{										\
+	return drgn_program_register_##which##_impl(prog, NULL, name, ops, arg,	\
+						    enable_index);		\
+}										\
+										\
+LIBDRGN_PUBLIC struct drgn_error *						\
+drgn_program_registered_##which##s(struct drgn_program *prog,			\
+				   const char ***names_ret, size_t *count_ret)	\
+{										\
+	return drgn_handler_list_registered(&prog->which##s, names_ret,		\
+					    count_ret);				\
+}										\
+										\
+LIBDRGN_PUBLIC struct drgn_error *						\
+drgn_program_set_enabled_##which##s(struct drgn_program *prog,			\
+				    const char * const *names, size_t count)	\
+{										\
+	return drgn_handler_list_set_enabled(&prog->which##s, names, count,	\
+					     #which);				\
+}										\
+										\
+LIBDRGN_PUBLIC struct drgn_error *						\
+drgn_program_enabled_##which##s(struct drgn_program *prog,			\
+				const char ***names_ret, size_t *count_ret)	\
+{										\
+	return drgn_handler_list_enabled(&prog->which##s, names_ret, count_ret);\
+}
+DRGN_PROGRAM_HANDLERS
+#undef X
+
 void drgn_program_init(struct drgn_program *prog,
 		       const struct drgn_platform *platform)
 {
@@ -210,74 +278,6 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 					      max_address, read_fn, arg,
 					      physical);
 }
-
-#define X(which)								\
-struct drgn_error *								\
-drgn_program_register_##which##_impl(struct drgn_program *prog,			\
-				     struct drgn_##which *handler,		\
-				     const char *name,				\
-				     const struct drgn_##which##_ops *ops,	\
-				     void *arg, size_t enable_index)		\
-{										\
-	struct drgn_error *err;							\
-	if (handler) {								\
-		handler->handler.name = name;					\
-		handler->handler.free = false;					\
-	} else {								\
-		handler = malloc(sizeof(*handler));				\
-		if (!handler)							\
-			return &drgn_enomem;					\
-		handler->handler.name = strdup(name);				\
-		if (!handler->handler.name) {					\
-			free(handler);						\
-			return &drgn_enomem;					\
-		}								\
-		handler->handler.free = true;					\
-	}									\
-	memcpy(&handler->ops, ops, sizeof(handler->ops));			\
-	handler->arg = arg;							\
-	err = drgn_handler_list_register(&prog->which##s, &handler->handler,	\
-					 enable_index, #which);			\
-	if (err && handler->handler.free) {					\
-		free((char *)handler->handler.name);				\
-		free(handler);							\
-	}									\
-	return err;								\
-}										\
-										\
-LIBDRGN_PUBLIC struct drgn_error *						\
-drgn_program_register_##which(struct drgn_program *prog, const char *name,	\
-			      const struct drgn_##which##_ops *ops, void *arg,	\
-			      size_t enable_index)				\
-{										\
-	return drgn_program_register_##which##_impl(prog, NULL, name, ops, arg,	\
-						    enable_index);		\
-}										\
-										\
-LIBDRGN_PUBLIC struct drgn_error *						\
-drgn_program_registered_##which##s(struct drgn_program *prog,			\
-				   const char ***names_ret, size_t *count_ret)	\
-{										\
-	return drgn_handler_list_registered(&prog->which##s, names_ret,		\
-					    count_ret);				\
-}										\
-										\
-LIBDRGN_PUBLIC struct drgn_error *						\
-drgn_program_set_enabled_##which##s(struct drgn_program *prog,			\
-				    const char * const *names, size_t count)	\
-{										\
-	return drgn_handler_list_set_enabled(&prog->which##s, names, count,	\
-					     #which);				\
-}										\
-										\
-LIBDRGN_PUBLIC struct drgn_error *						\
-drgn_program_enabled_##which##s(struct drgn_program *prog,			\
-				const char ***names_ret, size_t *count_ret)	\
-{										\
-	return drgn_handler_list_enabled(&prog->which##s, names_ret, count_ret);\
-}
-DRGN_PROGRAM_HANDLERS
-#undef X
 
 struct drgn_error *
 drgn_program_check_initialized(struct drgn_program *prog)
