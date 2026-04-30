@@ -466,3 +466,13 @@ drgn_symbol_index_init_from_builder(struct drgn_symbol_index *index,
 
 	return drgn_symbol_index_init(symbols, num_syms, names, index);
 }
+
+struct drgn_error *drgn_symbol_finder_init(struct drgn_program *prog,
+					   struct drgn_symbol_finder *finder)
+{
+	if (!finder->ops.find) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "drgn_symbol_finder_ops::find is required");
+	}
+	return NULL;
+}

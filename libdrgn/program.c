@@ -138,6 +138,7 @@ static void drgn_##which##_destroy(struct drgn_##which *handler)		\
 {										\
 	if (handler->ops.destroy)						\
 		handler->ops.destroy(handler->arg);				\
+	drgn_##which##_deinit(handler);						\
 	drgn_handler_destroy(&handler->handler);				\
 }										\
 										\
@@ -154,6 +155,12 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 	    && !mem_is_zero(ops + 1, ops_size - sizeof(*ops))) {		\
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
 					 "drgn_" #which "_ops size is too large");\
+	}									\
+	if (enable_index != DRGN_HANDLER_REGISTER_DONT_ENABLE) {		\
+		err = drgn_##which##_check_change_enabled(prog,			\
+				drgn_handler_list_has_enabled(&prog->which##s));\
+		if (err)							\
+			return err;						\
 	}									\
 	if (handler) {								\
 		handler->handler.name = name;					\
@@ -175,13 +182,20 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 		       sizeof(handler->ops) - ops_size);			\
 	}									\
 	handler->arg = arg;							\
+	err = drgn_##which##_init(prog, handler);				\
+	if (err)								\
+		goto err_free;							\
 	err = drgn_handler_list_register(&prog->which##s, &handler->handler,	\
 					 enable_index, #which);			\
-	if (err) {								\
-		drgn_handler_destroy(&handler->handler);			\
-		return err;							\
-	}									\
+	if (err)								\
+		goto err_deinit;						\
 	return NULL;								\
+										\
+err_deinit:									\
+	drgn_##which##_deinit(handler);						\
+err_free:									\
+	drgn_handler_destroy(&handler->handler);				\
+	return err;								\
 }										\
 										\
 LIBDRGN_PUBLIC struct drgn_error *						\
@@ -206,6 +220,10 @@ LIBDRGN_PUBLIC struct drgn_error *						\
 drgn_program_set_enabled_##which##s(struct drgn_program *prog,			\
 				    const char * const *names, size_t count)	\
 {										\
+	struct drgn_error *err =						\
+		drgn_##which##_check_change_enabled(prog, count > 1);		\
+	if (err)								\
+		return err;							\
 	return drgn_handler_list_set_enabled(&prog->which##s, names, count,	\
 					     #which);				\
 }										\
