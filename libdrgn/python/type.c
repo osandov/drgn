@@ -919,14 +919,8 @@ static DrgnObject *LazyObject_get_borrowed(LazyObject *self)
 				return NULL;
 			}
 		} else {
-			bool clear = false;
-			/* Avoid the thread state overhead if we can. */
-			if (!drgn_lazy_object_is_evaluated(self->lazy_obj))
-				clear = set_drgn_in_python();
 			struct drgn_error *err =
 				drgn_lazy_object_evaluate(self->lazy_obj);
-			if (clear)
-				clear_drgn_in_python();
 			if (err)
 				return set_drgn_error(err);
 			obj = DrgnObject_alloc(container_of(drgn_object_program(&self->lazy_obj->obj),

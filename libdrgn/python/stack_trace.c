@@ -165,11 +165,8 @@ static DrgnObject *StackFrame_subscript(StackFrame *self, PyObject *key)
 	_cleanup_pydecref_ DrgnObject *ret = DrgnObject_alloc(prog);
 	if (!ret)
 		return NULL;
-	bool clear = set_drgn_in_python();
 	err = drgn_stack_frame_find_object(self->trace->trace, self->i, name,
 					   &ret->obj);
-	if (clear)
-		clear_drgn_in_python();
 	if (err) {
 		if (err->code == DRGN_ERROR_LOOKUP) {
 			drgn_error_destroy(err);

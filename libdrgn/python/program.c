@@ -1499,7 +1499,6 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 	struct index_arg address = {};
 	Py_ssize_t size;
 	int physical = 0;
-	bool clear;
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&n|p:read", keywords,
 					 index_converter, &address, &size,
 					 &physical))
@@ -1513,11 +1512,8 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 		PyBytes_FromStringAndSize(NULL, size);
 	if (!buf)
 		return NULL;
-	clear = set_drgn_in_python();
 	err = drgn_program_read_memory(&self->prog, PyBytes_AS_STRING(buf),
 				       address.uvalue, size, physical);
-	if (clear)
-		clear_drgn_in_python();
 	if (err)
 		return set_drgn_error(err);
 	return_ptr(buf);
@@ -1540,12 +1536,9 @@ static PyObject *Program_read_c_string(Program *self, PyObject *args,
 		PyErr_SetString(PyExc_ValueError, "negative max_size");
 		return NULL;
 	}
-	bool clear = set_drgn_in_python();
 	_cleanup_free_ char *str = NULL;
 	err = drgn_program_read_c_string(&self->prog, address.uvalue, physical,
 					 max_size, &str);
-	if (clear)
-		clear_drgn_in_python();
 	if (err)
 		return set_drgn_error(err);
 	return PyBytes_FromString(str);
@@ -1818,12 +1811,9 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 	const char *name = PyUnicode_AsUTF8(name_or_type);
 	if (!name)
 		return NULL;
-	bool clear = set_drgn_in_python();
 	struct drgn_qualified_type qualified_type;
 	err = drgn_program_find_type(&self->prog, name, filename.path,
 				     &qualified_type);
-	if (clear)
-		clear_drgn_in_python();
 	if (err) {
 		set_drgn_error(err);
 		return NULL;
@@ -1869,11 +1859,8 @@ static DrgnObject *Program_find_object(Program *self, PyObject *name_obj,
 	_cleanup_pydecref_ DrgnObject *ret = DrgnObject_alloc(self);
 	if (!ret)
 		return NULL;
-	bool clear = set_drgn_in_python();
 	err = drgn_program_find_object(&self->prog, name, filename, flags,
 				       &ret->obj);
-	if (clear)
-		clear_drgn_in_python();
 	if (err && err->code == DRGN_ERROR_LOOKUP)
 		return set_object_not_found_error(err, name_obj);
 	else if (err)
@@ -2204,11 +2191,8 @@ static int Program_contains(Program *self, PyObject *key)
 		return -1;
 
 	DRGN_OBJECT(tmp, &self->prog);
-	bool clear = set_drgn_in_python();
 	err = drgn_program_find_object(&self->prog, name, NULL,
 				       DRGN_FIND_OBJECT_ANY, &tmp);
-	if (clear)
-		clear_drgn_in_python();
 	if (err) {
 		if (err->code == DRGN_ERROR_LOOKUP) {
 			drgn_error_destroy(err);

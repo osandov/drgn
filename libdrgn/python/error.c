@@ -86,21 +86,6 @@ static struct drgn_error drgn_error_python = {
 	.message = "error in Python callback",
 };
 
-static _Thread_local bool drgn_in_python = false;
-
-bool set_drgn_in_python(void)
-{
-	if (drgn_in_python)
-		return false;
-	drgn_in_python = true;
-	return true;
-}
-
-void clear_drgn_in_python(void)
-{
-	drgn_in_python = false;
-}
-
 #define SIMPLE_DRGN_EXCEPTIONS						\
 	X(DRGN_ERROR_INVALID_ARGUMENT, PyExc_ValueError)		\
 	X(DRGN_ERROR_OVERFLOW, PyExc_OverflowError)			\
@@ -183,9 +168,13 @@ struct drgn_error *drgn_error_from_python(void)
 	if (!occurred)
 		return NULL;
 
+	// If PyEval_GetFrame() returns non-NULL, then we are being called from
+	// Python. In that case, we should preserve the original Python
+	// exception for set_drgn_error() to bubble up.
+	//
 	// Python FaultErrors should always be translated back to drgn errors
 	// because they are frequently handled in libdrgn.
-	if (drgn_in_python && occurred != (PyObject *)&FaultError_type)
+	if (PyEval_GetFrame() && occurred != (PyObject *)&FaultError_type)
 		return &drgn_error_python;
 
 	_cleanup_pydecref_ PyObject *exc_type, *exc_value, *exc_traceback;

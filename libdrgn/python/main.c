@@ -113,7 +113,6 @@ static PyObject *sizeof_(PyObject *self, PyObject *arg)
 		if (!name)
 			return NULL;
 
-		drgn_in_python_guard();
 		struct drgn_qualified_type qualified_type;
 		err = drgn_program_find_type(&default_prog->prog, name, NULL,
 					     &qualified_type);
@@ -152,10 +151,7 @@ default_prog_find_type(PyObject *arg, struct drgn_qualified_type *ret)
 	if (!name)
 		return false;
 
-	bool clear = set_drgn_in_python();
 	err = drgn_program_find_type(&default_prog->prog, name, NULL, ret);
-	if (clear)
-		clear_drgn_in_python();
 	if (err) {
 		set_drgn_error(err);
 		return false;
