@@ -274,7 +274,7 @@ drgn_program_set_enabled_##which##_finders(struct drgn_program *prog,		\
 					   size_t count)			\
 {										\
 	return drgn_handler_list_set_enabled(&prog->which##_finders, names,	\
-					     count, #which "finder");		\
+					     count, #which " finder");		\
 }										\
 										\
 LIBDRGN_PUBLIC struct drgn_error *						\
