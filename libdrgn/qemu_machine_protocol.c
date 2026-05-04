@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <errno.h>
-#include <gelf.h>
 #include <inttypes.h>
 #include <json-c/json.h>
+#include <libelf.h>
 #include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/syscall.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -20,10 +20,12 @@
 #include "hexlify.h"
 #include "io.h"
 #include "linux_kernel.h"
+#include "memory_reader.h"
 #include "minmax.h"
 #include "platform.h"
 #include "plugins.h"
 #include "program.h"
+#include "qemu_machine_protocol.h"
 #include "util.h"
 
 #define _cleanup_json_object_ _cleanup_(json_object_putp)

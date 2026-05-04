@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "array.h"
+#include "cleanup.h"
 #include "debug_info.h"
 #include "drgn_internal.h"
 #include "elf_file.h"

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <elf.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "cfi.h"
 #include "error.h"

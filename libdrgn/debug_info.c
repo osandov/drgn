@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <assert.h>
-#include <byteswap.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <elf.h>
@@ -12,15 +11,16 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <gelf.h>
+#include <inttypes.h>
+#include <limits.h>
 #include <signal.h>
-#include <stdarg.h>
+#include <stdalign.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
-#include <termios.h>
 #include <unistd.h>
 #include <wchar.h>
 
@@ -38,7 +38,7 @@
 #include "io.h"
 #include "linux_kernel.h"
 #include "log.h"
-#include "openmp.h"
+#include "minmax.h"
 #include "platform.h"
 #include "pp.h"
 #include "program.h"

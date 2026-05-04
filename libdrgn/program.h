@@ -13,6 +13,7 @@
 #define DRGN_PROGRAM_H
 
 #include <libelf.h>
+#include <stdio.h>
 #include <sys/types.h>
 #ifdef WITH_LIBKDUMPFILE
 #include <libkdumpfile/kdumpfile.h>
@@ -25,15 +26,12 @@
 #include "language.h"
 #include "memory_reader.h"
 #include "platform.h"
-#include "pp.h"
 #include "qemu_machine_protocol.h"
 #include "type.h"
 #include "vector.h"
 
 struct drgn_object_finder;
-struct drgn_symbol;
 struct drgn_symbol_finder;
-struct drgn_type_finder;
 
 /**
  * @defgroup Internals Internals

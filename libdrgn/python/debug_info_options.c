@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "drgnpy.h"
+#include "../debug_info_options.h"
 
 static PyObject *DebugInfoOptions_wrap_list(const char * const *list)
 {

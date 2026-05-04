@@ -1,8 +1,13 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <byteswap.h>
+
 #include "drgnpy.h"
 #include "../error.h"
+#include "../platform.h"
+#include "../program.h"
+#include "../util.h"
 
 PyObject *MemorySearchIterator_wrap(PyTypeObject *type,
 				    struct drgn_memory_search_iterator *it)

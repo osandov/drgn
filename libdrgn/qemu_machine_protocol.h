@@ -10,10 +10,9 @@
 #ifndef DRGN_QEMU_MACHINE_PROTOCOL_H
 #define DRGN_QEMU_MACHINE_PROTOCOL_H
 
-#include "string_builder.h"
+#include <stddef.h>
 
-struct drgn_error;
-struct drgn_program;
+#include "string_builder.h"
 
 #ifdef WITH_JSON_C
 struct drgn_qmp_conn {

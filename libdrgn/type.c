@@ -13,6 +13,7 @@
 #include "language.h"
 #include "lazy_object.h"
 #include "program.h"
+#include "platform.h"
 #include "type.h"
 #include "util.h"
 

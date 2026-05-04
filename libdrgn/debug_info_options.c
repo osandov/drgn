@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "cleanup.h"
 #include "debug_info_options.h"

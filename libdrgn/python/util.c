@@ -5,6 +5,7 @@
 #include <stdarg.h>
 
 #include "drgnpy.h"
+#include "../util.h"
 #include "../vector.h"
 
 int append_string(PyObject *parts, const char *s)

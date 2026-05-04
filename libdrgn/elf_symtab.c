@@ -1,13 +1,15 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <assert.h>
+#include <byteswap.h>
 #include <gelf.h>
 #include <libelf.h>
 #ifdef WITH_LZMA
 #include <lzma.h>
 #endif
-#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "bitmap.h"
 #include "cleanup.h"
@@ -17,8 +19,10 @@
 #include "error.h"
 #include "log.h"
 #include "minmax.h"
+#include "platform.h"
 #include "serialize.h"
 #include "string_builder.h"
+#include "symbol.h"
 #include "util.h"
 
 static struct drgn_error *find_elf_file_symtab(struct drgn_elf_file *file,

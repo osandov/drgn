@@ -13,6 +13,7 @@
 #include <elfutils/version.h>
 #include <gelf.h>
 #include <stdbool.h>
+#include <sys/types.h>
 
 /**
  * Parse the next ELF note out of a buffer.

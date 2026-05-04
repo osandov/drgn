@@ -1,16 +1,14 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <byteswap.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <elf.h>
-#include <elfutils/libdwelf.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <gelf.h>
 #include <inttypes.h>
-#include <libelf.h>
-#include <stdarg.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,10 +21,11 @@
 #include "bitops.h"
 #include "cleanup.h"
 #include "debug_info.h"
+#include "debug_info_options.h"
 #include "drgn_internal.h"
-#include "elf_file.h"
 #include "elf_notes.h"
 #include "error.h"
+#include "handler.h"
 #include "hash_table.h"
 #include "helpers.h"
 #include "hexlify.h"
@@ -35,9 +34,11 @@
 #include "log.h"
 #include "platform.h"
 #include "program.h"
+#include "string_builder.h"
 #include "symbol.h"
 #include "type.h"
 #include "util.h"
+#include "vector.h"
 
 #include "drgn_program_parse_vmcoreinfo.inc"
 

@@ -17,6 +17,7 @@
 #endif
 #include <elfutils/libdw.h>
 #include <libelf.h>
+#include <sys/types.h>
 
 #include "binary_search_tree.h"
 #include "cfi.h"
@@ -24,6 +25,7 @@
 #include "drgn_internal.h"
 #include "dwarf_info.h"
 #include "elf_symtab.h"
+#include "handler.h"
 #include "hash_table.h"
 #include "object.h"
 #include "orc_info.h"

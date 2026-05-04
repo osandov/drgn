@@ -3,6 +3,7 @@
 
 #include "drgnpy.h"
 #include "../error.h"
+#include "../program.h"
 
 static int FaultError_init(PyObject *self, PyObject *args, PyObject *kwds)
 {

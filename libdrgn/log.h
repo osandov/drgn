@@ -12,6 +12,8 @@
 #ifndef DRGN_LOG_H
 #define DRGN_LOG_H
 
+#include <stdio.h>
+
 #include "drgn_internal.h"
 
 /**

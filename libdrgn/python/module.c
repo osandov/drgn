@@ -3,6 +3,7 @@
 
 #include "drgnpy.h"
 #include "../util.h"
+#include "../vector.h"
 
 static PyObject *WantedSupplementaryFile_class;
 

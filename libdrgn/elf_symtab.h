@@ -12,9 +12,9 @@
 #ifndef DRGN_ELF_SYMBOL_H
 #define DRGN_ELF_SYMBOL_H
 
-#include "drgn_internal.h"
+#include <libelf.h>
 
-struct drgn_elf_file;
+#include "drgn_internal.h"
 
 /**
  * @ingroup Internals

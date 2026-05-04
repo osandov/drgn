@@ -1,15 +1,21 @@
 // Copyright (c) 2024 Oracle and/or its affiliates
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <byteswap.h>
 #include <ctype.h>
-#include <stddef.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "binary_buffer.h"
+#include "cleanup.h"
 #include "drgn_internal.h"
 #include "kallsyms.h"
 #include "program.h"
 #include "string_builder.h"
 #include "symbol.h"
+#include "util.h"
 
 /**
  * This struct contains the tables necessary to reconstruct kallsyms names.

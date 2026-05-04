@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "drgnpy.h"
-#include "../cleanup.h"
 #include "../util.h"
 
 PyObject *ModuleSectionAddresses_class;

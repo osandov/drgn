@@ -3,10 +3,11 @@
 
 #include <assert.h>
 #include <ctype.h>
-#include <elf.h>
 #include <elfutils/libdw.h>
 #include <errno.h>
+#include <gelf.h>
 #include <inttypes.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 

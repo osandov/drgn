@@ -3,7 +3,6 @@
 
 #include <assert.h>
 #include <byteswap.h>
-#include <endian.h>
 #include <errno.h>
 #ifdef WITH_PCRE2
 #define PCRE2_CODE_UNIT_WIDTH 8
@@ -19,9 +18,9 @@
 #include "helpers.h"
 #include "memory_reader.h"
 #include "minmax.h"
+#include "platform.h"
 #include "program.h"
-#include "string_builder.h"
-#include "vector.h"
+#include "util.h"
 
 #ifdef WITH_PCRE2
 #define _cleanup_pcre2_code_ _cleanup_(pcre2_code_freep)

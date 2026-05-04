@@ -1305,7 +1305,7 @@ enum drgn_find_symbol_flags {
 };
 
 /** Result builder for @ref drgn_symbol_finder_ops::find() */
-struct drgn_symbol_result_builder;
+struct drgn_symbol_result_builder; // IWYU pragma: export
 
 /**
  * Add or set the return value for a symbol search
@@ -1456,7 +1456,7 @@ struct drgn_error *drgn_program_element_info(struct drgn_program *prog,
  * drgn_module_kind()), name (@ref drgn_module_name()), and info (@ref
  * drgn_module_info()).
  */
-struct drgn_module;
+struct drgn_module; // IWYU pragma: export
 
 /** Kinds of modules. */
 enum drgn_module_kind {
@@ -1728,7 +1728,7 @@ struct drgn_error *drgn_module_num_section_addresses(struct drgn_module *module,
 						     size_t *ret);
 
 /** Iterator over set section addresses in a relocatable module. */
-struct drgn_module_section_address_iterator;
+struct drgn_module_section_address_iterator; // IWYU pragma: export
 
 /** Create a @ref drgn_module_section_address_iterator. */
 struct drgn_error *
@@ -2161,7 +2161,7 @@ drgn_module_try_file(struct drgn_module *module, const char *path, int fd,
 		     bool force);
 
 /** Iterator over a set of modules. */
-struct drgn_module_iterator;
+struct drgn_module_iterator; // IWYU pragma: export
 
 /** Destroy a @ref drgn_module_iterator. */
 void

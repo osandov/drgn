@@ -1,8 +1,12 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <stdarg.h>
+#include <unistd.h>
+
 #include "drgnpy.h"
 #include "../bitops.h"
+#include "../debug_info.h"
 #include "../error.h"
 #include "../hash_table.h"
 #include "../linux_kernel.h"

@@ -8,6 +8,7 @@
 
 #include "binary_search.h"
 #include "drgn_internal.h"
+#include "minmax.h"
 #include "string_builder.h"
 #include "symbol.h"
 #include "util.h"

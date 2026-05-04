@@ -3,7 +3,6 @@
 
 #include <limits.h>
 
-#include "debug_info.h"
 #include "register_state.h"
 
 #define drgn_register_state_known_bitset(regs) ({	\

@@ -12,11 +12,11 @@
 #ifndef DRGN_KALLSYMS_H
 #define DRGN_KALLSYMS_H
 
+#include <stdbool.h>
 #include <stdint.h>
-#include <sys/types.h>
 
-#include "hash_table.h"
-#include "symbol.h"
+struct drgn_program;
+struct drgn_symbol_index;
 
 struct kallsyms_locations {
 	uint64_t kallsyms_names;

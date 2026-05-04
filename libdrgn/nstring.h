@@ -10,6 +10,7 @@
 #ifndef DRGN_NSTRING_H
 #define DRGN_NSTRING_H
 
+#include <stdbool.h>
 #include <string.h>
 
 /** A string with a stored length. */

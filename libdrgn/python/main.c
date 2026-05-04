@@ -8,6 +8,7 @@
 #endif
 
 #include "drgnpy.h"
+#include "../debug_info.h"
 #include "../error.h"
 #include "../path.h"
 

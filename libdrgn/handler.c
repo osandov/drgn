@@ -3,7 +3,6 @@
 
 #include <string.h>
 
-#include "cleanup.h"
 #include "drgn_internal.h"
 #include "handler.h"
 #include "hash_table.h"

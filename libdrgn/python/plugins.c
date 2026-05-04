@@ -3,6 +3,7 @@
 
 #include "drgnpy.h"
 #include "../plugins.h"
+#include "../util.h"
 
 void drgn_call_plugins_prog(const char *name, struct drgn_program *prog)
 {
