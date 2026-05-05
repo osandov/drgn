@@ -135,6 +135,8 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    string_builder.h \
 			    symbol.c \
 			    symbol.h \
+			    thread.c \
+			    thread.h \
 			    type.c \
 			    type.h \
 			    util.c \
@@ -191,6 +193,8 @@ libdrgn_common_python_la_SOURCES = python/constants.c \
 				   python/symbol_index.c \
 				   python/test.c \
 				   python/thread.c \
+				   python/thread_cache.c \
+				   python/thread_finder.c \
 				   python/type.c \
 				   python/type_kind_set.c \
 				   python/util.c

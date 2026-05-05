@@ -489,7 +489,6 @@ size_t drgn_register_size(const struct drgn_register *reg);
 /** @} */
 
 struct drgn_object;
-struct drgn_thread;
 
 /**
  * @defgroup Programs Programs
@@ -4751,19 +4750,70 @@ drgn_program_addr2line(struct drgn_program *prog, const char *address,
  */
 struct drgn_thread;
 
+/** Take a reference on a @ref drgn_thread. */
+void drgn_thread_incref(struct drgn_thread *thread);
+
 /**
- * Create a copy of a @ref drgn_thread.
+ * Release a reference on a @ref drgn_thread.
  *
- * @param[in] thread Thread to copy.
- * @param[out] ret Returned copy. On success, must be destroyed with @ref
- * drgn_thread_destroy().
+ * @p thread may be @c NULL, in which case this does nothing.
+ */
+void drgn_thread_decref(struct drgn_thread *thread);
+
+/** Get the @ref drgn_program that a @ref drgn_thread came from. */
+DRGN_ACCESSOR_LINKAGE
+struct drgn_program *drgn_thread_program(const struct drgn_thread *thread);
+
+/** Get the thread ID of a @ref drgn_thread. */
+DRGN_ACCESSOR_LINKAGE uint32_t drgn_thread_tid(const struct drgn_thread *thread);
+
+/**
+ * Get the generation number of a @ref drgn_thread.
+ *
+ * This is an arbitrary integer such that `(tid, generation)` uniquely
+ * identifies a thread even if its thread ID is reused.
+ */
+DRGN_ACCESSOR_LINKAGE
+uint64_t drgn_thread_generation(const struct drgn_thread *thread);
+
+/**
+ * Get the object for the given thread. This is usually only defined for the
+ * Linux kernel.
+ *
+ * @param[out] ret Returned object. This must not be modified and is valid for
+ * the lifetime of @p thread. It can be copied with @ref drgn_object_copy() if
+ * it is needed for longer.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_thread_dup(const struct drgn_thread *thread,
-				   struct drgn_thread **ret);
+struct drgn_error *drgn_thread_object(struct drgn_thread *thread,
+				      const struct drgn_object **ret);
 
-/** Free a @ref drgn_thread. */
-void drgn_thread_destroy(struct drgn_thread *thread);
+/**
+ * Get name for the thread represented by @p thread.
+ *
+ * @param[out] ret Returned thread name, or @c NULL if not found. On success, it
+ * should be freed with free(). On error, it is not modified.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_thread_name(struct drgn_thread *thread, char **ret);
+
+/**
+ * Get the register state for a thread.
+ *
+ * @param[out] ret Returned register state, or @c NULL if not found. Must be
+ * passed to @ref drgn_register_state_decref() when no longer needed.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_thread_register_state(struct drgn_thread *thread,
+					      struct drgn_register_state **ret);
+
+/**
+ * Get a stack trace for the thread represented by @p thread.
+ *
+ * @sa drgn_program_stack_trace().
+ */
+struct drgn_error *drgn_thread_stack_trace(struct drgn_thread *thread,
+					   struct drgn_stack_trace **ret);
 
 /**
  * @struct drgn_thread_iterator
@@ -4790,11 +4840,8 @@ void drgn_thread_iterator_destroy(struct drgn_thread_iterator *it);
 /**
  * Get the next thread from a @ref drgn_thread_iterator.
  *
- * @param[out] ret Borrowed thread handle, or @c NULL if there are no more
- * threads. This is valid until until the next call to @ref
- * drgn_thread_iterator_next() with the same @p it, or until @p it is destroyed.
- * It may be copied with @ref drgn_thread_dup() if it is needed for longer. This
- * must NOT be destroyed with @ref drgn_thread_destroy().
+ * @param[out] ret Returned thread, or @c NULL if there are no more threads.
+ * Must be passed to @ref drgn_thread_decref() when no longer needed.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_thread_iterator_next(struct drgn_thread_iterator *it,
@@ -4804,8 +4851,8 @@ struct drgn_error *drgn_thread_iterator_next(struct drgn_thread_iterator *it,
  * Get the thread with the given thread ID.
  *
  * @param[in] tid Thread ID.
- * @param[out] ret New thread handle, or @c NULL if not found. On success, must
- * be destroyed with @ref drgn_thread_destroy().
+ * @param[out] ret Returned thread, or @c NULL if not found. Must be passed to
+ * @ref drgn_thread_decref() when no longer needed.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_find_thread(struct drgn_program *prog,
@@ -4813,11 +4860,23 @@ struct drgn_error *drgn_program_find_thread(struct drgn_program *prog,
 					    struct drgn_thread **ret);
 
 /**
+ * Get the thread corresponding to the given object.
+ *
+ * This is the inverse of @ref drgn_thread_object().
+ *
+ * @param[in] obj Thread object.
+ * @param[out] ret Returned thread, or @c NULL if not found. Must be passed to
+ * @ref drgn_thread_decref() when no longer needed.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_thread_from_object(const struct drgn_object *obj,
+					   struct drgn_thread **ret);
+
+/**
  * Get the main program thread.
  *
- * @param[out] ret Borrowed thread handle, or @c NULL if not found. This is
- * valid for the lifetime of @p prog. This must NOT be destroyed with @ref
- * drgn_thread_destroy().
+ * @param[out] ret Returned thread, or @c NULL if not found. Must be passed to
+ * @ref drgn_thread_decref() when no longer needed.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_main_thread(struct drgn_program *prog,
@@ -4826,42 +4885,349 @@ struct drgn_error *drgn_program_main_thread(struct drgn_program *prog,
 /**
  * Get the thread that caused the program to crash.
  *
- * @param[out] ret Borrowed thread handle, or @c NULL if not found. This is
- * valid for the lifetime of @p prog. This must NOT be destroyed with @ref
- * drgn_thread_destroy().
+ * @param[out] ret Returned thread, or @c NULL if not found. Must be passed to
+ * @ref drgn_thread_decref() when no longer needed.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_crashed_thread(struct drgn_program *prog,
 					       struct drgn_thread **ret);
 
 /**
- * Get the object for the given thread. This is currently only defined for the
- * Linux kernel.
+ * @struct drgn_thread_cache
  *
- * @param[out] ret Returned object. This must not be modified and is valid for
- * the lifetime of @p thread. It can be copied with @ref drgn_object_copy() if
- * it is needed for longer.
- * @return @c NULL on success, non-@c NULL on error.
+ * Cache for thread finders to find and create deduplicated @ref drgn_thread
+ * structures.
  */
-struct drgn_error *drgn_thread_object(struct drgn_thread *thread,
-				      const struct drgn_object **ret);
+struct drgn_thread_cache; // IWYU pragma: export
+
+/** Get the @ref drgn_program that a @ref drgn_thread_cache is for. */
+struct drgn_program *
+drgn_thread_cache_program(const struct drgn_thread_cache *cache);
 
 /**
- * Get a stack trace for the thread represented by @p thread.
+ * Find a cached thread with the given thread ID and generation.
  *
- * @sa drgn_program_stack_trace().
+ * @param[in] tid Thread ID.
+ * @param[in] generation Thread generation (see @ref drgn_thread_generation()).
+ * @return Newly referenced thread, or @c NULL if not found.
  */
-struct drgn_error *drgn_thread_stack_trace(struct drgn_thread *thread,
-					   struct drgn_stack_trace **ret);
+struct drgn_thread *drgn_thread_cache_find(struct drgn_thread_cache *cache,
+					   uint32_t tid, uint64_t generation);
 
 /**
- * Get name for the thread represented by @p thread.
+ * Find a cached thread with the given thread ID and generation, or create one
+ * if not found.
  *
- * @param[out] ret Returned thread name, or @c NULL if not found. On success, it
- * should be freed with free(). On error, it is not modified.
+ * @param[in] tid Thread ID.
+ * @param[in] generation Thread generation (see @ref drgn_thread_generation()).
+ * @param[in] object If non-@c NULL, thread object to cache eagerly. If @c NULL,
+ * @ref drgn_thread_finder_ops::thread_object will be called to cache this
+ * lazily. This is ignored if the thread is found in the cache.
+ * @param[out] ret Returned thread. On error, it is not modified.
+ * @param[out] new_ret @c true if the thread was newly created, @c false if it
+ * was found. On error, it is not modified. May be @c NULL.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_thread_name(struct drgn_thread *thread, char **ret);
+struct drgn_error *
+drgn_thread_cache_find_or_create(struct drgn_thread_cache *cache, uint32_t tid,
+				 uint64_t generation,
+				 const struct drgn_object *object,
+				 struct drgn_thread **ret, bool *new_ret);
+
+/** Thread finder callback table. */
+struct drgn_thread_finder_ops {
+	/**
+	 * Callback to destroy the thread finder.
+	 *
+	 * This may be @c NULL.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_thread_finder().
+	 */
+	void (*destroy)(void *arg);
+	/**
+	 * Callback to destroy a thread's finder data.
+	 *
+	 * This is not called if the finder data is @c NULL. This may be @c
+	 * NULL.
+	 *
+	 * @param[in] data Data passed to @ref drgn_thread_set_finder_data().
+	 */
+	void (*thread_data_destroy)(void *data);
+	/**
+	 * Callback called when a @ref drgn_thread_iterator is created.
+	 *
+	 * This may be @c NULL.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_thread_finder().
+	 * @param[in] cache Thread cache for finding/creating threads.
+	 * @param[out] ret Returned finder-specific data for iterator.
+	 */
+	struct drgn_error *(*iterator_create)(void *arg,
+					      struct drgn_thread_cache *cache,
+					      void **ret);
+	/**
+	 * Callback called when a @ref drgn_thread_iterator is destroyed.
+	 *
+	 * This may be @c NULL.
+	 *
+	 * @param[in] it Iterator data returned by @ref
+	 * drgn_thread_finder_ops::iterator_create().
+	 */
+	void (*iterator_destroy)(void *it);
+	/**
+	 * Callback implementing @ref drgn_thread_iterator_next().
+	 *
+	 * This may be @c NULL if threads in the program cannot be iterated.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_thread_finder().
+	 * @param[in] cache Thread cache for finding/creating threads.
+	 * @param[in] it Iterator data returned by @ref
+	 * drgn_thread_finder_ops::iterator_create().
+	 * @param[out] ret Returned thread, or @c NULL if there are no more
+	 * threads.
+	 */
+	struct drgn_error *(*iterator_next)(void *arg,
+					    struct drgn_thread_cache *cache,
+					    void *it, struct drgn_thread **ret);
+	/**
+	 * Callback implementing @ref drgn_program_find_thread().
+	 *
+	 * This may be @c NULL if threads in the program cannot be found by ID.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_thread_finder().
+	 * @param[in] cache Thread cache for finding/creating threads.
+	 * @param[in] tid Thread ID.
+	 * @param[out] ret Returned thread, or @c NULL if not found.
+	 */
+	struct drgn_error *(*find_thread)(void *arg,
+					  struct drgn_thread_cache *cache,
+					  uint32_t tid,
+					  struct drgn_thread **ret);
+	/**
+	 * Callback implementing @ref drgn_thread_from_object().
+	 *
+	 * This may be @c NULL if thread objects are not defined in the program
+	 * or if it is not possible to find a thread from its object.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_thread_finder().
+	 * @param[in] cache Thread cache for finding/creating threads.
+	 * @param[out] ret Returned thread, or @c NULL if not found.
+	 */
+	struct drgn_error *(*thread_from_object)(void *arg,
+						 struct drgn_thread_cache *cache,
+						 const struct drgn_object *obj,
+						 struct drgn_thread **ret);
+	/**
+	 * Callback implementing @ref drgn_program_main_thread().
+	 *
+	 * This may be @c NULL if the program does not have a main thread.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_thread_finder().
+	 * @param[in] cache Thread cache for finding/creating threads.
+	 * @param[out] ret Returned thread, or @c NULL if not found.
+	 */
+	struct drgn_error *(*main_thread)(void *arg,
+					  struct drgn_thread_cache *cache,
+					  struct drgn_thread **ret);
+	/**
+	 * Callback implementing @ref drgn_program_crashed_thread().
+	 *
+	 * This may be @c NULL if the program does not have a crashed thread.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_thread_finder().
+	 * @param[in] cache Thread cache for finding/creating threads.
+	 * @param[out] ret Returned thread, or @c NULL if not found.
+	 */
+	struct drgn_error *(*crashed_thread)(void *arg,
+					     struct drgn_thread_cache *cache,
+					     struct drgn_thread **ret);
+	/**
+	 * Callback implementing @ref drgn_thread_object().
+	 *
+	 * This may be @c NULL if thread objects are not defined in the program.
+	 *
+	 * This is not called if an object was passed to @ref
+	 * drgn_thread_cache_find_or_create(). It is also cached after the first
+	 * call.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_thread_finder().
+	 * @param[out] ret Returned object.
+	 */
+	struct drgn_error *(*thread_object)(void *arg,
+					    struct drgn_thread *thread,
+					    struct drgn_object *ret);
+	/**
+	 * Callback implementing @ref drgn_thread_name().
+	 *
+	 * This may be @c NULL if it is not possible to get thread names in the
+	 * program.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_thread_finder().
+	 */
+	struct drgn_error *(*thread_name)(void *arg, struct drgn_thread *thread,
+					  char **ret);
+};
+
+/**
+ * Register a thread finding callback.
+ *
+ * @param[in] name Finder name. This is copied.
+ * @param[in] ops Callback table. This is copied.
+ * @param[in] ops_size ``sizeof(*ops)`` (for backward/forward compatibility).
+ * @param[in] arg Argument to pass to callbacks.
+ * @param[in] enable_index Insert the finder into the list of enabled finders at
+ * the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or greater than
+ * the number of enabled finders, insert it at the end. If @ref
+ * DRGN_HANDLER_REGISTER_DONT_ENABLE, don’t enable the finder. Currently, at
+ * most one thread finder may be enabled.
+ */
+struct drgn_error *
+drgn_program_register_thread_finder(struct drgn_program *prog, const char *name,
+				    const struct drgn_thread_finder_ops *ops,
+				    size_t ops_size, void *arg,
+				    size_t enable_index);
+
+/**
+ * Get the names of all registered thread finders.
+ *
+ * The order of the names is arbitrary.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_registered_thread_finders(struct drgn_program *prog,
+				       const char ***names_ret,
+				       size_t *count_ret);
+
+/**
+ * Set the list of enabled thread finders.
+ *
+ * Currently, at most one thread finder may be enabled.
+ *
+ * @param[in] names Names of finders to enable, in order.
+ * @param[in] count Number of names in @p names.
+ */
+struct drgn_error *
+drgn_program_set_enabled_thread_finders(struct drgn_program *prog,
+					const char * const *names,
+					size_t count);
+
+/**
+ * Get the names of enabled thread finders (currently at most one).
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_enabled_thread_finders(struct drgn_program *prog,
+				    const char ***names_ret, size_t *count_ret);
+
+/**
+ * Get thread finder-specific data set on a @ref drgn_thread.
+ *
+ * The data is initially @c NULL.
+ */
+void *drgn_thread_get_finder_data(const struct drgn_thread *thread);
+
+/**
+ * Set thread finder-specific data on a @ref drgn_thread.
+ *
+ * If data was previously set, the old data is destroyed with @ref
+ * drgn_thread_finder_ops::thread_data_destroy().
+ */
+void drgn_thread_set_finder_data(struct drgn_thread *thread, void *data);
+
+/** Register state finder callback table. */
+struct drgn_register_state_finder_ops {
+	/**
+	 * Callback to destroy the register state finder.
+	 *
+	 * This may be @c NULL.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_register_state_finder().
+	 */
+	void (*destroy)(void *arg);
+	/**
+	 * Callback to get the register state of a thread.
+	 *
+	 * This must NOT be @c NULL.
+	 *
+	 * @param[in] arg Argument passed to @ref
+	 * drgn_program_register_register_state_finder().
+	 * @param[out] ret Returned register state, or @c NULL if not found. The
+	 * caller takes ownership.
+	 */
+	struct drgn_error *(*thread_register_state)(void *arg,
+						    struct drgn_thread *thread,
+						    struct drgn_register_state **ret);
+};
+
+/**
+ * Register a register state finding callback.
+ *
+ * @param[in] name Finder name. This is copied.
+ * @param[in] ops Callback table. This is copied.
+ * @param[in] ops_size ``sizeof(*ops)`` (for backward/forward compatibility).
+ * @param[in] arg Argument to pass to callbacks.
+ * @param[in] enable_index Insert the finder into the list of enabled finders at
+ * the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or greater than
+ * the number of enabled finders, insert it at the end. If @ref
+ * DRGN_HANDLER_REGISTER_DONT_ENABLE, don’t enable the finder.
+ */
+struct drgn_error *
+drgn_program_register_register_state_finder(struct drgn_program *prog, const char *name,
+					    const struct drgn_register_state_finder_ops *ops,
+					    size_t ops_size, void *arg,
+					    size_t enable_index);
+
+/**
+ * Get the names of all registered register state finders.
+ *
+ * The order of the names is arbitrary.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_registered_register_state_finders(struct drgn_program *prog,
+					       const char ***names_ret,
+					       size_t *count_ret);
+
+/**
+ * Set the list of enabled register state finders.
+ *
+ * Finders are called in the same order as the list until a register state is
+ * found.
+ *
+ * @param[in] names Names of finders to enable, in order.
+ * @param[in] count Number of names in @p names.
+ */
+struct drgn_error *
+drgn_program_set_enabled_register_state_finders(struct drgn_program *prog,
+						const char * const *names,
+						size_t count);
+
+/**
+ * Get the names of enabled register state finders, in order.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_enabled_register_state_finders(struct drgn_program *prog,
+					    const char ***names_ret,
+					    size_t *count_ret);
 
 /** @} */
 

@@ -399,13 +399,23 @@ class Program:
         """
         ...
 
+    def thread_from_object(self, obj: Object) -> Thread:
+        """
+        Get the thread corresponding to the given object.
+
+        :param obj: Object matching :attr:`Thread.object`.
+        :raises ValueError: if it is not possible to find a thread from its
+            object in this program
+        :raises LookupError: if no thread matches the given object
+        """
+        ...
+
     def main_thread(self) -> Thread:
         """
         Get the main thread of the program.
 
-        This is only defined for userspace programs.
-
-        :raises ValueError: if the program is the Linux kernel
+        :raises ValueError: if this program does not have a main thread (e.g.,
+            the Linux kernel)
         :raises LookupError: if the main thread was not found
         """
         ...
@@ -420,7 +430,8 @@ class Program:
         For the kernel, this is the thread that panicked (either directly or as
         a result of an oops, ``BUG_ON()``, etc.).
 
-        :raises ValueError: if the program is live (i.e., not a core dump)
+        :raises ValueError: if this program does not have a crashed thread
+            (e.g., it is live)
         :raises LookupError: if the crashed thread was not found
         """
         ...
@@ -794,6 +805,98 @@ class Program:
         1. A name for the finder is generated from *fn*.
         2. The finder is always enabled before any existing finders.
         """
+        ...
+
+    def register_thread_finder(
+        self,
+        name: str,
+        finder: ThreadFinder,
+        *,
+        enable_index: Optional[int] = None,
+    ) -> None:
+        """
+        Register a handler for finding threads in the program.
+
+        This does not enable the finder unless *enable_index* is given.
+
+        :param name: Finder name.
+        :param finder: Instance of :class:`ThreadFinder`.
+        :param enable_index: Insert the finder into the list of enabled finders
+            at the given index. If -1 or greater than the number of enabled
+            finders, insert it at the end. If ``None`` or not given, don't
+            enable the finder. Currently, at most one thread finder may be
+            enabled.
+        :raises ValueError: if there is already a finder with the given name
+        """
+        ...
+
+    def registered_thread_finders(self) -> Set[str]:
+        """Return the names of all registered thread finders."""
+        ...
+
+    def set_enabled_thread_finders(self, names: Sequence[str]) -> None:
+        """
+        Set the list of enabled thread finders.
+
+        Currently, at most one thread finder may be enabled.
+
+        :param names: Names of finders to enable, in order.
+        :raises ValueError: if no finder has a given name or the same name is
+            given more than once
+        """
+        ...
+
+    def enabled_thread_finders(self) -> List[str]:
+        """
+        Return the names of enabled thread finders (currently at most one).
+        """
+        ...
+
+    def register_register_state_finder(
+        self,
+        name: str,
+        fn: Callable[[Thread], Optional[RegisterState]],
+        *,
+        enable_index: Optional[int] = None,
+    ) -> None:
+        """
+        Register a callback for finding the register state of threads in the
+        program.
+
+        This does not enable the finder unless *enable_index* is given.
+
+        :param name: Finder name.
+        :param fn: Callable taking the thread and returning a register state or
+            ``None`` if not found.
+        :param enable_index: Insert the finder into the list of enabled finders
+            at the given index. If -1 or greater than the number of enabled
+            finders, insert it at the end. If ``None`` or not given, don't
+            enable the finder.
+        :raises ValueError: if there is already a finder with the given name
+        """
+        ...
+
+    def registered_register_state_finders(self) -> Set[str]:
+        """Return the names of all registered register state finders."""
+        ...
+
+    def set_enabled_register_state_finders(self, names: Sequence[str]) -> None:
+        """
+        Set the list of enabled register state finders.
+
+        Finders are called in the same order as the list until a register state
+        is found.
+
+        Finders that are not in the list are not called.
+
+        :param names: Names of finders to enable, in order.
+        :raises ValueError: if no finder has a given name or the same name is
+            given more than once
+        """
+        ...
+
+    def enabled_register_state_finders(self) -> List[str]:
+        """Return the names of enabled register state finders, in order."""
         ...
 
     def set_core_dump(self, path: Union[Path, int]) -> None:
@@ -2220,8 +2323,15 @@ class SupplementaryFileKind(enum.Enum):
 class Thread:
     """A thread in a program."""
 
+    prog: Final[Program]
+    """Program that this thread is from."""
     tid: Final[int]
     """Thread ID (as defined by :manpage:`gettid(2)`)."""
+    generation: Final[int]
+    """
+    Arbitrary integer such that ``(tid, generation)`` uniquely identifies a
+    thread even if its thread ID is reused.
+    """
     name: Optional[str]
     """
     Thread name, or ``None`` if unknown.
@@ -2238,14 +2348,161 @@ class Thread:
     object: Final[Object]
     """
     If the program is the Linux kernel, the ``struct task_struct *`` object for
-    this thread. Otherwise, not defined.
+    this thread. Usually not defined otherwise.
     """
+    _finder_data: Any
+    """
+    Opaque field for use only by the :class:`ThreadFinder` that created this
+    thread. Initially ``None``.
+    """
+    def register_state(self) -> RegisterState:
+        """
+        Get the register state for this thread.
+
+        :raises LookupError: if registers for this thread are not available
+        """
+        ...
+
     def stack_trace(self) -> StackTrace:
         """
         Get the stack trace for this thread.
 
         This is equivalent to ``prog.stack_trace(thread.tid)``. See
         :meth:`Program.stack_trace()`.
+        """
+        ...
+
+class ThreadFinder:
+    """
+    Base class for finding threads in a program.
+
+    Subclass this, override the methods for supported operations, and register
+    it with :meth:`Program.register_thread_finder()`.
+
+    This may use :attr:`Thread._finder_data` to store information about threads
+    it creates.
+    """
+
+    def threads(self, cache: ThreadCache) -> Iterator[Thread]:
+        """
+        Implement :meth:`Program.threads()`.
+
+        If not overridden (because threads in the program cannot be iterated),
+        raises an exception.
+
+        :param cache: Thread cache for finding/creating threads.
+        """
+        ...
+
+    def thread(self, cache: ThreadCache, tid: IntegerLike) -> Optional[Thread]:
+        """
+        Implement :meth:`Program.thread()`.
+
+        If not overridden (because threads in the program cannot be found by
+        ID), raises an exception.
+
+        :param cache: Thread cache for finding/creating threads.
+        :return: Thread, or ``None`` if not found.
+        """
+        ...
+
+    def thread_from_object(self, cache: ThreadCache, obj: Object) -> Optional[Thread]:
+        """
+        Implement :meth:`Program.thread_from_object()`.
+
+        If not overridden (because thread objects are not defined in the
+        program or it is not possible to find a thread from its object), raises
+        an exception.
+
+        :param cache: Thread cache for finding/creating threads.
+        :return: Thread, or ``None`` if not found.
+        """
+        ...
+
+    def main_thread(self, cache: ThreadCache) -> Optional[Thread]:
+        """
+        Implement :meth:`Program.main_thread()`.
+
+        If not overridden (because the program does not have a main thread),
+        raises an exception.
+
+        :param cache: Thread cache for finding/creating threads.
+        :return: Thread, or ``None`` if not found.
+        """
+        ...
+
+    def crashed_thread(self, cache: ThreadCache) -> Optional[Thread]:
+        """
+        Implement :meth:`Program.crashed_thread()`.
+
+        If not overridden (because the program does not have a crashed thread),
+        raises an exception.
+
+        :param cache: Thread cache for finding/creating threads.
+        :return: Thread, or ``None`` if not found.
+        """
+        ...
+
+    def thread_object(self, thread: Thread) -> Object:
+        """
+        Implement :attr:`Thread.object`.
+
+        If not overridden (because thread objects are not defined in the
+        program), raises an exception.
+
+        This is not called if an object was passed to
+        :meth:`ThreadCache.find_or_create()`. It is also cached after the first
+        call.
+        """
+        ...
+
+    def thread_name(self, thread: Thread) -> Optional[str]:
+        """
+        Implement :attr:`Thread.name`.
+
+        If not overridden (because it is not possible to get thread names in
+        the program), returns ``None``.
+        """
+        ...
+
+class ThreadCache:
+    """
+    Cache for :class:`ThreadFinder` implementations to find and create
+    deduplicated :class:`Thread` objects.
+
+    This cache is per-finder, so (:attr:`Thread.tid`,
+    :attr:`Thread.generation`) is only guaranteed to be unique per-finder.
+    """
+
+    prog: Final[Program]
+    """Program that this cache is for."""
+
+    def find(self, tid: IntegerLike, generation: IntegerLike) -> Optional[Thread]:
+        """
+        Find a cached thread with the given thread ID and generation.
+
+        :param tid: :attr:`Thread.tid`
+        :param generation: :attr:`Thread.generation`
+        :return: Cached thread, or ``None`` if not found.
+        """
+        ...
+
+    def find_or_create(
+        self, tid: IntegerLike, generation: IntegerLike, object: Optional[Object] = None
+    ) -> Tuple[Thread, bool]:
+        """
+        Find a cached thread with the given thread ID and generation, or create
+        one if not found.
+
+        :param tid: :attr:`Thread.tid`
+        :param generation: :attr:`Thread.generation`
+        :param object: If not ``None``, :attr:`Thread.object` to cache eagerly.
+            If ``None``, :meth:`ThreadFinder.thread_object()` will be called to
+            cache this lazily. This is ignored if the thread is found in the
+            cache.
+        :return: ``(thread, new)`` tuple, where ``new`` is ``True`` if the
+            thread was newly created and ``False`` if it was found in the
+            cache.
         """
         ...
 

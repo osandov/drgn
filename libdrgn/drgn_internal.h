@@ -317,4 +317,30 @@ bool drgn_register_state_interrupted(const struct drgn_register_state *regs)
 	return regs->interrupted;
 }
 
+struct drgn_thread {
+	struct drgn_object object;
+	uint32_t tid;
+	bool have_object;
+	uint64_t generation;
+	struct drgn_thread_finder *finder;
+	void *finder_data;
+};
+
+DRGN_ACCESSOR_LINKAGE
+struct drgn_program *drgn_thread_program(const struct drgn_thread *thread)
+{
+	return drgn_object_program(&thread->object);
+}
+
+DRGN_ACCESSOR_LINKAGE uint32_t drgn_thread_tid(const struct drgn_thread *thread)
+{
+	return thread->tid;
+}
+
+DRGN_ACCESSOR_LINKAGE
+uint64_t drgn_thread_generation(const struct drgn_thread *thread)
+{
+	return thread->generation;
+}
+
 #endif /* DRGN_INTERNAL_H */

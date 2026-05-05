@@ -21,7 +21,6 @@
 #include "debug_info.h"
 #include "elf_notes.h"
 #include "error.h"
-#include "helpers.h"
 #include "io.h"
 #include "language.h"
 #include "linux_kernel.h"
@@ -31,36 +30,22 @@
 #include "object.h"
 #include "plugins.h"
 #include "program.h"
+#include "register_state.h"
 #include "serialize.h"
 #include "symbol.h"
+#include "thread.h"
 #include "util.h"
 #include "vector.h"
 
-static inline uint32_t drgn_thread_to_key(const struct drgn_thread *entry)
+DEFINE_VECTOR(drgn_prstatus_vector, struct drgn_prstatus);
+
+static inline uint32_t drgn_prstatus_to_key(struct drgn_prstatus * const *entry)
 {
-	return entry->tid;
+	return (*entry)->tid;
 }
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_thread_set, drgn_thread_to_key,
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_prstatus_table, drgn_prstatus_to_key,
 			    int_key_hash_pair, scalar_key_eq);
-
-struct drgn_thread_iterator {
-	struct drgn_program *prog;
-	union {
-		/* For userspace core dumps. */
-		struct drgn_thread_set_iterator iterator;
-		struct {
-			union {
-				/* For live processes. */
-				DIR *tasks_dir;
-				/* For the Linux kernel. */
-				struct linux_helper_task_iterator task_iter;
-			};
-			/* For both live processes and the Linux kernel. */
-			struct drgn_thread entry;
-		};
-	};
-};
 
 LIBDRGN_PUBLIC enum drgn_program_flags
 drgn_program_flags(struct drgn_program *prog)
@@ -136,6 +121,8 @@ void drgn_program_set_platform(struct drgn_program *prog,
 #define object_finder_only_one_enabled 0
 #define symbol_finder_only_one_enabled 0
 #define debug_info_finder_only_one_enabled 0
+#define thread_finder_only_one_enabled 1
+#define register_state_finder_only_one_enabled 0
 
 #define X(which)								\
 static void drgn_##which##_destroy(struct drgn_##which *handler)		\
@@ -268,7 +255,7 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_qmp_conn_init(&prog->qmp_conn);
 	if (platform)
 		drgn_program_set_platform(prog, platform);
-	drgn_thread_set_init(&prog->thread_set);
+	drgn_prstatus_table_init(&prog->prstatus_table);
 	drgn_program_set_log_level(prog, DRGN_LOG_NONE);
 	drgn_program_set_log_file(prog, stderr);
 	prog->default_progress_file = true;
@@ -277,16 +264,8 @@ void drgn_program_init(struct drgn_program *prog,
 
 void drgn_program_deinit(struct drgn_program *prog)
 {
-	drgn_thread_set_deinit(&prog->thread_set);
-	if (drgn_program_is_userspace_core(prog)) {
-		free(prog->core_dump_fname_cached);
-	} else {
-		// For userspace core dumps, main_thread and crashed_thread are
-		// in prog->thread_set and thus freed by the above call to
-		// drgn_thread_set_deinit().
-		drgn_thread_destroy(prog->crashed_thread);
-		drgn_thread_destroy(prog->main_thread);
-	}
+	drgn_prstatus_table_deinit(&prog->prstatus_table);
+	free(prog->prstatuses);
 	if (prog->pgtable_it)
 		prog->platform.arch->linux_kernel_pgtable_iterator_destroy(prog->pgtable_it);
 
@@ -365,6 +344,355 @@ has_kdump_signature(struct drgn_program *prog, const char *path, bool *ret)
 		*ret = true;
 	return NULL;
 }
+
+static struct drgn_error *drgn_cache_prpsinfo(struct drgn_program *prog,
+					      const char *data, size_t size)
+{
+	bool is_64_bit, bswap;
+	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
+	if (err)
+		return err;
+	err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+
+	size_t pid_offset = is_64_bit ? 24 : 12;
+	size_t fname_offset = is_64_bit ? 40 : 28;
+	static const size_t pr_fname_size = 16;
+
+	if (size < fname_offset + pr_fname_size) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "NT_PRPSINFO is truncated");
+	}
+
+	uint32_t pr_pid;
+	memcpy(&pr_pid, data + pid_offset, sizeof(pr_pid));
+	if (bswap)
+		pr_pid = bswap_32(pr_pid);
+	prog->prpsinfo.pid = pr_pid;
+
+	memcpy(prog->prpsinfo.fname, data + fname_offset, pr_fname_size);
+	// Ensure that our copy is null-terminated even if the source wasn't.
+	prog->prpsinfo.fname[pr_fname_size] = '\0';
+
+	prog->prpsinfo.found = true;
+	return NULL;
+}
+
+static struct drgn_error *get_prstatus_pid(struct drgn_program *prog, const char *data,
+					   size_t size, uint32_t *ret)
+{
+	bool is_64_bit, bswap;
+	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
+	if (err)
+		return err;
+	err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+
+	size_t offset = is_64_bit ? 32 : 24;
+	uint32_t pr_pid;
+	if (size < offset + sizeof(pr_pid)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "NT_PRSTATUS is truncated");
+	}
+	memcpy(&pr_pid, data + offset, sizeof(pr_pid));
+	if (bswap)
+		pr_pid = bswap_32(pr_pid);
+	*ret = pr_pid;
+	return NULL;
+}
+
+struct drgn_error *drgn_cache_prstatus(struct drgn_program *prog,
+				       struct drgn_prstatus_vector *prstatuses,
+				       const char *data, size_t size)
+{
+	uint32_t tid;
+	struct drgn_error *err = get_prstatus_pid(prog, data, size, &tid);
+	if (err)
+		return err;
+	struct drgn_prstatus *entry =
+		drgn_prstatus_vector_append_entry(prstatuses);
+	if (!entry)
+		return &drgn_enomem;
+	entry->tid = tid;
+	entry->data = data;
+	entry->size = size;
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_program_cache_core_dump_threads(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+	if (prog->core_dump_threads_cached)
+		return NULL;
+
+	assert(!(prog->flags & DRGN_PROGRAM_IS_LIVE));
+
+	VECTOR(drgn_prstatus_vector, prstatuses);
+#ifdef WITH_LIBKDUMPFILE
+	if (prog->kdump_ctx) {
+		err = drgn_program_cache_kdump_threads(prog, &prstatuses);
+		if (err)
+			goto err;
+		goto out;
+	}
+#endif
+	if (!prog->core) {
+		err = NULL;
+		goto out;
+	}
+	size_t phnum;
+	if (elf_getphdrnum(prog->core, &phnum) != 0) {
+		err = drgn_error_libelf();
+		goto err;
+	}
+	for (size_t i = 0; i < phnum; i++) {
+		GElf_Phdr phdr_mem, *phdr;
+		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
+		if (!phdr) {
+			err = drgn_error_libelf();
+			goto err;
+		}
+		if (phdr->p_type != PT_NOTE)
+			continue;
+
+		Elf_Data *data = elf_getdata_rawchunk(prog->core,
+						      phdr->p_offset,
+						      phdr->p_filesz,
+						      note_header_type(phdr->p_align));
+		if (!data) {
+			err = drgn_error_libelf();
+			goto err;
+		}
+
+		size_t offset = 0;
+		GElf_Nhdr nhdr;
+		size_t name_offset, desc_offset;
+		while (offset < data->d_size &&
+		       (offset = gelf_getnote(data, offset, &nhdr, &name_offset,
+					      &desc_offset))) {
+			const char *name;
+
+			name = (char *)data->d_buf + name_offset;
+			if (strncmp(name, "CORE", nhdr.n_namesz) != 0)
+				continue;
+
+			if (nhdr.n_type == NT_PRPSINFO) {
+				err = drgn_cache_prpsinfo(prog,
+							  (char *)data->d_buf + desc_offset,
+							  nhdr.n_descsz);
+				if (err)
+					goto err;
+			} else if (nhdr.n_type == NT_PRSTATUS) {
+				err = drgn_cache_prstatus(prog, &prstatuses,
+							  (char *)data->d_buf + desc_offset,
+							  nhdr.n_descsz);
+				if (err)
+					goto err;
+			}
+		}
+	}
+
+out:
+	drgn_prstatus_vector_shrink_to_fit(&prstatuses);
+	drgn_prstatus_vector_steal(&prstatuses, &prog->prstatuses,
+				   &prog->num_prstatuses);
+	for (size_t i = 0; i < prog->num_prstatuses; i++) {
+		struct drgn_prstatus *prstatus = &prog->prstatuses[i];
+		if (drgn_prstatus_table_insert(&prog->prstatus_table, &prstatus,
+					       NULL) < 0) {
+			err = &drgn_enomem;
+			goto err;
+		}
+	}
+
+	prog->core_dump_threads_cached = true;
+	return NULL;
+
+err:
+	prog->prpsinfo.found = false;
+	drgn_prstatus_table_deinit(&prog->prstatus_table);
+	drgn_prstatus_table_init(&prog->prstatus_table);
+	free(prog->prstatuses);
+	prog->prstatuses = NULL;
+	prog->num_prstatuses = 0;
+	return err;
+}
+
+static struct drgn_error *
+userspace_core_thread_iterator_create(void *arg,
+				     struct drgn_thread_cache *cache,
+				     void **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+	err = drgn_program_cache_core_dump_threads(prog);
+	if (err)
+		return err;
+	size_t *index = calloc(1, sizeof(*index));
+	if (!index)
+		return &drgn_enomem;
+	*ret = index;
+	return NULL;
+}
+
+static struct drgn_error *
+userspace_core_thread_create(struct drgn_thread_cache *cache,
+			     struct drgn_prstatus *prstatus,
+			     struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	bool new;
+	err = drgn_thread_cache_find_or_create(cache, prstatus->tid, 0, NULL,
+					       ret, &new);
+	if (!err && new)
+		drgn_thread_set_finder_data(*ret, prstatus);
+	return err;
+}
+
+static struct drgn_error *
+userspace_core_thread_iterator_next(void *arg, struct drgn_thread_cache *cache,
+				    void *it, struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+
+	size_t *index = it;
+	if (*index >= prog->num_prstatuses) {
+		*ret = NULL;
+		return NULL;
+	}
+	struct drgn_prstatus *prstatus = &prog->prstatuses[*index];
+
+	err = userspace_core_thread_create(cache, prstatus, ret);
+	if (!err)
+		(*index)++;
+	return err;
+}
+
+static struct drgn_error *
+userspace_core_find_thread(void *arg, struct drgn_thread_cache *cache,
+			   uint32_t tid, struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+	err = drgn_program_cache_core_dump_threads(prog);
+	if (err)
+		return err;
+
+	struct drgn_prstatus_table_iterator it =
+		drgn_prstatus_table_search(&prog->prstatus_table, &tid);
+	if (!it.entry) {
+		*ret = NULL;
+		return NULL;
+	}
+	return userspace_core_thread_create(cache, *it.entry, ret);
+}
+
+static struct drgn_error *
+userspace_core_main_thread(void *arg, struct drgn_thread_cache *cache,
+			   struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+	err = drgn_program_cache_core_dump_threads(prog);
+	if (err)
+		return err;
+
+	if (!prog->prpsinfo.found) {
+		*ret = NULL;
+		return NULL;
+	}
+
+	return userspace_core_find_thread(arg, cache, prog->prpsinfo.pid, ret);
+}
+
+static struct drgn_error *
+userspace_core_crashed_thread(void *arg, struct drgn_thread_cache *cache,
+			      struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+	err = drgn_program_cache_core_dump_threads(prog);
+	if (err)
+		return err;
+
+	// The first PRSTATUS note is the crashed thread. See
+	// fs/binfmt_elf.c:fill_note_info in the Linux kernel and
+	// bfd/elf.c:elfcore_grok_prstatus in BFD.
+	if (prog->num_prstatuses == 0) {
+		*ret = NULL;
+		return NULL;
+	}
+	return userspace_core_thread_create(cache, &prog->prstatuses[0], ret);
+}
+
+static struct drgn_error *
+userspace_core_thread_name(void *arg, struct drgn_thread *thread, char **ret)
+{
+	struct drgn_program *prog = drgn_thread_program(thread);
+
+	if (!prog->prpsinfo.found) {
+		*ret = NULL;
+		return NULL;
+	}
+
+	// Core dumps only contain the main thread name.
+	if (drgn_thread_tid(thread) != prog->prpsinfo.pid) {
+		*ret = NULL;
+		return NULL;
+	}
+
+	char *name = strdup(prog->prpsinfo.fname);
+	if (!name)
+		return &drgn_enomem;
+	*ret = name;
+	return NULL;
+}
+
+static const struct drgn_thread_finder_ops userspace_core_thread_finder_ops = {
+	.iterator_create = userspace_core_thread_iterator_create,
+	.iterator_destroy = free,
+	.iterator_next = userspace_core_thread_iterator_next,
+	.find_thread = userspace_core_find_thread,
+	.main_thread = userspace_core_main_thread,
+	.crashed_thread = userspace_core_crashed_thread,
+	.thread_name = userspace_core_thread_name,
+};
+
+static struct drgn_error *
+userspace_core_thread_register_state(void *arg, struct drgn_thread *thread,
+				     struct drgn_register_state **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_program(thread);
+
+	// If the thread came from our corresponding thread finder, then we can
+	// use the saved prstatus. Otherwise, we have to find it.
+	const struct drgn_prstatus *prstatus;
+	if (thread->finder->ops.find_thread == userspace_core_find_thread) {
+		prstatus = drgn_thread_get_finder_data(thread);
+	} else {
+		err = drgn_program_find_prstatus(prog, drgn_thread_tid(thread),
+						 &prstatus);
+		if (err)
+			return err;
+		if (!prstatus) {
+			*ret = NULL;
+			return NULL;
+		}
+	}
+	return drgn_register_state_from_prstatus(prog, prstatus->data,
+						 prstatus->size, ret);
+}
+
+static const struct drgn_register_state_finder_ops
+userspace_core_register_state_finder_ops = {
+	.thread_register_state = userspace_core_thread_register_state,
+};
 
 static struct drgn_error *
 drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
@@ -711,6 +1039,22 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 		err = drgn_program_finish_set_kernel(prog);
 		if (err)
 			goto out_segments;
+	} else {
+		err = drgn_program_register_thread_finder(prog, "elf_core",
+			&userspace_core_thread_finder_ops,
+			sizeof(userspace_core_thread_finder_ops), NULL,
+			drgn_handler_list_has_enabled(&prog->thread_finders)
+			? DRGN_HANDLER_REGISTER_DONT_ENABLE : 0);
+		if (err)
+			goto out_segments;
+		err = drgn_program_register_register_state_finder(prog, "elf_core",
+			&userspace_core_register_state_finder_ops,
+			sizeof(userspace_core_register_state_finder_ops),
+			NULL, 0);
+		if (err) {
+			drgn_program_unregister_thread_finder(prog, "elf_core");
+			goto out_segments;
+		}
 	}
 
 	drgn_call_plugins_prog("drgn_prog_set", prog);
@@ -838,6 +1182,135 @@ out_vmcoreinfo:
 	return err;
 }
 
+static struct drgn_error *
+userspace_process_thread_iterator_create(void *arg,
+					struct drgn_thread_cache *cache,
+					void **ret)
+{
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+#define FORMAT "/proc/%ld/task"
+	char path[sizeof(FORMAT)
+		- sizeof("%ld")
+		+ max_decimal_length(long)
+		+ 1];
+	snprintf(path, sizeof(path), FORMAT, (long)prog->pid);
+#undef FORMAT
+	DIR *dir = opendir(path);
+	if (!dir)
+		return drgn_error_create_os("opendir", errno, path);
+	*ret = dir;
+	return NULL;
+}
+
+static void userspace_process_thread_iterator_destroy(void *it)
+{
+	closedir(it);
+}
+
+static struct drgn_error *
+userspace_process_thread_iterator_next(void *arg,
+				       struct drgn_thread_cache *cache,
+				       void *it,
+				       struct drgn_thread **ret)
+{
+	DIR *dir = it;
+	unsigned long tid;
+	char *end;
+	do {
+		errno = 0;
+		struct dirent *task = readdir(dir);
+		if (!task) {
+			if (errno) {
+				return drgn_error_create_os("readdir", errno,
+							    NULL);
+			}
+			*ret = NULL;
+			return NULL;
+		}
+
+		errno = 0;
+		tid = strtoul(task->d_name, &end, 10);
+		// Skip anything that isn't a number (like "." and "..") or
+		// overflows (which is impossible normally).
+	} while (*end != '\0'
+		 || tid > UINT32_MAX
+		 || (tid == ULONG_MAX && errno == ERANGE));
+
+	return drgn_thread_cache_find_or_create(cache, tid, 0, NULL, ret, NULL);
+}
+
+static struct drgn_error *
+userspace_process_find_thread(void *arg, struct drgn_thread_cache *cache,
+			      uint32_t tid, struct drgn_thread **ret)
+{
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+#define FORMAT "/proc/%ld/task/%" PRIu32
+	char path[sizeof(FORMAT)
+		  - sizeof("%ld%" PRIu32)
+		  + max_decimal_length(long)
+		  + max_decimal_length(uint32_t)
+		  + 1];
+	snprintf(path, sizeof(path), FORMAT, (long)prog->pid, tid);
+#undef FORMAT
+	int r = access(path, F_OK);
+	if (r == 0) {
+		return drgn_thread_cache_find_or_create(cache, tid, 0, NULL,
+							ret, NULL);
+	} else if (errno == ENOENT) {
+		*ret = NULL;
+		return NULL;
+	} else {
+		return drgn_error_create_os("access", errno, path);
+	}
+}
+
+static struct drgn_error *
+userspace_process_main_thread(void *arg, struct drgn_thread_cache *cache,
+			      struct drgn_thread **ret)
+{
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+	return userspace_process_find_thread(arg, cache, prog->pid, ret);
+}
+
+static struct drgn_error *
+userspace_process_thread_name(void *arg, struct drgn_thread *thread, char **ret)
+{
+#define FORMAT "/proc/%" PRIu32 "/comm"
+	char path[sizeof(FORMAT)
+		  - sizeof("%" PRIu32)
+		  + max_decimal_length(uint32_t)
+		  + 1];
+	snprintf(path, sizeof(path), FORMAT, drgn_thread_tid(thread));
+#undef FORMAT
+
+	_cleanup_close_ int fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return drgn_error_create_os("open", errno, path);
+	// While userspace threads use 16 byte buffer, kernel threads use a 64 byte buffer
+	// https://github.com/torvalds/linux/blob/075dbe9f6e3c21596c5245826a4ee1f1c1676eb8/fs/proc/array.c#L101
+	char buf[64];
+	ssize_t bytes_read = read_all(fd, buf, sizeof(buf));
+	if (bytes_read < 0)
+		return drgn_error_create_os("read", errno, path);
+
+	if (bytes_read > 0 && buf[bytes_read - 1] == '\n')
+		bytes_read--;
+	char *tmp = strndup(buf, bytes_read);
+	if (!tmp)
+		return &drgn_enomem;
+	*ret = tmp;
+	return NULL;
+}
+
+static const struct drgn_thread_finder_ops userspace_process_thread_finder_ops = {
+	.iterator_create = userspace_process_thread_iterator_create,
+	.iterator_destroy = userspace_process_thread_iterator_destroy,
+	.iterator_next = userspace_process_thread_iterator_next,
+	.find_thread = userspace_process_find_thread,
+	.main_thread = userspace_process_main_thread,
+	.thread_name = userspace_process_thread_name,
+};
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 {
@@ -871,6 +1344,14 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
 					      drgn_read_memory_file,
 					      prog->file_segments, false);
+	if (err)
+		goto out_segments;
+
+	err = drgn_program_register_thread_finder(prog, "proc",
+			&userspace_process_thread_finder_ops,
+			sizeof(userspace_process_thread_finder_ops), NULL,
+			drgn_handler_list_has_enabled(&prog->thread_finders)
+			? DRGN_HANDLER_REGISTER_DONT_ENABLE : 0);
 	if (err)
 		goto out_segments;
 
@@ -994,802 +1475,20 @@ struct drgn_error *drgn_program_cache_auxv(struct drgn_program *prog)
 	return NULL;
 }
 
-static struct drgn_error *get_prstatus_pid(struct drgn_program *prog, const char *data,
-					   size_t size, uint32_t *ret)
-{
-	bool is_64_bit, bswap;
-	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
-	if (err)
-		return err;
-	err = drgn_program_bswap(prog, &bswap);
-	if (err)
-		return err;
-
-	size_t offset = is_64_bit ? 32 : 24;
-	uint32_t pr_pid;
-	if (size < offset + sizeof(pr_pid)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "NT_PRSTATUS is truncated");
-	}
-	memcpy(&pr_pid, data + offset, sizeof(pr_pid));
-	if (bswap)
-		pr_pid = bswap_32(pr_pid);
-	*ret = pr_pid;
-	return NULL;
-}
-
-static struct drgn_error *get_prpsinfo_pid(struct drgn_program *prog,
-					   const char *data, size_t size,
-					   uint32_t *ret)
-{
-	bool is_64_bit, bswap;
-	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
-	if (err)
-		return err;
-	err = drgn_program_bswap(prog, &bswap);
-	if (err)
-		return err;
-
-	size_t offset = is_64_bit ? 24 : 12;
-	uint32_t pr_pid;
-	if (size < offset + sizeof(pr_pid)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "NT_PRPSINFO is truncated");
-	}
-	memcpy(&pr_pid, data + offset, sizeof(pr_pid));
-	if (bswap)
-		pr_pid = bswap_32(pr_pid);
-	*ret = pr_pid;
-	return NULL;
-}
-
-static struct drgn_error *get_prpsinfo_fname(struct drgn_program *prog,
-					   const char *data, size_t size,
-					   char **ret)
-{
-	bool is_64_bit;
-	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
-	if (err)
-		return err;
-	size_t offset = is_64_bit ? 40 : 28;
-	// pr_fname is defined as 16 byte buffer in elf_prpsinfo
-	// https://github.com/torvalds/linux/blob/075dbe9f6e3c21596c5245826a4ee1f1c1676eb8/include/linux/elfcore.h#L73
-#define PR_FNAME_LEN 16
-	if (size < offset + PR_FNAME_LEN) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "NT_PRPSINFO is truncated");
-	}
-	char *tmp = strndup(data + offset, PR_FNAME_LEN);
-#undef PR_FNAME_LEN
-	if (!tmp)
-		return &drgn_enomem;
-	*ret = tmp;
-	return NULL;
-}
-
-struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
-					    struct drgn_thread *ret)
-{
-	struct drgn_error *err = NULL;
-	ret->prog = thread->prog;
-	ret->tid = thread->tid;
-	/* Don't need a deep copy here since the PRSTATUS notes are cached. */
-	ret->prstatus = thread->prstatus;
-	if (thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		drgn_object_init(&ret->object, thread->prog);
-		err = drgn_object_copy(&ret->object, &thread->object);
-		if (err)
-			drgn_object_deinit(&ret->object);
-	}
-	return err;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_thread_dup(const struct drgn_thread *thread, struct drgn_thread **ret)
-{
-	if (drgn_program_is_userspace_core(thread->prog)) {
-		/*
-		 * For userspace core dumps, all threads are cached and
-		 * immutable, so we can return the same handle.
-		 */
-		*ret = (struct drgn_thread *)thread;
-		return NULL;
-	}
-
-	*ret = malloc(sizeof(**ret));
-	if (!*ret)
-		return &drgn_enomem;
-	struct drgn_error *err = drgn_thread_dup_internal(thread, *ret);
-	if (err)
-		free(*ret);
-	return err;
-}
-
-void drgn_thread_deinit(struct drgn_thread *thread) {
-	if (thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		drgn_object_deinit(&thread->object);
-}
-
-LIBDRGN_PUBLIC void drgn_thread_destroy(struct drgn_thread *thread)
-{
-	if (thread) {
-		drgn_thread_deinit(thread);
-		if (!drgn_program_is_userspace_core(thread->prog))
-			free(thread);
-	}
-}
-
-struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
-						     const char *data,
-						     size_t size, uint32_t *ret)
-{
-	struct drgn_thread thread = {
-		.prog = prog,
-		.prstatus = { data, size },
-	};
-	struct drgn_error *err = get_prstatus_pid(prog, data, size,
-						  &thread.tid);
-	if (err)
-		return err;
-	*ret = thread.tid;
-	if (drgn_thread_set_insert(&prog->thread_set, &thread, NULL) == -1)
-		return &drgn_enomem;
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_program_cache_core_dump_threads(struct drgn_program *prog)
-{
-	struct drgn_error *err;
-	size_t phnum, i;
-	bool found_prstatus = false;
-	uint32_t first_prstatus_tid;
-	bool found_prpsinfo = false;
-	uint32_t prpsinfo_pid;
-	_cleanup_free_ char *prpsinfo_fname = NULL;
-
-	if (prog->core_dump_threads_cached)
-		return NULL;
-
-	assert(!(prog->flags & DRGN_PROGRAM_IS_LIVE));
-
-#ifdef WITH_LIBKDUMPFILE
-	if (prog->kdump_ctx) {
-		err = drgn_program_cache_kdump_threads(prog);
-		if (err)
-			goto err;
-		goto out;
-	}
-#endif
-	if (!prog->core) {
-		err = NULL;
-		goto out;
-	}
-	if (elf_getphdrnum(prog->core, &phnum) != 0) {
-		err = drgn_error_libelf();
-		goto err;
-	}
-	for (i = 0; i < phnum; i++) {
-		GElf_Phdr phdr_mem, *phdr;
-		Elf_Data *data;
-		size_t offset;
-		GElf_Nhdr nhdr;
-		size_t name_offset, desc_offset;
-
-		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
-		if (!phdr) {
-			err = drgn_error_libelf();
-			goto err;
-		}
-		if (phdr->p_type != PT_NOTE)
-			continue;
-
-		data = elf_getdata_rawchunk(prog->core, phdr->p_offset,
-					    phdr->p_filesz,
-					    note_header_type(phdr->p_align));
-		if (!data) {
-			err = drgn_error_libelf();
-			goto err;
-		}
-
-		offset = 0;
-		while (offset < data->d_size &&
-		       (offset = gelf_getnote(data, offset, &nhdr, &name_offset,
-					      &desc_offset))) {
-			const char *name;
-
-			name = (char *)data->d_buf + name_offset;
-			if (strncmp(name, "CORE", nhdr.n_namesz) != 0)
-				continue;
-
-			if (nhdr.n_type == NT_PRPSINFO) {
-				err = get_prpsinfo_pid(prog,
-						       (char *)data->d_buf + desc_offset,
-						       nhdr.n_descsz,
-						       &prpsinfo_pid);
-				if (err)
-					goto err;
-				err = get_prpsinfo_fname(prog,
-						       (char *)data->d_buf + desc_offset,
-						       nhdr.n_descsz,
-						       &prpsinfo_fname);
-				if (err)
-					goto err;
-				found_prpsinfo = true;
-			} else if (nhdr.n_type == NT_PRSTATUS) {
-				uint32_t tid;
-				err = drgn_program_cache_prstatus_entry(prog,
-						(char *)data->d_buf + desc_offset,
-						nhdr.n_descsz,
-						&tid);
-				if (err)
-					goto err;
-				/*
-				 * The first PRSTATUS note is the crashed thread. See
-				 * fs/binfmt_elf.c:fill_note_info in the Linux kernel
-				 * and bfd/elf.c:elfcore_grok_prstatus in BFD.
-				 */
-				if (!found_prstatus) {
-					found_prstatus = true;
-					first_prstatus_tid = tid;
-				}
-			}
-		}
-	}
-
-out:
-	prog->core_dump_threads_cached = true;
-	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-		if (found_prpsinfo) {
-			struct drgn_thread_set_iterator it =
-				drgn_thread_set_search(&prog->thread_set,
-						       &prpsinfo_pid);
-			/* If the PID isn't found, then this is NULL. */
-			prog->main_thread = it.entry;
-			prog->core_dump_fname_cached = no_cleanup_ptr(prpsinfo_fname);
-		}
-		if (found_prstatus) {
-			/*
-			 * Now that thread_set won't be modified, look up the crashed
-			 * thread entry.
-			 */
-			struct drgn_thread_set_iterator it =
-				drgn_thread_set_search(&prog->thread_set,
-						       &first_prstatus_tid);
-			assert(it.entry);
-			prog->crashed_thread = it.entry;
-		}
-	}
-	return NULL;
-
-err:
-	drgn_thread_set_deinit(&prog->thread_set);
-	drgn_thread_set_init(&prog->thread_set);
-	return err;
-}
-
-static struct drgn_error *
-drgn_thread_iterator_init_linux_kernel(struct drgn_thread_iterator *it)
-{
-	struct drgn_error *err = linux_helper_task_iterator_init(&it->task_iter,
-								 it->prog);
-	if (err)
-		return err;
-	drgn_object_init(&it->entry.object, it->prog);
-	it->entry.prstatus = (struct nstring){};
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_thread_iterator_init_userspace_process(struct drgn_thread_iterator *it)
-{
-#define FORMAT "/proc/%ld/task"
-	char path[sizeof(FORMAT)
-		- sizeof("%ld")
-		+ max_decimal_length(long)
-		+ 1];
-	snprintf(path, sizeof(path), FORMAT, (long)it->prog->pid);
-#undef FORMAT
-	it->tasks_dir = opendir(path);
-	if (!it->tasks_dir)
-		return drgn_error_create_os("opendir", errno, path);
-	it->entry.prog = it->prog;
-	it->entry.prstatus = (struct nstring){};
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_thread_iterator_init_userspace_core(struct drgn_thread_iterator *it)
-{
-	struct drgn_error *err = drgn_program_cache_core_dump_threads(it->prog);
-	if (err)
-		return err;
-	it->iterator = drgn_thread_set_first(&it->prog->thread_set);
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_thread_iterator_create(struct drgn_program *prog,
-			    struct drgn_thread_iterator **ret)
-{
-	struct drgn_error *err;
-
-	*ret = malloc(sizeof(**ret));
-	if (!*ret)
-		return &drgn_enomem;
-	(*ret)->prog = prog;
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		err = drgn_thread_iterator_init_linux_kernel(*ret);
-	else if (drgn_program_is_userspace_process(prog))
-		err = drgn_thread_iterator_init_userspace_process(*ret);
-	else if (drgn_program_is_userspace_core(prog))
-		err = drgn_thread_iterator_init_userspace_core(*ret);
-	else
-		err = NULL;
-	if (err)
-		free(*ret);
-	return err;
-}
-
-LIBDRGN_PUBLIC void
-drgn_thread_iterator_destroy(struct drgn_thread_iterator *it)
-{
-	if (it) {
-		if (it->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-			drgn_object_deinit(&it->entry.object);
-			linux_helper_task_iterator_deinit(&it->task_iter);
-		} else if (drgn_program_is_userspace_process(it->prog)) {
-			closedir(it->tasks_dir);
-		}
-		free(it);
-	}
-}
-
-static struct drgn_error *
-drgn_thread_iterator_next_linux_kernel(struct drgn_thread_iterator *it,
-				       struct drgn_thread **ret)
-{
-	struct drgn_error *err;
-	err = linux_helper_task_iterator_next(&it->task_iter,
-					      &it->entry.object);
-	if (err == &drgn_stop) {
-		*ret = NULL;
-		return NULL;
-	} else if (err) {
-		return err;
-	}
-	it->entry.prog = drgn_object_program(&it->entry.object);
-	union drgn_value tid_value;
-	DRGN_OBJECT(tid, drgn_object_program(&it->entry.object));
-	err = drgn_object_member_dereference(&tid, &it->entry.object, "pid");
-	if (!err)
-		err = drgn_object_read_integer(&tid, &tid_value);
-	if (err)
-		return err;
-	it->entry.tid = tid_value.uvalue;
-	*ret = &it->entry;
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_thread_iterator_next_userspace_process(struct drgn_thread_iterator *it,
-					    struct drgn_thread **ret)
-{
-	struct dirent *task;
-	unsigned long tid;
-	char *end;
-	do {
-		errno = 0;
-		task = readdir(it->tasks_dir);
-		if (!task) {
-			if (errno) {
-				return drgn_error_create_os("readdir", errno,
-							    NULL);
-			}
-			*ret = NULL;
-			return NULL;
-		}
-
-		errno = 0;
-		tid = strtoul(task->d_name, &end, 10);
-		/*
-		 * Skip anything that isn't a number (like "." and "..") or
-		 * overflows (which is impossible normally).
-		 */
-	} while (*end != '\0' || (tid == ULONG_MAX && errno == ERANGE));
-	it->entry.tid = tid;
-	*ret = &it->entry;
-	return NULL;
-}
-
-static void
-drgn_thread_iterator_next_userspace_core(struct drgn_thread_iterator *it,
-					 struct drgn_thread **ret)
-{
-	*ret = it->iterator.entry;
-	if (it->iterator.entry)
-		it->iterator = drgn_thread_set_next(it->iterator);
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_thread_iterator_next(struct drgn_thread_iterator *it,
-			  struct drgn_thread **ret)
-{
-	if (it->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		return drgn_thread_iterator_next_linux_kernel(it, ret);
-	} else if (drgn_program_is_userspace_process(it->prog)) {
-		return drgn_thread_iterator_next_userspace_process(it, ret);
-	} else if (drgn_program_is_userspace_core(it->prog)) {
-		drgn_thread_iterator_next_userspace_core(it, ret);
-		return NULL;
-	} else {
-		*ret = NULL;
-		return NULL;
-	}
-}
-
-static struct drgn_error *
-drgn_program_find_thread_linux_kernel(struct drgn_program *prog, uint32_t tid,
-				      struct drgn_thread **ret)
-{
-	struct drgn_error *err;
-
-	*ret = malloc(sizeof(**ret));
-	if (!*ret)
-		return &drgn_enomem;
-	(*ret)->prog = prog;
-	(*ret)->tid = tid;
-	(*ret)->prstatus = (struct nstring){};
-
-	struct drgn_object *object = &(*ret)->object;
-	drgn_object_init(object, prog);
-	err = drgn_program_find_object(prog, "init_pid_ns", NULL,
-				       DRGN_FIND_OBJECT_VARIABLE, object);
-	if (err)
-		goto err;
-	err = drgn_object_address_of(object, object);
-	if (err)
-		goto err;
-	err = linux_helper_find_task(object, object, tid);
-	if (err)
-		goto err;
-	bool truthy;
-	err = drgn_object_bool(object, &truthy);
-	if (err)
-		goto err;
-	if (!truthy) {
-		drgn_thread_destroy(*ret);
-		*ret = NULL;
-	}
-	return NULL;
-
-err:
-	drgn_thread_destroy(*ret);
-	return err;
-}
-
-static struct drgn_error *
-drgn_program_find_thread_userspace_process(struct drgn_program *prog,
-					   uint32_t tid,
-					   struct drgn_thread **ret)
-{
-#define FORMAT "/proc/%ld/task/%" PRIu32
-	char path[sizeof(FORMAT)
-		- sizeof("%ld%" PRIu32)
-		+ max_decimal_length(long)
-		+ max_decimal_length(uint32_t)
-		+ 1];
-	snprintf(path, sizeof(path), FORMAT, (long)prog->pid, tid);
-#undef FORMAT
-	int r = access(path, F_OK);
-	if (r == 0) {
-		*ret = malloc(sizeof(**ret));
-		if (!*ret)
-			return &drgn_enomem;
-		(*ret)->prog = prog;
-		(*ret)->tid = tid;
-		(*ret)->prstatus = (struct nstring){};
-		return NULL;
-	} else if (errno == ENOENT) {
-		*ret = NULL;
-		return NULL;
-	} else {
-		return drgn_error_create_os("access", errno, path);
-	}
-}
-
-static struct drgn_error *
-drgn_program_find_thread_userspace_core(struct drgn_program *prog, uint32_t tid,
-					struct drgn_thread **ret)
-{
-	struct drgn_error *err = drgn_program_cache_core_dump_threads(prog);
-	if (err)
-		return err;
-	*ret = drgn_thread_set_search(&prog->thread_set, &tid).entry;
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_find_thread(struct drgn_program *prog, uint32_t tid,
-			 struct drgn_thread **ret)
-{
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		return drgn_program_find_thread_linux_kernel(prog, tid, ret);
-	} else if (drgn_program_is_userspace_process(prog)) {
-		return drgn_program_find_thread_userspace_process(prog, tid,
-								  ret);
-	} else if (drgn_program_is_userspace_core(prog)) {
-		return drgn_program_find_thread_userspace_core(prog, tid, ret);
-	} else {
-		*ret = NULL;
-		return NULL;
-	}
-}
-
-// Get the CPU that crashed in a Linux kernel core dump.
-static struct drgn_error *
-drgn_program_kernel_get_crashed_cpu(struct drgn_program *prog, uint64_t *ret)
-{
-	struct drgn_error *err;
-	DRGN_OBJECT(cpu, prog);
-	union drgn_value cpu_value;
-
-	// Since Linux kernel commit 1717f2096b54 ("panic, x86: Fix re-entrance
-	// problem due to panic on NMI") (in v4.5), the crashed CPU is stored in
-	// an atomic_t panic_cpu on all architectures.
-	err = drgn_program_find_object(prog, "panic_cpu", NULL,
-				       DRGN_FIND_OBJECT_VARIABLE, &cpu);
-	if (!err) {
-		err = drgn_object_member(&cpu, &cpu, "counter");
-		if (err)
-			return err;
-		err = drgn_object_read_integer(&cpu, &cpu_value);
-		if (err)
-			return err;
-		if (cpu_value.svalue == -1) {
-			return drgn_error_create(DRGN_ERROR_LOOKUP,
-						 "panic_cpu is not set");
-		}
-		*ret = cpu_value.uvalue;
-	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
-		// On x86 and x86-64 only, the crashed CPU is also in an int
-		// crashing_cpu. Use this as a fallback for kernels before
-		// commit 1717f2096b54 ("panic, x86: Fix re-entrance problem due
-		// to panic on NMI") (in v4.5).
-		err = drgn_program_find_object(prog, "crashing_cpu", NULL,
-					       DRGN_FIND_OBJECT_VARIABLE, &cpu);
-		if (!err) {
-			err = drgn_object_read_integer(&cpu, &cpu_value);
-			if (err)
-				return err;
-			// Since Linux kernel commit 5bc329503e81 ("x86/mce:
-			// Handle broadcasted MCE gracefully with kexec") (in
-			// v4.12), crashing_cpu is defined in !SMP kernels, but
-			// it's always -1.
-			if (cpu_value.svalue == -1)
-				*ret = 0;
-			else
-				*ret = cpu_value.uvalue;
-		} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
-			// Before Linux kernel commit 5bc329503e81 ("x86/mce:
-			// Handle broadcasted MCE gracefully with kexec") (in
-			// v4.12), crashing_cpu is only defined in SMP kernels.
-			*ret = 0;
-		}
-	}
-	return err;
-}
-
-static struct drgn_error *
-drgn_program_find_thread_kernel_cpu_curr(struct drgn_program *prog,
-					 uint64_t cpu,
-					 struct drgn_thread **ret)
-{
-	struct drgn_error *err;
-	struct drgn_thread *thread = malloc(sizeof(*thread));
-	if (!thread)
-		return &drgn_enomem;
-	thread->prog = prog;
-
-	DRGN_OBJECT(tmp, prog);
-	drgn_object_init(&thread->object, prog);
-
-	err = linux_helper_cpu_curr(&thread->object, cpu);
-	if (err)
-		goto out;
-
-	err = drgn_object_member_dereference(&tmp, &thread->object, "pid");
-	if (err)
-		goto out;
-	union drgn_value tid;
-	err = drgn_object_read_integer(&tmp, &tid);
-	if (err)
-		goto out;
-	thread->tid = tid.uvalue;
-	thread->prstatus = (struct nstring){};
-
-	*ret = thread;
-
-out:
-	if (err) {
-		drgn_object_deinit(&thread->object);
-		free(thread);
-	}
-	return err;
-}
-
-static struct drgn_error *
-drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
-{
-	struct drgn_error *err;
-
-	assert((prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
-	       !(prog->flags & DRGN_PROGRAM_IS_LIVE));
-	if (prog->crashed_thread)
-		return NULL;
-
-	uint64_t crashed_cpu;
-	err = drgn_program_kernel_get_crashed_cpu(prog, &crashed_cpu);
-	if (err)
-		return err;
-
-	err = drgn_program_find_thread_kernel_cpu_curr(prog, crashed_cpu,
-						       &prog->crashed_thread);
-	if (err) {
-		prog->crashed_thread = NULL;
-		return err;
-	}
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_main_thread(struct drgn_program *prog, struct drgn_thread **ret)
-{
-	struct drgn_error *err;
-
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "main thread is not defined for the Linux kernel");
-	}
-	if (drgn_program_is_userspace_process(prog)) {
-		if (!prog->main_thread) {
-			err = drgn_program_find_thread(prog, prog->pid,
-						       &prog->main_thread);
-			if (err) {
-				prog->main_thread = NULL;
-				return err;
-			}
-		}
-	} else if (drgn_program_is_userspace_core(prog)) {
-		err = drgn_program_cache_core_dump_threads(prog);
-		if (err)
-			return err;
-	}
-	*ret = prog->main_thread;
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_crashed_thread(struct drgn_program *prog, struct drgn_thread **ret)
-{
-	struct drgn_error *err;
-
-	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "crashed thread is only defined for core dumps");
-	}
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		err = drgn_program_kernel_core_dump_cache_crashed_thread(prog);
-	else if (drgn_program_is_userspace_core(prog))
-		err = drgn_program_cache_core_dump_threads(prog);
-	else
-		err = NULL;
-	if (err)
-		return err;
-	*ret = prog->crashed_thread;
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_thread_object(struct drgn_thread *thread, const struct drgn_object **ret)
-{
-	if (!(thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "thread object is currently only defined for the Linux kernel");
-	}
-	*ret = &thread->object;
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_thread_name_linux_kernel(struct drgn_thread *thread, char **ret)
-{
-	struct drgn_error *err;
-	DRGN_OBJECT(comm, drgn_object_program(&thread->object));
-	err = drgn_object_member_dereference(&comm, &thread->object, "comm");
-	if (!err)
-		err = drgn_object_read_c_string(&comm, ret);
-	return err;
-}
-
-static struct drgn_error *
-drgn_thread_name_userspace_process(struct drgn_thread *thread, char **ret)
-{
-#define FORMAT "/proc/%" PRIu32 "/comm"
-	char path[sizeof(FORMAT)
-		- sizeof("%" PRIu32)
-		+ max_decimal_length(uint32_t)
-		+ 1];
-	snprintf(path, sizeof(path), FORMAT, thread->tid);
-#undef FORMAT
-	_cleanup_close_ int fd = open(path, O_RDONLY);
-	if (fd < 0)
-		return drgn_error_create_os("open", errno, path);
-	// While userspace threads use 16 byte buffer, kernel threads use a 64 byte buffer
-	// https://github.com/torvalds/linux/blob/075dbe9f6e3c21596c5245826a4ee1f1c1676eb8/fs/proc/array.c#L101
-	char buf[64];
-	ssize_t bytes_read = read_all(fd, buf, sizeof(buf));
-	if (bytes_read < 0)
-		return drgn_error_create_os("read", errno, path);
-
-	if (bytes_read > 0 && buf[bytes_read - 1] == '\n')
-		bytes_read--;
-	char *tmp = strndup(buf, bytes_read);
-	if (!tmp)
-		return &drgn_enomem;
-	*ret = tmp;
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_thread_name_userspace_core(struct drgn_thread *thread, char **ret)
-{
-	struct drgn_error *err = drgn_program_cache_core_dump_threads(thread->prog);
-	if (err)
-		return err;
-	// Core dumps only contain the main thread name so check if this is the main thread.
-	// Otherwise, set ret to NULL which will return None in Python.
-	bool is_main_thread = thread->prog->main_thread && thread->prog->main_thread->tid == thread->tid;
-	if (is_main_thread && thread->prog->core_dump_fname_cached) {
-		char *tmp = strdup(thread->prog->core_dump_fname_cached);
-		if (!tmp)
-			return &drgn_enomem;
-		*ret = tmp;
-	} else {
-		*ret = NULL;
-	}
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_thread_name(struct drgn_thread *thread, char **ret)
-{
-	if (thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		return drgn_thread_name_linux_kernel(thread, ret);
-	} else if (drgn_program_is_userspace_process(thread->prog)) {
-		return drgn_thread_name_userspace_process(thread, ret);
-	} else if (drgn_program_is_userspace_core(thread->prog)) {
-		return drgn_thread_name_userspace_core(thread, ret);
-	} else {
-		*ret = NULL;
-		return NULL;
-	}
-}
-
 struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
-					      uint32_t tid, struct nstring *ret)
+					      uint32_t tid,
+					      const struct drgn_prstatus **ret)
 {
 	struct drgn_error *err = drgn_program_cache_core_dump_threads(prog);
 	if (err)
 		return err;
-	struct drgn_thread *thread =
-		drgn_thread_set_search(&prog->thread_set, &tid).entry;
-	if (!thread) {
-		ret->str = NULL;
-		ret->len = 0;
+	struct drgn_prstatus_table_iterator it =
+		drgn_prstatus_table_search(&prog->prstatus_table, &tid);
+	if (!it.entry) {
+		*ret = NULL;
 		return NULL;
 	}
-	*ret = thread->prstatus;
+	*ret = *it.entry;
 	return NULL;
 }
 

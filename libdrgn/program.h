@@ -31,7 +31,10 @@
 #include "vector.h"
 
 struct drgn_object_finder;
+struct drgn_prstatus_vector;
+struct drgn_register_state_finder;
 struct drgn_symbol_finder;
+struct drgn_thread_finder;
 
 /**
  * @defgroup Internals Internals
@@ -47,15 +50,18 @@ struct drgn_symbol_finder;
  * @{
  */
 
-struct drgn_thread {
-	struct drgn_program *prog;
-	uint32_t tid;
-	struct nstring prstatus;
-	struct drgn_object object;
-};
-
 DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *);
-DEFINE_HASH_TABLE_TYPE(drgn_thread_set, struct drgn_thread);
+DEFINE_HASH_TABLE_TYPE(drgn_prstatus_table, struct drgn_prstatus *);
+
+struct drgn_prpsinfo {
+	uint32_t pid;
+	// struct elf_prpsinfo::pr_fname is 16 bytes:
+	// https://github.com/torvalds/linux/blob/075dbe9f6e3c21596c5245826a4ee1f1c1676eb8/include/linux/elfcore.h#L73
+	// But some producers (e.g., gcore(1) from GDB) truncate longer names
+	// without null-terminating, so we need an extra byte for the null.
+	char fname[17];
+	bool found;
+};
 
 #define SEARCH_MEMORY_UINT_SIZES X(16) X(32) X(64)
 
@@ -136,15 +142,16 @@ struct drgn_program {
 	/*
 	 * Threads/stack traces.
 	 */
-	/*
-	 * Threads indexed by TID.
-	 *
-	 * For the Linux kernel, this is only used to index @c PRSTATUS notes.
-	 * See @ref drgn_program_find_prstatus().
-	 */
-	struct drgn_thread_set thread_set;
-	struct drgn_thread *main_thread;
-	struct drgn_thread *crashed_thread;
+	struct drgn_handler_list thread_finders;
+	struct drgn_handler_list register_state_finders;
+
+	// Cached `NT_PRPSINFO` note.
+	struct drgn_prpsinfo prpsinfo;
+	// Cached `NT_PRSTATUS` notes.
+	struct drgn_prstatus *prstatuses;
+	size_t num_prstatuses;
+	struct drgn_prstatus_table prstatus_table;
+
 	/*
 	 * Cached offsetof(struct pt_regs, stackframe) for aarch64, or 0 if not
 	 * yet cached.
@@ -163,8 +170,6 @@ struct drgn_program {
 		 * Userspace-specific.
 		 */
 		struct {
-			/** Cached `pr_fname` from `NT_PRPSINFO` note. */
-			char *core_dump_fname_cached;
 			/** Cache of important parts of auxiliary vector. */
 			struct {
 				uint64_t at_phdr;
@@ -437,23 +442,23 @@ drgn_program_untagged_addr(const struct drgn_program *prog, uint64_t *address)
 	return NULL;
 }
 
-struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
-					    struct drgn_thread *ret);
-
-void drgn_thread_deinit(struct drgn_thread *thread);
+struct drgn_prstatus {
+	uint32_t tid;
+	const void *data;
+	size_t size;
+};
 
 /**
  * Find the @c NT_PRSTATUS note with the given "PID".
  *
  * For userspace, the PID is the thread ID. For the kernel, it's complicated;
- * see drgn_get_initial_registers_from_kernel_core_dump().
+ * see linux_kernel_core_thread_register_state().
  *
- * @param[out] ret Returned note data. If not found, <tt>ret->str</tt> is set to
- * @c NULL and <tt>ret->len</tt> is set to zero.
+ * @param[out] ret Returned note, or @c NULL if not found.
  */
 struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
 					      uint32_t tid,
-					      struct nstring *ret);
+					      const struct drgn_prstatus **ret);
 
 /**
  * Cache the @c NT_PRSTATUS note provided by @p data in @p prog.
@@ -462,10 +467,9 @@ struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
  * @param[in] size Size of data in note.
  * @param[out] ret Thread ID from note.
  */
-struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
-						     const char *data,
-						     size_t size,
-						     uint32_t *ret);
+struct drgn_error *drgn_cache_prstatus(struct drgn_program *prog,
+				       struct drgn_prstatus_vector *prstatuses,
+				       const char *data, size_t size);
 
 /*
  * Like @ref drgn_program_find_symbol_by_address(), but returns @c NULL rather
@@ -480,11 +484,13 @@ drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 					     uint64_t address,
 					     struct drgn_symbol **ret);
 
-#define DRGN_PROGRAM_HANDLERS	\
-	X(type_finder)		\
-	X(object_finder)	\
-	X(symbol_finder)	\
-	X(debug_info_finder)
+#define DRGN_PROGRAM_HANDLERS		\
+	X(type_finder)			\
+	X(object_finder)		\
+	X(symbol_finder)		\
+	X(debug_info_finder)		\
+	X(thread_finder)		\
+	X(register_state_finder)
 
 #define X(which)								\
 struct drgn_error *								\

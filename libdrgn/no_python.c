@@ -3,9 +3,11 @@
 
 // Fallback implementations for builds without Python support.
 
+#include "drgn_internal.h"
 #include "plugins.h"
 #include "program.h"
 #include "register_state.h"
+#include "thread.h"
 #include "util.h"
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -85,3 +87,4 @@ LIBDRGN_PUBLIC void type##_decref(struct type *x)				\
 }
 
 DEFINE_REFCOUNT_WRAPPER(drgn_register_state)
+DEFINE_REFCOUNT_WRAPPER(drgn_thread)

@@ -380,3 +380,22 @@ drgn_register_state_module(struct drgn_register_state *regs)
 	}
 	return regs->_module;
 }
+
+struct drgn_error *
+drgn_register_state_from_prstatus(struct drgn_program *prog,
+				  const void *prstatus, size_t size,
+				  struct drgn_register_state **ret)
+{
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program architecture is not known");
+	}
+	if (!prog->platform.arch->prstatus_get_initial_registers) {
+		return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
+					 "core dump stack unwinding is not supported for %s architecture",
+					 prog->platform.arch->name);
+	}
+	return prog->platform.arch->prstatus_get_initial_registers(prog,
+								   prstatus,
+								   size, ret);
+}

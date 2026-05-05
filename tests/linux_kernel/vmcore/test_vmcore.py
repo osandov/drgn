@@ -50,9 +50,7 @@ class TestVMCore(LinuxVMCoreTestCase):
 
     def test_main_thread(self):
         self.assertRaisesRegex(
-            ValueError,
-            "main thread is not defined for the Linux kernel",
-            self.prog.main_thread,
+            ValueError, "main thread is not defined", self.prog.main_thread
         )
 
     def test_crashed_thread(self):
@@ -60,6 +58,9 @@ class TestVMCore(LinuxVMCoreTestCase):
         # This assumes that we crashed from vmtest.enter_kdump. I don't know
         # why anyone would run these tests from kdump otherwise.
         self.assertEqual(crashed_thread.object.comm.string_(), b"selfdestruct")
+
+    def test_prog(self):
+        self.assertEqual(self.prog.crashed_thread().prog, self.prog)
 
     def _test_crashed_thread_stack_trace(self, trace):
         # This assumes that we crashed using the drgn_test kmod. Note that on

@@ -4,6 +4,7 @@
 from multiprocessing import Barrier, Process
 import os
 
+from drgn import Object
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import LinuxKernelTestCase
 
@@ -34,18 +35,31 @@ class TestThreads(LinuxKernelTestCase):
         self.assertEqual(thread.tid, pid)
         self.assertEqual(thread.object, find_task(self.prog, pid))
 
+    def test_prog(self):
+        self.assertEqual(self.prog.thread(os.getpid()).prog, self.prog)
+
+    def test_thread_from_object(self):
+        pid = os.getpid()
+        task = find_task(self.prog, pid)
+        thread = self.prog.thread_from_object(task)
+        self.assertEqual(thread.tid, pid)
+        self.assertEqual(thread.object, task)
+
+    def test_thread_from_object_type_error(self):
+        self.assertRaises(
+            TypeError,
+            self.prog.thread_from_object,
+            Object(self.prog, "int", os.getpid()),
+        )
+
     def test_main_thread(self):
         self.assertRaisesRegex(
-            ValueError,
-            "main thread is not defined for the Linux kernel",
-            self.prog.main_thread,
+            ValueError, "main thread is not defined", self.prog.main_thread
         )
 
     def test_crashed_thread(self):
         self.assertRaisesRegex(
-            ValueError,
-            "crashed thread is only defined for core dumps",
-            self.prog.crashed_thread,
+            ValueError, "crashed thread is not defined", self.prog.crashed_thread
         )
 
     def test_thread_name(self):

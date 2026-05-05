@@ -50,6 +50,10 @@ class TestLinuxUserspaceCoreDump(TestCase):
         copied.set("rax", 0)
         self.assertEqual(copied.get("rax"), 0)
 
+    def test_thread_register_state(self):
+        regs = self.prog.crashed_thread().register_state()
+        self.assertEqual(regs.pc, 0x7F6112CAA0FC)
+
     def test_stack_trace_type_error(self):
         self.assertRaises(
             TypeError,

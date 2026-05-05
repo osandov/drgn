@@ -327,6 +327,11 @@ static inline void drgn_register_state_freeze(struct drgn_register_state *regs)
 	regs->frozen = true;
 }
 
+struct drgn_error *
+drgn_register_state_from_prstatus(struct drgn_program *prog,
+				  const void *prstatus, size_t size,
+				  struct drgn_register_state **ret);
+
 /** @} */
 
 #endif /* DRGN_REGISTER_STATE_H */

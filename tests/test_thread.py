@@ -5,7 +5,7 @@ import os
 import os.path
 import tempfile
 
-from drgn import Program
+from drgn import NULL, Program
 from tests import TestCase
 from tests.resources import get_resource
 
@@ -30,14 +30,20 @@ class TestLive(TestCase):
     def test_thread_not_found(self):
         self.assertRaises(LookupError, self.prog.thread, 1)
 
+    def test_thread_from_object(self):
+        self.assertRaises(
+            ValueError, self.prog.thread_from_object, NULL(self.prog, "void *")
+        )
+
     def test_main_thread(self):
         self.assertEqual(self.prog.main_thread().tid, os.getpid())
 
+    def test_prog(self):
+        self.assertEqual(self.prog.main_thread().prog, self.prog)
+
     def test_crashed_thread(self):
         self.assertRaisesRegex(
-            ValueError,
-            "crashed thread is only defined for core dumps",
-            self.prog.crashed_thread,
+            ValueError, "crashed thread is not defined", self.prog.crashed_thread
         )
 
     def test_thread_name(self):
@@ -93,8 +99,16 @@ class TestCoreDump(TestCase):
     def test_thread_not_found(self):
         self.assertRaises(LookupError, self.prog.thread, 99)
 
+    def test_thread_from_object(self):
+        self.assertRaises(
+            ValueError, self.prog.thread_from_object, NULL(self.prog, "void *")
+        )
+
     def test_main_thread(self):
         self.assertEqual(self.prog.main_thread().tid, self.MAIN_TID)
+
+    def test_prog(self):
+        self.assertEqual(self.prog.main_thread().prog, self.prog)
 
     def test_crashed_thread(self):
         self.assertEqual(self.prog.crashed_thread().tid, self.CRASHED_TID)

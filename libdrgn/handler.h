@@ -65,6 +65,12 @@ bool drgn_handler_list_disable(struct drgn_handler_list *list,
 struct drgn_handler *
 drgn_handler_list_unregister(struct drgn_handler_list *list, const char *name);
 
+static inline bool
+drgn_handler_list_has_registered(struct drgn_handler_list *list)
+{
+	return list->head;
+}
+
 static inline bool drgn_handler_list_has_enabled(struct drgn_handler_list *list)
 {
 	return list->head && list->head->enabled;
@@ -88,5 +94,13 @@ static inline bool drgn_handler_is_last_enabled(struct drgn_handler *handler)
 	for (type *handler = (type *)(list)->head;			\
 	     handler && ((struct drgn_handler *)handler)->enabled;	\
 	     handler = (type *)((struct drgn_handler *)handler)->next)
+
+static inline void *
+drgn_handler_list_first_enabled(struct drgn_handler_list *list)
+{
+	if (!drgn_handler_list_has_enabled(list))
+		return NULL;
+	return list->head;
+}
 
 #endif /* DRGN_HANDLER_H */

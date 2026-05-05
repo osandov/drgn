@@ -19,6 +19,7 @@
 #include "../pp.h"
 #include "../program.h"
 #include "../symbol.h"
+#include "../thread.h"
 #include "../vector.h"
 
 #if PY_VERSION_HEX < 0x030900a1
@@ -234,6 +235,11 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_thread_cache *cache;
+} ThreadCache;
+
+typedef struct {
+	PyObject_HEAD
 	Program *prog;
 	struct drgn_thread_iterator *iterator;
 } ThreadIterator;
@@ -359,6 +365,8 @@ extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject SymbolIndex_type;
 extern PyTypeObject Symbol_type;
+extern PyTypeObject ThreadCache_type;
+extern PyTypeObject ThreadFinder_type;
 extern PyTypeObject ThreadIterator_type;
 extern PyTypeObject Thread_type;
 extern PyTypeObject TypeEnumerator_type;
@@ -445,9 +453,11 @@ PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj);
 PyObject *Symbol_list_wrap(struct drgn_symbol **symbols, size_t count,
 			   PyObject *name_obj);
 
-PyObject *Thread_wrap(struct drgn_thread *drgn_thread);
-
 PyObject *StackTrace_wrap(struct drgn_stack_trace *trace);
+
+PyObject *ThreadCache_wrap(struct drgn_thread_cache *cache);
+void py_thread_data_destroy_fn(void *data);
+void py_thread_iterator_destroy_fn(void *it);
 
 static inline Program *DrgnType_prog(DrgnType *type)
 {

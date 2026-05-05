@@ -4,9 +4,9 @@
 #include <byteswap.h>
 #include <ctype.h>
 #include <dirent.h>
-#include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <gelf.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <stdio.h>
@@ -34,8 +34,10 @@
 #include "log.h"
 #include "platform.h"
 #include "program.h"
+#include "register_state.h"
 #include "string_builder.h"
 #include "symbol.h"
+#include "thread.h"
 #include "type.h"
 #include "util.h"
 #include "vector.h"
@@ -703,48 +705,6 @@ linux_kernel_get_arch_pfn_offset_impl(struct drgn_program *prog, uint64_t *ret)
 LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(arch_pfn_offset, DRGN_C_TYPE_UNSIGNED_LONG)
 
 #include "linux_kernel_object_find.inc" // IWYU pragma: keep
-
-// Return whether the given kernel is from Fedora. We check whether the release
-// matches the regular expression /.fc[0-9]+(.|$)/
-static bool is_fedora_kernel(const char *osrelease)
-{
-	const char *p = osrelease;
-	while ((p = strstr(p, ".fc"))) {
-		p += sizeof(".fc") - 1;
-		if (isdigit(*p)) {
-			do {
-				p++;
-			} while (isdigit(*p));
-			if (*p == '.' || *p == '\0')
-				return true;
-		}
-	}
-	return false;
-}
-
-struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog)
-{
-	struct drgn_error *err;
-	const struct drgn_object_finder_ops ops = {
-		.find = linux_kernel_object_find,
-	};
-	err = drgn_program_register_object_finder(prog, "linux", &ops,
-						  sizeof(ops), prog, 0);
-	if (err)
-		return err;
-	if (!prog->lang)
-		prog->lang = &drgn_language_c;
-
-	// At the time of writing, only Fedora's debuginfod server provides fast
-	// Linux kernel downloads. It's painfully slow everywhere else, so
-	// disable it.
-	if (!is_fedora_kernel(prog->vmcoreinfo.osrelease)
-	    && drgn_handler_list_disable(&prog->debug_info_finders,
-					 "debuginfod"))
-		drgn_log_debug(prog, "disabled debuginfod for Linux kernel");
-
-	return NULL;
-}
 
 /*
  * /lib/modules/$(uname -r)/modules.dep.bin maps all installed kernel modules to
@@ -2766,4 +2726,522 @@ drgn_program_is_irq_regs(struct drgn_program *prog, uint64_t addr,
 	}
 	*ret = false;
 	return NULL;
+}
+
+struct linux_kernel_thread_finder_arg {
+	uint32_t crashed_tid;
+	struct drgn_object crashed_task;
+};
+
+static void linux_kernel_thread_finder_destroy(void *_arg)
+{
+	struct linux_kernel_thread_finder_arg *arg = _arg;
+	drgn_object_deinit(&arg->crashed_task);
+	free(arg);
+}
+
+static struct drgn_error *
+linux_kernel_thread_iterator_create(void *arg, struct drgn_thread_cache *cache,
+				    void **ret)
+{
+	struct drgn_error *err;
+	struct linux_helper_task_iterator *task_it = malloc(sizeof(*task_it));
+	if (!task_it)
+		return &drgn_enomem;
+	err = linux_helper_task_iterator_init(task_it,
+					      drgn_thread_cache_program(cache));
+	if (err) {
+		free(task_it);
+		return err;
+	}
+	*ret = task_it;
+	return NULL;
+}
+
+static void linux_kernel_thread_iterator_destroy(void *it)
+{
+	linux_helper_task_iterator_deinit(it);
+	free(it);
+}
+
+static struct drgn_error *
+linux_kernel_thread_create(struct drgn_thread_cache *cache,
+			   const struct drgn_object *task,
+			   const uint32_t *tidp,
+			   struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	uint32_t tid;
+	if (tidp) {
+		tid = *tidp;
+	} else {
+		union drgn_value pid_value;
+		DRGN_OBJECT(pid, drgn_object_program(task));
+		err = drgn_object_member_dereference(&pid, task, "pid");
+		if (!err)
+			err = drgn_object_read_integer(&pid, &pid_value);
+		if (err)
+			return err;
+		tid = pid_value.uvalue;
+	}
+
+	return drgn_thread_cache_find_or_create(cache, tid, 0, task, ret, NULL);
+}
+
+static struct drgn_error *
+linux_kernel_thread_iterator_next(void *arg, struct drgn_thread_cache *cache,
+				  void *it, struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+
+	DRGN_OBJECT(task, prog);
+	err = linux_helper_task_iterator_next(it, &task);
+	if (err == &drgn_stop) {
+		*ret = NULL;
+		return NULL;
+	} else if (err) {
+		return err;
+	}
+	return linux_kernel_thread_create(cache, &task, NULL, ret);
+}
+
+static struct drgn_error *
+linux_kernel_find_thread(void *arg, struct drgn_thread_cache *cache,
+			 uint32_t tid, struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+
+	DRGN_OBJECT(task, prog);
+	err = drgn_program_find_object(prog, "init_pid_ns", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &task);
+	if (err)
+		return err;
+	err = drgn_object_address_of(&task, &task);
+	if (err)
+		return err;
+	err = linux_helper_find_task(&task, &task, tid);
+	if (err)
+		return err;
+	bool truthy;
+	err = drgn_object_bool(&task, &truthy);
+	if (err)
+		return err;
+	if (!truthy) {
+		*ret = NULL;
+		return NULL;
+	}
+	return linux_kernel_thread_create(cache, &task, &tid, ret);
+}
+
+static bool is_task_struct_pointer(const struct drgn_object *obj)
+{
+	struct drgn_qualified_type type =
+		drgn_qualified_type_unaliased(drgn_object_qualified_type(obj));
+	if (drgn_type_kind(type.type) != DRGN_TYPE_POINTER)
+		return false;
+	type = drgn_qualified_type_unaliased(drgn_type_type(type.type));
+	if (drgn_type_kind(type.type) != DRGN_TYPE_STRUCT)
+		return false;
+	const char *tag = drgn_type_tag(type.type);
+	return tag && strcmp(tag, "task_struct") == 0;
+}
+
+static struct drgn_error *
+linux_kernel_thread_from_object(void *arg, struct drgn_thread_cache *cache,
+				const struct drgn_object *obj,
+				struct drgn_thread **ret)
+{
+	if (!is_task_struct_pointer(obj)) {
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "thread object must be struct task_struct *");
+	}
+	return linux_kernel_thread_create(cache, obj, NULL, ret);
+}
+
+// Get the CPU that crashed in a Linux kernel core dump.
+static struct drgn_error *
+drgn_program_kernel_get_crashed_cpu(struct drgn_program *prog, uint64_t *ret)
+{
+	struct drgn_error *err;
+	DRGN_OBJECT(cpu, prog);
+	union drgn_value cpu_value;
+
+	// Since Linux kernel commit 1717f2096b54 ("panic, x86: Fix re-entrance
+	// problem due to panic on NMI") (in v4.5), the crashed CPU is stored in
+	// an atomic_t panic_cpu on all architectures.
+	err = drgn_program_find_object(prog, "panic_cpu", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &cpu);
+	if (!err) {
+		err = drgn_object_member(&cpu, &cpu, "counter");
+		if (err)
+			return err;
+		err = drgn_object_read_integer(&cpu, &cpu_value);
+		if (err)
+			return err;
+		if (cpu_value.svalue == -1) {
+			return drgn_error_create(DRGN_ERROR_LOOKUP,
+						 "panic_cpu is not set");
+		}
+		*ret = cpu_value.uvalue;
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+		// On x86 and x86-64 only, the crashed CPU is also in an int
+		// crashing_cpu. Use this as a fallback for kernels before
+		// commit 1717f2096b54 ("panic, x86: Fix re-entrance problem due
+		// to panic on NMI") (in v4.5).
+		err = drgn_program_find_object(prog, "crashing_cpu", NULL,
+					       DRGN_FIND_OBJECT_VARIABLE, &cpu);
+		if (!err) {
+			err = drgn_object_read_integer(&cpu, &cpu_value);
+			if (err)
+				return err;
+			// Since Linux kernel commit 5bc329503e81 ("x86/mce:
+			// Handle broadcasted MCE gracefully with kexec") (in
+			// v4.12), crashing_cpu is defined in !SMP kernels, but
+			// it's always -1.
+			if (cpu_value.svalue == -1)
+				*ret = 0;
+			else
+				*ret = cpu_value.uvalue;
+		} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+			// Before Linux kernel commit 5bc329503e81 ("x86/mce:
+			// Handle broadcasted MCE gracefully with kexec") (in
+			// v4.12), crashing_cpu is only defined in SMP kernels.
+			*ret = 0;
+		}
+	}
+	return err;
+}
+
+static struct drgn_error *
+linux_kernel_crashed_thread(void *_arg, struct drgn_thread_cache *cache,
+			    struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_cache_program(cache);
+
+	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "crashed thread is not defined for live kernel");
+	}
+
+	struct linux_kernel_thread_finder_arg *arg = _arg;
+	if (arg->crashed_task.kind == DRGN_OBJECT_ABSENT) {
+		uint64_t crashed_cpu;
+		err = drgn_program_kernel_get_crashed_cpu(prog, &crashed_cpu);
+		if (err)
+			return err;
+
+		err = linux_helper_cpu_curr(&arg->crashed_task, crashed_cpu);
+		if (err)
+			return err;
+
+		union drgn_value pid_value;
+		DRGN_OBJECT(pid, prog);
+		err = drgn_object_member_dereference(&pid, &arg->crashed_task,
+						     "pid");
+		if (!err)
+			err = drgn_object_read_integer(&pid, &pid_value);
+		if (err) {
+			drgn_object_deinit(&arg->crashed_task);
+			drgn_object_init(&arg->crashed_task, prog);
+			return err;
+		}
+		arg->crashed_tid = pid_value.uvalue;
+	}
+
+	return linux_kernel_thread_create(cache, &arg->crashed_task,
+					  &arg->crashed_tid, ret);
+}
+
+static struct drgn_error *linux_kernel_thread_name(void *arg,
+						   struct drgn_thread *thread,
+						   char **ret)
+{
+	struct drgn_error *err;
+	const struct drgn_object *task;
+	err = drgn_thread_object(thread, &task);
+	if (err)
+		return err;
+	DRGN_OBJECT(comm, drgn_object_program(task));
+	err = drgn_object_member_dereference(&comm, task, "comm");
+	if (err)
+		return err;
+	return drgn_object_read_c_string(&comm, ret);
+}
+
+static const struct drgn_thread_finder_ops linux_kernel_thread_finder_ops = {
+	.destroy = linux_kernel_thread_finder_destroy,
+	.iterator_create = linux_kernel_thread_iterator_create,
+	.iterator_destroy = linux_kernel_thread_iterator_destroy,
+	.iterator_next = linux_kernel_thread_iterator_next,
+	.find_thread = linux_kernel_find_thread,
+	.thread_from_object = linux_kernel_thread_from_object,
+	.crashed_thread = linux_kernel_crashed_thread,
+	.thread_name = linux_kernel_thread_name,
+};
+
+static struct drgn_error *
+linux_kernel_switched_thread_register_state(void *arg,
+					    struct drgn_thread *thread,
+					    struct drgn_register_state **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_program(thread);
+
+	const struct drgn_object *task;
+	err = drgn_thread_object(thread, &task);
+	if (err)
+		return err;
+
+	bool on_cpu;
+	err = linux_helper_task_on_cpu(task, &on_cpu);
+	if (err)
+		return err;
+	if (on_cpu) {
+		// Hack to return a more useful error message.
+		if ((prog->flags & DRGN_PROGRAM_IS_LIVE)
+		    && drgn_handler_is_last_enabled(arg)) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "cannot unwind stack of running task");
+		}
+		*ret = NULL;
+		return NULL;
+	}
+
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program architecture is not known");
+	}
+	if (!prog->platform.arch->linux_kernel_get_initial_registers) {
+		return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
+					 "Linux kernel stack unwinding is not supported for %s architecture",
+					 prog->platform.arch->name);
+	}
+
+	return prog->platform.arch->linux_kernel_get_initial_registers(task,
+								       ret);
+}
+
+static const struct drgn_register_state_finder_ops
+linux_kernel_switched_register_state_finder_ops = {
+	.thread_register_state = linux_kernel_switched_thread_register_state,
+};
+
+static struct drgn_error *
+linux_kernel_core_thread_register_state(void *arg, struct drgn_thread *thread,
+					struct drgn_register_state **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_program(thread);
+
+	// For kernel core dumps, we can't look up PRSTATUS notes by PID for
+	// multiple reasons:
+	//
+	// 1. Each CPU has its own idle task, all with PID 0.
+	// 2. Kdump on s390x populates the PID field of the PRSTATUS notes with
+	//    the CPU number + 1.
+	// 3. QEMU's dump-guest-memory command does the same.
+	//
+	// Instead, we have to look it up by CPU number. The way to do this
+	// depends on whether the core dump was generated by a real crash (e.g.,
+	// by kdump) or while the kernel was running (e.g., by a hypervisor) as
+	// well as the architecture.
+	//
+	// Note that all of this is inherently racy: cpu_curr() [1], current
+	// [2], registers [3], and the stack pointer [4] are all updated at
+	// different times. This might result in confusing stack traces during a
+	// context switch, but there's not much we can do about that.
+	//
+	// 1: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/sched/core.c?h=v6.6#n6672
+	// 2: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/arch/x86/kernel/process_64.c?h=v6.6#n623
+	// 3: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/arch/x86/entry/entry_64.S?h=v6.6#n267
+	// 4: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/arch/x86/entry/entry_64.S?h=v6.6#n249
+	const struct drgn_object *task;
+	err = drgn_thread_object(thread, &task);
+	if (err)
+		return err;
+
+	uint64_t cpu;
+	err = linux_helper_task_cpu(task, &cpu);
+	if (err)
+		return err;
+
+	if (prog->vmcoreinfo.have_crashtime
+	    && prog->platform.arch->arch != DRGN_ARCH_S390X) {
+		// If the VMCOREINFO contains CRASHTIME, the core dump is for a
+		// real crash, probably from kdump. Core dumps generated by
+		// kdump should have a PRSTATUS note for each CPU, in order by
+		// CPU number. There are a couple of complications:
+		//
+		// 1. Offline CPUs are skipped.
+		// 2. CPUs that don't respond to the kdump NMI are skipped.
+		//
+		// So, we can't reliably find the note for a given CPU solely
+		// from the note metadata. Instead, we get it directly from
+		// crash_notes, the per-CPU variable in the kernel where the
+		// notes are stored during a crash.
+		//
+		// s390x doesn't use crash_notes.
+		DRGN_OBJECT(tmp, prog);
+		err = drgn_program_find_object(prog, "crash_notes", NULL,
+					       DRGN_FIND_OBJECT_ANY, &tmp);
+		if (err)
+			return err;
+		err = linux_helper_per_cpu_ptr(&tmp, &tmp, cpu);
+		if (err)
+			return err;
+		err = drgn_object_dereference(&tmp, &tmp);
+		if (err)
+			return err;
+		err = drgn_object_read(&tmp, &tmp);
+		if (err)
+			return err;
+		if (tmp.encoding != DRGN_OBJECT_ENCODING_BUFFER) {
+			return drgn_error_create(DRGN_ERROR_LOOKUP,
+						 "could not parse crash_notes");
+		}
+
+		const void *p = drgn_object_buffer(&tmp);
+		size_t size = drgn_object_size(&tmp);
+		bool bswap = drgn_platform_bswap(&prog->platform);
+		GElf_Nhdr nhdr;
+		const char *name;
+		const void *desc;
+		while (next_elf_note(&p, &size, 4, bswap, &nhdr, &name, &desc)
+		       && nhdr.n_namesz > 0) {
+			if (nhdr.n_namesz == sizeof("CORE")
+			    && memcmp(name, "CORE", sizeof("CORE")) == 0
+			    && nhdr.n_type == NT_PRSTATUS) {
+				return drgn_register_state_from_prstatus(prog,
+									 desc,
+									 nhdr.n_descsz,
+									 ret);
+			}
+		}
+	} else {
+		// Either the VMCOREINFO doesn't contain CRASHTIME, so the core
+		// dump was captured while the kernel was running, or it is from
+		// kdump on s390x. In both cases, we can use the PRSTATUS note
+		// with a PID of CPU number + 1. (This assumes that other
+		// hypervisors do the same thing as QEMU dump-guest-memory,
+		// which may not be the case. QEMU itself as of version 9.1
+		// doesn't do it correctly on ppc64 or s390x:
+		// https://lore.kernel.org/linux-debuggers/cover.1718771802.git.osandov@osandov.com/T/).
+		const struct drgn_prstatus *prstatus;
+		err = drgn_program_find_prstatus(prog, cpu + 1, &prstatus);
+		if (err)
+			return err;
+		if (prstatus) {
+			return drgn_register_state_from_prstatus(prog,
+								 prstatus->data,
+								 prstatus->size,
+								 ret);
+		}
+	}
+	if (drgn_handler_is_last_enabled(arg)) {
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "registers for CPU %" PRIu64 " were not saved",
+					 cpu);
+	}
+	*ret = NULL;
+	return NULL;
+}
+
+static const struct drgn_register_state_finder_ops
+linux_kernel_core_register_state_finder_ops = {
+	.thread_register_state = linux_kernel_core_thread_register_state,
+};
+
+// Return whether the given kernel is from Fedora. We check whether the release
+// matches the regular expression /.fc[0-9]+(.|$)/
+static bool is_fedora_kernel(const char *osrelease)
+{
+	const char *p = osrelease;
+	while ((p = strstr(p, ".fc"))) {
+		p += sizeof(".fc") - 1;
+		if (isdigit(*p)) {
+			do {
+				p++;
+			} while (isdigit(*p));
+			if (*p == '.' || *p == '\0')
+				return true;
+		}
+	}
+	return false;
+}
+
+struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+	struct linux_kernel_thread_finder_arg *thread_finder_arg =
+		malloc(sizeof(*thread_finder_arg));
+	if (!thread_finder_arg)
+		return &drgn_enomem;
+	drgn_object_init(&thread_finder_arg->crashed_task, prog);
+	err = drgn_program_register_thread_finder(prog, "linux_kernel",
+			&linux_kernel_thread_finder_ops,
+			sizeof(linux_kernel_thread_finder_ops),
+			thread_finder_arg,
+			drgn_handler_list_has_enabled(&prog->thread_finders)
+			? DRGN_HANDLER_REGISTER_DONT_ENABLE : 0);
+	if (err) {
+		linux_kernel_thread_finder_destroy(thread_finder_arg);
+		return err;
+	}
+	struct drgn_register_state_finder *register_state_finder = NULL;
+	err = drgn_program_register_register_state_finder_impl(prog,
+			&register_state_finder, "linux_kernel_switched",
+			&linux_kernel_switched_register_state_finder_ops,
+			sizeof(linux_kernel_switched_register_state_finder_ops),
+			NULL, 0);
+	if (err)
+		goto err_thread_finder;
+	register_state_finder->arg = &register_state_finder->handler;
+	if (!(prog->flags & DRGN_PROGRAM_IS_LIVE)) {
+		register_state_finder = NULL;
+		err = drgn_program_register_register_state_finder_impl(prog,
+			&register_state_finder, "linux_kernel_core",
+			&linux_kernel_core_register_state_finder_ops,
+			sizeof(linux_kernel_core_register_state_finder_ops),
+			NULL, 0);
+		if (err)
+			goto err_switched_register_state_finder;
+		register_state_finder->arg = &register_state_finder->handler;
+	}
+
+	const struct drgn_object_finder_ops ops = {
+		.find = linux_kernel_object_find,
+	};
+	err = drgn_program_register_object_finder(prog, "linux", &ops,
+						  sizeof(ops), prog, 0);
+	if (err)
+		goto err_core_register_state_finder;
+
+	if (!prog->lang)
+		prog->lang = &drgn_language_c;
+
+	// At the time of writing, only Fedora's debuginfod server provides fast
+	// Linux kernel downloads. It's painfully slow everywhere else, so
+	// disable it.
+	if (!is_fedora_kernel(prog->vmcoreinfo.osrelease)
+	    && drgn_handler_list_disable(&prog->debug_info_finders,
+					 "debuginfod"))
+		drgn_log_debug(prog, "disabled debuginfod for Linux kernel");
+
+	return NULL;
+
+err_core_register_state_finder:
+	if (!(prog->flags & DRGN_PROGRAM_IS_LIVE)) {
+		drgn_program_unregister_register_state_finder(prog,
+							      "linux_kernel_core");
+	}
+err_switched_register_state_finder:
+	drgn_program_unregister_register_state_finder(prog,
+						      "linux_kernel_switched");
+err_thread_finder:
+	drgn_program_unregister_thread_finder(prog, "linux_kernel");
+	return err;
 }
