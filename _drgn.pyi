@@ -406,6 +406,7 @@ class Program:
         This is only defined for userspace programs.
 
         :raises ValueError: if the program is the Linux kernel
+        :raises LookupError: if the main thread was not found
         """
         ...
 
@@ -420,6 +421,7 @@ class Program:
         a result of an oops, ``BUG_ON()``, etc.).
 
         :raises ValueError: if the program is live (i.e., not a core dump)
+        :raises LookupError: if the crashed thread was not found
         """
         ...
 

@@ -4588,8 +4588,9 @@ struct drgn_error *drgn_program_find_thread(struct drgn_program *prog,
 /**
  * Get the main program thread.
  *
- * @param[out] ret Borrowed thread handle. This is valid for the lifetime of @p
- * prog. This must NOT be destroyed with @ref drgn_thread_destroy().
+ * @param[out] ret Borrowed thread handle, or @c NULL if not found. This is
+ * valid for the lifetime of @p prog. This must NOT be destroyed with @ref
+ * drgn_thread_destroy().
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_main_thread(struct drgn_program *prog,
@@ -4598,8 +4599,9 @@ struct drgn_error *drgn_program_main_thread(struct drgn_program *prog,
 /**
  * Get the thread that caused the program to crash.
  *
- * @param[out] ret Borrowed thread handle. This is valid for the lifetime of @p
- * prog. This must NOT be destroyed with @ref drgn_thread_destroy().
+ * @param[out] ret Borrowed thread handle, or @c NULL if not found. This is
+ * valid for the lifetime of @p prog. This must NOT be destroyed with @ref
+ * drgn_thread_destroy().
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_crashed_thread(struct drgn_program *prog,

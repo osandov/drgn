@@ -2138,6 +2138,10 @@ static PyObject *Program_main_thread(Program *self)
 	err = drgn_program_main_thread(&self->prog, &thread);
 	if (err)
 		return set_drgn_error(err);
+	if (!thread) {
+		PyErr_SetString(PyExc_LookupError, "main thread not found");
+		return NULL;
+	}
 	return Thread_wrap(thread);
 }
 
@@ -2148,6 +2152,10 @@ static PyObject *Program_crashed_thread(Program *self)
 	err = drgn_program_crashed_thread(&self->prog, &thread);
 	if (err)
 		return set_drgn_error(err);
+	if (!thread) {
+		PyErr_SetString(PyExc_LookupError, "crashed thread not found");
+		return NULL;
+	}
 	return Thread_wrap(thread);
 }
 

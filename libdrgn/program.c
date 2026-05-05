@@ -1621,10 +1621,6 @@ drgn_program_main_thread(struct drgn_program *prog, struct drgn_thread **ret)
 		if (err)
 			return err;
 	}
-	if (!prog->main_thread) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "main thread not found");
-	}
 	*ret = prog->main_thread;
 	return NULL;
 }
@@ -1646,10 +1642,6 @@ drgn_program_crashed_thread(struct drgn_program *prog, struct drgn_thread **ret)
 		err = NULL;
 	if (err)
 		return err;
-	if (!prog->crashed_thread) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "crashed thread not found");
-	}
 	*ret = prog->crashed_thread;
 	return NULL;
 }
