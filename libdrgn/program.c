@@ -143,7 +143,7 @@ static void drgn_##which##_destroy(struct drgn_##which *handler)		\
 										\
 struct drgn_error *								\
 drgn_program_register_##which##_impl(struct drgn_program *prog,			\
-				     struct drgn_##which *handler,		\
+				     struct drgn_##which **handlerp,		\
 				     const char *name,				\
 				     const struct drgn_##which##_ops *ops,	\
 				     size_t ops_size, void *arg,		\
@@ -155,6 +155,7 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
 					 "drgn_" #which "_ops size is too large");\
 	}									\
+	struct drgn_##which *handler = handlerp ? *handlerp : NULL;		\
 	if (handler) {								\
 		handler->handler.name = name;					\
 		handler->handler.free = false;					\
@@ -182,6 +183,8 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 					 enable_index, #which);			\
 	if (err)								\
 		goto err_deinit;						\
+	if (handlerp)								\
+		*handlerp = handler;						\
 	return NULL;								\
 										\
 err_deinit:									\

@@ -5546,31 +5546,35 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 	const struct drgn_type_finder_ops type_finder_ops = {
 		.find = drgn_debug_info_find_type,
 	};
-	drgn_program_register_type_finder_impl(prog, &dbinfo->type_finder,
-					       "dwarf", &type_finder_ops,
+	struct drgn_type_finder *type_finder = &dbinfo->type_finder;
+	drgn_program_register_type_finder_impl(prog, &type_finder, "dwarf",
+					       &type_finder_ops,
 					       sizeof(type_finder_ops), dbinfo,
 					       0);
 	const struct drgn_object_finder_ops object_finder_ops = {
 		.find = drgn_debug_info_find_object,
 	};
-	drgn_program_register_object_finder_impl(prog, &dbinfo->object_finder,
-						 "dwarf", &object_finder_ops,
+	struct drgn_object_finder *object_finder = &dbinfo->object_finder;
+	drgn_program_register_object_finder_impl(prog, &object_finder, "dwarf",
+						 &object_finder_ops,
 						 sizeof(object_finder_ops),
 						 dbinfo, 0);
 	const struct drgn_symbol_finder_ops symbol_finder_ops = {
 		.find = elf_symbols_search,
 	};
-	drgn_program_register_symbol_finder_impl(prog, &dbinfo->symbol_finder,
-						 "elf", &symbol_finder_ops,
+	struct drgn_symbol_finder *symbol_finder = &dbinfo->symbol_finder;
+	drgn_program_register_symbol_finder_impl(prog, &symbol_finder, "elf",
+						 &symbol_finder_ops,
 						 sizeof(symbol_finder_ops),
 						 prog, 0);
 	const struct drgn_debug_info_finder_ops
 		standard_debug_info_finder_ops = {
 			.find = drgn_standard_debug_info_find,
 		};
+	struct drgn_debug_info_finder *debug_info_finder =
+		&dbinfo->standard_debug_info_finder;
 	drgn_program_register_debug_info_finder_impl(prog,
-					&dbinfo->standard_debug_info_finder,
-					"standard",
+					&debug_info_finder, "standard",
 					&standard_debug_info_finder_ops,
 					sizeof(standard_debug_info_finder_ops),
 					&dbinfo->options, 0);
@@ -5582,9 +5586,9 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 			debuginfod_debug_info_finder_ops = {
 				.find = drgn_debuginfod_find,
 			};
+		debug_info_finder = &dbinfo->debuginfod_debug_info_finder;
 		drgn_program_register_debug_info_finder_impl(prog,
-					&dbinfo->debuginfod_debug_info_finder,
-					"debuginfod",
+					&debug_info_finder, "debuginfod",
 					&debuginfod_debug_info_finder_ops,
 					sizeof(debuginfod_debug_info_finder_ops),
 					prog,

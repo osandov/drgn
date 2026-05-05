@@ -489,7 +489,7 @@ drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 #define X(which)								\
 struct drgn_error *								\
 drgn_program_register_##which##_impl(struct drgn_program *prog,			\
-				     struct drgn_##which *handler,		\
+				     struct drgn_##which **handlerp,		\
 				     const char *name,				\
 				     const struct drgn_##which##_ops *ops,	\
 				     size_t ops_size, void *arg,		\
