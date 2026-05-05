@@ -7,6 +7,7 @@
 #include "plugins.h"
 #include "program.h"
 #include "register_state.h"
+#include "thread.h"
 #include "util.h"
 
 void drgn_error_resolve(struct drgn_error *err)
@@ -119,3 +120,4 @@ struct type *type##_alloc(void)					\
 }
 
 DEFINE_REFCOUNT_WRAPPER(drgn_register_state)
+DEFINE_REFCOUNT_WRAPPER(drgn_thread)

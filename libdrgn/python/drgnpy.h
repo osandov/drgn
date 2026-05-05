@@ -19,6 +19,7 @@
 #include "../pp.h"
 #include "../program.h"
 #include "../symbol.h"
+#include "../thread.h"
 #include "../vector.h"
 
 #if PY_VERSION_HEX < 0x030900a1
@@ -160,6 +161,12 @@ static inline void PyGILState_Releasep(PyGILState_STATE *gstatep)
 /** Call @c Py_XDECREF() when the variable goes out of scope. */
 #define _cleanup_pydecref_ _cleanup_(pydecrefp)
 
+/**
+ * Destroy callback for C data slots (e.g., breakpoint data, thread finder data)
+ * that hold a Python object reference.
+ */
+void py_destroy_data(void *data);
+
 typedef struct {
 	PyObject_HEAD
 	struct drgn_object obj;
@@ -257,6 +264,11 @@ typedef struct {
 	PyObject_HEAD
 	struct drgn_thread thread;
 } Thread;
+
+typedef struct {
+	PyObject_HEAD
+	struct drgn_thread_cache *cache;
+} ThreadCache;
 
 typedef struct {
 	PyObject_HEAD
@@ -385,6 +397,8 @@ extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject SymbolIndex_type;
 extern PyTypeObject Symbol_type;
+extern PyTypeObject ThreadCache_type;
+extern PyTypeObject ThreadFinder_type;
 extern PyTypeObject ThreadIterator_type;
 extern PyTypeObject Thread_type;
 extern PyTypeObject TypeEnumerator_type;
@@ -488,9 +502,11 @@ PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj);
 PyObject *Symbol_list_wrap(struct drgn_symbol **symbols, size_t count,
 			   PyObject *name_obj);
 
-PyObject *Thread_wrap(struct drgn_thread *drgn_thread);
-
 PyObject *StackTrace_wrap(struct drgn_stack_trace *trace);
+
+PyObject *ThreadCache_wrap(struct drgn_thread_cache *cache);
+int drgnpy_thread_finder_set_ops(struct drgn_thread_finder_ops *ops,
+				 PyObject *finder);
 
 static inline Program *DrgnType_prog(DrgnType *type)
 {

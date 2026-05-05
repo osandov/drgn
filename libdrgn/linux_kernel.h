@@ -7,6 +7,7 @@
 #include "drgn_internal.h"
 
 struct drgn_debug_info_options;
+struct drgn_prstatus_vector;
 struct drgn_standard_debug_info_find_state;
 
 struct drgn_error *drgn_program_finish_set_kernel(struct drgn_program *prog);
@@ -50,7 +51,9 @@ drgn_program_is_irq_regs(struct drgn_program *prog, uint64_t addr,
 #define FLATTENED_SIG_LEN sizeof(FLATTENED_SIGNATURE)
 
 #ifdef WITH_LIBKDUMPFILE
-struct drgn_error *drgn_program_cache_kdump_threads(struct drgn_program *prog);
+struct drgn_error *
+drgn_program_cache_kdump_threads(struct drgn_program *prog,
+				 struct drgn_prstatus_vector *prstatuses);
 struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog);
 #else
 static inline struct drgn_error *

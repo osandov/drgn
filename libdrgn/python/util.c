@@ -8,6 +8,12 @@
 #include "../util.h"
 #include "../vector.h"
 
+void py_destroy_data(void *data)
+{
+	PyGILState_guard();
+	Py_DECREF(data);
+}
+
 int append_string(PyObject *parts, const char *s)
 {
 	_cleanup_pydecref_ PyObject *str = PyUnicode_FromString(s);

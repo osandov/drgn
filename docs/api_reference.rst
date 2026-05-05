@@ -16,6 +16,8 @@ Programs
 .. drgndoc:: KmodSearchMethod
 
 .. drgndoc:: Thread
+.. drgndoc:: ThreadFinder
+.. drgndoc:: ThreadCache
 
 .. _api-filenames:
 

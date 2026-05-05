@@ -779,6 +779,61 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 		return NULL;
 #define symbol_finder_set_ops ops.find = py_symbol_find_fn;
 
+#define thread_finder_arg_name "finder"
+#define thread_finder_check_handler(name)			\
+	if (!PyObject_TypeCheck(handler, &ThreadFinder_type)) {	\
+		PyErr_SetString(PyExc_TypeError,		\
+				name " must be ThreadFinder");	\
+		return NULL;					\
+	}
+#define thread_finder_arg PyObject *arg = handler;
+#define thread_finder_set_ops					\
+	if (drgnpy_thread_finder_set_ops(&ops, handler))	\
+		return NULL;
+
+static struct drgn_error *
+py_thread_register_state_fn(void *arg, struct drgn_thread *thread,
+			    bool is_last, struct drgn_register_state **ret)
+{
+	PyGILState_guard();
+
+	_cleanup_pydecref_ PyObject *py_is_last = PyBool_FromLong(is_last);
+	if (!py_is_last)
+		return &drgn_enomem;
+	_cleanup_pydecref_ PyObject *obj =
+		PyObject_CallFunctionObjArgs(arg,
+					     (PyObject *)container_of(thread, Thread, thread),
+					     py_is_last,
+					     NULL);
+	if (!obj)
+		return drgn_error_from_python();
+
+	if (obj == Py_None) {
+		*ret = NULL;
+		return NULL;
+	}
+
+	if (!PyObject_TypeCheck(obj, &RegisterState_type)) {
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "register state finder must return RegisterState or None");
+	}
+
+	if (drgn_register_state_program(&((RegisterState *)obj)->regs)
+	    != drgn_thread_program(thread)) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "register state finder returned RegisterState from different program");
+	}
+
+	*ret = &((RegisterState *)no_cleanup_ptr(obj))->regs;
+	return NULL;
+}
+
+#define register_state_finder_arg_name "fn"
+#define register_state_finder_check_handler(name) check_handler_callable(name)
+#define register_state_finder_arg PyObject *arg = handler;
+#define register_state_finder_set_ops	\
+	ops.thread_register_state = py_thread_register_state_fn;
+
 #define X(which)								\
 static PyObject *Program_register_##which(Program *self, PyObject *args,	\
 					  PyObject *kwds)			\
@@ -2156,7 +2211,7 @@ static ThreadIterator *Program_threads(Program *self)
 	return ret;
 }
 
-static PyObject *Program_thread(Program *self, PyObject *args, PyObject *kwds)
+static Thread *Program_thread(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"tid", NULL};
 	struct drgn_error *err;
@@ -2171,16 +2226,43 @@ static PyObject *Program_thread(Program *self, PyObject *args, PyObject *kwds)
 	if (err)
 		return set_drgn_error(err);
 	if (!thread) {
-		return PyErr_Format(PyExc_LookupError,
-				    "thread with ID %llu not found",
-				    tid.uvalue);
+		PyErr_Format(PyExc_LookupError,
+			     "thread with ID %llu not found",
+			     tid.uvalue);
+		return NULL;
 	}
-	PyObject *ret = Thread_wrap(thread);
-	drgn_thread_destroy(thread);
-	return ret;
+	return container_of(thread, Thread, thread);
 }
 
-static PyObject *Program_main_thread(Program *self)
+static Thread *Program_thread_from_object(Program *self, PyObject *args,
+					  PyObject *kwds)
+{
+	static char *keywords[] = {"obj", NULL};
+	struct drgn_error *err;
+
+	DrgnObject *obj;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:thread_from_object",
+					 keywords, &DrgnObject_type, &obj))
+		return NULL;
+
+	if (DrgnObject_prog(obj) != self) {
+		PyErr_SetString(PyExc_ValueError,
+				"object is from different program");
+		return NULL;
+	}
+
+	struct drgn_thread *thread;
+	err = drgn_thread_from_object(&obj->obj, &thread);
+	if (err)
+		return set_drgn_error(err);
+	if (!thread) {
+		PyErr_SetString(PyExc_LookupError, "thread not found");
+		return NULL;
+	}
+	return container_of(thread, Thread, thread);
+}
+
+static Thread *Program_main_thread(Program *self)
 {
 	struct drgn_error *err;
 	struct drgn_thread *thread;
@@ -2191,10 +2273,10 @@ static PyObject *Program_main_thread(Program *self)
 		PyErr_SetString(PyExc_LookupError, "main thread not found");
 		return NULL;
 	}
-	return Thread_wrap(thread);
+	return container_of(thread, Thread, thread);
 }
 
-static PyObject *Program_crashed_thread(Program *self)
+static Thread *Program_crashed_thread(Program *self)
 {
 	struct drgn_error *err;
 	struct drgn_thread *thread;
@@ -2205,7 +2287,7 @@ static PyObject *Program_crashed_thread(Program *self)
 		PyErr_SetString(PyExc_LookupError, "crashed thread not found");
 		return NULL;
 	}
-	return Thread_wrap(thread);
+	return container_of(thread, Thread, thread);
 }
 
 static PyObject *Program_address_size(Program *self)
@@ -2420,6 +2502,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_threads_DOC},
 	{"thread", (PyCFunction)Program_thread,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_thread_DOC},
+	{"thread_from_object", (PyCFunction)Program_thread_from_object,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_thread_from_object_DOC},
 	{"main_thread", (PyCFunction)Program_main_thread, METH_NOARGS,
 	 drgn_Program_main_thread_DOC},
 	{"crashed_thread", (PyCFunction)Program_crashed_thread, METH_NOARGS,
