@@ -132,6 +132,11 @@ void drgn_program_set_platform(struct drgn_program *prog,
 	}
 }
 
+#define type_finder_only_one_enabled 0
+#define object_finder_only_one_enabled 0
+#define symbol_finder_only_one_enabled 0
+#define debug_info_finder_only_one_enabled 0
+
 #define X(which)								\
 static void drgn_##which##_destroy(struct drgn_##which *handler)		\
 {										\
@@ -154,6 +159,12 @@ drgn_program_register_##which##_impl(struct drgn_program *prog,			\
 	    && !mem_is_zero(ops + 1, ops_size - sizeof(*ops))) {		\
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
 					 "drgn_" #which "_ops size is too large");\
+	}									\
+	if (which##_only_one_enabled						\
+	    && enable_index != DRGN_HANDLER_REGISTER_DONT_ENABLE		\
+	    && drgn_handler_list_has_enabled(&prog->which##s)) {		\
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
+					 "only one " #which " may be enabled");	\
 	}									\
 	struct drgn_##which *handler = handlerp ? *handlerp : NULL;		\
 	if (handler) {								\
@@ -216,6 +227,10 @@ LIBDRGN_PUBLIC struct drgn_error *						\
 drgn_program_set_enabled_##which##s(struct drgn_program *prog,			\
 				    const char * const *names, size_t count)	\
 {										\
+	if (which##_only_one_enabled && count > 1) {				\
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
+					 "only one " #which " may be enabled");	\
+	}									\
 	return drgn_handler_list_set_enabled(&prog->which##s, names, count,	\
 					     #which);				\
 }										\
