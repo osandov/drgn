@@ -96,7 +96,12 @@ PyTypeObject ObjectNotFoundError_type = {
 	X(DRGN_ERROR_NOT_IMPLEMENTED, PyExc_NotImplementedError)	\
 	X(DRGN_ERROR_UNSUPPORTED_OPERATION, UnsupportedOperation)	\
 	X(DRGN_ERROR_RUNTIME, PyExc_RuntimeError)			\
-	X(DRGN_ERROR_BAD_DATA, BadDataError)
+	X(DRGN_ERROR_BAD_DATA, BadDataError)				\
+	X(DRGN_ERROR_PROGRAM_EXITED, ProgramExitedError)		\
+	X(DRGN_ERROR_NOT_ATTACHED, NotAttachedError)			\
+	X(DRGN_ERROR_ALREADY_ATTACHED, AlreadyAttachedError)		\
+	X(DRGN_ERROR_NOT_STOPPED, NotStoppedError)			\
+	X(DRGN_ERROR_NO_EVENTS, NoEventsError)
 
 #define DRGN_ERROR_PYTHON (-1)
 

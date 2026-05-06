@@ -53,6 +53,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    bitmap.c \
 			    bitmap.h \
 			    bitops.h \
+			    breakpoint.h \
 			    c_keywords.inc \
 			    c_lexer.h \
 			    cfi.c \
@@ -81,6 +82,10 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    elf_sections.h \
 			    error.c \
 			    error.h \
+			    event.c \
+			    event.h \
+			    execution_control.c \
+			    execution_control.h \
 			    generics.h \
 			    handler.c \
 			    handler.h \
@@ -172,12 +177,16 @@ endif
 if ENABLE_PYTHON
 noinst_LTLIBRARIES += libdrgn_common_python.la
 
-libdrgn_common_python_la_SOURCES = python/constants.c \
+libdrgn_common_python_la_SOURCES = python/breakpoint.c \
+				   python/breakpoint_site.c \
+				   python/constants.c \
 				   python/debug_info_options.c \
 				   python/docstrings.c \
 				   python/docstrings.h \
 				   python/drgnpy.h \
 				   python/error.c \
+				   python/event.c \
+				   python/execution_controller.c \
 				   python/helpers.c \
 				   python/language.c \
 				   python/main.c \

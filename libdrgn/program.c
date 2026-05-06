@@ -18,10 +18,12 @@
 #include <unistd.h>
 
 #include "array.h"
+#include "breakpoint.h"
 #include "cleanup.h"
 #include "debug_info.h"
 #include "elf_notes.h"
 #include "error.h"
+#include "execution_control.h"
 #include "io.h"
 #include "language.h"
 #include "linux_kernel.h"
@@ -243,6 +245,7 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_program_init_types(prog);
 	drgn_debug_info_init(&prog->dbinfo, prog);
 	prog->core_fd = -1;
+	drgn_program_init_execution_control(prog);
 	drgn_qmp_conn_init(&prog->qmp_conn);
 	if (platform)
 		drgn_program_set_platform(prog, platform);
@@ -264,6 +267,8 @@ void drgn_program_deinit(struct drgn_program *prog)
 	}
 
 	drgn_object_deinit(&prog->vmemmap);
+
+	drgn_program_deinit_execution_control(prog);
 
 #define X(which)								\
 	drgn_handler_list_for_each_safe(struct drgn_##which, handler, next,	\

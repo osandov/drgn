@@ -3,7 +3,10 @@
 
 // Fallback implementations for builds without Python support.
 
+#include "breakpoint.h"
+#include "drgn_internal.h"
 #include "error.h"
+#include "event.h"
 #include "plugins.h"
 #include "program.h"
 #include "register_state.h"
@@ -119,5 +122,53 @@ struct type *type##_alloc(void)					\
 	return &rc->x;						\
 }
 
+DEFINE_REFCOUNT_WRAPPER(drgn_breakpoint)
+DEFINE_REFCOUNT_WRAPPER(drgn_breakpoint_site)
 DEFINE_REFCOUNT_WRAPPER(drgn_register_state)
 DEFINE_REFCOUNT_WRAPPER(drgn_thread)
+
+#define X(type, TYPE, Type)	\
+	DEFINE_REFCOUNT_WRAPPER_ALLOC(drgn_##type##_event)
+DRGN_EVENT_TYPES
+#undef X
+
+LIBDRGN_PUBLIC void drgn_event_incref(struct drgn_event *event)
+{
+	SWITCH_ENUM(event->type) {
+#define X(type, TYPE, Type)							\
+	case DRGN_EVENT_##TYPE: {						\
+		struct drgn_##type##_event_refcount *rc =			\
+			container_of((struct drgn_##type##_event *)event,	\
+				     struct drgn_##type##_event_refcount, x);	\
+		drgn_refcount_inc(&rc->refcount);				\
+		break;								\
+	}
+DRGN_EVENT_TYPES
+#undef X
+	default:
+		UNREACHABLE();
+	}
+}
+
+LIBDRGN_PUBLIC void drgn_event_decref(struct drgn_event *event)
+{
+	if (!event)
+		return;
+	SWITCH_ENUM(event->type) {
+#define X(type, TYPE, Type)							\
+	case DRGN_EVENT_##TYPE: {						\
+		struct drgn_##type##_event_refcount *rc =			\
+			container_of((struct drgn_##type##_event *)event,	\
+				     struct drgn_##type##_event_refcount, x);	\
+		if (!drgn_refcount_dec(&rc->refcount))				\
+			return;							\
+		drgn_##type##_event_deinit(&rc->x);				\
+		free(rc);							\
+		break;								\
+	}
+DRGN_EVENT_TYPES
+#undef X
+	default:
+		UNREACHABLE();
+	}
+}

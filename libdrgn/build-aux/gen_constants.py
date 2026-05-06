@@ -16,6 +16,7 @@ class ConstantClass(NamedTuple):
 CONSTANTS = (
     ConstantClass("AbsenceReason", "Enum", r"DRGN_ABSENCE_REASON_([a-zA-Z0-9_]+)"),
     ConstantClass("Architecture", "Enum", r"DRGN_ARCH_([a-zA-Z0-9_]+)"),
+    ConstantClass("AttachFlags", "Flag", r"DRGN_ATTACH_([a-zA-Z0-9_]+)"),
     ConstantClass("FindObjectFlags", "Flag", r"DRGN_FIND_OBJECT_([a-zA-Z0-9_]+)"),
     ConstantClass("KmodSearchMethod", "Enum", r"DRGN_KMOD_SEARCH_([a-zA-Z0-9_]+)"),
     ConstantClass("ModuleFileStatus", "Enum", r"DRGN_MODULE_FILE_([a-zA-Z0-9_]+)"),
@@ -25,8 +26,11 @@ CONSTANTS = (
         r"DRGN_PLATFORM_([a-zA-Z0-9_]+)(?<!DRGN_PLATFORM_DEFAULT_FLAGS)",
     ),
     ConstantClass("PrimitiveType", "Enum", r"DRGN_(C)_TYPE_([a-zA-Z0-9_]+)"),
+    ConstantClass("AttachState", "Enum", r"DRGN_ATTACH_STATE_([a-zA-Z0-9_]+)"),
     ConstantClass(
-        "ProgramFlags", "Flag", r"DRGN_PROGRAM_([a-zA-Z0-9_]+)(?<!DRGN_PROGRAM_ENDIAN)"
+        "ProgramFlags",
+        "Flag",
+        r"DRGN_PROGRAM_(?!ATTACH_STATE_)([a-zA-Z0-9_]+)",
     ),
     ConstantClass(
         "Qualifiers", "Flag", r"DRGN_QUALIFIER_([a-zA-Z0-9_]+)", [("NONE", "0")]

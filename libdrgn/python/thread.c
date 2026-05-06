@@ -163,6 +163,45 @@ static PyObject *Thread_stack_trace(Thread *self)
 	return ret;
 }
 
+static PyObject *Thread_stopped(Thread *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"sync_events", NULL};
+	int sync_events = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$p:stopped", keywords,
+					 &sync_events))
+		return NULL;
+	int ret;
+	struct drgn_error *err = drgn_thread_stopped(&self->thread, sync_events,
+						     &ret);
+	if (err)
+		return set_drgn_error(err);
+	return PyLong_FromLong(ret);
+}
+
+static PyObject *Thread_interrupt(Thread *self)
+{
+	struct drgn_error *err = drgn_thread_interrupt(&self->thread);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Thread_resume(Thread *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"sig", "only", "sync_events", NULL};
+	int sig = DRGN_RESUME_DEFAULT_SIGNAL;
+	int only = 0;
+	int sync_events = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|i$pp:resume", keywords,
+					 &sig, &only, &sync_events))
+		return NULL;
+	struct drgn_error *err = drgn_thread_resume(&self->thread, sig, only,
+						    sync_events);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyGetSetDef Thread_getset[] = {
 	{"prog", (getter)Thread_get_prog, NULL, drgn_Thread_prog_DOC},
 	{"tid", (getter)Thread_get_tid, NULL, drgn_Thread_tid_DOC},
@@ -180,6 +219,12 @@ static PyMethodDef Thread_methods[] = {
 	 drgn_Thread_register_state_DOC},
 	{"stack_trace", (PyCFunction)Thread_stack_trace, METH_NOARGS,
 	 drgn_Thread_stack_trace_DOC},
+	{"stopped", (PyCFunction)Thread_stopped,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Thread_stopped_DOC},
+	{"interrupt", (PyCFunction)Thread_interrupt, METH_NOARGS,
+	 drgn_Thread_interrupt_DOC},
+	{"resume", (PyCFunction)Thread_resume,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Thread_resume_DOC},
 	{},
 };
 

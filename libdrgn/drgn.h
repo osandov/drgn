@@ -103,6 +103,16 @@ enum drgn_error_code {
 	 * invalid.
 	 */
 	DRGN_ERROR_BAD_DATA,
+	/* Program exited. */
+	DRGN_ERROR_PROGRAM_EXITED,
+	/** Not attached to program for execution control. */
+	DRGN_ERROR_NOT_ATTACHED,
+	/** Already attached to program for execution control. */
+	DRGN_ERROR_ALREADY_ATTACHED,
+	/** Thread is not currently stopped. */
+	DRGN_ERROR_NOT_STOPPED,
+	/** No events available without blocking. */
+	DRGN_ERROR_NO_EVENTS,
 	/** Number of defined error codes. */
 	DRGN_NUM_ERROR_CODES,
 } __attribute__((__packed__));
@@ -4830,6 +4840,20 @@ struct drgn_error *drgn_thread_register_state(struct drgn_thread *thread,
 struct drgn_error *drgn_thread_stack_trace(struct drgn_thread *thread,
 					   struct drgn_stack_trace **ret);
 
+struct drgn_error *drgn_thread_stopped(struct drgn_thread *thread,
+				       bool sync_events, int *ret);
+
+struct drgn_error *drgn_thread_interrupt(struct drgn_thread *thread);
+
+/**
+ * Use the default policy for the resume signal: suppress for SIGINT/SIGTRAP,
+ * forward the last signal otherwise.
+ */
+#define DRGN_RESUME_DEFAULT_SIGNAL -1
+
+struct drgn_error *drgn_thread_resume(struct drgn_thread *thread, int sig,
+				      bool only, bool sync_events);
+
 /**
  * @struct drgn_thread_iterator
  *
@@ -5247,6 +5271,333 @@ struct drgn_error *
 drgn_program_enabled_register_state_finders(struct drgn_program *prog,
 					    const char ***names_ret,
 					    size_t *count_ret);
+
+/** @} */
+
+/**
+ * @defgroup ExecutionControl Execution control
+ *
+ * TODO
+ *
+ * @{
+ */
+
+enum drgn_attach_flags {
+	/**
+	 * Attach in non-stop mode.
+	 *
+	 * Cannot be combined with @ref DRGN_ATTACH_ALL_STOP. If neither is
+	 * given, the default is determined by the execution controller.
+	 */
+	DRGN_ATTACH_NON_STOP = 1 << 0,
+	/** Attach in all-stop mode. */
+	DRGN_ATTACH_ALL_STOP = 1 << 1,
+	DRGN_ATTACH_INTERRUPT = 1 << 2,
+};
+
+struct drgn_error *drgn_program_attach(struct drgn_program *prog,
+				       enum drgn_attach_flags flags);
+
+struct drgn_error *drgn_program_detach(struct drgn_program *prog);
+
+enum drgn_attach_state {
+	DRGN_ATTACH_STATE_DETACHED,
+	DRGN_ATTACH_STATE_ATTACHED,
+	DRGN_ATTACH_STATE_EXITED,
+};
+
+enum drgn_attach_state
+drgn_program_attach_state(const struct drgn_program *prog);
+
+struct drgn_error *drgn_program_get_all_stop(struct drgn_program *prog,
+					     bool *ret);
+
+struct drgn_error *drgn_program_set_all_stop(struct drgn_program *prog,
+					     bool all_stop,
+					     bool sync_events);
+
+struct drgn_error *drgn_program_interrupt_any_thread(struct drgn_program *prog);
+
+struct drgn_error *
+drgn_program_resume_all_threads(struct drgn_program *prog,
+				struct drgn_thread * const *threads,
+				const int *sigs, size_t num_threads,
+				bool sync_events);
+
+struct drgn_error *
+drgn_program_resume_only_threads(struct drgn_program *prog,
+				 struct drgn_thread * const *threads,
+				 const int *sigs, size_t num_threads,
+				 bool sync_events);
+
+struct drgn_breakpoint;
+struct drgn_breakpoint_site;
+struct drgn_breakpoint_iterator;
+struct drgn_breakpoint_site_iterator;
+
+struct drgn_error *
+drgn_program_set_breakpoint(struct drgn_program *prog,
+			    const uint64_t *addresses, size_t n, bool hardware,
+			    bool enable, bool sync_events,
+			    struct drgn_breakpoint **ret);
+
+struct drgn_breakpoint_site *
+drgn_program_find_breakpoint_site(struct drgn_program *prog, uint64_t address);
+
+void drgn_breakpoint_incref(struct drgn_breakpoint *bp);
+
+void drgn_breakpoint_decref(struct drgn_breakpoint *bp);
+
+struct drgn_program *drgn_breakpoint_program(const struct drgn_breakpoint *bp);
+
+struct drgn_error *drgn_breakpoint_remove(struct drgn_breakpoint *bp,
+					  bool sync_events);
+
+struct drgn_error *drgn_breakpoint_enable(struct drgn_breakpoint *bp,
+					  bool sync_events);
+
+struct drgn_error *drgn_breakpoint_disable(struct drgn_breakpoint *bp,
+					   bool sync_events);
+
+bool drgn_breakpoint_enabled(const struct drgn_breakpoint *bp);
+
+bool drgn_breakpoint_removed(const struct drgn_breakpoint *bp);
+
+struct drgn_error *
+drgn_program_remove_all_breakpoints(struct drgn_program *prog,
+				    bool sync_events);
+
+struct drgn_error *
+drgn_program_enable_all_breakpoints(struct drgn_program *prog,
+				    bool sync_events);
+
+struct drgn_error *
+drgn_program_disable_all_breakpoints(struct drgn_program *prog,
+				     bool sync_events);
+
+size_t drgn_breakpoint_num_sites(const struct drgn_breakpoint *bp);
+
+struct drgn_breakpoint_site *
+drgn_breakpoint_get_site(const struct drgn_breakpoint *bp, size_t i);
+
+void *drgn_breakpoint_get_data(const struct drgn_breakpoint *bp);
+
+void drgn_breakpoint_set_data(struct drgn_breakpoint *bp, void *data,
+			     void (*destroy_data)(void *));
+
+void drgn_breakpoint_site_incref(struct drgn_breakpoint_site *site);
+
+void drgn_breakpoint_site_decref(struct drgn_breakpoint_site *site);
+
+struct drgn_program *
+drgn_breakpoint_site_program(const struct drgn_breakpoint_site *site);
+
+uint64_t drgn_breakpoint_site_address(const struct drgn_breakpoint_site *site);
+
+bool drgn_breakpoint_site_hardware(const struct drgn_breakpoint_site *site);
+
+struct drgn_error *
+drgn_breakpoint_site_enabled_breakpoints(struct drgn_breakpoint_site *site,
+					 struct drgn_breakpoint_iterator **ret);
+
+struct drgn_error *
+drgn_breakpoint_site_disabled_breakpoints(struct drgn_breakpoint_site *site,
+					  struct drgn_breakpoint_iterator **ret);
+
+bool drgn_breakpoint_site_enabled(const struct drgn_breakpoint_site *site);
+
+bool drgn_breakpoint_site_removed(const struct drgn_breakpoint_site *site);
+
+void *
+drgn_breakpoint_site_get_controller_data(const struct drgn_breakpoint_site *site);
+
+void
+drgn_breakpoint_site_set_controller_data(struct drgn_breakpoint_site *site,
+					 void *data,
+					 void (*destroy_data)(void *));
+
+// TODO: ordering of all of these functions
+struct drgn_error *
+drgn_program_breakpoints(struct drgn_program *prog,
+			 struct drgn_breakpoint_iterator **ret);
+
+void drgn_breakpoint_iterator_destroy(struct drgn_breakpoint_iterator *it);
+
+struct drgn_program *
+drgn_breakpoint_iterator_program(struct drgn_breakpoint_iterator *it);
+
+struct drgn_error *drgn_breakpoint_iterator_next(struct drgn_breakpoint_iterator *it,
+						 struct drgn_breakpoint **ret);
+
+struct drgn_error *
+drgn_program_breakpoint_sites(struct drgn_program *prog,
+			      struct drgn_breakpoint_site_iterator **ret);
+
+void
+drgn_breakpoint_site_iterator_destroy(struct drgn_breakpoint_site_iterator *it);
+
+struct drgn_program *
+drgn_breakpoint_site_iterator_program(struct drgn_breakpoint_site_iterator *it);
+
+struct drgn_error *
+drgn_breakpoint_site_iterator_next(struct drgn_breakpoint_site_iterator *it,
+				   struct drgn_breakpoint_site **ret);
+
+// TODO: explain casting.
+struct drgn_event;
+
+enum drgn_event_type {
+	DRGN_EVENT_PROGRAM_EXIT,
+	DRGN_EVENT_THREAD_EXIT,
+	DRGN_EVENT_THREAD_SIGNAL,
+	DRGN_EVENT_BREAKPOINT,
+};
+
+enum drgn_event_type drgn_event_type(const struct drgn_event *event);
+
+struct drgn_program_exit_event;
+struct drgn_thread_exit_event;
+struct drgn_thread_signal_event;
+struct drgn_breakpoint_event;
+
+void drgn_event_incref(struct drgn_event *event);
+
+void drgn_event_decref(struct drgn_event *event);
+
+struct drgn_error *
+drgn_program_exit_event_create(int status,
+			       struct drgn_program_exit_event **ret);
+
+int drgn_program_exit_event_status(const struct drgn_program_exit_event *event);
+
+struct drgn_error *
+drgn_thread_exit_event_create(struct drgn_thread *thread, int status,
+			      struct drgn_thread_exit_event **ret);
+
+struct drgn_thread *
+drgn_thread_exit_event_thread(const struct drgn_thread_exit_event *event);
+
+int drgn_thread_exit_event_status(const struct drgn_thread_exit_event *event);
+
+struct drgn_error *
+drgn_thread_signal_event_create(struct drgn_thread *thread, int signal,
+				struct drgn_thread_signal_event **ret);
+
+struct drgn_thread *
+drgn_thread_signal_event_thread(const struct drgn_thread_signal_event *event);
+
+int drgn_thread_signal_event_signal(const struct drgn_thread_signal_event *event);
+
+struct drgn_error *
+drgn_breakpoint_event_create(struct drgn_thread *thread, int signal,
+			     struct drgn_breakpoint_site *site,
+			     struct drgn_breakpoint_event **ret);
+
+struct drgn_thread *
+drgn_breakpoint_event_thread(const struct drgn_breakpoint_event *event);
+
+int drgn_breakpoint_event_signal(const struct drgn_breakpoint_event *event);
+
+struct drgn_breakpoint_site *
+drgn_breakpoint_event_site(const struct drgn_breakpoint_event *event);
+
+struct drgn_error *drgn_program_get_event(struct drgn_program *prog, bool block,
+					  struct drgn_event **ret);
+
+struct drgn_error *drgn_program_sync_events(struct drgn_program *prog,
+					    bool block);
+
+struct drgn_error *drgn_program_queue_event(struct drgn_program *prog,
+					    struct drgn_event *event);
+
+struct drgn_execution_controller_ops {
+	void (*destroy)(void *arg);
+	struct drgn_error *(*attach)(void *arg, struct drgn_program *prog,
+				     enum drgn_attach_flags flags,
+				     bool *all_stop_ret);
+	struct drgn_error *(*detach)(void *arg, struct drgn_program *prog);
+	struct drgn_error *(*set_all_stop)(void *arg, struct drgn_program *prog,
+					   bool all_stop);
+	struct drgn_error *(*interrupt_thread)(void *arg,
+					       struct drgn_thread *thread);
+	struct drgn_error *(*interrupt_any_thread)(void *arg,
+						   struct drgn_program *prog);
+	struct drgn_error *(*resume_all_threads)(void *arg,
+						 struct drgn_program *prog,
+						 struct drgn_thread * const *threads,
+						 const int *sigs,
+						 size_t num_threads);
+	struct drgn_error *(*resume_only_threads)(void *arg,
+						  struct drgn_program *prog,
+						  struct drgn_thread * const *threads,
+						  const int *sigs,
+						  size_t num_threads);
+	struct drgn_error *(*enable_breakpoint_sites)(void *arg,
+						      struct drgn_breakpoint_site * const *sites,
+						      size_t num_sites);
+	struct drgn_error *(*disable_breakpoint_sites)(void *arg,
+						       struct drgn_breakpoint_site * const *sites,
+						       size_t num_sites);
+	struct drgn_error *(*queue_events)(void *arg, struct drgn_program *prog,
+					   bool block);
+};
+
+/**
+ * Register an execution controller.
+ *
+ * @param[in] name Controller name. This is copied.
+ * @param[in] ops Callback table. This is copied.
+ * @param[in] ops_size ``sizeof(*ops)`` (for backward/forward compatibility).
+ * @param[in] arg Argument to pass to callbacks.
+ * @param[in] enable_index Insert the controller into the list of enabled
+ * controllers at the given index. If @ref DRGN_HANDLER_REGISTER_ENABLE_LAST or
+ * greater than the number of enabled controllers, insert it at the end. If @ref
+ * DRGN_HANDLER_REGISTER_DONT_ENABLE, don’t enable the controller. Currently, at
+ * most one execution controller may be enabled.
+ */
+struct drgn_error *
+drgn_program_register_execution_controller(struct drgn_program *prog,
+					   const char *name,
+					   const struct drgn_execution_controller_ops *ops,
+					   size_t ops_size, void *arg,
+					   size_t enable_index);
+
+/**
+ * Get the names of all registered execution controllers.
+ *
+ * The order of the names is arbitrary.
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_registered_execution_controllers(struct drgn_program *prog,
+					      const char ***names_ret,
+					      size_t *count_ret);
+
+/**
+ * Set the list of enabled execution controllers.
+ *
+ * Currently, at most one execution controller may be enabled.
+ *
+ * @param[in] names Names of controllers to enable, in order.
+ * @param[in] count Number of names in @p names.
+ */
+struct drgn_error *
+drgn_program_set_enabled_execution_controllers(struct drgn_program *prog,
+					       const char * const *names,
+					       size_t count);
+
+/**
+ * Get the names of enabled execution controllers (currently at most one).
+ *
+ * @param[out] names_ret Returned array of names.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *
+drgn_program_enabled_execution_controllers(struct drgn_program *prog,
+					   const char ***names_ret,
+					   size_t *count_ret);
 
 /** @} */
 

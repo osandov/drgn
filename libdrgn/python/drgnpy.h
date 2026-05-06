@@ -15,6 +15,8 @@
 #include "../drgn_internal.h"
 // IWYU pragma: end_exports
 
+#include "../breakpoint.h"
+#include "../event.h"
 #include "../list.h"
 #include "../pp.h"
 #include "../program.h"
@@ -169,6 +171,17 @@ void py_destroy_data(void *data);
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_breakpoint bp;
+	PyObject *cached_sites;
+} Breakpoint;
+
+typedef struct {
+	PyObject_HEAD
+	struct drgn_breakpoint_site site;
+} BreakpointSite;
+
+typedef struct {
+	PyObject_HEAD
 	struct drgn_object obj;
 } DrgnObject;
 
@@ -182,6 +195,15 @@ typedef struct {
 	 */
 	PyObject *attr_cache;
 } DrgnType;
+
+#define X(type, TYPE, Type)			\
+typedef struct {				\
+	PyObject_HEAD				\
+	struct drgn_##type##_event event;	\
+} Type##Event;					\
+extern PyTypeObject Type##Event_type;
+DRGN_EVENT_TYPES
+#undef X
 
 typedef struct {
 	PyObject_HEAD
@@ -254,6 +276,11 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	Program *prog;
+} ProgramAttachContext;
+
+typedef struct {
+	PyObject_HEAD
 	struct drgn_debug_info_options *options;
 	// If this is a Program's default debug info options, the Program.
 	// Otherwise, NULL.
@@ -275,6 +302,16 @@ typedef struct {
 	Program *prog;
 	struct drgn_thread_iterator *iterator;
 } ThreadIterator;
+
+typedef struct {
+	PyObject_HEAD
+	struct drgn_breakpoint_iterator *it;
+} BreakpointIterator;
+
+typedef struct {
+	PyObject_HEAD
+	struct drgn_breakpoint_site_iterator *it;
+} BreakpointSiteIterator;
 
 typedef struct {
 	PyObject_HEAD
@@ -356,18 +393,25 @@ typedef struct {
 
 extern PyObject *AbsenceReason_class;
 extern PyObject *Architecture_class;
+extern PyObject *AttachFlags_class;
 extern PyObject *FindObjectFlags_class;
 extern PyObject *KmodSearchMethod_class;
 extern PyObject *ModuleFileStatus_class;
 extern PyObject *ModuleSectionAddresses_class;
 extern PyObject *PlatformFlags_class;
 extern PyObject *PrimitiveType_class;
+extern PyObject *AttachState_class;
 extern PyObject *ProgramFlags_class;
 extern PyObject *Qualifiers_class;
 extern PyObject *SupplementaryFileKind_class;
 extern PyObject *SymbolBinding_class;
 extern PyObject *SymbolKind_class;
 extern PyObject *TypeKind_class;
+extern PyTypeObject Breakpoint_type;
+extern PyTypeObject BreakpointIterator_type;
+extern PyTypeObject BreakpointSite_type;
+extern PyTypeObject BreakpointSiteIterator_type;
+extern PyTypeObject ExecutionController_type;
 extern PyTypeObject DebugInfoOptions_type;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
@@ -387,6 +431,7 @@ extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject ObjectNotFoundError_type;
 extern PyTypeObject Platform_type;
 extern PyTypeObject Program_type;
+extern PyTypeObject ProgramAttachContext_type;
 extern PyTypeObject RegisterState_type;
 extern PyTypeObject Register_type;
 extern PyTypeObject RelocatableModule_type;
@@ -413,6 +458,11 @@ extern PyObject *MissingDebugInfoError;
 extern PyObject *ObjectAbsentError;
 extern PyObject *OutOfBoundsError;
 extern PyObject *UnsupportedOperation;
+extern PyObject *ProgramExitedError;
+extern PyObject *NotAttachedError;
+extern PyObject *AlreadyAttachedError;
+extern PyObject *NotStoppedError;
+extern PyObject *NoEventsError;
 
 PyGILState_STATE drgn_initialize_python(bool *success_ret);
 
@@ -429,6 +479,9 @@ void *set_error_type_name(const char *format,
 			  struct drgn_qualified_type qualified_type);
 
 #define call_tp_alloc(type) ((type *)type##_type.tp_alloc(&type##_type, 0))
+
+int drgnpy_execution_controller_set_ops(struct drgn_execution_controller_ops *ops,
+					PyObject *controller);
 
 PyObject *MemorySearchIterator_wrap(PyTypeObject *type,
 				    struct drgn_memory_search_iterator *it);

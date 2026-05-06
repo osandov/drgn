@@ -243,6 +243,28 @@ that type or find one that was previously created::
 .. drgndoc:: Program.linux_kernel_loadable_module
 .. drgndoc:: Program.extra_module
 
+Execution Control
+-----------------
+
+.. drgndoc:: AttachFlags
+.. drgndoc:: AttachState
+.. drgndoc:: ExecutionController
+
+Breakpoints
+^^^^^^^^^^^
+
+.. drgndoc:: Breakpoint
+.. drgndoc:: BreakpointSite
+
+Events
+^^^^^^
+
+.. drgndoc:: Event
+.. drgndoc:: ProgramExitEvent
+.. drgndoc:: ThreadExitEvent
+.. drgndoc:: ThreadSignalEvent
+.. drgndoc:: BreakpointEvent
+
 Miscellaneous
 -------------
 
@@ -260,6 +282,12 @@ Exceptions
 .. drgndoc:: ObjectAbsentError
 .. drgndoc:: OutOfBoundsError
 .. drgndoc:: UnsupportedOperation
+
+.. drgndoc:: ProgramExitedError
+.. drgndoc:: NotAttachedError
+.. drgndoc:: AlreadyAttachedError
+.. drgndoc:: NotStoppedError
+.. drgndoc:: NoEventsError
 
 CLI
 ---

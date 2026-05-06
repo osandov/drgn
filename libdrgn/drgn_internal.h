@@ -13,6 +13,7 @@
 #include <assert.h>
 
 #include "bitmap.h"
+#include "list.h"
 
 // Used for functions that are inline inside of libdrgn and also have an
 // external definition.
@@ -317,6 +318,51 @@ bool drgn_register_state_interrupted(const struct drgn_register_state *regs)
 	return regs->interrupted;
 }
 
+// These are the possible running/stopped states for a thread:
+//
+// 1. Running while program is not in all-stop: RUNNING.
+// 2. Running while program is in all-stop: RUNNING-ONLY.
+// 3. Stopped by signal: STOPPED.
+// 4. Stopped for all-stop: ALL-STOPPED.
+// 5. Resumed and waiting to run: RESUMED.
+//
+// +------------+--------------------+-----------+-------------+-----------------+
+// |State       |node                |last_signal|resume_signal|prog->in_all_stop|
+// +------------+--------------------+-----------+-------------+-----------------+
+// |RUNNING     |empty               |          0|           -1|false            |
+// |RUNNING-ONLY|on running_threads  |          0|           -1|true             |
+// |STOPPED     |on stopped_threads  |        > 0|           -1|any              |
+// |ALL-STOPPED |empty               |          0|           -1|true             |
+// |RESUMED     |on resumed_threads  |       >= 0|         >= 0|any              |
+// +------------+--------------------+-----------+-------------+-----------------+
+//
+// Note that RUNNING and ALL-STOPPED are not tracked explicitly on the thread;
+// they are only differentiated by prog->in_all_stop.
+//
+// The following transitions are possible:
+//
+// - drgn_program_queue_event(thread signal event): the signaled thread moves to
+//   STOPPED (we allow this from any state). Then, if prog->all_stop, all
+//   threads in RUNNING or RUNNING-ONLY move to ALL-STOPPED.
+// - drgn_program_resume_all_threads(): for each given thread: if the thread is
+//   in STOPPED or ALL-STOPPED, it moves to RESUMED. If it is in RESUMED, it
+//   stays in RESUMED. Otherwise, error. Then, all threads in STOPPED move to
+//   RESUMED. Then, all threads in RESUMED are passed to the controller's
+//   resume_all_threads(). Then, all threads in ALL-STOPPED, RESUMED, or
+//   RUNNING-ONLY move to RUNNING.
+// - drgn_program_resume_only_threads(): for each given thread: if the thread is
+//   in STOPPED or ALL-STOPPED, it moves to RESUMED. If it is in RESUMED, it
+//   stays in RESUMED. Otherwise, error. Then, all of the given threads are
+//   passed to the controller's resume_only_threads(). Then, all of the given
+//   threads move to RUNNING-ONLY if prog->in_all_stop and RUNNING otherwise.
+// - drgn_thread_resume() with only=false && prog->in_all_stop: if the thread is
+//   in STOPPED or ALL-STOPPED, it moves to RESUMED. If it is in RESUMED, it
+//   stays in RESUMED. Otherwise, error. Then, if there are no threads in
+//   STOPPED, all threads in RESUMED are passed to the controller's
+//   resume_all_threads(). Then, all threads in ALL-STOPPED, RESUMED, or
+//   RUNNING-ONLY move to RUNNING.
+// - drgn_thread_resume() with only=true || !prog->in_all_stop: equivalent to
+//   drgn_program_resume_only_threads().
 struct drgn_thread {
 	struct drgn_object object;
 	uint32_t tid;
@@ -324,6 +370,12 @@ struct drgn_thread {
 	uint64_t generation;
 	struct drgn_thread_finder *finder;
 	void *finder_data;
+	// Node on drgn_program::stopped_threads, drgn_program::resumed_threads,
+	// or drgn_program::running_threads.
+	struct list_head node;
+	int last_signal;
+	int resume_signal;
+	size_t resume_index;
 };
 
 DRGN_ACCESSOR_LINKAGE

@@ -36,6 +36,11 @@ static PyObject *NoDefaultProgramError;
 PyObject *ObjectAbsentError;
 PyObject *OutOfBoundsError;
 PyObject *UnsupportedOperation;
+PyObject *ProgramExitedError;
+PyObject *NotAttachedError;
+PyObject *AlreadyAttachedError;
+PyObject *NotStoppedError;
+PyObject *NoEventsError;
 
 static _Thread_local Program *default_prog;
 
@@ -323,13 +328,33 @@ static int add_type_aliases(PyObject *m)
 			 PyObject_GetAttrString(typing_module, "SupportsIndex")))
 		return -1;
 
-	_cleanup_pydecref_ PyObject *item =
-		Py_BuildValue("OOO", &PyUnicode_Type, &PyBytes_Type,
-			      os_PathLike);
-	if (!item)
-		return -1;
-	if (PyModule_Add(m, "Path", PyObject_GetItem(typing_Union, item)))
-		return -1;
+	{
+		_cleanup_pydecref_ PyObject *item =
+			Py_BuildValue(
+#define X(type, TYPE, Type) "O"
+DRGN_EVENT_TYPES
+#undef X
+#define X(type, TYPE, Type) , &Type##Event_type
+DRGN_EVENT_TYPES
+#undef X
+				      );
+		if (!item)
+			return -1;
+		if (PyModule_Add(m, "Event",
+				 PyObject_GetItem(typing_Union, item)))
+			return -1;
+	}
+
+	{
+		_cleanup_pydecref_ PyObject *item =
+			Py_BuildValue("OOO", &PyUnicode_Type, &PyBytes_Type,
+				      os_PathLike);
+		if (!item)
+			return -1;
+		if (PyModule_Add(m, "Path",
+				 PyObject_GetItem(typing_Union, item)))
+			return -1;
+	}
 
 	return PyModule_Add(m, "MemorySearchIterator",
 			    PyObject_GetAttrString(typing_module, "Iterator"));
@@ -350,9 +375,17 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	})
 
 	if (add_module_constants(m) ||
+	    add_type(m, &Breakpoint_type) ||
+	    add_type(m, &BreakpointIterator_type) ||
+	    add_type(m, &BreakpointSite_type) ||
+	    add_type(m, &BreakpointSiteIterator_type) ||
 	    add_type(m, &DebugInfoOptions_type) ||
 	    add_type(m, &Language_type) || add_languages() ||
 	    add_type(m, &DrgnObject_type) ||
+#define X(type, TYPE, Type) add_type(m, &Type##Event_type) ||
+	    DRGN_EVENT_TYPES
+#undef X
+	    add_type(m, &ExecutionController_type) ||
 	    PyType_Ready(&MemorySearchIteratorWithBytes_type) ||
 	    PyType_Ready(&MemorySearchIteratorWithInt_type) ||
 	    PyType_Ready(&MemorySearchIteratorWithStr_type) ||
@@ -371,6 +404,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    PyType_Ready(&ObjectIterator_type) ||
 	    add_type(m, &Platform_type) ||
 	    add_type(m, &Program_type) ||
+	    PyType_Ready(&ProgramAttachContext_type) ||
 	    add_type(m, &RegisterState_type) ||
 	    add_type(m, &Register_type) ||
 	    add_type(m, &SourceLocationList_type) ||
@@ -397,6 +431,11 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_new_exception(m, ObjectAbsentError, NULL) ||
 	    add_new_exception(m, OutOfBoundsError, NULL) ||
 	    add_new_exception(m, UnsupportedOperation, PyExc_ValueError) ||
+	    add_new_exception(m, ProgramExitedError, NULL) ||
+	    add_new_exception(m, NotAttachedError, NULL) ||
+	    add_new_exception(m, AlreadyAttachedError, NULL) ||
+	    add_new_exception(m, NotStoppedError, NULL) ||
+	    add_new_exception(m, NoEventsError, NULL) ||
 	    add_type_aliases(m) ||
 	    init_logging())
 		goto err;

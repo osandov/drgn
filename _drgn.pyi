@@ -15,6 +15,7 @@ from typing import (
     Any,
     Callable,
     ClassVar,
+    ContextManager,
     Dict,
     Final,
     Iterable,
@@ -433,6 +434,287 @@ class Program:
         :raises ValueError: if this program does not have a crashed thread
             (e.g., it is live)
         :raises LookupError: if the crashed thread was not found
+        """
+        ...
+
+    def attach(self, flags: AttachFlags = AttachFlags(0)) -> ContextManager[None]:
+        """
+        Attach to this program for execution control.
+
+        This is required before using any execution control APIs. This may
+        interfere with the running program.
+
+        It is recommended to use this as a context manager, which automatically
+        detaches on exit:
+
+        .. code-block:: python3
+
+            with prog.attach():
+                ...  # Attached to program here.
+            # Detached here.
+
+        This is equivalent to:
+
+        .. code-block:: python3
+
+            try:
+                prog.attach()
+                ...  # Attached to program here.
+            finally:
+                prog.detach()
+            # Detached here.
+
+        :param flags: Options for how to attach.
+        :raises AlreadyAttachedError: if already attached to the program
+        :raises UnsupportedOperation: if *flags* setting is not supported, or
+            if no execution controller is enabled
+        """
+        ...
+
+    def detach(self) -> None:
+        """
+        Detach from this program.
+
+        This undoes a call to :meth:`Program.attach()`. All stopped threads are
+        resumed and breakpoints are removed.
+
+        If already detached, this does nothing.
+        """
+        ...
+    attach_state: AttachState
+    """Whether we're attached to this program or it exited."""
+    all_stop: bool
+    """
+    Whether events that stop a thread stop all threads.
+
+    In "all-stop" mode (``True``), whenever a thread stops, all threads are
+    stopped.
+
+    In "non-stop" mode (``False``), only the thread affected by an event will
+    stop. Other threads will continue running.
+
+    :raises NotAttachedError: if not attached to program
+    """
+
+    def set_all_stop(self, all_stop: bool, *, sync_events: bool = True) -> None:
+        """
+        Set the stop mode.
+
+        :param all_stop: ``True`` for all-stop mode, ``False`` for non-stop
+            mode.
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        :raises UnsupportedOperation: if given stop mode is not supported, or
+            if stop mode can not be changed after attaching
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
+    def interrupt_any_thread(self) -> None:
+        """
+        Asynchronously stop an arbitrary thread in this program.
+
+        This only guarantees that if a thread is currently running, *some*
+        :class:`ThreadSignalEvent` will eventually be queued (unless a
+        :class:`ProgramExitEvent` is queued first). Nothing has been stopped
+        until that event is queued.
+
+        :raises UnsupportedOperation: if interrupting an arbitrary thread is
+            not supported
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
+    def resume_all_threads(
+        self,
+        threads: Iterable[Tuple[Thread, IntegerLike]] = (),
+        /,
+        *,
+        sync_events: bool = True,
+    ) -> None:
+        """
+        Resume all stopped threads.
+
+        Each thread is resumed with the signal previously set by
+        :meth:`Thread.resume()` or the per-thread default if not set: suppress
+        ``SIGINT`` and ``SIGTRAP``, forward the signal that stopped the thread
+        otherwise.
+
+        :param threads: Optional iterable of ``(thread, signal)`` pairs
+            overriding the resume signal for specific threads. *signal* is
+            interpreted the same as for :meth:`Thread.resume()`.
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        :raises UnsupportedOperation: if resuming all threads is not supported
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
+    def resume_only_threads(
+        self,
+        threads: Iterable[Tuple[Thread, IntegerLike]],
+        /,
+        *,
+        sync_events: bool = True,
+    ) -> None:
+        """
+        Resume the given stopped threads only.
+
+        This is equivalent to calling :meth:`Thread.resume(only=True)
+        <Thread.resume>` on each thread, but can sometimes be done more
+        efficiently.
+
+        :param threads: Iterable of ``(thread, signal)`` pairs. *signal* is
+            interpreted the same as for :meth:`Thread.resume()`.
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        :raises UnsupportedOperation: if resuming specific threads is not
+            supported
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
+    def set_breakpoint(
+        self,
+        location: Union[str, IntegerLike, Iterable[IntegerLike]],
+        *,
+        hardware: bool = False,
+        enable: bool = True,
+        sync_events: bool = True,
+    ) -> Breakpoint:
+        """
+        Set a breakpoint at the given location.
+
+        :param location: Location where to set breakpoint, either as function
+            name, symbol name + hex offset, filename:line number, or raw
+            address(es).
+        :param hardware: If ``True``, set a hardware breakpoint. Otherwise,
+            set a software breakpoint. If there is already a breakpoint set at
+            a matching location, then that site is reused and this is ignored.
+        :param enable: Whether the breakpoint is initially enabled. If
+            ``False``, the breakpoint is created but does not stop execution
+            until :meth:`Breakpoint.enable()` is called.
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        :raises UnsupportedOperation: if breakpoints are not supported
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
+    def breakpoints(self) -> Iterator[Breakpoint]:
+        """Iterate over all currently set breakpoints."""
+        ...
+
+    def find_breakpoint_site(self, address: IntegerLike) -> Optional[BreakpointSite]:
+        """
+        Get the :class:`BreakpointSite` at the given address or ``None`` if
+        there is no breakpoint set there.
+
+        :param address: Address to look up.
+        """
+        ...
+
+    def breakpoint_sites(self) -> Iterator[BreakpointSite]:
+        """Iterate over all currently set breakpoint sites."""
+        ...
+
+    def remove_all_breakpoints(self, *, sync_events: bool = True) -> None:
+        """
+        Remove all set breakpoints.
+
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        """
+        ...
+
+    def enable_all_breakpoints(self, *, sync_events: bool = True) -> None:
+        """
+        Enable all set breakpoints.
+
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        """
+        ...
+
+    def disable_all_breakpoints(self, *, sync_events: bool = True) -> None:
+        """
+        Disable all set breakpoints.
+
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        """
+        ...
+
+    def get_event(self, block: bool = True) -> Event:
+        """
+        Get the next execution control event.
+
+        :param block: Whether to wait when there are no events available.
+        :raises NoEventsError: if *block* is ``False`` and there are no events
+            available without waiting
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
+    def sync_events(self, block: bool = False) -> None:
+        """
+        Update state about thread stops, exits, etc.
+
+        This buffers all available execution control events, which updates
+        drgn's view of the current state of the program.
+
+        This is inherently racy since something else may happen to the program
+        between syncing and the subsequent operation.
+
+        Execution control operations that depend on program state call this by
+        default for convenience when debugging interactively.
+        Applications/scripts using an event loop may want to suppress this by
+        passing ``sync_events=False``:
+
+        .. code-block:: python3
+
+            while True:
+                event = prog.get_event()
+                if isinstance(event, ThreadSignalEvent):
+                    ...  # Handle event
+                    event.thread.resume(sync_events=False)
+
+        Tight loops may also want to call this once manually and suppress the
+        automatic calls:
+
+        .. code-block:: python3
+
+            prog.sync_events()
+            for thread in prog.threads():
+                if thread.stopped(sync_events=False):
+                    ...  # Handle stopped thread.
+
+        :param block: Whether to wait for at least one event before queuing
+            additional events that are available without waiting.
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
+    def queue_event(self, event: Event) -> None:
+        """
+        Queue an execution control event to be returned by a future call to
+        :meth:`get_event()`.
+
+        This is typically only used by :class:`ExecutionController`
+        implementations.
+
+        State is updated immediately when an event is queued, not when it is
+        returned by :meth:`get_event()`.
+
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
         """
         ...
 
@@ -902,6 +1184,57 @@ class Program:
 
     def enabled_register_state_finders(self) -> List[str]:
         """Return the names of enabled register state finders, in order."""
+        ...
+
+    def register_execution_controller(
+        self,
+        name: str,
+        controller: ExecutionController,
+        *,
+        enable_index: Optional[int] = None,
+    ) -> None:
+        """
+        Register a handler for controlling execution of this program.
+
+        This does not enable the controller unless *enable_index* is given.
+
+        :param name: Controller name.
+        :param controller: Instance of :class:`ExecutionController`.
+        :param enable_index: Insert the controller into the list of enabled
+            controllers at the given index. If -1 or greater than the number of
+            enabled controllers, insert it at the end. If ``None`` or not
+            given, don't enable the controller. Currently, at most one
+            execution controller may be enabled.
+        :raises AlreadyAttachedError: if currently attached to the program and
+            *enable_index* is not ``None``
+        :raises ValueError: if there is already a controller with the given
+            name, or if there is already an enabled controller and
+            *enable_index* is not ``None``
+        """
+        ...
+
+    def registered_execution_controllers(self) -> Set[str]:
+        """Return the names of all registered execution controllers."""
+        ...
+
+    def set_enabled_execution_controllers(self, names: Sequence[str]) -> None:
+        """
+        Set the list of enabled execution controllers.
+
+        Currently, at most one execution controller may be enabled.
+
+        :param names: Names of controllers to enable, in order.
+        :raises ValueError: if no controller has a given name or the same name
+            is given more than once
+        :raises AlreadyAttachedError: if currently attached to the program
+        """
+        ...
+
+    def enabled_execution_controllers(self) -> List[str]:
+        """
+        Return the names of enabled execution controllers (currently at most
+        one).
+        """
         ...
 
     def set_core_dump(self, path: Union[Path, int]) -> None:
@@ -2381,6 +2714,74 @@ class Thread:
         """
         ...
 
+    def stopped(self, *, sync_events: bool = True) -> int:
+        """
+        Return non-zero if this thread is currently stopped.
+
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        :return: If this thread is stopped due to a signal, the signal number.
+            If this thread is stopped because another thread was stopped in
+            all-stop mode, -1. Otherwise, 0.
+        """
+        ...
+
+    def interrupt(self) -> None:
+        """
+        Asynchronously stop this thread.
+
+        This only guarantees that if this thread is not already stopped, *some*
+        :class:`ThreadSignalEvent` for it will eventually be queued (unless a
+        :class:`ThreadExitEvent` for it is queued first). The thread has not
+        been stopped until that event is queued.
+
+        If the thread already received a signal, or receives another signal in
+        the interim, then there may be an event for that signal *instead of* or
+        *in addition to* this one.
+
+        :raises UnsupportedOperation: if interrupting a specific thread is not
+            supported
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
+    def resume(
+        self, sig: IntegerLike = -1, *, only: bool = False, sync_events: bool = True
+    ) -> None:
+        """
+        Resume this stopped thread.
+
+        :param sig: Signal to forward on resume. A positive value forwards that
+            signal. 0 suppresses any signal. -1 (the default) suppresses
+            ``SIGINT`` and ``SIGTRAP`` and forwards the signal that stopped the
+            thread otherwise.
+        :param only: If ``True``, resume only this thread. If ``False``, in
+            all-stop mode, all threads are resumed together. This has no effect
+            in non-stop mode (only this thread is resumed regardless).
+
+            Additionally, if ``False`` in all-stop mode, then no threads are
+            resumed until this has been called on all threads that stopped with
+            a signal. This ensures that the following pattern works as expected
+            in both all-stop and non-stop mode:
+
+            .. code-block:: python3
+
+                while True:
+                    event = prog.get_event()
+                    if isinstance(event, ThreadSignalEvent):
+                        ...  # Handle event
+                        event.thread.resume(sync_events=False)
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        :raises UnsupportedOperation: if resuming threads with the given *only*
+            argument is not supported
+        :raises NotStoppedError: if the thread is not stopped
+        :raises ProgramExitedError: if program exited
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
 class ThreadFinder:
     """
     Base class for finding threads in a program.
@@ -2514,6 +2915,355 @@ class ThreadCache:
             cache.
         """
         ...
+
+class AttachFlags(enum.Flag):
+    """Flags for :meth:`Program.attach`."""
+
+    NON_STOP = ...
+    """
+    Attach in non-stop mode (see :attr:`Program.all_stop`).
+
+    Cannot be combined with :attr:`ALL_STOP`. If neither is given, the default
+    is determined by the execution controller.
+    """
+    ALL_STOP = ...
+    """Attach in all-stop mode."""
+    INTERRUPT = ...
+    """
+    Interrupt the program on attach.
+
+    This is logically equivalent to calling
+    :meth:`Program.interrupt_any_thread()` immediately after attaching, except
+    that it can avoid unnecessary resumes/interruptions and round trips to the
+    execution controller.
+
+    If this flag is not set and the execution controller cannot attach without
+    interrupting, then the program will be temporarily interrupted and then
+    resumed before attach returns.
+    """
+
+class AttachState(enum.Enum):
+    """Attachment state of :class:`Program`."""
+
+    DETACHED = ...
+    """Not attached to program."""
+    ATTACHED = ...
+    """Attached to program."""
+    EXITED = ...
+    """Program exited while attached."""
+
+class ExecutionController:
+    """
+    Implementation of program execution control.
+
+    This defines the backend used to control execution of a program (e.g.,
+    :manpage:`ptrace(2)`, `GDB Remote Serial Protocol
+    <https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Protocol.html>`_).
+    """
+
+    def attach(self, prog: Program, flags: AttachFlags) -> bool:
+        """
+        Implement :meth:`Program.attach()`.
+
+        :return: Determined :attr:`Program.all_stop` setting.
+        """
+        ...
+
+    def detach(self, prog: Program) -> None:
+        """
+        Implement :meth:`Program.detach()`.
+
+        This must resume all stopped threads. If detaching does not
+        automatically resume threads, this may call
+        :meth:`Program.resume_all_threads()`, which will in turn call
+        :meth:`resume_all_threads()` in all-stop mode or
+        :meth:`resume_only_threads()` in non-stop mode.
+
+        This must disable all breakpoint sites. It may call
+        :meth:`Program.remove_all_breakpoints()`, which will in turn call
+        :meth:`disable_breakpoint_sites()`. If detaching automatically disables
+        breakpoint sites, then the call to
+        :meth:`Program.remove_all_breakpoints()` is not necessary, and the drgn
+        core will remove the :class:`Breakpoint` and :class:`BreakpointSite`
+        objects without calling :meth:`disable_breakpoint_sites()`.
+        """
+        ...
+
+    def set_all_stop(self, prog: Program, all_stop: bool) -> None:
+        """
+        Implement :meth:`Program.set_all_stop()`.
+
+        Note that the drgn core, not this method, updates the
+        :attr:`Program.all_stop` attribute.
+        """
+        ...
+
+    def interrupt_thread(self, thread: Thread) -> None:
+        """Implement :meth:`Thread.interrupt()`."""
+        ...
+
+    def interrupt_any_thread(self, prog: Program) -> None:
+        """Implement :meth:`Program.interrupt_any_thread()`."""
+        ...
+
+    def resume_all_threads(
+        self, prog: Program, threads: Sequence[Tuple[Thread, int]]
+    ) -> None:
+        """
+        Resume all stopped threads.
+
+        This is called for :meth:`Program.resume_all_threads()` in all-stop
+        mode and :meth:`Thread.resume()` in all-stop mode when ``only=False``.
+
+        This should either resume all threads, or if it can't, raise an
+        exception and resume nothing.
+
+        :param threads: Sequence of ``(thread, signal)`` pairs, where *signal*
+            is the signal to forward to *thread* on resume or 0 to suppress.
+
+            This includes all threads that were stopped by a signal and any
+            threads that were explicitly resumed by the user. Threads that were
+            stopped automatically for all-stop mode and were not explicitly
+            resumed by the user are not included, but they should still be
+            resumed (with no signal).
+        """
+        ...
+
+    def resume_only_threads(
+        self, prog: Program, threads: Sequence[Tuple[Thread, int]]
+    ) -> None:
+        """
+        Resume only the given threads.
+
+        This is called for :meth:`Program.resume_only_threads()`,
+        :meth:`Program.resume_all_threads()` in non-stop mode, and
+        :meth:`Thread.resume()` in non-stop mode or when ``only=True``.
+
+        This should either resume all of the given threads, or if it can't,
+        raise an exception and resume none of them.
+
+        :param threads: Sequence of ``(thread, signal)`` pairs, where *signal*
+            is the signal to forward to *thread* on resume or 0 to suppress.
+        """
+        ...
+
+    def enable_breakpoint_sites(self, sites: Sequence[BreakpointSite]) -> None:
+        """
+        Enable the given breakpoint sites in the program.
+
+        This is called for :meth:`Program.set_breakpoint()`,
+        :meth:`Program.enable_all_breakpoints()`, and
+        :meth:`Breakpoint.enable()` when a site goes from having no breakpoints
+        enabled to having at least one enabled.
+
+        This should either enable all of the given sites, or if it can't, raise
+        an exception and enable none of them. This may require rolling back
+        partial changes.
+        """
+        ...
+
+    def disable_breakpoint_sites(self, sites: Sequence[BreakpointSite]) -> None:
+        """
+        Disable the given breakpoint sites in the program.
+
+        This is called for :meth:`Program.remove_all_breakpoints()`,
+        :meth:`Program.disable_all_breakpoints()`, :meth:`Breakpoint.remove()`,
+        and :meth:`Breakpoint.disable()` when a site goes from having at least
+        one breakpoint enabled to having none enabled.
+
+        This should either disable all of the given sites, or if it can't,
+        raise an exception and disable none of them. This may require rolling
+        back partial changes.
+        """
+        ...
+
+    def queue_events(self, prog: Program, block: bool = True) -> None:
+        """
+        Queue execution control events.
+
+        This is called for :meth:`Program.get_event()` and
+        :meth:`Program.sync_events()`. It should queue events using
+        :meth:`Program.queue_event()`.
+
+        .. note::
+
+            This may queue multiple events. This is intended for cases where a
+            single low-level event in the backend translates to multiple drgn
+            :data:`Event`\\ s (e.g., when the final thread in a process exits,
+            that can translate to a :class:`ThreadExitEvent` and a
+            :class:`ProgramExitEvent`.)
+
+            It is not intended for eagerly reading additional events from the
+            backend. This is often called in a loop, so it shouldn't loop
+            internally.
+
+        :param block: Whether to wait when there are no events available. If
+            ``True``, this must always queue at least one event or raise an
+            exception.
+        """
+        ...
+
+class Breakpoint:
+    """
+    Breakpoint set on the program.
+
+    This is the logical representation of a breakpoint, which may be set at one
+    or more physical locations.
+    """
+
+    prog: Final[Program]
+    """Program that this breakpoint is from."""
+
+    sites: Final[Sequence[BreakpointSite]]
+    """Sites where this breakpoint is set."""
+
+    enabled: bool
+    """Whether this breakpoint is currently enabled."""
+
+    removed: bool
+    """Whether this breakpoint has been removed."""
+
+    def remove(self, *, sync_events: bool = True) -> None:
+        """
+        Remove this breakpoint.
+
+        If the breakpoint has already been removed, this does nothing.
+
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        """
+        ...
+
+    def enable(self, *, sync_events: bool = True) -> None:
+        """
+        Enable this breakpoint.
+
+        If the breakpoint is already enabled, this does nothing.
+
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        """
+        ...
+
+    def disable(self, *, sync_events: bool = True) -> None:
+        """
+        Disable this breakpoint.
+
+        If the breakpoint is already disabled, this does nothing.
+
+        :param sync_events: Whether to update state using
+            :meth:`Program.sync_events()` first.
+        """
+        ...
+    data: object
+    """
+    Opaque data for the user to set (not used by drgn). Can be used to store an
+    identifier, callback, etc. Initially ``None``.
+    """
+
+class BreakpointSite:
+    """A single address where one or more :class:`Breakpoint`\\ s are set."""
+
+    prog: Final[Program]
+    """Program that this site is from."""
+
+    address: Final[int]
+    """Address of this site."""
+
+    hardware: Final[bool]
+    """Whether this site uses a hardware breakpoint."""
+
+    enabled: bool
+    """
+    Whether this site is currently installed in the program (i.e., it has at
+    least one enabled :class:`Breakpoint`).
+    """
+
+    removed: bool
+    """
+    Whether this site has been removed (i.e., all of its breakpoints have been
+    removed).
+    """
+
+    def enabled_breakpoints(self) -> Iterator[Breakpoint]:
+        """Iterate over the enabled :class:`Breakpoint`\\ s at this site."""
+        ...
+
+    def disabled_breakpoints(self) -> Iterator[Breakpoint]:
+        """Iterate over the disabled :class:`Breakpoint`\\ s at this site."""
+        ...
+    _controller_data: Any
+    """
+    Opaque attribute for use only by the :class:`ExecutionController` that
+    enabled this breakpoint site. Initially ``None``.
+    """
+
+Event: TypeAlias = Union[
+    ProgramExitEvent, ThreadExitEvent, ThreadSignalEvent, BreakpointEvent
+]
+"""
+Event returned by :meth:`Program.get_event()`.
+
+More event types will be added. Unrecognized events should be ignored.
+"""
+
+class ProgramExitEvent:
+    def __new__(cls, status: IntegerLike) -> Self:
+        """
+        Event raised when the program exits or is terminated by a signal.
+
+        When this event is queued, :attr:`Program.attach_state` is set to
+        :attr:`AttachState.EXITED`.
+        """
+        ...
+    status: Final[int]
+    """
+    If the program exited, the exit status, which is always non-negative. If
+    the program was terminated by a signal, a negative signal number.
+    """
+
+# TODO: this may need to flag something in the thread
+class ThreadExitEvent:
+    def __new__(cls, thread: Thread, status: IntegerLike) -> Self:
+        """Event raised when a thread exits or is terminated by a signal."""
+        ...
+    thread: Final[Thread]
+    """Thread that exited."""
+
+    status: Final[int]
+    """
+    If the thread exited, the exit status, which is always non-negative. If the
+    thread was terminated by a signal, a negative signal number.
+    """
+
+class ThreadSignalEvent:
+    def __new__(cls, thread: Thread, signal: IntegerLike) -> Self:
+        """
+        Event raised when a thread stops due to receiving a signal.
+
+        When this event is queued, the thread is marked as stopped (see
+        :meth:`Thread.stopped()`). In all-stop mode, all other threads are also
+        marked as stopped.
+
+        In all-stop mode, the execution controller must stop all threads before
+        queueing this event.
+        """
+        ...
+    thread: Final[Thread]
+    """Thread that received the signal."""
+
+    signal: Final[int]
+    """Signal number."""
+
+class BreakpointEvent(ThreadSignalEvent):
+    def __new__(cls, thread: Thread, signal: IntegerLike, site: BreakpointSite) -> Self:
+        """Event raised when a thread hits a breakpoint."""
+        ...
+    site: Final[BreakpointSite]
+    """
+    Site that was hit. Use :meth:`BreakpointSite.enabled_breakpoints()` to get
+    the enabled :class:`Breakpoint`\\ s set at this site.
+    """
 
 def filename_matches(haystack: Optional[str], needle: Optional[str]) -> bool:
     """
@@ -4544,6 +5294,40 @@ class UnsupportedOperation(ValueError):
     Error raised when an operation is called on a program or object that
     can't support it.
     """
+
+    ...
+
+class ProgramExitedError(Exception):
+    """
+    Error raised if attempting to control execution after the program has
+    exited.
+    """
+
+    ...
+
+class NotAttachedError(Exception):
+    """
+    Error raised if attempting to control execution while not attached to the
+    program.
+    """
+
+    ...
+
+class AlreadyAttachedError(Exception):
+    """
+    Error raised for operations that can't be done while attached to the
+    program.
+    """
+
+    ...
+
+class NotStoppedError(Exception):
+    """Error raised if trying to resume a thread that is not stopped."""
+
+    ...
+
+class NoEventsError(Exception):
+    """Error raised if there are no pending events."""
 
     ...
 

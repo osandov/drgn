@@ -8,8 +8,10 @@
 #include "../bitops.h"
 #include "../debug_info.h"
 #include "../error.h"
+#include "../execution_control.h"
 #include "../hash_table.h"
 #include "../linux_kernel.h"
+#include "../list.h"
 #include "../log.h"
 #include "../program.h"
 #include "../string_builder.h"
@@ -431,6 +433,8 @@ LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
 
 static void Program_dealloc(Program *self)
 {
+	if (PyObject_CallFinalizerFromDealloc((PyObject *)self) < 0)
+		return; // Resurrected.
 	PyObject_GC_UnTrack(self);
 	Program_deinit_logging(self);
 	drgn_program_deinit(&self->prog);
@@ -442,8 +446,81 @@ static void Program_dealloc(Program *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+static void Program_finalize(Program *self)
+{
+	if (drgn_program_attach_state(&self->prog)
+	    == DRGN_ATTACH_STATE_DETACHED)
+		return;
+
+	PyObject *exc_type, *exc_value, *exc_traceback;
+	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
+
+	if (PyErr_ResourceWarning((PyObject *)self, 1, "still attached to %R",
+				  self) < 0) {
+		if (PyErr_ExceptionMatches(PyExc_Warning)) {
+			PyErr_FormatUnraisable("Exception ignored while finalizing %R",
+					       self);
+		}
+	}
+
+	PyErr_Restore(exc_type, exc_value, exc_traceback);
+}
+
+struct traverse_arg {
+	visitproc visit;
+	void *arg;
+};
+
+static int visit_event(struct drgn_event *event, void *_arg)
+{
+	struct traverse_arg *arg = _arg;
+	SWITCH_ENUM(event->type) {
+#define X(type, TYPE, Type)						\
+	case DRGN_EVENT_##TYPE:						\
+		return arg->visit(				\
+			(PyObject *)container_of(			\
+				(struct drgn_##type##_event *)event,	\
+				Type##Event, event),			\
+			arg->arg);
+	DRGN_EVENT_TYPES
+#undef X
+	default:
+		UNREACHABLE();
+	}
+}
+
+static int visit_thread(struct drgn_thread *thread, void *_arg)
+{
+	struct traverse_arg *arg = _arg;
+	return arg->visit((PyObject *)container_of(thread, Thread, thread),
+			  arg->arg);
+}
+
+static int visit_breakpoint(struct drgn_breakpoint *bp, void *_arg)
+{
+	struct traverse_arg *arg = _arg;
+	return arg->visit((PyObject *)container_of(bp, Breakpoint, bp),
+			  arg->arg);
+}
+
+static int visit_breakpoint_site(struct drgn_breakpoint_site *site, void *_arg)
+{
+	struct traverse_arg *arg = _arg;
+	return arg->visit((PyObject *)container_of(site, BreakpointSite, site),
+			  arg->arg);
+}
+
 static int Program_traverse(Program *self, visitproc visit, void *arg)
 {
+	struct traverse_arg traverse_arg = { visit, arg };
+	int ret = drgn_program_traverse_execution_control(&self->prog,
+							  visit_event,
+							  visit_thread,
+							  visit_breakpoint,
+							  visit_breakpoint_site,
+							  &traverse_arg);
+	if (ret)
+		return ret;
 	struct drgnpy_held_objects *held;
 	list_for_each_entry(held, &self->held_objects, node) {
 		for (size_t i = 0; i < held->num_objs; i++)
@@ -456,6 +533,7 @@ static int Program_traverse(Program *self, visitproc visit, void *arg)
 
 static int Program_clear(Program *self)
 {
+	drgn_program_clear_execution_control(&self->prog);
 	struct drgnpy_held_objects *held;
 	list_for_each_entry(held, &self->held_objects, node) {
 		for (size_t i = 0; i < held->num_objs; i++)
@@ -833,6 +911,18 @@ py_thread_register_state_fn(void *arg, struct drgn_thread *thread,
 #define register_state_finder_arg PyObject *arg = handler;
 #define register_state_finder_set_ops	\
 	ops.thread_register_state = py_thread_register_state_fn;
+
+#define execution_controller_arg_name "controller"
+#define execution_controller_check_handler(name)			\
+	if (!PyObject_TypeCheck(handler, &ExecutionController_type)) {	\
+		PyErr_SetString(PyExc_TypeError,			\
+				name " must be ExecutionController");	\
+		return NULL;						\
+	}
+#define execution_controller_arg PyObject *arg = handler;
+#define execution_controller_set_ops				\
+	if (drgnpy_execution_controller_set_ops(&ops, handler))	\
+		return NULL;
 
 #define X(which)								\
 static PyObject *Program_register_##which(Program *self, PyObject *args,	\
@@ -2290,6 +2380,405 @@ static Thread *Program_crashed_thread(Program *self)
 	return container_of(thread, Thread, thread);
 }
 
+static ProgramAttachContext *Program_attach(Program *self, PyObject *args,
+					    PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"flags", NULL};
+	struct enum_arg flags = { .type = AttachFlags_class };
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&:attach", keywords,
+					 enum_converter, &flags))
+		return NULL;
+
+	_cleanup_pydecref_ ProgramAttachContext *ctx =
+		call_tp_alloc(ProgramAttachContext);
+	if (!ctx)
+		return NULL;
+	Py_INCREF(self);
+	ctx->prog = self;
+
+	err = drgn_program_attach(&self->prog, flags.value);
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(ctx);
+}
+
+static PyObject *Program_detach(Program *self)
+{
+	struct drgn_error *err = drgn_program_detach(&self->prog);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_get_attach_state(Program *self, void *arg)
+{
+	return PyObject_CallFunction(AttachState_class, "i",
+				     (int)drgn_program_attach_state(&self->prog));
+}
+
+static PyObject *Program_get_all_stop(Program *self, void *arg)
+{
+	bool all_stop;
+	struct drgn_error *err = drgn_program_get_all_stop(&self->prog, &all_stop);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_BOOL(all_stop);
+}
+
+static PyObject *Program_set_all_stop(Program *self, PyObject *args,
+				      PyObject *kwds)
+{
+	static char *keywords[] = {"", "sync_events", NULL};
+	int all_stop;
+	int sync_events = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "p|$p:set_all_stop",
+					 keywords, &all_stop, &sync_events))
+		return NULL;
+	struct drgn_error *err =
+		drgn_program_set_all_stop(&self->prog, all_stop, sync_events);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_interrupt_any_thread(Program *self)
+{
+	struct drgn_error *err = drgn_program_interrupt_any_thread(&self->prog);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+// Parse a sequence of (Thread, signal) pairs into parallel arrays. On success,
+// returns a new reference to the sequence (which keeps the Thread objects, and
+// thus the drgn_thread pointers, alive) and sets *threads_ret, *sigs_ret, and
+// *n_ret; the caller takes ownership of the arrays and must free() them.
+static PyObject *parse_thread_signal_pairs(PyObject *arg,
+					   struct drgn_thread ***threads_ret,
+					   int **sigs_ret, size_t *n_ret)
+{
+	_cleanup_pydecref_ PyObject *items =
+		PySequence_Fast(arg, "threads must be iterable");
+	if (!items)
+		return NULL;
+
+	Py_ssize_t n = PySequence_Fast_GET_SIZE(items);
+	_cleanup_free_ struct drgn_thread **threads =
+		malloc_array(n, sizeof(*threads));
+	if (n && !threads)
+		return PyErr_NoMemory();
+	_cleanup_free_ int *sigs = malloc_array(n, sizeof(*sigs));
+	if (n && !sigs)
+		return PyErr_NoMemory();
+
+	for (Py_ssize_t i = 0; i < n; i++) {
+		PyObject *item = PySequence_Fast_GET_ITEM(items, i);
+		PyObject *thread_obj;
+		if (!PyTuple_Check(item)
+		    || PyTuple_GET_SIZE(item) != 2
+		    || !PyObject_TypeCheck((thread_obj = PyTuple_GET_ITEM(item, 0)),
+					   &Thread_type)) {
+			PyErr_SetString(PyExc_TypeError,
+					"items must be (Thread, signal)");
+			return NULL;
+		}
+		long sig = PyLong_AsLong(PyTuple_GET_ITEM(item, 1));
+		if (sig == -1 && PyErr_Occurred())
+			return NULL;
+		if (sig < INT_MIN || sig > INT_MAX) {
+			PyErr_SetString(PyExc_OverflowError,
+					"signal out of range");
+			return NULL;
+		}
+		threads[i] = &((Thread *)thread_obj)->thread;
+		sigs[i] = sig;
+	}
+
+	*threads_ret = no_cleanup_ptr(threads);
+	*sigs_ret = no_cleanup_ptr(sigs);
+	*n_ret = n;
+	return_ptr(items);
+}
+
+static PyObject *Program_resume_all_threads(Program *self, PyObject *args,
+					    PyObject *kwds)
+{
+	static char *keywords[] = {"", "sync_events", NULL};
+	PyObject *arg = NULL;
+	int sync_events = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O$p:resume_all_threads",
+					 keywords, &arg, &sync_events))
+		return NULL;
+
+	_cleanup_pydecref_ PyObject *items = NULL;
+	_cleanup_free_ struct drgn_thread **threads = NULL;
+	_cleanup_free_ int *sigs = NULL;
+	size_t n = 0;
+	if (arg) {
+		items = parse_thread_signal_pairs(arg, &threads, &sigs, &n);
+		if (!items)
+			return NULL;
+	}
+
+	struct drgn_error *err =
+		drgn_program_resume_all_threads(&self->prog, threads, sigs, n,
+						sync_events);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_resume_only_threads(Program *self, PyObject *args,
+					     PyObject *kwds)
+{
+	static char *keywords[] = {"", "sync_events", NULL};
+	PyObject *arg;
+	int sync_events = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O$p:resume_only_threads",
+					 keywords, &arg, &sync_events))
+		return NULL;
+
+	_cleanup_free_ struct drgn_thread **threads = NULL;
+	_cleanup_free_ int *sigs = NULL;
+	size_t n;
+	_cleanup_pydecref_ PyObject *items =
+		parse_thread_signal_pairs(arg, &threads, &sigs, &n);
+	if (!items)
+		return NULL;
+
+	struct drgn_error *err =
+		drgn_program_resume_only_threads(&self->prog, threads, sigs, n,
+						 sync_events);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static Breakpoint *Program_set_breakpoint(Program *self, PyObject *args,
+					  PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"location", "hardware", "enable",
+				   "sync_events", NULL};
+	PyObject *location;
+	int hardware = 0;
+	int enable = 1;
+	int sync_events = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|$ppp:set_breakpoint",
+					 keywords, &location, &hardware,
+					 &enable, &sync_events))
+		return NULL;
+
+	// TODO: support str (function name, function name + offset, file:line)
+	if (PyUnicode_Check(location)) {
+		PyErr_SetString(PyExc_NotImplementedError,
+				"string locations not yet supported");
+		return NULL;
+	}
+
+	uint64_t single;
+	const uint64_t *addresses;
+	size_t n;
+	_cleanup_free_ uint64_t *array = NULL;
+	if (PyIndex_Check(location)) {
+		if (PyLong_AsUInt64(location, &single))
+			return NULL;
+		addresses = &single;
+		n = 1;
+	} else {
+		_cleanup_pydecref_ PyObject *seq =
+			PySequence_Fast(location,
+					"location must be int, iterable of ints, or str");
+		if (!seq)
+			return NULL;
+		n = PySequence_Fast_GET_SIZE(seq);
+		array = malloc_array(n, sizeof(*array));
+		if (!array) {
+			PyErr_NoMemory();
+			return NULL;
+		}
+		for (size_t i = 0; i < n; i++) {
+			if (PyLong_AsUInt64(PySequence_Fast_GET_ITEM(seq, i),
+					    &array[i]))
+				return NULL;
+		}
+		addresses = array;
+	}
+
+	struct drgn_breakpoint *bp;
+	err = drgn_program_set_breakpoint(&self->prog, addresses, n, hardware,
+					  enable, sync_events, &bp);
+	if (err)
+		return set_drgn_error(err);
+	return container_of(bp, Breakpoint, bp);
+}
+
+static PyObject *Program_remove_all_breakpoints(Program *self, PyObject *args,
+						PyObject *kwds)
+{
+	static char *keywords[] = {"sync_events", NULL};
+	int sync_events = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "|$p:remove_all_breakpoints",
+					 keywords, &sync_events))
+		return NULL;
+	struct drgn_error *err =
+		drgn_program_remove_all_breakpoints(&self->prog, sync_events);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_enable_all_breakpoints(Program *self, PyObject *args,
+						PyObject *kwds)
+{
+	static char *keywords[] = {"sync_events", NULL};
+	int sync_events = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "|$p:enable_all_breakpoints",
+					 keywords, &sync_events))
+		return NULL;
+	struct drgn_error *err =
+		drgn_program_enable_all_breakpoints(&self->prog, sync_events);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_disable_all_breakpoints(Program *self, PyObject *args,
+						 PyObject *kwds)
+{
+	static char *keywords[] = {"sync_events", NULL};
+	int sync_events = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "|$p:disable_all_breakpoints",
+					 keywords, &sync_events))
+		return NULL;
+	struct drgn_error *err =
+		drgn_program_disable_all_breakpoints(&self->prog, sync_events);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static BreakpointIterator *Program_breakpoints(Program *self)
+{
+	struct drgn_breakpoint_iterator *it;
+	struct drgn_error *err =
+		drgn_program_breakpoints(&self->prog, &it);
+	if (err)
+		return set_drgn_error(err);
+	BreakpointIterator *ret = call_tp_alloc(BreakpointIterator);
+	if (!ret) {
+		drgn_breakpoint_iterator_destroy(it);
+		return NULL;
+	}
+	Py_INCREF(self);
+	ret->it = it;
+	return ret;
+}
+
+static PyObject *Program_find_breakpoint_site(Program *self, PyObject *args,
+					      PyObject *kwds)
+{
+	static char *keywords[] = {"address", NULL};
+	struct index_arg address = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&:find_breakpoint_site",
+					 keywords, index_converter, &address))
+		return NULL;
+	struct drgn_breakpoint_site *site =
+		drgn_program_find_breakpoint_site(&self->prog, address.uvalue);
+	if (!site)
+		Py_RETURN_NONE;
+	return (PyObject *)container_of(site, BreakpointSite, site);
+}
+
+static BreakpointSiteIterator *Program_breakpoint_sites(Program *self)
+{
+	struct drgn_breakpoint_site_iterator *it;
+	struct drgn_error *err =
+		drgn_program_breakpoint_sites(&self->prog, &it);
+	if (err)
+		return set_drgn_error(err);
+	BreakpointSiteIterator *ret = call_tp_alloc(BreakpointSiteIterator);
+	if (!ret) {
+		drgn_breakpoint_site_iterator_destroy(it);
+		return NULL;
+	}
+	Py_INCREF(self);
+	ret->it = it;
+	return ret;
+}
+
+static PyObject *Program_get_event(Program *self, PyObject *args, PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"block", NULL};
+	int block = 1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|p:get_event", keywords,
+					 &block))
+		return NULL;
+
+	struct drgn_event *event;
+	err = drgn_program_get_event(&self->prog, block, &event);
+	if (err)
+		return set_drgn_error(err);
+
+	SWITCH_ENUM(drgn_event_type(event)) {
+#define X(type, TYPE, Type)						\
+	case DRGN_EVENT_##TYPE:						\
+		return (PyObject *)container_of(			\
+			(struct drgn_##type##_event *)event,		\
+			Type##Event, event);
+	DRGN_EVENT_TYPES
+#undef X
+	default:
+		UNREACHABLE();
+	}
+}
+
+static PyObject *Program_sync_events(Program *self, PyObject *args,
+				     PyObject *kwds)
+{
+	static char *keywords[] = {"block", NULL};
+	int block = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|p:sync_events", keywords,
+					 &block))
+		return NULL;
+	struct drgn_error *err = drgn_program_sync_events(&self->prog, block);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_queue_event(Program *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"event", NULL};
+	PyObject *event_obj;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:queue_event", keywords,
+					 &event_obj))
+		return NULL;
+
+	struct drgn_event *event;
+#define X(type, TYPE, Type)							\
+	if (PyObject_TypeCheck(event_obj, &Type##Event_type))			\
+		event = (struct drgn_event *)&((Type##Event *)event_obj)->event;\
+	else
+	DRGN_EVENT_TYPES
+#undef X
+	{
+		return PyErr_Format(PyExc_TypeError,
+				    "event must be Event, not %s",
+				    Py_TYPE(event_obj)->tp_name);
+	}
+
+	struct drgn_error *err = drgn_program_queue_event(&self->prog, event);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_address_size(Program *self)
 {
 	struct drgn_error *err;
@@ -2508,6 +2997,38 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_main_thread_DOC},
 	{"crashed_thread", (PyCFunction)Program_crashed_thread, METH_NOARGS,
 	 drgn_Program_crashed_thread_DOC},
+	{"attach", (PyCFunction)Program_attach, METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_attach_DOC},
+	{"detach", (PyCFunction)Program_detach, METH_NOARGS,
+	 drgn_Program_detach_DOC},
+	{"interrupt_any_thread", (PyCFunction)Program_interrupt_any_thread,
+	 METH_NOARGS, drgn_Program_interrupt_any_thread_DOC},
+	{"set_all_stop", (PyCFunction)Program_set_all_stop,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_all_stop_DOC},
+	{"resume_all_threads", (PyCFunction)Program_resume_all_threads,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_resume_all_threads_DOC},
+	{"resume_only_threads", (PyCFunction)Program_resume_only_threads,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_resume_only_threads_DOC},
+	{"set_breakpoint", (PyCFunction)Program_set_breakpoint,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_breakpoint_DOC},
+	{"breakpoints", (PyCFunction)Program_breakpoints, METH_NOARGS,
+	 drgn_Program_breakpoints_DOC},
+	{"find_breakpoint_site", (PyCFunction)Program_find_breakpoint_site,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_find_breakpoint_site_DOC},
+	{"breakpoint_sites", (PyCFunction)Program_breakpoint_sites, METH_NOARGS,
+	 drgn_Program_breakpoint_sites_DOC},
+	{"remove_all_breakpoints", (PyCFunction)Program_remove_all_breakpoints,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_remove_all_breakpoints_DOC},
+	{"enable_all_breakpoints", (PyCFunction)Program_enable_all_breakpoints,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_enable_all_breakpoints_DOC},
+	{"disable_all_breakpoints", (PyCFunction)Program_disable_all_breakpoints,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_disable_all_breakpoints_DOC},
+	{"get_event", (PyCFunction)Program_get_event,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_get_event_DOC},
+	{"sync_events", (PyCFunction)Program_sync_events,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_sync_events_DOC},
+	{"queue_event", (PyCFunction)Program_queue_event,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_queue_event_DOC},
 	{"address_size", (PyCFunction)Program_address_size, METH_NOARGS,
 	 drgn_Program_address_size_DOC},
 	{"void_type", (PyCFunction)Program_void_type,
@@ -2557,6 +3078,10 @@ static PyGetSetDef Program_getset[] = {
 	{"debug_info_options", (getter)Program_get_debug_info_options,
 	 (setter)Program_set_debug_info_options,
 	 drgn_Program_debug_info_options_DOC},
+	{"attach_state", (getter)Program_get_attach_state, NULL,
+	 drgn_Program_attach_state_DOC},
+	{"all_stop", (getter)Program_get_all_stop, NULL,
+	 drgn_Program_all_stop_DOC},
 	{},
 };
 
@@ -2583,6 +3108,7 @@ PyTypeObject Program_type = {
 	.tp_members = Program_members,
 	.tp_getset = Program_getset,
 	.tp_new = (newfunc)Program_new,
+	.tp_finalize = (destructor)Program_finalize,
 };
 
 Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds)
@@ -2640,3 +3166,48 @@ Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds)
 		return set_drgn_error(err);
 	return_ptr(prog);
 }
+
+static void ProgramAttachContext_dealloc(ProgramAttachContext *self)
+{
+	PyObject_GC_UnTrack(self);
+	Py_XDECREF(self->prog);
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int ProgramAttachContext_traverse(ProgramAttachContext *self,
+					 visitproc visit, void *arg)
+{
+	Py_VISIT(self->prog);
+	return 0;
+}
+
+static PyObject *ProgramAttachContext_enter(ProgramAttachContext *self,
+					    PyObject *Py_UNUSED(args))
+{
+	Py_RETURN_NONE;
+}
+
+static PyObject *ProgramAttachContext_exit(ProgramAttachContext *self,
+					   PyObject *args)
+{
+	struct drgn_error *err = drgn_program_detach(&self->prog->prog);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyMethodDef ProgramAttachContext_methods[] = {
+	{"__enter__", (PyCFunction)ProgramAttachContext_enter, METH_NOARGS},
+	{"__exit__", (PyCFunction)ProgramAttachContext_exit, METH_VARARGS},
+	{},
+};
+
+PyTypeObject ProgramAttachContext_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "_drgn._ProgramAttachContext",
+	.tp_basicsize = sizeof(ProgramAttachContext),
+	.tp_dealloc = (destructor)ProgramAttachContext_dealloc,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_traverse = (traverseproc)ProgramAttachContext_traverse,
+	.tp_methods = ProgramAttachContext_methods,
+};

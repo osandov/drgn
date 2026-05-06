@@ -20,16 +20,19 @@
 #endif
 
 #include "debug_info.h"
+#include "deque.h"
 #include "drgn_internal.h"
 #include "handler.h"
 #include "hash_table.h"
 #include "language.h"
+#include "list.h"
 #include "memory_reader.h"
 #include "platform.h"
 #include "qemu_machine_protocol.h"
 #include "type.h"
 #include "vector.h"
 
+struct drgn_execution_controller;
 struct drgn_object_finder;
 struct drgn_prstatus_vector;
 struct drgn_register_state_finder;
@@ -52,6 +55,8 @@ struct drgn_thread_finder;
 
 DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *);
 DEFINE_HASH_TABLE_TYPE(drgn_prstatus_table, struct drgn_prstatus *);
+DEFINE_DEQUE_TYPE(drgn_event_deque, struct drgn_event *);
+DEFINE_HASH_TABLE_TYPE(drgn_breakpoint_site_table, struct drgn_breakpoint_site *);
 
 struct drgn_prpsinfo {
 	uint32_t pid;
@@ -144,6 +149,24 @@ struct drgn_program {
 	 */
 	struct drgn_handler_list thread_finders;
 	struct drgn_handler_list register_state_finders;
+
+	/*
+	 * Execution control.
+	 */
+	struct drgn_handler_list execution_controllers;
+	enum drgn_attach_state attach_state;
+	bool all_stop;
+	bool in_all_stop;
+	bool resuming_threads;
+	struct drgn_event_deque event_queue;
+	struct drgn_breakpoint_site_table breakpoint_sites;
+	struct list_head breakpoints;
+	struct list_head stopped_threads;
+	struct list_head resumed_threads;
+	struct list_head running_threads;
+	const char *modifying_breakpoints;
+	uint64_t breakpoint_sites_generation;
+	uint64_t breakpoints_generation;
 
 	// Cached `NT_PRPSINFO` note.
 	struct drgn_prpsinfo prpsinfo;
@@ -500,7 +523,8 @@ drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 	X(symbol_finder)		\
 	X(debug_info_finder)		\
 	X(thread_finder)		\
-	X(register_state_finder)
+	X(register_state_finder)	\
+	X(execution_controller)
 
 #define X(which)								\
 struct drgn_error *								\
