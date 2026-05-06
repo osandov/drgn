@@ -557,7 +557,15 @@ py_debug_info_find_fn(struct drgn_module * const *modules, size_t num_modules,
 	return NULL;
 }
 
-#define debug_info_finder_arg(self, fn) PyObject *arg = fn;
+#define check_handler_callable(name)						\
+	if (!PyCallable_Check(handler)) {					\
+		PyErr_SetString(PyExc_TypeError, name " must be callable");	\
+		return NULL;							\
+	}
+
+#define debug_info_finder_arg_name "fn"
+#define debug_info_finder_check_handler(name) check_handler_callable(name)
+#define debug_info_finder_arg PyObject *arg = handler;
 #define debug_info_finder_set_ops ops.find = py_debug_info_find_fn;
 
 static inline struct drgn_error *
@@ -609,8 +617,10 @@ static struct drgn_error *py_type_find_fn(uint64_t kinds, const char *name,
 	return py_type_find_fn_common(type_obj, arg, ret);
 }
 
-#define type_finder_arg(self, fn)						\
-	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);	\
+#define type_finder_arg_name "fn"
+#define type_finder_check_handler(name) check_handler_callable(name)
+#define type_finder_arg								\
+	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, handler);	\
 	if (!arg)								\
 		return NULL;
 #define type_finder_set_ops ops.find = py_type_find_fn;
@@ -679,7 +689,9 @@ static struct drgn_error *py_object_find_fn(const char *name, size_t name_len,
 	return drgn_object_copy(ret, &((DrgnObject *)obj)->obj);
 }
 
-#define object_finder_arg(self, fn) PyObject *arg = fn;
+#define object_finder_arg_name "fn"
+#define object_finder_check_handler(name) check_handler_callable(name)
+#define object_finder_arg PyObject *arg = handler;
 #define object_finder_set_ops ops.find = py_object_find_fn;
 
 static struct drgn_error *
@@ -759,8 +771,10 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 	return NULL;
 }
 
-#define symbol_finder_arg(self, fn)						\
-	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);	\
+#define symbol_finder_arg_name "fn"
+#define symbol_finder_check_handler(name) check_handler_callable(name)
+#define symbol_finder_arg							\
+	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, handler);	\
 	if (!arg)								\
 		return NULL;
 #define symbol_finder_set_ops ops.find = py_symbol_find_fn;
@@ -770,19 +784,18 @@ static PyObject *Program_register_##which(Program *self, PyObject *args,	\
 					  PyObject *kwds)			\
 {										\
 	struct drgn_error *err;							\
-	static char *keywords[] = {"name", "fn", "enable_index", NULL};		\
+	static char *keywords[] = {						\
+		"name", which##_arg_name, "enable_index", NULL			\
+	};									\
 	const char *name;							\
-	PyObject *fn;								\
+	PyObject *handler;							\
 	PyObject *enable_index_obj = Py_None;					\
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sO|$O:register_" #which,	\
-					 keywords, &name, &fn,			\
+					 keywords, &name, &handler,		\
 					 &enable_index_obj))			\
 		return NULL;							\
 										\
-	if (!PyCallable_Check(fn)) {						\
-		PyErr_SetString(PyExc_TypeError, "fn must be callable");	\
-		return NULL;							\
-	}									\
+	which##_check_handler(which##_arg_name)					\
 										\
 	size_t enable_index;							\
 	if (enable_index_obj == Py_None) {					\
@@ -812,7 +825,7 @@ static PyObject *Program_register_##which(Program *self, PyObject *args,	\
 		}								\
 	}									\
 										\
-	which##_arg(self, fn)							\
+	which##_arg								\
 	_cleanup_held_objects_ struct drgnpy_held_objects *held =		\
 		drgnpy_held_object_create(arg);					\
 	if (!held)								\
