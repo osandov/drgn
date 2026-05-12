@@ -155,8 +155,15 @@ def main() -> None:
         if not arch_dir.is_dir() or arch_dir.name == "um":
             continue
 
-        with tempfile.TemporaryDirectory() as arch_include_generated_dir:
-            arch_include_generated = Path(arch_include_generated_dir)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+
+            tmp_include = tmp / "include"
+            tmp_include.mkdir()
+
+            arch_include_generated = tmp / "arch_include_generated"
+            arch_include_generated.mkdir()
+
             create_mandatory(
                 arch_include_generated / "asm",
                 arch_dir / "include/asm",
@@ -169,16 +176,22 @@ def main() -> None:
                 Path("include/uapi/asm-generic"),
                 uapi_asm_generic_mandatory_y,
             )
+
+            # These headers get included at some point. Normally the kernel
+            # build process generates them, but we don't actually need their
+            # contents.
+            generated = tmp_include / "generated"
+            generated.mkdir()
+            for name in ("asm-offsets.h", "autoconf.h"):
+                (generated / name).touch()
             if arch_dir.name == "arm64":
-                # These headers get included at some point. Normally the kernel
-                # build process generates them, but we don't actually need
-                # their contents.
                 for name in ("cpucap-defs.h", "sysreg-defs.h"):
                     (arch_include_generated / "asm" / name).touch()
 
             gcc_args = [
                 "-w",
                 "-nostdinc",
+                f"-I{tmp_include}",
                 f"-I./{arch_dir}/include",
                 f"-I{arch_include_generated}",
                 "-I./include",
@@ -188,6 +201,18 @@ def main() -> None:
                 "-D__KERNEL__",
                 "-DIS_ENABLED(x)=0",
             ]
+            # Defines needed to appease Linux kernel commit 62357a5888ea
+            # ("asm-generic/bitsperlong.h: Add sanity checks for
+            # __BITS_PER_LONG") (in v7.1).
+            if arch_dir.name == "arm64":
+                gcc_args.append("-D__aarch64__")
+            elif arch_dir.name == "mips":
+                gcc_args.append("-D_MIPS_SZLONG=64")
+            elif arch_dir.name == "powerpc":
+                gcc_args.append("-D__powerpc64__")
+            elif arch_dir.name == "sparc":
+                gcc_args.append("-D__sparc__")
+                gcc_args.append("-D__arch64__")
 
             defines = subprocess.run(
                 ["gcc", *gcc_args, "-dM", "-E", "-"],
