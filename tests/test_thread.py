@@ -109,6 +109,12 @@ class TestCoreDump(TestCase):
     def test_main_thread(self):
         self.assertEqual(self.prog.main_thread().tid, self.MAIN_TID)
 
+    def test_repr(self):
+        self.assertEqual(
+            repr(self.prog.main_thread()),
+            f"<Thread {self.MAIN_TID} ({self.MAIN_THREAD_NAME})>",
+        )
+
     def test_prog(self):
         self.assertEqual(self.prog.main_thread().prog, self.prog)
 

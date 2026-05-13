@@ -47,6 +47,20 @@ static int Thread_clear(Thread *self)
 	return 0;
 }
 
+static PyObject *Thread_repr(Thread *self)
+{
+	uint32_t tid = drgn_thread_tid(&self->thread);
+	_cleanup_free_ char *name = NULL;
+	struct drgn_error *err = drgn_thread_name(&self->thread, &name);
+	if (err)
+		drgn_error_destroy(err);
+	if (name) {
+		return PyUnicode_FromFormat("<Thread %u (%s)>",
+					    (unsigned int)tid, name);
+	}
+	return PyUnicode_FromFormat("<Thread %u>", (unsigned int)tid);
+}
+
 static Program *Thread_get_prog(Thread *self)
 {
 	Program *ret =
@@ -174,6 +188,7 @@ PyTypeObject Thread_type = {
 	.tp_name = "_drgn.Thread",
 	.tp_basicsize = sizeof(Thread),
 	.tp_dealloc = (destructor)Thread_dealloc,
+	.tp_repr = (reprfunc)Thread_repr,
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
 	.tp_doc = drgn_Thread_DOC,
 	.tp_traverse = (traverseproc)Thread_traverse,
