@@ -858,16 +858,20 @@ class Program:
         This does not load any debugging symbols; see
         :meth:`load_default_debug_info()`.
 
-        .. note::
+        .. tip::
 
-            This can identify Linux kernel guests automatically. To do so, you
-            must:
+            Prefer using a Unix domain socket (e.g., run QEMU with
+            ``-qmp unix:/path/to/sock,server=on,wait=off``). When connected
+            over a Unix domain socket, drgn can read memory much faster (as
+            long as it has ``PTRACE_MODE_ATTACH_REALCREDS`` access to the QEMU
+            process).
 
-            1. Use a Unix domain socket for the QMP connection (e.g., run QEMU
-               with ``-qmp unix:/path/to/sock,server=on,wait=off``).
-            2. Use a Linux kernel version >= 4.17 in the guest.
-            3. Run QEMU with ``-device vmcoreinfo``.
-            4. Set ``CONFIG_KEXEC=y`` and ``CONFIG_FW_CFG_SYSFS=y`` in the
+            When connected over a Unix domain socket, drgn can also
+            automatically identify Linux kernel guests, provided that you also:
+
+            1. Use a Linux kernel version >= 4.17 in the guest.
+            2. Run QEMU with ``-device vmcoreinfo``.
+            3. Set ``CONFIG_KEXEC=y`` and ``CONFIG_FW_CFG_SYSFS=y`` in the
                guest kernel's configuration. (Alternatively, you can use
                ``CONFIG_FW_CFG_SYSFS=m`` and ensure that the ``qemu_fw_cfg``
                kernel module is loaded.)

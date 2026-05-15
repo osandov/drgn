@@ -20,6 +20,7 @@ struct drgn_qmp_conn {
 	struct string_builder read_buf;
 	struct string_builder write_buf;
 	struct json_tokener *json_tok;
+	struct drgn_qemu_process_mem_segment *process_mem_segments;
 };
 
 static inline void drgn_qmp_conn_init(struct drgn_qmp_conn *conn)
@@ -28,6 +29,7 @@ static inline void drgn_qmp_conn_init(struct drgn_qmp_conn *conn)
 	conn->read_buf = (struct string_builder)STRING_BUILDER_INIT;
 	conn->write_buf = (struct string_builder)STRING_BUILDER_INIT;
 	conn->json_tok = NULL;
+	conn->process_mem_segments = NULL;
 }
 
 void drgn_qmp_conn_deinit(struct drgn_qmp_conn *conn);

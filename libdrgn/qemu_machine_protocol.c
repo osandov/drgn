@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -20,6 +21,7 @@
 #include "hexlify.h"
 #include "io.h"
 #include "linux_kernel.h"
+#include "log.h"
 #include "memory_reader.h"
 #include "minmax.h"
 #include "platform.h"
@@ -27,6 +29,12 @@
 #include "program.h"
 #include "qemu_machine_protocol.h"
 #include "util.h"
+#include "vector.h"
+
+struct drgn_qemu_process_mem_segment {
+	pid_t pid;
+	uintptr_t hva;
+};
 
 #define _cleanup_json_object_ _cleanup_(json_object_putp)
 static inline void json_object_putp(struct json_object **objp)
@@ -36,6 +44,7 @@ static inline void json_object_putp(struct json_object **objp)
 
 void drgn_qmp_conn_deinit(struct drgn_qmp_conn *conn)
 {
+	free(conn->process_mem_segments);
 	if (conn->json_tok)
 		json_tokener_free(conn->json_tok);
 	string_builder_deinit(&conn->write_buf);
@@ -359,6 +368,305 @@ static struct drgn_error *drgn_qmp_read_memory(void *buf, uint64_t address,
 	return NULL;
 }
 
+static pid_t qmp_get_peer_pid(struct drgn_program *prog)
+{
+	struct drgn_qmp_conn *conn = &prog->qmp_conn;
+
+	struct ucred cred;
+	socklen_t cred_len = sizeof(cred);
+	if (getsockopt(conn->fd, SOL_SOCKET, SO_PEERCRED, &cred,
+		       &cred_len) < 0) {
+		drgn_log_debug(prog,
+			       "QEMU process memory reading disabled: getsockopt(SO_PEERCRED): %m");
+		return 0;
+	}
+	if (cred.pid == 0) {
+		// This can happen if the process has exited or if it is not
+		// visible from our PID namespace.
+		drgn_log_debug(prog,
+			       "QEMU process memory reading disabled: no peer PID");
+	}
+	return cred.pid;
+}
+
+DEFINE_VECTOR(uint64_range_vector, struct uint64_range);
+
+static struct drgn_error *
+qmp_get_ram_ranges(struct drgn_qmp_conn *conn, struct uint64_range **ranges_ret,
+		   size_t *num_ranges_ret)
+{
+	struct drgn_error *err;
+
+	static const char cmd[] =
+		"{\"execute\":\"human-monitor-command\","
+		"\"arguments\":{\"command-line\":"
+		"\"info mtree -f\"}}\r\n";
+	_cleanup_json_object_ struct json_object *obj = NULL;
+	err = qmp_execute_str(conn, cmd, sizeof(cmd) - 1, &obj);
+	if (err)
+		return err;
+
+	if (!json_object_is_type(obj, json_type_string)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "QMP human-monitor-command info mtree return value is not string");
+	}
+
+	VECTOR(uint64_range_vector, ranges);
+
+	// As of QEMU 11.0.0, the format is a series of:
+	//
+	// FlatView #N
+	//  AS "ADDRESS_SPACE_NAME", ...
+	//  ...
+	//  Root memory region: ...
+	//   START-END (prio N, TYPE): ...
+	//   ...
+	//
+	// Find all of the usable memory regions in the flat view containing the
+	// "memory" address space.
+	bool found_memory_as = false, found_memory_regions = false;
+	for (const char *line = json_object_get_string(obj); *line;
+	     line = strchrnul(line, '\n'), line = *line ? line + 1 : line) {
+		const char *p = line;
+		if (strstartswith(p, "FlatView")) {
+			if (found_memory_as) {
+				// We're done with the flat view containing the
+				// memory address space.
+				break;
+			}
+			continue;
+		}
+
+		p += strspn(p, " \t");
+		if (strstartswith(p, "AS \"memory\"")) {
+			found_memory_as = true;
+			continue;
+		} else if (strstartswith(p, "Root memory region:")) {
+			found_memory_regions = found_memory_as;
+			continue;
+		} else if (!found_memory_regions) {
+			continue;
+		}
+
+		struct uint64_range range;
+
+		// Get start address.
+		char *end;
+		errno = 0;
+		range.start = strtoull(p, &end, 16);
+		if (end == p || *end != '-' || errno == ERANGE)
+			continue;
+		p = end + 1;
+
+		// Get end address.
+		errno = 0;
+		range.end = strtoull(p, &end, 16);
+		if (end == p || errno == ERANGE)
+			continue;
+		p = end;
+
+		// Skip priority.
+		p = strchr(p, ',');
+		if (!p)
+			continue;
+		p++;
+
+		// Check type. QEMU monitor gpa2hva supports ram, rom, and romd
+		// regions.
+		p += strspn(p, " \t");
+		if (strstartswith(p, "nv-"))
+			p += 3;
+		if (!strstartswith(p, "ram)")
+		    && !strstartswith(p, "rom)")
+		    && !strstartswith(p, "romd)"))
+			continue;
+
+		if (!uint64_range_vector_append(&ranges, &range))
+			return &drgn_enomem;
+	}
+
+	uint64_range_vector_steal(&ranges, ranges_ret, num_ranges_ret);
+	return NULL;
+}
+
+static struct drgn_error *qmp_gpa2hva(struct drgn_qmp_conn *conn, uint64_t gpa,
+				      uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	conn->write_buf.len = 0;
+	if (!string_builder_appendf(&conn->write_buf,
+				    "{\"execute\":\"human-monitor-command\","
+				    "\"arguments\":{\"command-line\":"
+				    "\"gpa2hva 0x%" PRIx64 "\"}}\r\n", gpa))
+		return &drgn_enomem;
+	_cleanup_json_object_ struct json_object *result = NULL;
+	err = qmp_execute_str(conn, conn->write_buf.str,
+			      conn->write_buf.len, &result);
+	if (err)
+		return err;
+
+	if (!json_object_is_type(result, json_type_string)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					"QMP human-monitor-command gpa2hva return value is not string");
+	}
+
+	const char *s = json_object_get_string(result);
+
+	// As of QEMU 11.0.0, the format is:
+	//
+	// Host virtual address for GPA (REGION_NAME) is HVA
+	//
+	// We assume that anything else is a failure (although it could also be
+	// a format change) and return it as the error message.
+	const char *p = s;
+	const char prefix[] = "Host virtual address for ";
+	if (!strstartswith(p, prefix))
+		goto fail;
+	p += sizeof(prefix) - 1;
+
+	p = strchr(p, ')');
+	if (!p)
+		goto fail;
+	p++;
+
+	if (!strstartswith(p, " is "))
+		goto fail;
+	p += 4;
+
+	char *end;
+	errno = 0;
+	unsigned long long hva = strtoull(p, &end, 16);
+	if (end == p || errno == ERANGE)
+		goto fail;
+	switch (*end) {
+	case '\0':
+	case ' ':
+	case '\t':
+	case '\r':
+	case '\n':
+		break;
+	default:
+		goto fail;
+	}
+	*ret = hva;
+	return NULL;
+
+fail:;
+	size_t len = strlen(s);
+	while (len > 0 && s[len - 1] == '\n')
+		len--;
+	return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT, "%.*s",
+				 len > INT_MAX ? INT_MAX : (int)len, s);
+}
+
+static bool can_read_process_mem(pid_t pid, uintptr_t address)
+{
+	char probe_byte;
+	struct iovec local = { .iov_base = &probe_byte, .iov_len = 1 };
+	struct iovec remote = { .iov_base = (void *)address, .iov_len = 1 };
+	return process_vm_readv(pid, &local, 1, &remote, 1, 0) > 0;
+}
+
+static struct drgn_error *
+drgn_read_qemu_process_mem(void *buf, uint64_t address, size_t count,
+			   uint64_t offset, void *arg, bool physical)
+{
+	drgn_blocking_guard(blocking_guard);
+
+	struct drgn_qemu_process_mem_segment *seg = arg;
+	struct iovec local = { .iov_base = buf, .iov_len = count };
+	struct iovec remote = {
+		.iov_base = (void *)(uintptr_t)(seg->hva + offset),
+		.iov_len = count,
+	};
+
+	while (local.iov_len > 0) {
+		ssize_t r = process_vm_readv(seg->pid, &local, 1, &remote, 1, 0);
+		if (r < 0) {
+			if (errno == EINTR)
+				continue;
+			return drgn_error_create_os("process_vm_readv", errno,
+						    NULL);
+		}
+		local.iov_base = (char *)local.iov_base + r;
+		remote.iov_base = (char *)remote.iov_base + r;
+		local.iov_len -= r;
+		remote.iov_len -= r;
+	}
+	return NULL;
+}
+
+// Try to set up direct reading of the QEMU process's memory via
+// process_vm_readv() instead of going through QEMU monitor xp.
+//
+// We map all of the guest's physical address ranges to host virtual addresses
+// using the QEMU monitor gpa2hva command.
+//
+// If this fails (e.g., due to permissions, QEMU monitor command errors, or
+// parsing failures), we fall back to the xp reader.
+static struct drgn_error *
+qmp_setup_process_mem(struct drgn_program *prog, pid_t pid,
+		      const struct uint64_range *ram_ranges,
+		      size_t num_ram_ranges)
+{
+	struct drgn_error *err;
+	struct drgn_qmp_conn *conn = &prog->qmp_conn;
+
+	_cleanup_free_ struct drgn_qemu_process_mem_segment *segments =
+		malloc_array(num_ram_ranges, sizeof(*segments));
+	if (!segments)
+		return &drgn_enomem;
+	size_t num_succeeded = 0;
+	for (size_t i = 0; i < num_ram_ranges; i++) {
+		uint64_t address = ram_ranges[i].start;
+		uint64_t size = ram_ranges[i].end - address + 1;
+		uint64_t hva;
+		err = qmp_gpa2hva(conn, address, &hva);
+		if (err) {
+			if (drgn_error_is_fatal(err))
+				return err;
+			drgn_error_log_debug(prog, err,
+					     "QEMU gpa2hva failed: ");
+			drgn_error_destroy(err);
+			continue;
+		}
+		if (hva > UINTPTR_MAX) {
+			drgn_log_debug(prog, "QEMU HVA too large: 0x%" PRIx64,
+				       hva);
+			continue;
+		}
+
+		if (num_succeeded == 0 && !can_read_process_mem(pid, hva)) {
+			drgn_log_debug(prog,
+				       "QEMU process memory reading disabled: process_vm_readv (PID %d): %m",
+				       (int)pid);
+			return NULL;
+		}
+
+		segments[i].pid = pid;
+		segments[i].hva = hva;
+		err = drgn_program_add_memory_segment(prog, address, size,
+						      drgn_read_qemu_process_mem,
+						      &segments[i], true);
+		if (err)
+			return err;
+		num_succeeded++;
+	}
+
+	if (num_succeeded == 0) {
+		drgn_log_debug(prog,
+			       "QEMU process memory reading disabled: no usable RAM ranges");
+		return NULL;
+	}
+
+	conn->process_mem_segments = no_cleanup_ptr(segments);
+	drgn_log_debug(prog,
+		       "QEMU process memory reading enabled: PID %d, %zu segments",
+		       (int)pid, num_succeeded);
+	return NULL;
+}
+
 #define _cleanup_elf_end_ _cleanup_(elf_endp)
 static inline void elf_endp(Elf **elfp)
 {
@@ -398,55 +706,16 @@ static struct drgn_error *parse_vmcoreinfo_from_dump(struct drgn_program *prog,
 	return drgn_program_finish_set_kernel(prog);
 }
 
-// Find a valid RAM address by parsing "info mtree -f" output.
-static struct drgn_error *qmp_find_ram_address(struct drgn_qmp_conn *conn,
-					       uint64_t *ret)
-{
-	struct drgn_error *err;
-
-	static const char cmd[] =
-		"{\"execute\":\"human-monitor-command\","
-		"\"arguments\":{\"command-line\":"
-		"\"info mtree -f\"}}\r\n";
-	_cleanup_json_object_ struct json_object *result = NULL;
-	err = qmp_execute_str(conn, cmd, sizeof(cmd) - 1, &result);
-	if (err)
-		return err;
-
-	if (!json_object_is_type(result, json_type_string)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "QMP human-monitor-command info mtree return value is not string");
-	}
-
-	// The format is "  START-END (prio N, TYPE): NAME". Find a line with
-	// TYPE == "ram".
-	const char *s = json_object_get_string(result);
-	for (;;) {
-		const char *ram = strstr(s, ", ram):");
-		if (!ram) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "could not find RAM region in QEMU memory tree");
-		}
-		const char *line = ram;
-		while (line > s && line[-1] != '\n')
-			line--;
-		char *end;
-		uint64_t address = strtoull(line, &end, 16);
-		if (end > line && *end == '-') {
-			*ret = address;
-			return NULL;
-		}
-		// Couldn't parse this line, try the next match.
-		s = ram + 1;
-	}
-}
-
 // Read VMCOREINFO over QMP if possible.
 //
 // Unfortunately, QMP does not provide a straightforward way to read VMCOREINFO.
 // Our extremely hacky approach is to use the dump-guest-memory command with a
 // minimal memory range, which produces a tiny core dump that includes the
 // VMCOREINFO note (as long as the guest is configured properly).
+//
+// Note that the memory range that we pass to dump-guest-memory must contain a
+// valid address. There's nothing we can hard-code that works on all
+// architectures/machines, so this must be given a valid address.
 //
 // Since the dump is written to a file, this only works if the QEMU process is
 // local. The QEMU process may also be sandboxed, containerized, etc., so it may
@@ -455,23 +724,11 @@ static struct drgn_error *qmp_find_ram_address(struct drgn_qmp_conn *conn,
 // dump-guest-memory can write to an fd that is passed via SCM_RIGHTS (which
 // requires that the QMP connection is a Unix domain socket). We do that instead
 // (using a memfd to avoid polluting the filesystem).
-static struct drgn_error *qmp_read_vmcoreinfo(struct drgn_program *prog)
+static struct drgn_error *qmp_read_vmcoreinfo(struct drgn_program *prog,
+					      uint64_t ram_address)
 {
 	struct drgn_error *err;
 	struct drgn_qmp_conn *conn = &prog->qmp_conn;
-
-	// Check that the connection is a Unix domain socket.
-	struct sockaddr sa;
-	socklen_t sa_len = sizeof(sa);
-	if (getsockname(conn->fd, &sa, &sa_len) < 0 || sa.sa_family != AF_UNIX)
-		return NULL;
-
-	// dump-guest-memory requires a valid address, and there's nothing we
-	// can hard-code that works on all architectures/machines.
-	uint64_t ram_address;
-	err = qmp_find_ram_address(conn, &ram_address);
-	if (err)
-		return err;
 
 	_cleanup_close_ int fd = syscall(SYS_memfd_create, "drgn-qmp-dump", 0U);
 	if (fd < 0)
@@ -641,10 +898,43 @@ drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
 	if (err)
 		goto err;
 
-	if (!had_vmcoreinfo) {
-		err = qmp_read_vmcoreinfo(prog);
-		if (err)
-			goto err;
+	struct sockaddr sa;
+	socklen_t sa_len = sizeof(sa);
+	if (getsockname(fd, &sa, &sa_len) < 0) {
+		err = drgn_error_create_os("getsockname", errno, NULL);
+		goto err;
+	}
+	if (sa.sa_family == AF_UNIX) {
+		pid_t pid = qmp_get_peer_pid(prog);
+
+		if (pid || !had_vmcoreinfo) {
+			_cleanup_free_ struct uint64_range *ram_ranges = NULL;
+			size_t num_ram_ranges = 0;
+			err = qmp_get_ram_ranges(&prog->qmp_conn, &ram_ranges,
+						 &num_ram_ranges);
+			if (err)
+				goto err;
+
+			if (num_ram_ranges > 0) {
+				if (pid) {
+					err = qmp_setup_process_mem(prog, pid,
+								    ram_ranges,
+								    num_ram_ranges);
+					if (err)
+						goto err;
+				}
+
+				if (!had_vmcoreinfo) {
+					err = qmp_read_vmcoreinfo(prog,
+								  ram_ranges[0].start);
+					if (err)
+						goto err;
+				}
+			} else {
+				drgn_log_debug(prog,
+					       "no QEMU RAM ranges found");
+			}
+		}
 	}
 
 	prog->flags |= DRGN_PROGRAM_IS_LIVE;
