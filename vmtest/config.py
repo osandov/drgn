@@ -117,6 +117,12 @@ CONFIG_MAGIC_SYSRQ=y
 # For testing kernel core dumps from QEMU's dump-guest-memory command.
 CONFIG_FW_CFG_SYSFS=y
 
+# For testing kgdb.
+CONFIG_KGDB=y
+CONFIG_KGDB_KDB=y
+CONFIG_KGDB_SERIAL_CONSOLE=y
+CONFIG_KDB_DEFAULT_ENABLE=0x1
+
 # kmodify breakpoints need kprobes.
 CONFIG_KPROBES=y
 
@@ -554,17 +560,13 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     vmtest_kernel_version = [
         # Increment the major version to rebuild every
         # architecture/flavor/version combination.
-        40,
+        41,
         # The minor version makes the default flavor the "latest" version.
         1 if flavor.name == "default" else 0,
     ]
     patch_level = 0
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
-    if flavor.name == "alternative" and KernelVersion(version) >= KernelVersion("6.10"):
-        patch_level += 1
-        if arch.name == "s390x":
-            patch_level += 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 
