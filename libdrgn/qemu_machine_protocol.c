@@ -898,6 +898,8 @@ drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
 	if (err)
 		goto err;
 
+	prog->flags |= DRGN_PROGRAM_IS_LIVE;
+
 	struct sockaddr sa;
 	socklen_t sa_len = sizeof(sa);
 	if (getsockname(fd, &sa, &sa_len) < 0) {
@@ -936,8 +938,6 @@ drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
 			}
 		}
 	}
-
-	prog->flags |= DRGN_PROGRAM_IS_LIVE;
 
 	drgn_call_plugins_prog("drgn_prog_set", prog);
 	return NULL;
