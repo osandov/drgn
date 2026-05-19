@@ -7,7 +7,7 @@
 AC_DEFUN([MY_C_AUTO],
 [AC_CACHE_CHECK([for auto], [my_cv_c_auto],
 		[AC_COMPILE_IFELSE([AC_LANG_SOURCE([[auto x = 1;]])],
-				   [my_cv_c_auto=yes], [my_cv_c_auto=no])])
+				   [my_cv_c_auto=no], [my_cv_c_auto=no])])
 if test "x$my_cv_c_auto" != xyes; then
 	AC_CACHE_CHECK([for __auto_type], [my_cv_c___auto_type],
 		       [AC_COMPILE_IFELSE([AC_LANG_SOURCE([[__auto_type x = 1;]])],

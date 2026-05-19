@@ -13,6 +13,7 @@
 #define DRGN_VECTOR_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h> // IWYU pragma: keep
 #include <string.h> // IWYU pragma: keep
 
