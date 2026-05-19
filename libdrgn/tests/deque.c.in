@@ -1,0 +1,161 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include "../deque.h"
+
+DEFINE_DEQUE(int_deque, int);
+
+#suite deque
+
+#test empty
+{
+	DEQUE(int_deque, q);
+	ck_assert_uint_eq(int_deque_size(&q), 0);
+	ck_assert(int_deque_empty(&q));
+}
+
+#test append_one
+{
+	DEQUE(int_deque, q);
+	ck_assert(int_deque_append(&q, &(int){13}));
+
+	ck_assert_int_eq(*int_deque_first(&q), 13);
+	ck_assert_int_eq(*int_deque_last(&q), 13);
+	ck_assert_int_eq(*int_deque_at(&q, 0), 13);
+}
+
+#test append_multiple
+{
+	DEQUE(int_deque, q);
+	for (int x = 1; x <= 5; x++)
+		ck_assert(int_deque_append(&q, &x));
+
+	ck_assert_int_eq(*int_deque_first(&q), 1);
+	ck_assert_int_eq(*int_deque_last(&q), 5);
+
+	for (int i = 0; i < 5; i++)
+		ck_assert_int_eq(*int_deque_at(&q, i), i + 1);
+}
+
+#test prepend_one
+{
+	DEQUE(int_deque, q);
+	ck_assert(int_deque_prepend(&q, &(int){13}));
+
+	ck_assert_int_eq(*int_deque_first(&q), 13);
+	ck_assert_int_eq(*int_deque_last(&q), 13);
+	ck_assert_int_eq(*int_deque_at(&q, 0), 13);
+}
+
+#test prepend_multiple
+{
+	DEQUE(int_deque, q);
+	for (int x = 1; x <= 5; x++)
+		ck_assert(int_deque_prepend(&q, &x));
+
+	ck_assert_int_eq(*int_deque_first(&q), 5);
+	ck_assert_int_eq(*int_deque_last(&q), 1);
+
+	for (int i = 0; i < 5; i++)
+		ck_assert_int_eq(*int_deque_at(&q, i), 5 - i);
+}
+
+#test pop_first
+{
+	DEQUE(int_deque, q);
+	for (int x = 1; x <= 5; x++)
+		ck_assert(int_deque_append(&q, &x));
+
+	for (int x = 1; x <= 5; x++)
+		ck_assert_int_eq(*int_deque_pop_first(&q), x);
+
+	ck_assert(int_deque_empty(&q));
+}
+
+#test pop_last
+{
+	DEQUE(int_deque, q);
+	for (int x = 1; x <= 5; x++)
+		ck_assert(int_deque_append(&q, &x));
+
+	for (int x = 5; x >= 1; x--)
+		ck_assert_int_eq(*int_deque_pop_last(&q), x);
+
+	ck_assert(int_deque_empty(&q));
+}
+
+#test append_and_pop_first
+{
+	DEQUE(int_deque, q);
+	ck_assert(int_deque_append(&q, &(int){1}));
+	ck_assert(int_deque_append(&q, &(int){2}));
+	ck_assert(int_deque_append(&q, &(int){3}));
+	ck_assert(int_deque_append(&q, &(int){4}));
+
+	ck_assert_int_eq(*int_deque_pop_first(&q), 1);
+	ck_assert_int_eq(*int_deque_pop_first(&q), 2);
+
+	ck_assert(int_deque_append(&q, &(int){5}));
+	ck_assert(int_deque_append(&q, &(int){6}));
+	ck_assert(int_deque_append(&q, &(int){7}));
+
+	ck_assert_int_eq(*int_deque_pop_first(&q), 3);
+	ck_assert_int_eq(*int_deque_pop_first(&q), 4);
+	ck_assert_int_eq(*int_deque_pop_first(&q), 5);
+	ck_assert_int_eq(*int_deque_pop_first(&q), 6);
+
+	ck_assert(int_deque_append(&q, &(int){8}));
+
+	ck_assert_int_eq(*int_deque_pop_first(&q), 7);
+	ck_assert_int_eq(*int_deque_pop_first(&q), 8);
+
+	ck_assert(int_deque_empty(&q));
+}
+
+#test clear
+{
+	DEQUE(int_deque, q);
+	for (int x = 1; x <= 3; x++)
+		ck_assert(int_deque_append(&q, &x));
+
+	size_t capacity = int_deque_capacity(&q);
+	int_deque_clear(&q);
+	ck_assert(int_deque_empty(&q));
+	ck_assert_uint_eq(int_deque_capacity(&q), capacity);
+}
+
+#test reserve
+{
+	DEQUE(int_deque, q);
+	ck_assert(int_deque_reserve(&q, 5));
+	ck_assert_uint_ge(int_deque_capacity(&q), 5);
+	ck_assert(int_deque_empty(&q));
+
+	size_t capacity = int_deque_capacity(&q);
+	for (int x = 1; x <= 5; x++)
+		ck_assert(int_deque_append(&q, &x));
+	ck_assert_uint_eq(int_deque_capacity(&q), capacity);
+
+	for (int i = 0; i < 5; i++)
+		ck_assert_int_eq(*int_deque_at(&q, i), i + 1);
+}
+
+#test reserve_wraparound
+{
+	DEQUE(int_deque, q);
+	// Set up layout with wraparound: capacity=4, head=2, size=4.
+	ck_assert(int_deque_reserve(&q, 4));
+	for (int x = 1; x <= 4; x++)
+		ck_assert(int_deque_append(&q, &x));
+	ck_assert_int_eq(*int_deque_pop_first(&q), 1);
+	ck_assert_int_eq(*int_deque_pop_first(&q), 2);
+	ck_assert(int_deque_append(&q, &(int){5}));
+	ck_assert(int_deque_append(&q, &(int){6}));
+
+	// Increase the capacity by 1. The new layout still wraps.
+	ck_assert(int_deque_reserve(&q, 5));
+	ck_assert(int_deque_capacity(&q) >= 5);
+
+	for (int i = 0; i < 4; i++)
+		ck_assert_int_eq(*int_deque_at(&q, i), i + 3);
+}

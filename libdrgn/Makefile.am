@@ -65,6 +65,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    debug_info.h \
 			    debug_info_options.c \
 			    debug_info_options.h \
+			    deque.h \
 			    drgn_internal.h \
 			    drgn_section_name_to_index.inc \
 			    dwarf_constants.c \
@@ -288,6 +289,7 @@ check_PROGRAMS = tests/binary_search \
 		 tests/bitmap \
 		 tests/cityhash \
 		 tests/crc32 \
+		 tests/deque \
 		 tests/hexlify \
 		 tests/language_c \
 		 tests/lexer \
@@ -322,6 +324,9 @@ tests_cityhash_LDADD = $(test_ldadd)
 tests_crc32_CFLAGS = $(test_cflags)
 tests_crc32_CPPFLAGS = $(test_cppflags)
 tests_crc32_LDADD = $(test_ldadd)
+tests_deque_CFLAGS = $(test_cflags)
+tests_deque_CPPFLAGS = $(test_cppflags)
+tests_deque_LDADD = $(test_ldadd)
 tests_hexlify_CFLAGS = $(test_cflags)
 tests_hexlify_CPPFLAGS = $(test_cppflags)
 tests_hexlify_LDADD = $(test_ldadd)
