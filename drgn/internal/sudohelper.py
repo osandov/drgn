@@ -5,6 +5,7 @@
 import array
 from pathlib import Path
 import pickle
+import shlex
 import socket
 import subprocess
 import sys
@@ -52,13 +53,13 @@ def open_via_sudo(
                 [
                     "sudo",
                     "-p",
-                    f"[sudo] password for %p to open {path}: ",
+                    f"[sudo] password for %p to open {shlex.quote(str(path))}: ",
                     sys.executable,
                     "-B",
                     "-c",
                     _OPEN_VIA_SUDO_COMMAND,
-                    sockpath,
-                    path,
+                    str(sockpath),
+                    str(path),
                     str(flags),
                     str(mode),
                 ],
