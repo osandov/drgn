@@ -395,6 +395,19 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 	const uint64_t va = it->it.virt_addr;
 	uint64_t table = _it->pgtable & ~UINT64_C(0xfff);
 	bool table_physical = false;
+	if (table == prog->vmcoreinfo.swapper_pg_dir) {
+		// Since Linux kernel commits 378e32aa8197 ("s390/vmcoreinfo:
+		// Store virtual memory layout") and c98d2ecae08f ("s390/mm:
+		// Uncouple physical vs virtual address spaces") (in v6.10), we
+		// can translate the kernel page table address to a physical
+		// address using VMCOREINFO. Before that, kernel virtual and
+		// physical addresses are equal.
+		if (prog->vmcoreinfo.have_kaslr_offset_phys) {
+			table -= prog->vmcoreinfo.kaslr_offset;
+			table += prog->vmcoreinfo.kaslr_offset_phys;
+		}
+		table_physical = true;
+	}
 	int level, length = 2048, offset = 0;
 	uint64_t entry;
 
@@ -404,7 +417,7 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 	 * the linux kernel does: read the first level entry, and deduct the
 	 * number of levels from the TT bits.
 	 */
-	struct drgn_error *err = drgn_program_read_u64(prog, table, false,
+	struct drgn_error *err = drgn_program_read_u64(prog, table, table_physical,
 						       &entry);
 	if (err)
 		return err;

@@ -196,6 +196,11 @@ struct drgn_program {
 				 * layout randomization (KASLR) is enabled.
 				 */
 				uint64_t kaslr_offset;
+				/**
+				 * The offset from physical memory address 0 of
+				 * the kernel image on s390x.
+				 */
+				uint64_t kaslr_offset_phys;
 				/** Kernel page table. */
 				uint64_t swapper_pg_dir;
 				/**
@@ -233,6 +238,8 @@ struct drgn_program {
 				bool have_crashtime;
 				/** Whether `phys_base` was in the VMCOREINFO. */
 				bool have_phys_base;
+				/** Whether `kaslr_offset_phys` was in the VMCOREINFO. */
+				bool have_kaslr_offset_phys;
 				/** Length of build ID. */
 				unsigned int build_id_len;
 				/**
