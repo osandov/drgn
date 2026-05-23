@@ -105,6 +105,13 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 			if (err)
 				return err;
 			break;
+		@case "KERNELOFFPHYS"@
+			err = parse_vmcoreinfo_u64(value, newline, 16,
+						   &prog->vmcoreinfo.kaslr_offset_phys);
+			if (err)
+				return err;
+			prog->vmcoreinfo.have_kaslr_offset_phys = true;
+			break;
 		@case "SYMBOL(swapper_pg_dir)"@
 			err = parse_vmcoreinfo_u64(value, newline, 16,
 						   &prog->vmcoreinfo.swapper_pg_dir);
