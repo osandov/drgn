@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from tests.linux_kernel import (
+    HAVE_FULL_MM_SUPPORT,
     fork_and_stop,
     skip_unless_have_stack_tracing,
     skip_unless_have_test_kmod,
@@ -59,12 +60,13 @@ class TestBt(CrashCommandTestCase):
         self.assertIn("drgn_test_kthread_fn+", cmd.stdout)
         self.assertIn("drgn_test_kthread_fn2+", cmd.stdout)
         self.assertIn("drgn_test_kthread_fn3+", cmd.stdout)
-        # We also know we will find the drgn small slab object, but whether it
-        # can be identified depends on kernel configuration (non-SLOB)
-        if self.prog["drgn_test_slob"]:
-            self.assertIn("[unknown slab object]", cmd.stdout)
-        else:
-            self.assertIn("[drgn_test_small]", cmd.stdout)
+        if HAVE_FULL_MM_SUPPORT:
+            # We also know we will find the drgn small slab object, but whether it
+            # can be identified depends on kernel configuration (non-SLOB)
+            if self.prog["drgn_test_slob"]:
+                self.assertIn("[unknown slab object]", cmd.stdout)
+            else:
+                self.assertIn("[drgn_test_small]", cmd.stdout)
 
     @skip_unless_have_test_kmod
     def test_frame_data_verbose(self):
@@ -74,12 +76,13 @@ class TestBt(CrashCommandTestCase):
         self.assertIn("drgn_test_kthread_fn+", cmd.stdout)
         self.assertIn("drgn_test_kthread_fn2+", cmd.stdout)
         self.assertIn("drgn_test_kthread_fn3+", cmd.stdout)
-        # We also know we will find the drgn small slab object, but whether it
-        # can be identified depends on kernel configuration (non-SLOB)
-        if self.prog["drgn_test_slob"]:
-            self.assertRegex(cmd.stdout, r"\[[0-9a-f]+:unknown slab object\]")
-        else:
-            self.assertRegex(cmd.stdout, r"\[[0-9a-f]+:drgn_test_small\]")
+        if HAVE_FULL_MM_SUPPORT:
+            # We also know we will find the drgn small slab object, but whether it
+            # can be identified depends on kernel configuration (non-SLOB)
+            if self.prog["drgn_test_slob"]:
+                self.assertRegex(cmd.stdout, r"\[[0-9a-f]+:unknown slab object\]")
+            else:
+                self.assertRegex(cmd.stdout, r"\[[0-9a-f]+:drgn_test_small\]")
 
     @skip_unless_have_test_kmod
     def test_line_numbers(self):
