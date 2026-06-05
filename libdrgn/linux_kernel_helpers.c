@@ -4,6 +4,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 
+#include "array.h"
 #include "drgn_internal.h"
 #include "error.h"
 #include "helpers.h"
@@ -14,22 +15,27 @@
 
 static void end_virtual_address_translation(struct drgn_program *prog)
 {
-	prog->in_address_translation = false;
+	prog->address_translation_depth--;
 }
 
 static struct drgn_error *
 begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
-				  uint64_t virt_addr)
+				  uint64_t virt_addr, struct pgtable_iterator **ret)
 {
 	struct drgn_error *err;
-
-	if (prog->in_address_translation) {
-		return drgn_error_create_fault("recursive address translation; "
-					       "page table may be missing from core dump",
+	for (int i = 0; i < prog->address_translation_depth; i++) {
+		if (prog->pgtable_its[i]->pgtable == pgtable) {
+			return drgn_error_create_fault("recursive address translation; "
+						       "page table may be missing from core dump",
+						       virt_addr);
+		}
+	}
+	if (prog->address_translation_depth >= array_size(prog->pgtable_its)) {
+		return drgn_error_create_fault("address translation recursion limit hit",
 					       virt_addr);
 	}
-	prog->in_address_translation = true;
-	if (!prog->pgtable_it) {
+
+	if (!prog->pgtable_its[prog->address_translation_depth]) {
 		if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
 			err = drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
 						"virtual address translation is only available for the Linux kernel");
@@ -46,16 +52,21 @@ begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
 						prog->platform.arch->name);
 			goto err;
 		}
-		err = prog->platform.arch->linux_kernel_pgtable_iterator_create(prog,
-										&prog->pgtable_it);
+		err = prog->platform.arch->linux_kernel_pgtable_iterator_create(
+			prog, &prog->pgtable_its[prog->address_translation_depth]
+		);
 		if (err) {
-			prog->pgtable_it = NULL;
+			prog->pgtable_its[prog->address_translation_depth] = NULL;
 			goto err;
 		}
 	}
-	prog->pgtable_it->pgtable = pgtable;
-	prog->pgtable_it->virt_addr = virt_addr;
-	prog->platform.arch->linux_kernel_pgtable_iterator_init(prog, prog->pgtable_it);
+	struct pgtable_iterator *it =
+		prog->pgtable_its[prog->address_translation_depth];
+	it->pgtable = pgtable;
+	it->virt_addr = virt_addr;
+	prog->platform.arch->linux_kernel_pgtable_iterator_init(prog, it);
+	*ret = it;
+	prog->address_translation_depth++;
 	return NULL;
 
 err:
@@ -119,14 +130,16 @@ struct drgn_error *linux_helper_direct_mapping_offset(struct drgn_program *prog,
 	if (err)
 		return err;
 
+	struct pgtable_iterator *it;
 	err = begin_virtual_address_translation(prog,
 						prog->vmcoreinfo.swapper_pg_dir,
-						virt_addr);
+						virt_addr,
+	                                        &it);
 	if (err)
 		return err;
 	uint64_t start_virt_addr, start_phys_addr;
 	err = prog->platform.arch->linux_kernel_pgtable_iterator_next(prog,
-								      prog->pgtable_it,
+								      it,
 								      &start_virt_addr,
 								      &start_phys_addr);
 	if (err)
@@ -150,8 +163,8 @@ struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 					void *buf, size_t count)
 {
 	struct drgn_error *err;
-
-	err = begin_virtual_address_translation(prog, pgtable, virt_addr);
+	struct pgtable_iterator *it;
+	err = begin_virtual_address_translation(prog, pgtable, virt_addr, &it);
 	if (err)
 		return err;
 	if (!count) {
@@ -159,7 +172,6 @@ struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 		goto out;
 	}
 
-	struct pgtable_iterator *it = prog->pgtable_it;
 	pgtable_iterator_next_fn *next =
 		prog->platform.arch->linux_kernel_pgtable_iterator_next;
 	uint64_t read_addr = 0;
@@ -210,11 +222,11 @@ struct drgn_error *linux_helper_follow_phys(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	err = begin_virtual_address_translation(prog, pgtable, virt_addr);
+	struct pgtable_iterator *it;
+	err = begin_virtual_address_translation(prog, pgtable, virt_addr, &it);
 	if (err)
 		return err;
 
-	struct pgtable_iterator *it = prog->pgtable_it;
 	pgtable_iterator_next_fn *next =
 		prog->platform.arch->linux_kernel_pgtable_iterator_next;
 	uint64_t start_virt_addr, start_phys_addr;

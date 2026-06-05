@@ -17,6 +17,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "array.h"
 #include "cleanup.h"
 #include "debug_info.h"
 #include "elf_notes.h"
@@ -162,8 +163,11 @@ void drgn_program_deinit(struct drgn_program *prog)
 		drgn_thread_destroy(prog->crashed_thread);
 		drgn_thread_destroy(prog->main_thread);
 	}
-	if (prog->pgtable_it)
-		prog->platform.arch->linux_kernel_pgtable_iterator_destroy(prog->pgtable_it);
+	for (int i = 0; i < array_size(prog->pgtable_its); i++) {
+		struct pgtable_iterator *it = prog->pgtable_its[i];
+		if (it)
+			prog->platform.arch->linux_kernel_pgtable_iterator_destroy(it);
+	}
 
 	drgn_object_deinit(&prog->vmemmap);
 
