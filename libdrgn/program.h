@@ -287,11 +287,6 @@ struct drgn_program {
 			 * Whether @ref drgn_program::mod_text has been cached.
 			 */
 			bool mod_text_cached;
-			/*
-			 * Whether we are currently in address translation. Used
-			 * to prevent address translation from recursing.
-			 */
-			bool in_address_translation;
 		};
 	};
 	/*
@@ -301,7 +296,12 @@ struct drgn_program {
 	/* Cached vmemmap. */
 	struct drgn_object vmemmap;
 	/* Page table iterator. */
-	struct pgtable_iterator *pgtable_it;
+	struct pgtable_iterator *pgtable_its[2];
+	/*
+         * Current address translation depth; always kept at the index of the current
+         * page table iterator + 1.
+         */
+	size_t address_translation_depth;
 
 	/*
 	 * Logging.
