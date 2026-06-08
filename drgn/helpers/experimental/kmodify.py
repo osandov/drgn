@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# (C) Copyright IBM Corp. 2026
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 """
@@ -452,6 +453,16 @@ class _Function(NamedTuple):
     body: Sequence[_FunctionBodyNode]
 
 
+class _CodeGenResult(NamedTuple):
+    code: bytes
+    code_relocations: Sequence[_ElfRelocation]
+    # Architectures that address their own sections through a Table of Contents
+    # (ppc64le) emit a .toc section and its relocations here. Architectures that
+    # don't (x86-64) leave these empty.
+    toc: bytes = b""
+    toc_relocations: Sequence[_ElfRelocation] = ()
+
+
 class _CodeGen_x86_64:
     _R_X86_64_PC32 = 2
     _R_X86_64_PLT32 = 4
@@ -712,7 +723,9 @@ class _Arch_X86_64:
     ABSOLUTE_ADDRESS_RELOCATION_TYPE = 1  # R_X86_64_64
 
     @staticmethod
-    def code_gen(func: _Function) -> Tuple[bytes, Sequence[_ElfRelocation]]:
+    def code_gen(
+        func: _Function, symbol_addresses: Optional[Mapping[str, int]] = None
+    ) -> _CodeGenResult:
         needed_stack_size = 0
         for node in func.body:
             if not isinstance(node, _Call):
@@ -754,7 +767,7 @@ class _Arch_X86_64:
 
         code_gen.leave_frame()
 
-        return code_gen.code, code_gen.relocations
+        return _CodeGenResult(bytes(code_gen.code), code_gen.relocations)
 
 
 def _find_exported_symbol_in_section(
@@ -1080,7 +1093,7 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
     sizeof_int = sizeof(prog.type("int"))
     sizeof_void_p = sizeof(prog.type("void *"))
     sizeof_size_t = sizeof(prog.type("size_t"))
-    code, code_relocations = kmodify.arch.code_gen(
+    code, code_relocations, _, _ = kmodify.arch.code_gen(
         _Function(
             [
                 # copy_to_kernel_nofault() can still fault in some cases; see
@@ -1171,7 +1184,7 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
         # I'm not sure about bit fields. kmodify only supports little-endian
         # architectures at the moment anyways.
         raise NotImplementedError("_modify_bit() is only implemented for little-endian")
-    code, code_relocations = kmodify.arch.code_gen(
+    code, code_relocations, _, _ = kmodify.arch.code_gen(
         _Function(
             [
                 _Call(
@@ -1549,7 +1562,7 @@ def _insert_call_function(
 
     function_body.append(_Return(_Integer(sizeof_int, -errno.EINPROGRESS)))
 
-    code, code_relocations = kmodify.arch.code_gen(_Function(function_body))
+    code, code_relocations, _, _ = kmodify.arch.code_gen(_Function(function_body))
 
     ret = kmodify.insert(
         name=name,

@@ -49,7 +49,9 @@ _X86_64_GOLDEN_RELOCS = [
 class TestX86_64CodegenGolden(unittest.TestCase):
     def test_codegen_unchanged(self):
         result = _Arch_X86_64.code_gen(_X86_64_GOLDEN_FUNCTION)
-        # Works pre-refactor (tuple) and post-refactor (_CodeGenResult).
-        code, relocs = result[0], result[1]
-        self.assertEqual(bytes(code), _X86_64_GOLDEN_CODE)
-        self.assertEqual([tuple(r) for r in relocs], _X86_64_GOLDEN_RELOCS)
+        self.assertEqual(bytes(result.code), _X86_64_GOLDEN_CODE)
+        self.assertEqual(
+            [tuple(r) for r in result.code_relocations], _X86_64_GOLDEN_RELOCS
+        )
+        self.assertEqual(bytes(result.toc), b"")
+        self.assertEqual(list(result.toc_relocations), [])
