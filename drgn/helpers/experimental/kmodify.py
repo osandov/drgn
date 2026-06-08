@@ -876,6 +876,29 @@ class _CodeGen_ppc64le:
     def _mtctr(self, t: int) -> int:
         return 0x7C0903A6 | self._rt(t)
 
+    def _load_imm(self, reg: int, value: int) -> None:
+        # Materialize the full 64-bit two's-complement of value (ELFv2 requires
+        # the caller to sign-/zero-extend sub-doubleword arguments to the whole
+        # register, and the callee reads all 64 bits). Never mask to a smaller
+        # width.
+        v = value & 0xFFFFFFFFFFFFFFFF
+        if -0x8000 <= value < 0x8000:
+            self._emit(self._addi(reg, 0, value))  # li (sign-extends)
+            return
+        if -0x80000000 <= value < 0x80000000:
+            self._emit(self._addis(reg, 0, (value >> 16) & 0xFFFF))  # lis
+            if value & 0xFFFF:
+                self._emit(self._ori(reg, reg, value & 0xFFFF))
+            return
+        self._emit(self._addis(reg, 0, (v >> 48) & 0xFFFF))  # lis  -> bits 48-63
+        if (v >> 32) & 0xFFFF:
+            self._emit(self._ori(reg, reg, (v >> 32) & 0xFFFF))  # ori -> bits 32-47
+        self._emit(self._rldicr32(reg, reg))  # << 32
+        if (v >> 16) & 0xFFFF:
+            self._emit(self._oris(reg, reg, (v >> 16) & 0xFFFF))  # oris -> bits 16-31
+        if v & 0xFFFF:
+            self._emit(self._ori(reg, reg, v & 0xFFFF))  # ori -> bits 0-15
+
 
 def _ppc64_stubs_section() -> _ElfSection:
     # The ppc64 module loader (arch/powerpc/kernel/module_64.c) rejects any

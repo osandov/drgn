@@ -90,6 +90,46 @@ class TestPPC64Emitters(unittest.TestCase):
             (0x38000000 | (3 << 21) | (-12345 & 0xFFFF)).to_bytes(4, "little"),
         )
 
+    def test_load_imm_small_negative_is_single_li(self):
+        cg = self.cg()
+        cg._load_imm(3, -12345)  # fits signed 16-bit -> one li (sign-extends)
+        self.assertEqual(_words(cg.code), [cg._addi(3, 0, -12345)])
+
+    def test_load_imm_32bit(self):
+        cg = self.cg()
+        cg._load_imm(3, 0x0001D431)  # > 16-bit, < 2^31 -> lis + ori
+        self.assertEqual(
+            _words(cg.code),
+            [cg._addis(3, 0, 0x0001), cg._ori(3, 3, 0xD431)],
+        )
+
+    def test_load_imm_full64_all_pieces(self):
+        cg = self.cg()
+        cg._load_imm(3, 0x123456789ABCDEF0)
+        self.assertEqual(
+            _words(cg.code),
+            [
+                cg._addis(3, 0, 0x1234),  # lis  -> bits 48-63
+                cg._ori(3, 3, 0x5678),  # ori  -> bits 32-47
+                cg._rldicr32(3, 3),  # << 32
+                cg._oris(3, 3, 0x9ABC),  # oris -> bits 16-31
+                cg._ori(3, 3, 0xDEF0),  # ori  -> bits 0-15
+            ],
+        )
+
+    def test_load_imm_full64_kernel_address(self):
+        # Typical kernel text address: high 16 bits set, low 16 set, middle 0.
+        cg = self.cg()
+        cg._load_imm(12, 0xC000000000001234)
+        self.assertEqual(
+            _words(cg.code),
+            [
+                cg._addis(12, 0, 0xC000),  # lis (middle pieces skipped)
+                cg._rldicr32(12, 12),
+                cg._ori(12, 12, 0x1234),
+            ],
+        )
+
 
 class TestArchSelection(unittest.TestCase):
     def test_ppc64_arch_constants(self):
