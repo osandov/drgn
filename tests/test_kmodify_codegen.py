@@ -234,6 +234,66 @@ class TestPPC64Call(unittest.TestCase):
         self.assertIn(cg._std(11, 1, 96), words)
 
 
+class TestPPC64Lowering(unittest.TestCase):
+    def cg(self):
+        from drgn.helpers.experimental.kmodify import _CodeGen_ppc64le
+
+        return _CodeGen_ppc64le()
+
+    def test_store_return_value_sizes(self):
+        for size, op_name in ((1, "_stb"), (2, "_sth"), (4, "_stw"), (8, "_std")):
+            cg = self.cg()
+            cg.store_return_value(size, _Symbol(".data", section=True, offset=0))
+            op = getattr(cg, op_name)
+            # r11 = &.data (ld, no addi for offset 0), then store r3 via r11.
+            self.assertEqual(_words(cg.code), [cg._ld(11, 2, 0), op(3, 11, 0)])
+
+    def test_return_not_last_branches_to_epilogue(self):
+        cg = self.cg()
+        cg.enter_frame(0)
+        n = len(cg.code)
+        cg.return_(_Integer(4, -115), last=False)
+        words = _words(bytes(cg.code)[n:])
+        self.assertEqual(words[0], cg._addi(3, 0, -115))  # li r3, -115
+        self.assertEqual(words[1] & 0xFC000000, 0x48000000)  # b (to be fixed up)
+        self.assertEqual(cg._epilogue_branches, [n + 4])
+
+    def test_return_last_falls_through(self):
+        cg = self.cg()
+        cg.enter_frame(0)
+        n = len(cg.code)
+        cg.return_(_Integer(4, -115), last=True)
+        self.assertEqual(_words(bytes(cg.code)[n:]), [cg._addi(3, 0, -115)])
+        self.assertEqual(cg._epilogue_branches, [])
+
+    def test_return_if_nonzero_tests_before_overwrite(self):
+        cg = self.cg()
+        cg.enter_frame(0)
+        n = len(cg.code)
+        cg.return_if_last_return_value_nonzero(_Integer(4, -14))
+        words = _words(bytes(cg.code)[n:])
+        self.assertEqual(words[0], cg._cmpdi(3, 0))  # cmpdi r3,0 BEFORE overwrite
+        self.assertEqual(words[1], cg._addi(3, 0, -14))  # li r3,-14
+        self.assertEqual(words[2] & 0xFC000000, 0x40000000)  # bc (bne)
+
+    def test_atomic_set_bit_loop(self):
+        cg = self.cg()
+        cg.atomic_set_bit(3, _Integer(8, 0x1005))
+        words = _words(cg.code)
+        # mask = (1<<3) << (8*(0x1005 & 7)) = 8 << 40
+        # ldarx r0,0,r3 ; or r0,r0,r4 ; stdcx. r0,0,r3 ; bne- (back)
+        self.assertIn(cg._ldarx(0, 0, 3), words)
+        self.assertIn(cg._or(0, 0, 4), words)
+        self.assertIn(cg._stdcx(0, 0, 3), words)
+        self.assertEqual(words[-1] & 0xFC000000, 0x40000000)  # bc backward
+
+    def test_atomic_clear_bit_uses_andc(self):
+        cg = self.cg()
+        cg.atomic_clear_bit(0, _Integer(8, 0x2000))
+        words = _words(cg.code)
+        self.assertIn(cg._andc(0, 0, 4), words)
+
+
 class TestArchSelection(unittest.TestCase):
     def test_ppc64_arch_constants(self):
         from drgn.helpers.experimental.kmodify import _Arch_PPC64

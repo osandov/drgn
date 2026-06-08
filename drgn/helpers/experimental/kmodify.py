@@ -1014,6 +1014,50 @@ class _CodeGen_ppc64le:
         self._emit(self._BCTRL)
         self._restore_toc()
 
+    # bne cr0, ... (BO=4 branch-if-false, BI=2 = CR0[EQ]); offset filled later.
+    _BNE_CR0 = 0x40820000
+
+    def store_return_value(self, size: int, dst: _Symbol) -> None:
+        self._load_data_ptr(self._r11, dst.offset)
+        op = {1: self._stb, 2: self._sth, 4: self._stw, 8: self._std}[size]
+        self._emit(op(self._r3, self._r11, 0))
+
+    def return_(self, value: _Integer, last: bool) -> None:
+        self._load_imm(self._r3, value.value)
+        # Jump to the epilogue, unless this is the last node (fall through).
+        if not last:
+            self._epilogue_branches.append(len(self.code))
+            self._emit(0x48000000)  # b epilogue (fixed up in leave_frame)
+
+    def return_if_last_return_value_nonzero(self, value: _Integer) -> None:
+        # The previous call's result is still in r3; test it before overwriting.
+        self._emit(self._cmpdi(self._r3, 0))
+        self._load_imm(self._r3, value.value)
+        self._epilogue_branches.append(len(self.code))
+        self._emit(self._BNE_CR0)  # bne cr0, epilogue (fixed up in leave_frame)
+
+    def _atomic_bit(self, nr: int, address: int, set_bit: bool) -> None:
+        aligned = address & ~7
+        # Place the bit in the correct little-endian byte lane of the doubleword.
+        mask = (1 << nr) << (8 * (address & 7))
+        self._load_imm(self._r3, aligned)
+        self._load_imm(self._r4, mask)
+        start = len(self.code)
+        self._emit(self._ldarx(self._r0, 0, self._r3))
+        if set_bit:
+            self._emit(self._or(self._r0, self._r0, self._r4))
+        else:
+            self._emit(self._andc(self._r0, self._r0, self._r4))
+        self._emit(self._stdcx(self._r0, 0, self._r3))
+        disp = start - len(self.code)
+        self._emit(self._BNE_CR0 | (disp & 0xFFFC))  # bne- back to ldarx
+
+    def atomic_set_bit(self, nr: int, address: _Integer) -> None:
+        self._atomic_bit(nr, address.value, True)
+
+    def atomic_clear_bit(self, nr: int, address: _Integer) -> None:
+        self._atomic_bit(nr, address.value, False)
+
 
 def _ppc64_stubs_section() -> _ElfSection:
     # The ppc64 module loader (arch/powerpc/kernel/module_64.c) rejects any
