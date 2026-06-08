@@ -899,6 +899,96 @@ class _CodeGen_ppc64le:
         if v & 0xFFFF:
             self._emit(self._ori(reg, reg, v & 0xFFFF))  # ori -> bits 0-15
 
+    def enter_frame(self, size: int) -> None:
+        if size < 0:
+            raise ValueError("invalid stack frame size")
+        # 32-byte ELFv2 linkage area plus the parameter save area; 16-aligned.
+        self._frame = (max(size, 32) + 15) & ~15
+        # Global-entry prologue: set the module TOC (r2) from r12 using REL16
+        # relocations against .TOC. (the kernel calls init_module with r12 set
+        # to its address). Both the @ha and @l relocations must compute
+        # (.TOC. - entry) relative to the same anchor (the addis); since the
+        # kernel evaluates each as (sym + addend - location), the addi (4 bytes
+        # after the addis) carries an addend of +4 to cancel its location offset.
+        entry = len(self.code)
+        self.relocations.append(
+            _ElfRelocation(
+                offset=entry,
+                type=self._R_PPC64_REL16_HA,
+                symbol_name=".TOC.",
+                section_symbol=False,
+                addend=0,
+            )
+        )
+        self._emit(self._addis(self._r2, self._r12, 0))
+        self.relocations.append(
+            _ElfRelocation(
+                offset=len(self.code),
+                type=self._R_PPC64_REL16_LO,
+                symbol_name=".TOC.",
+                section_symbol=False,
+                addend=len(self.code) - entry,
+            )
+        )
+        self._emit(self._addi(self._r2, self._r2, 0))
+        self._emit(self._mflr(self._r0))
+        # LR save doubleword lives in the caller's frame (offset 16), written
+        # before we allocate our own frame.
+        self._emit(self._std(self._r0, self._r1, 16))
+        self._emit(self._stdu(self._r1, self._r1, -self._frame))
+        # TOC save doubleword lives in our own frame (offset 24), reloaded after
+        # each call clobbers r2.
+        self._emit(self._std(self._r2, self._r1, 24))
+
+    def _restore_toc(self) -> None:
+        self._emit(self._ld(self._r2, self._r1, 24))
+
+    def leave_frame(self) -> None:
+        # Fix up the branches to the (now known) epilogue.
+        target = len(self.code)
+        for offset in self._epilogue_branches:
+            word = int.from_bytes(self.code[offset : offset + 4], "little")
+            disp = target - offset
+            if (word & 0xFC000000) == 0x48000000:  # unconditional b
+                word = (word & ~0x03FFFFFC) | (disp & 0x03FFFFFC)
+            else:  # conditional bc
+                word = (word & ~0xFFFC) | (disp & 0xFFFC)
+            self.code[offset : offset + 4] = (word & 0xFFFFFFFF).to_bytes(4, "little")
+        self._emit(self._addi(self._r1, self._r1, self._frame))
+        self._emit(self._ld(self._r0, self._r1, 16))
+        self._emit(self._mtlr(self._r0))
+        self._emit(self._BLR)
+
+    def _ensure_data_toc_slot(self) -> int:
+        # A single TOC slot holds the .data base, filled by R_PPC64_ADDR64. All
+        # .data references reuse it (offsets are added with addi).
+        if not self.toc:
+            self.toc_relocations.append(
+                _ElfRelocation(
+                    offset=0,
+                    type=self._R_PPC64_ADDR64,
+                    symbol_name=".data",
+                    section_symbol=True,
+                )
+            )
+            self.toc.extend(b"\0" * 8)
+        return 0
+
+    def _load_data_ptr(self, reg: int, offset: int) -> None:
+        slot = self._ensure_data_toc_slot()
+        self.relocations.append(
+            _ElfRelocation(
+                offset=len(self.code),
+                type=self._R_PPC64_TOC16_DS,
+                symbol_name=".toc",
+                section_symbol=True,
+                addend=slot,
+            )
+        )
+        self._emit(self._ld(reg, self._r2, 0))  # ld reg, .data@toc(r2)
+        if offset:
+            self._emit(self._addi(reg, reg, offset))
+
 
 def _ppc64_stubs_section() -> _ElfSection:
     # The ppc64 module loader (arch/powerpc/kernel/module_64.c) rejects any

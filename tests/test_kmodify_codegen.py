@@ -131,6 +131,76 @@ class TestPPC64Emitters(unittest.TestCase):
         )
 
 
+class TestPPC64FrameAndToc(unittest.TestCase):
+    def cg(self):
+        from drgn.helpers.experimental.kmodify import _CodeGen_ppc64le
+
+        return _CodeGen_ppc64le()
+
+    def test_prologue_slot_ordering(self):
+        cg = self.cg()
+        cg.enter_frame(0)
+        words = _words(cg.code)
+        # addis r2,r12,..; addi r2,r2,..; mflr r0; std r0,16(r1);
+        # stdu r1,-32(r1); std r2,24(r1)
+        self.assertEqual(words[2], cg._mflr(0))
+        self.assertEqual(words[3], cg._std(0, 1, 16))  # LR -> caller frame, PRE-stdu
+        self.assertEqual(words[4], cg._stdu(1, 1, -32))
+        self.assertEqual(words[5], cg._std(2, 1, 24))  # TOC -> own frame, POST-stdu
+
+    def test_prologue_toc_relocations(self):
+        cg = self.cg()
+        cg.enter_frame(0)
+        # The @ha and @l relocations must be anchored to the same instruction:
+        # the addi (offset 4) carries addend +4 so the kernel evaluates both
+        # against (.TOC. - addis), otherwise r2 ends up off by 4.
+        self.assertEqual(
+            [(r.offset, r.type, r.symbol_name, r.addend) for r in cg.relocations[:2]],
+            [
+                (0, cg._R_PPC64_REL16_HA, ".TOC.", 0),
+                (4, cg._R_PPC64_REL16_LO, ".TOC.", 4),
+            ],
+        )
+
+    def test_frame_size_includes_param_area(self):
+        cg = self.cg()
+        cg.enter_frame(32 + 8 * 10)  # 10 args -> 112, align 16 -> 112
+        self.assertEqual(_words(cg.code)[4], cg._stdu(1, 1, -112))
+
+    def test_epilogue(self):
+        cg = self.cg()
+        cg.enter_frame(0)
+        cg.leave_frame()
+        tail = _words(cg.code)[-4:]
+        self.assertEqual(
+            tail, [cg._addi(1, 1, 32), cg._ld(0, 1, 16), cg._mtlr(0), cg._BLR]
+        )
+
+    def test_load_data_ptr_emits_toc_and_addr64(self):
+        cg = self.cg()
+        cg._load_data_ptr(3, 8)
+        words = _words(cg.code)
+        # ld r3, 0(r2) ; addi r3, r3, 8
+        self.assertEqual(words, [cg._ld(3, 2, 0), cg._addi(3, 3, 8)])
+        # TOC16_DS reloc against the .toc section on the ld.
+        self.assertEqual(
+            [
+                (r.offset, r.type, r.symbol_name, r.section_symbol)
+                for r in cg.relocations
+            ],
+            [(0, cg._R_PPC64_TOC16_DS, ".toc", True)],
+        )
+        # One 8-byte slot filled by R_PPC64_ADDR64 against .data.
+        self.assertEqual(bytes(cg.toc), b"\0" * 8)
+        self.assertEqual(
+            [
+                (r.offset, r.type, r.symbol_name, r.section_symbol)
+                for r in cg.toc_relocations
+            ],
+            [(0, cg._R_PPC64_ADDR64, ".data", True)],
+        )
+
+
 class TestArchSelection(unittest.TestCase):
     def test_ppc64_arch_constants(self):
         from drgn.helpers.experimental.kmodify import _Arch_PPC64
