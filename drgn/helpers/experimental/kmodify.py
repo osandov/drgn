@@ -10,7 +10,8 @@ The ``drgn.helpers.experimental.kmodify`` module provides experimental helpers
 for modifying the state of the running kernel. This works by loading a
 temporary kernel module, so the kernel must support loadable kernel modules
 (``CONFIG_MODULES=y``) and allow loading unsigned modules
-(``CONFIG_MODULE_SIG_FORCE=n``). It is currently only implemented for x86-64.
+(``CONFIG_MODULE_SIG_FORCE=n``). It is currently implemented for x86-64 and
+ppc64le.
 
 .. warning::
     These helpers are powerful but **extremely** dangerous. Use them with care.
