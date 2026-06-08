@@ -57,6 +57,40 @@ class TestX86_64CodegenGolden(unittest.TestCase):
         self.assertEqual(list(result.toc_relocations), [])
 
 
+def _words(code):
+    return [
+        int.from_bytes(bytes(code)[i : i + 4], "little") for i in range(0, len(code), 4)
+    ]
+
+
+class TestPPC64Emitters(unittest.TestCase):
+    def cg(self):
+        from drgn.helpers.experimental.kmodify import _CodeGen_ppc64le
+
+        return _CodeGen_ppc64le()
+
+    def test_word_emitted_little_endian(self):
+        cg = self.cg()
+        cg._emit(0x60000000)  # nop (ori 0,0,0) — known-good constant
+        self.assertEqual(bytes(cg.code), b"\x00\x00\x00\x60")
+
+    def test_known_constant_encodings(self):
+        # Independently-known encodings (from the Power ISA / kernel PPC_RAW_*).
+        cg = self.cg()
+        self.assertEqual(cg._mflr(0), 0x7C0802A6)  # mflr r0
+        self.assertEqual(cg._mtctr(12), 0x7C0903A6 | (12 << 21))  # mtctr r12
+        self.assertEqual(cg._BLR, 0x4E800020)
+        self.assertEqual(cg._BCTRL, 0x4E800421)
+
+    def test_li_negative_sign_extends(self):
+        cg = self.cg()
+        cg._emit(cg._addi(3, 0, -12345))  # li r3, -12345
+        self.assertEqual(
+            bytes(cg.code),
+            (0x38000000 | (3 << 21) | (-12345 & 0xFFFF)).to_bytes(4, "little"),
+        )
+
+
 class TestArchSelection(unittest.TestCase):
     def test_ppc64_arch_constants(self):
         from drgn.helpers.experimental.kmodify import _Arch_PPC64

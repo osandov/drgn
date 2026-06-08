@@ -770,6 +770,113 @@ class _Arch_X86_64:
         return _CodeGenResult(bytes(code_gen.code), code_gen.relocations)
 
 
+class _CodeGen_ppc64le:
+    # ELFv2, little-endian. Instruction encodings mirror the kernel's PPC_RAW_*
+    # macros (arch/powerpc/include/asm/ppc-opcode.h); each 32-bit instruction is
+    # emitted as 4 little-endian bytes.
+
+    _r0 = 0
+    _r1 = 1
+    _r2 = 2
+    _r3 = 3
+    _r4 = 4
+    _r11 = 11
+    _r12 = 12
+    _argument_registers = (3, 4, 5, 6, 7, 8, 9, 10)
+
+    _R_PPC64_ADDR64 = 38
+    _R_PPC64_REL16_HA = 252
+    _R_PPC64_REL16_LO = 250
+    _R_PPC64_TOC16_DS = 63
+
+    _BCTRL = 0x4E800421
+    _BLR = 0x4E800020
+
+    def __init__(self) -> None:
+        self.code = bytearray()
+        self.relocations: List[_ElfRelocation] = []
+        self.toc = bytearray()
+        self.toc_relocations: List[_ElfRelocation] = []
+        self._epilogue_branches: List[int] = []
+        self._frame = 0
+
+    def _emit(self, word: int) -> None:
+        self.code.extend((word & 0xFFFFFFFF).to_bytes(4, "little"))
+
+    @staticmethod
+    def _rt(x: int) -> int:
+        return (x & 0x1F) << 21
+
+    @staticmethod
+    def _ra(x: int) -> int:
+        return (x & 0x1F) << 16
+
+    @staticmethod
+    def _rb(x: int) -> int:
+        return (x & 0x1F) << 11
+
+    def _addi(self, d: int, a: int, i: int) -> int:
+        return 0x38000000 | self._rt(d) | self._ra(a) | (i & 0xFFFF)
+
+    def _addis(self, d: int, a: int, i: int) -> int:
+        return 0x3C000000 | self._rt(d) | self._ra(a) | (i & 0xFFFF)
+
+    def _ori(self, a: int, s: int, i: int) -> int:
+        return 0x60000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _oris(self, a: int, s: int, i: int) -> int:
+        return 0x64000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _rldicr32(self, a: int, s: int) -> int:
+        # rldicr a, s, 32, 31  (SH=32 -> 0x2, ME=31 -> 0x7c0)
+        return 0x78000004 | self._rt(s) | self._ra(a) | 0x2 | 0x7C0
+
+    def _std(self, s: int, a: int, i: int) -> int:
+        return 0xF8000000 | self._rt(s) | self._ra(a) | (i & 0xFFFC)
+
+    def _stdu(self, s: int, a: int, i: int) -> int:
+        return 0xF8000001 | self._rt(s) | self._ra(a) | (i & 0xFFFC)
+
+    def _ld(self, t: int, a: int, i: int) -> int:
+        return 0xE8000000 | self._rt(t) | self._ra(a) | (i & 0xFFFC)
+
+    def _stb(self, s: int, a: int, i: int) -> int:
+        return 0x98000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _sth(self, s: int, a: int, i: int) -> int:
+        return 0xB0000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _stw(self, s: int, a: int, i: int) -> int:
+        return 0x90000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _add(self, t: int, a: int, b: int) -> int:
+        return 0x7C000214 | self._rt(t) | self._ra(a) | self._rb(b)
+
+    def _or(self, a: int, s: int, b: int) -> int:
+        return 0x7C000378 | self._rt(s) | self._ra(a) | self._rb(b)
+
+    def _andc(self, a: int, s: int, b: int) -> int:
+        return 0x7C000078 | self._rt(s) | self._ra(a) | self._rb(b)
+
+    def _ldarx(self, t: int, a: int, b: int) -> int:
+        return 0x7C0000A8 | self._rt(t) | self._ra(a) | self._rb(b)
+
+    def _stdcx(self, s: int, a: int, b: int) -> int:
+        return 0x7C0001AD | self._rt(s) | self._ra(a) | self._rb(b)
+
+    def _cmpdi(self, a: int, i: int) -> int:
+        return 0x2C200000 | self._ra(a) | (i & 0xFFFF)
+
+    def _mflr(self, t: int) -> int:
+        return 0x7C0802A6 | self._rt(t)
+
+    def _mtlr(self, t: int) -> int:
+        return 0x7C0803A6 | self._rt(t)
+
+    def _mtctr(self, t: int) -> int:
+        return 0x7C0903A6 | self._rt(t)
+
+
 def _ppc64_stubs_section() -> _ElfSection:
     # The ppc64 module loader (arch/powerpc/kernel/module_64.c) rejects any
     # module that does not contain a .stubs section. We never emit a
