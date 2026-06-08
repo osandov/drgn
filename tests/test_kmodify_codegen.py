@@ -55,3 +55,14 @@ class TestX86_64CodegenGolden(unittest.TestCase):
         )
         self.assertEqual(bytes(result.toc), b"")
         self.assertEqual(list(result.toc_relocations), [])
+
+
+class TestArchSelection(unittest.TestCase):
+    def test_ppc64_arch_constants(self):
+        from drgn.helpers.experimental.kmodify import _Arch_PPC64
+
+        self.assertEqual(_Arch_PPC64.ELF_MACHINE, 21)  # EM_PPC64
+        self.assertTrue(_Arch_PPC64.RELA)
+        self.assertEqual(
+            _Arch_PPC64.ABSOLUTE_ADDRESS_RELOCATION_TYPE, 38
+        )  # R_PPC64_ADDR64

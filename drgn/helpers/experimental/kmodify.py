@@ -770,6 +770,33 @@ class _Arch_X86_64:
         return _CodeGenResult(bytes(code_gen.code), code_gen.relocations)
 
 
+def _ppc64_stubs_section() -> _ElfSection:
+    # The ppc64 module loader (arch/powerpc/kernel/module_64.c) rejects any
+    # module that does not contain a .stubs section. We never emit a
+    # stub-needing relocation, so an empty section is enough; the loader sizes
+    # it itself.
+    return _ElfSection(
+        name=".stubs",
+        type=SHT.PROGBITS,
+        flags=SHF.ALLOC | SHF.EXECINSTR,
+        data=b"",
+        addralign=8,
+    )
+
+
+class _Arch_PPC64:
+    ELF_MACHINE = 21  # EM_PPC64
+    RELA = True
+    ABSOLUTE_ADDRESS_RELOCATION_TYPE = 38  # R_PPC64_ADDR64
+    MODULE_SECTIONS = (_ppc64_stubs_section,)
+
+    @staticmethod
+    def code_gen(
+        func: _Function, symbol_addresses: Optional[Mapping[str, int]] = None
+    ) -> _CodeGenResult:
+        raise NotImplementedError("ppc64le code generation not yet implemented")
+
+
 def _find_exported_symbol_in_section(
     prog: Program, name: bytes, start: int, stop: int
 ) -> int:
@@ -877,10 +904,15 @@ class _Kmodify:
         self.is_little_endian = bool(platform.flags & PlatformFlags.IS_LITTLE_ENDIAN)
         self.is_64_bit = bool(platform.flags & PlatformFlags.IS_64_BIT)
 
+        self.arch: Any
         if platform.arch == Architecture.X86_64:
-            # When we add support for another architecture, we're going to need
-            # an _Arch Protocol.
             self.arch = _Arch_X86_64
+        elif platform.arch == Architecture.PPC64:
+            if not self.is_little_endian:
+                raise NotImplementedError(
+                    "kmodify is only implemented for little-endian ppc64"
+                )
+            self.arch = _Arch_PPC64
         else:
             raise NotImplementedError(
                 f"kmodify not implemented for {platform.arch.name} architecture"
