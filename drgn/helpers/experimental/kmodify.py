@@ -156,6 +156,7 @@ def _write_elf(
     sections: Sequence[_ElfSection],
     symbols: Sequence[_ElfSymbol],
     relocations: Mapping[str, Sequence[_ElfRelocation]],
+    flags: int = 0,
 ) -> None:
     endian = "<" if is_little_endian else ">"
     if is_64_bit:
@@ -356,7 +357,7 @@ def _write_elf(
             0,  # e_entry
             0,  # e_phoff
             ehdr_struct.size,  # e_shoff
-            0,  # e_flags
+            flags,  # e_flags
             ehdr_struct.size,  # e_ehsize
             0,  # e_phentsize
             0,  # e_phnum
@@ -1077,7 +1078,24 @@ class _Arch_PPC64:
     ELF_MACHINE = 21  # EM_PPC64
     RELA = True
     ABSOLUTE_ADDRESS_RELOCATION_TYPE = 38  # R_PPC64_ADDR64
+    # The ppc64le loader's module_elf_check_arch() requires the ELFv2 ABI level
+    # in e_flags (e_flags & 0x3 == 2); otherwise the module is rejected.
+    ELF_FLAGS = 2
     MODULE_SECTIONS = (_ppc64_stubs_section,)
+    # The global-entry prologue references the TOC base through the special
+    # ".TOC." symbol. The kernel's dedotify() (arch/powerpc/kernel/module_64.c)
+    # converts a SHN_UNDEF ".TOC." symbol to SHN_ABS and sets its value to the
+    # module's TOC pointer; the symbol must be present for that to happen.
+    MODULE_SYMBOLS = (
+        _ElfSymbol(
+            name=".TOC.",
+            value=0,
+            size=0,
+            type=STT.NOTYPE,
+            binding=STB.GLOBAL,
+            section=SHN.UNDEF,
+        ),
+    )
 
     @staticmethod
     def code_gen(
@@ -1386,6 +1404,9 @@ class _Kmodify:
                 binding=STB.GLOBAL,
                 section=".codetag.alloc_tags",
             ),
+            # Symbols the architecture requires (e.g. ppc64's ".TOC."). These are
+            # global, so they go after the local symbols above.
+            *getattr(self.arch, "MODULE_SYMBOLS", ()),
         ]
 
         relocations = {
@@ -1409,6 +1430,7 @@ class _Kmodify:
                 is_little_endian=self.is_little_endian,
                 is_64_bit=self.is_64_bit,
                 rela=self.arch.RELA,
+                flags=getattr(self.arch, "ELF_FLAGS", 0),
                 sections=sections,
                 symbols=symbols,
                 relocations=relocations,

@@ -350,6 +350,110 @@ class TestPPC64CodeGen(unittest.TestCase):
         self.assertEqual(stdu, _CodeGen_ppc64le()._stdu(1, 1, -96))
 
 
+class TestPPC64ModuleSymbols(unittest.TestCase):
+    def test_toc_symbol_present_for_rel16_relocation(self):
+        # The ppc64le prologue emits R_PPC64_REL16_HA/_LO relocations against the
+        # special ".TOC." symbol. The kernel's dedotify() resolves it, but only
+        # if the module's symbol table actually contains a ".TOC." (SHN_UNDEF)
+        # symbol. Without it, _write_elf raises KeyError('.TOC.').
+        import io
+
+        from _drgn_util.elf import SHF, SHN, SHT, STB, STT
+        from drgn.helpers.experimental.kmodify import (
+            _Arch_PPC64,
+            _ElfRelocation,
+            _ElfSection,
+            _ElfSymbol,
+            _write_elf,
+        )
+
+        toc_symbols = [s for s in _Arch_PPC64.MODULE_SYMBOLS if s.name == ".TOC."]
+        self.assertEqual(len(toc_symbols), 1)
+        self.assertEqual(toc_symbols[0].section, SHN.UNDEF)
+
+        sections = [
+            _ElfSection(
+                name=".init.text",
+                type=SHT.PROGBITS,
+                flags=SHF.ALLOC | SHF.EXECINSTR,
+                data=b"\0" * 8,
+            )
+        ]
+        symbols = [
+            *_Arch_PPC64.MODULE_SYMBOLS,
+            _ElfSymbol(
+                name="init_module",
+                value=0,
+                size=8,
+                type=STT.FUNC,
+                binding=STB.GLOBAL,
+                section=".init.text",
+            ),
+        ]
+        relocations = {
+            ".init.text": [
+                _ElfRelocation(
+                    offset=0,
+                    type=252,  # R_PPC64_REL16_HA
+                    symbol_name=".TOC.",
+                    section_symbol=False,
+                )
+            ]
+        }
+        out = io.BytesIO()
+        _write_elf(
+            out,
+            machine=21,
+            is_little_endian=True,
+            is_64_bit=True,
+            rela=True,
+            flags=_Arch_PPC64.ELF_FLAGS,
+            sections=sections,
+            symbols=symbols,
+            relocations=relocations,
+        )
+        self.assertGreater(len(out.getvalue()), 0)
+
+    def test_elf_header_has_elfv2_abi_flag(self):
+        # The ppc64le module loader's module_elf_check_arch() requires
+        # e_flags & 0x3 == 2 (ELFv2 ABI); a zero e_flags is rejected with
+        # -ENOEXEC ("Invalid module architecture in ELF header").
+        import io
+
+        from _drgn_util.elf import SHF, SHT
+        from drgn.helpers.experimental.kmodify import (
+            _Arch_PPC64,
+            _ElfSection,
+            _write_elf,
+        )
+
+        self.assertEqual(_Arch_PPC64.ELF_FLAGS, 2)
+
+        out = io.BytesIO()
+        _write_elf(
+            out,
+            machine=21,
+            is_little_endian=True,
+            is_64_bit=True,
+            rela=True,
+            flags=_Arch_PPC64.ELF_FLAGS,
+            sections=[
+                _ElfSection(
+                    name=".init.text",
+                    type=SHT.PROGBITS,
+                    flags=SHF.ALLOC | SHF.EXECINSTR,
+                    data=b"\0" * 4,
+                )
+            ],
+            symbols=[],
+            relocations={},
+        )
+        data = out.getvalue()
+        # 64-bit LE ELF header: e_flags is a 4-byte field at offset 48.
+        e_flags = int.from_bytes(data[48:52], "little")
+        self.assertEqual(e_flags & 0x3, 2)
+
+
 class TestArchSelection(unittest.TestCase):
     def test_ppc64_arch_constants(self):
         from drgn.helpers.experimental.kmodify import _Arch_PPC64
