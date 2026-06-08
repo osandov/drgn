@@ -897,6 +897,8 @@ class _Kmodify:
         data: bytes,
         data_alignment: int,
         symbols: Sequence[_ElfSymbol],
+        toc: bytes = b"",
+        toc_relocations: Sequence[_ElfRelocation] = (),
     ) -> int:
         struct_module = self.prog.type("struct module")
 
@@ -972,6 +974,24 @@ class _Kmodify:
         if versions_section is not None:
             sections.append(versions_section)
 
+        # Add any sections the architecture requires unconditionally (e.g. the
+        # mandatory empty .stubs section on ppc64).
+        for section_factory in getattr(self.arch, "MODULE_SECTIONS", ()):
+            sections.append(section_factory())
+
+        # Add the Table of Contents section if the code generator produced one
+        # (ppc64le addresses .data through it).
+        if toc:
+            sections.append(
+                _ElfSection(
+                    name=".toc",
+                    type=SHT.PROGBITS,
+                    flags=SHF.WRITE | SHF.ALLOC,
+                    data=toc,
+                    addralign=8,
+                )
+            )
+
         symbols = [
             *symbols,
             _ElfSymbol(
@@ -1011,6 +1031,8 @@ class _Kmodify:
                 )
             ],
         }
+        if toc_relocations:
+            relocations[".toc"] = toc_relocations
 
         with open(_memfd_create(module_name.decode() + ".ko"), "wb") as f:
             _write_elf(
@@ -1093,7 +1115,7 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
     sizeof_int = sizeof(prog.type("int"))
     sizeof_void_p = sizeof(prog.type("void *"))
     sizeof_size_t = sizeof(prog.type("size_t"))
-    code, code_relocations, _, _ = kmodify.arch.code_gen(
+    code, code_relocations, toc, toc_relocations = kmodify.arch.code_gen(
         _Function(
             [
                 # copy_to_kernel_nofault() can still fault in some cases; see
@@ -1129,6 +1151,8 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
         name=f"write_{len(value)}",
         code=code,
         code_relocations=code_relocations,
+        toc=toc,
+        toc_relocations=toc_relocations,
         data=value + b"\0",
         # Align generously so that the copy can use larger units and small
         # copies can be slightly less racy.
@@ -1184,7 +1208,7 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
         # I'm not sure about bit fields. kmodify only supports little-endian
         # architectures at the moment anyways.
         raise NotImplementedError("_modify_bit() is only implemented for little-endian")
-    code, code_relocations, _, _ = kmodify.arch.code_gen(
+    code, code_relocations, toc, toc_relocations = kmodify.arch.code_gen(
         _Function(
             [
                 _Call(
@@ -1211,6 +1235,8 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
         name="set_bit" if value else "clear_bit",
         code=code,
         code_relocations=code_relocations,
+        toc=toc,
+        toc_relocations=toc_relocations,
         data=b"\0",
         data_alignment=1,
         symbols=[
@@ -1562,12 +1588,16 @@ def _insert_call_function(
 
     function_body.append(_Return(_Integer(sizeof_int, -errno.EINPROGRESS)))
 
-    code, code_relocations, _, _ = kmodify.arch.code_gen(_Function(function_body))
+    code, code_relocations, toc, toc_relocations = kmodify.arch.code_gen(
+        _Function(function_body)
+    )
 
     ret = kmodify.insert(
         name=name,
         code=code,
         code_relocations=code_relocations,
+        toc=toc,
+        toc_relocations=toc_relocations,
         data=data,
         data_alignment=data_alignment,
         symbols=symbols,
