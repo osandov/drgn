@@ -201,6 +201,39 @@ class TestPPC64FrameAndToc(unittest.TestCase):
         )
 
 
+class TestPPC64Call(unittest.TestCase):
+    def cg(self):
+        from drgn.helpers.experimental.kmodify import _CodeGen_ppc64le
+
+        return _CodeGen_ppc64le()
+
+    def test_call_two_args(self):
+        cg = self.cg()
+        cg.enter_frame(32)
+        base = len(cg.code)
+        # call() takes the resolved target ADDRESS (int), not a _Symbol.
+        cg.call(
+            0xC000000000001234,
+            [_Integer(8, 0xDEADBEEF00), _Symbol(".data", section=True, offset=8)],
+        )
+        words = _words(bytes(cg.code)[base:])
+        # arg0 immediate -> r3 (first instruction loads r3)
+        self.assertEqual(words[0], cg._addis(3, 0, (0xDEADBEEF00 >> 48) & 0xFFFF))
+        # tail: mtctr r12 ; bctrl ; ld r2,24(r1)
+        self.assertEqual(words[-3], cg._mtctr(12))
+        self.assertEqual(words[-2], cg._BCTRL)
+        self.assertEqual(words[-1], cg._ld(2, 1, 24))
+
+    def test_call_stack_args_use_param_save_area(self):
+        cg = self.cg()
+        cg.enter_frame(32 + 8 * 9)
+        base = len(cg.code)
+        cg.call(0xC000000000000010, [_Integer(8, i) for i in range(9)])
+        words = _words(bytes(cg.code)[base:])
+        # The 9th arg (index 8) is staged via r11 into 32 + 8*8 = 96(r1).
+        self.assertIn(cg._std(11, 1, 96), words)
+
+
 class TestArchSelection(unittest.TestCase):
     def test_ppc64_arch_constants(self):
         from drgn.helpers.experimental.kmodify import _Arch_PPC64

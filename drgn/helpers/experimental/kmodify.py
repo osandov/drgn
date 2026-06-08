@@ -989,6 +989,31 @@ class _CodeGen_ppc64le:
         if offset:
             self._emit(self._addi(reg, reg, offset))
 
+    def _materialize(self, reg: int, arg: Union[_Integer, _Symbol]) -> None:
+        if isinstance(arg, _Integer):
+            self._load_imm(reg, arg.value)
+        else:
+            # The only symbols passed as arguments are .data references.
+            self._load_data_ptr(reg, arg.offset)
+
+    def call(
+        self, target_address: int, args: Sequence[Union[_Integer, _Symbol]]
+    ) -> None:
+        n_reg = len(self._argument_registers)
+        # Stage stack arguments first, using r11 as scratch so we don't clobber
+        # the argument registers.
+        for i in range(n_reg, len(args)):
+            self._materialize(self._r11, args[i])
+            self._emit(self._std(self._r11, self._r1, 32 + 8 * i))
+        for i in range(min(len(args), n_reg)):
+            self._materialize(self._argument_registers[i], args[i])
+        # Materialize the call target into r12 last so building it can't clobber
+        # an argument register.
+        self._load_imm(self._r12, target_address)
+        self._emit(self._mtctr(self._r12))
+        self._emit(self._BCTRL)
+        self._restore_toc()
+
 
 def _ppc64_stubs_section() -> _ElfSection:
     # The ppc64 module loader (arch/powerpc/kernel/module_64.c) rejects any
