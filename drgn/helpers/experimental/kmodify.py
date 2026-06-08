@@ -1083,7 +1083,54 @@ class _Arch_PPC64:
     def code_gen(
         func: _Function, symbol_addresses: Optional[Mapping[str, int]] = None
     ) -> _CodeGenResult:
-        raise NotImplementedError("ppc64le code generation not yet implemented")
+        if symbol_addresses is None:
+            raise ValueError("ppc64le code_gen requires symbol_addresses")
+
+        cg = _CodeGen_ppc64le()
+
+        has_call = False
+        max_args = 0
+        for node in func.body:
+            if isinstance(node, _Call):
+                has_call = True
+                for arg in node.args:
+                    if isinstance(arg, _Integer) and arg.size > 8:
+                        raise NotImplementedError(
+                            "passing integers larger than 8 bytes not implemented"
+                        )
+                max_args = max(max_args, len(node.args))
+
+        # A variadic callee spills its argument GPRs (r3-r10, eight doublewords)
+        # into our parameter save area, so it must hold at least eight
+        # doublewords regardless of how many arguments we actually pass;
+        # otherwise the spill overruns the frame and corrupts the saved LR.
+        cg.enter_frame(32 + 8 * max(max_args, 8) if has_call else 0)
+
+        for i, node in enumerate(func.body):
+            if isinstance(node, _Call):
+                cg.call(symbol_addresses[node.func.name], node.args)
+            elif isinstance(node, _StoreReturnValue):
+                cg.store_return_value(node.size, node.dst)
+            elif isinstance(node, _Return):
+                if node.value.size > 8:
+                    raise NotImplementedError(
+                        "return values larger than 8 bytes not implemented"
+                    )
+                cg.return_(node.value, last=i == len(func.body) - 1)
+            elif isinstance(node, _ReturnIfLastReturnValueNonZero):
+                cg.return_if_last_return_value_nonzero(node.value)
+            elif isinstance(node, _AtomicSetBit):
+                cg.atomic_set_bit(node.nr, node.address)
+            elif isinstance(node, _AtomicClearBit):
+                cg.atomic_clear_bit(node.nr, node.address)
+            else:
+                assert_never(node)
+
+        cg.leave_frame()
+
+        return _CodeGenResult(
+            bytes(cg.code), cg.relocations, bytes(cg.toc), cg.toc_relocations
+        )
 
 
 def _find_exported_symbol_in_section(
@@ -1392,6 +1439,20 @@ _COPY_TO_FROM_KERNEL_NOFAULT_NAMES = (
 )
 
 
+def _kernel_function_address(prog: Program, name: str) -> int:
+    """
+    Return the entry point address of a kernel function by name.
+
+    This uses the symbol table rather than the debug information address
+    (``prog[name].address_``). On kernels that split a function into hot and
+    cold parts (``-freorder-blocks-and-partition``), the debug information may
+    describe the function at a cold fragment's address; calling that fragment
+    runs only part of the function. The symbol table always names the real
+    entry point.
+    """
+    return prog.symbol(name).address
+
+
 @takes_program_or_default
 def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
     """
@@ -1421,10 +1482,14 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
         copy_from_kernel_nofault,
     ) in _COPY_TO_FROM_KERNEL_NOFAULT_NAMES:
         try:
-            copy_to_kernel_nofault_address = prog[copy_to_kernel_nofault].address_
-            copy_from_kernel_nofault_address = prog[copy_from_kernel_nofault].address_
+            copy_to_kernel_nofault_address = _kernel_function_address(
+                prog, copy_to_kernel_nofault
+            )
+            copy_from_kernel_nofault_address = _kernel_function_address(
+                prog, copy_from_kernel_nofault
+            )
             break
-        except KeyError:
+        except LookupError:
             pass
     if copy_to_kernel_nofault_address is None:
         raise LookupError("copy_to_kernel_nofault not found")
@@ -1466,7 +1531,11 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
                 ),
                 _Return(_Integer(sizeof_int, -errno.EINPROGRESS)),
             ]
-        )
+        ),
+        symbol_addresses={
+            copy_from_kernel_nofault: copy_from_kernel_nofault_address,
+            copy_to_kernel_nofault: copy_to_kernel_nofault_address,
+        },
     )
     ret = kmodify.insert(
         name=f"write_{len(value)}",
@@ -1513,9 +1582,11 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
     copy_from_kernel_nofault_address = None
     for _, copy_from_kernel_nofault in _COPY_TO_FROM_KERNEL_NOFAULT_NAMES:
         try:
-            copy_from_kernel_nofault_address = prog[copy_from_kernel_nofault].address_
+            copy_from_kernel_nofault_address = _kernel_function_address(
+                prog, copy_from_kernel_nofault
+            )
             break
-        except KeyError:
+        except LookupError:
             pass
     if copy_from_kernel_nofault_address is None:
         raise LookupError("copy_from_kernel_nofault not found")
@@ -1550,7 +1621,8 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
                 ),
                 _Return(_Integer(sizeof_int, -errno.EINPROGRESS)),
             ]
-        )
+        ),
+        symbol_addresses={copy_from_kernel_nofault: copy_from_kernel_nofault_address},
     )
     ret = kmodify.insert(
         name="set_bit" if value else "clear_bit",
@@ -1869,9 +1941,11 @@ def _insert_call_function(
         "probe_user_write",
     ):
         try:
-            copy_to_user_nofault_address = prog[copy_to_user_nofault].address_
+            copy_to_user_nofault_address = _kernel_function_address(
+                prog, copy_to_user_nofault
+            )
             break
-        except KeyError:
+        except LookupError:
             continue
     if copy_to_user_nofault_address is None:
         raise LookupError("copy_to_user_nofault not found")
@@ -1909,8 +1983,12 @@ def _insert_call_function(
 
     function_body.append(_Return(_Integer(sizeof_int, -errno.EINPROGRESS)))
 
+    # ppc64le bakes call-target addresses as immediates, so the code generator
+    # needs each referenced function's address. The symbols (with their values)
+    # are already built above, before this code_gen call.
+    symbol_addresses = {symbol.name: symbol.value for symbol in symbols}
     code, code_relocations, toc, toc_relocations = kmodify.arch.code_gen(
-        _Function(function_body)
+        _Function(function_body), symbol_addresses=symbol_addresses
     )
 
     ret = kmodify.insert(

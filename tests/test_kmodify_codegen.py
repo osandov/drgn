@@ -294,6 +294,62 @@ class TestPPC64Lowering(unittest.TestCase):
         self.assertIn(cg._andc(0, 0, 4), words)
 
 
+class TestPPC64CodeGen(unittest.TestCase):
+    def test_code_gen_requires_symbol_addresses(self):
+        from drgn.helpers.experimental.kmodify import _Arch_PPC64
+
+        with self.assertRaises(ValueError):
+            _Arch_PPC64.code_gen(_Function([_Return(_Integer(4, 0))]))
+
+    def test_code_gen_full_function(self):
+        from drgn.helpers.experimental.kmodify import _Arch_PPC64, _CodeGen_ppc64le
+
+        func = _Function(
+            [
+                _Call(_Symbol("func"), [_Integer(4, -12345)]),
+                _ReturnIfLastReturnValueNonZero(_Integer(4, -14)),
+                _Return(_Integer(4, -115)),
+            ]
+        )
+        result = _Arch_PPC64.code_gen(
+            func, symbol_addresses={"func": 0xC000000000001234}
+        )
+        self.assertEqual(len(result.code) % 4, 0)
+        # First instruction is the global-entry addis r2, r12, ...
+        self.assertEqual(_words(result.code)[0], _CodeGen_ppc64le()._addis(2, 12, 0))
+        # Only loader-supported relocation types are emitted.
+        allowed = {38, 250, 252, 63, 10}
+        self.assertTrue({r.type for r in result.code_relocations} <= allowed)
+        self.assertTrue({r.type for r in result.toc_relocations} <= allowed)
+
+    def test_code_gen_rejects_large_argument(self):
+        from drgn.helpers.experimental.kmodify import _Arch_PPC64
+
+        func = _Function([_Call(_Symbol("func"), [_Integer(16, 0)])])
+        with self.assertRaises(NotImplementedError):
+            _Arch_PPC64.code_gen(func, symbol_addresses={"func": 0x1000})
+
+    def test_code_gen_reserves_min_param_save_area_for_variadic_callee(self):
+        # A variadic callee (e.g. _printk) spills its argument GPRs r3-r10
+        # (eight doublewords) into the caller-provided parameter save area. If
+        # the frame reserves fewer than eight doublewords there, the spill runs
+        # off the end of the frame and clobbers the caller's saved LR at
+        # old_sp+16, so init_module returns through a corrupt link register.
+        # The ELFv2 ABI requires a minimum eight-doubleword parameter save area
+        # whenever a function makes a call, independent of its own argument
+        # count.
+        from drgn.helpers.experimental.kmodify import _Arch_PPC64, _CodeGen_ppc64le
+
+        func = _Function([_Call(_Symbol("func"), [_Integer(4, 1)])])  # one arg
+        result = _Arch_PPC64.code_gen(
+            func, symbol_addresses={"func": 0xC000000000001234}
+        )
+        # Prologue word index 4 is `stdu r1, r1, -frame`. The frame must reserve
+        # 32 (linkage) + 64 (eight-doubleword parameter save area) = 96 bytes.
+        stdu = _words(result.code)[4]
+        self.assertEqual(stdu, _CodeGen_ppc64le()._stdu(1, 1, -96))
+
+
 class TestArchSelection(unittest.TestCase):
     def test_ppc64_arch_constants(self):
         from drgn.helpers.experimental.kmodify import _Arch_PPC64
