@@ -254,6 +254,13 @@ bool vector_extend(struct vector *dst, const struct vector *src);
  * entry is inserted in its place or the entries are reallocated.
  */
 entry_type *vector_pop(struct vector *vector);
+
+/**
+ * Remove the entry at the given index in a @ref vector.
+ *
+ * @param[in] i Entry index. Must be less than the size of the vector.
+ */
+void vector_delete(struct vector *vector, size_t i);
 #endif
 
 /**
@@ -557,6 +564,14 @@ __attribute__((__unused__))							\
 static vector##_entry_type *vector##_pop(struct vector *vector)			\
 {										\
 	return vector##_begin(vector) + --vector->_size;			\
+}										\
+										\
+__attribute__((__unused__))							\
+static void vector##_delete(struct vector *vector, size_t i)			\
+{										\
+	vector##_entry_type *entry = vector##_at(vector, i);			\
+	memmove(entry, entry + 1, (vector->_size - i - 1) * sizeof(*entry));	\
+	vector->_size--;							\
 }										\
 struct DEFINE_VECTOR_needs_semicolon
 
