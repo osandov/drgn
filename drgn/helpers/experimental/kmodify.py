@@ -1139,7 +1139,13 @@ class _Arch_PPC64:
 
         for i, node in enumerate(func.body):
             if isinstance(node, _Call):
-                cg.call(symbol_addresses[node.func.name], node.args)
+                target_address = symbol_addresses[node.func.name]
+                if not target_address:
+                    # ppc64le bakes the target into the code as an immediate, so
+                    # a zero address (e.g. an unresolved symbol) can't be fixed
+                    # up by the loader the way an x86-64 relocation would be.
+                    raise ValueError(f"no address for call target {node.func.name!r}")
+                cg.call(target_address, node.args)
             elif isinstance(node, _StoreReturnValue):
                 cg.store_return_value(node.size, node.dst)
             elif isinstance(node, _Return):

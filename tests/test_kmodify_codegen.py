@@ -465,6 +465,19 @@ class TestArchSelection(unittest.TestCase):
         )  # R_PPC64_ADDR64
 
 
+class TestPPC64ZeroCallTarget(unittest.TestCase):
+    def test_code_gen_rejects_zero_call_target(self):
+        # ppc64le bakes the call target into the code as an immediate, so a zero
+        # address (e.g. an unresolved symbol) can't be fixed up by the loader the
+        # way an x86-64 relocation would be. It must fail fast instead of
+        # emitting a call to address 0.
+        from drgn.helpers.experimental.kmodify import _Arch_PPC64
+
+        func = _Function([_Call(_Symbol("func"), [_Integer(4, 1)])])
+        with self.assertRaises(ValueError):
+            _Arch_PPC64.code_gen(func, symbol_addresses={"func": 0})
+
+
 class TestPPC64BranchRange(unittest.TestCase):
     # A conditional bc to the epilogue has only a signed 14-bit (32 KiB)
     # displacement, and call_functions() over a long list can grow the body. If
