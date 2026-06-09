@@ -782,7 +782,9 @@ class _Arch_X86_64:
 class _CodeGen_ppc64le:
     # ELFv2, little-endian. Instruction encodings mirror the kernel's PPC_RAW_*
     # macros (arch/powerpc/include/asm/ppc-opcode.h); each 32-bit instruction is
-    # emitted as 4 little-endian bytes.
+    # emitted as 4 little-endian bytes. The unit tests pin structure and
+    # composition; the raw encodings are validated end-to-end by the kmodify
+    # integration tests under vmtest on ppc64le.
 
     _r0 = 0
     _r1 = 1
@@ -962,14 +964,16 @@ class _CodeGen_ppc64le:
                 # The LI field is signed 26 bits (scaled by 4).
                 if not -0x2000000 <= disp < 0x2000000:
                     raise OverflowError(
-                        f"branch displacement {disp} out of range for b"
+                        f"branch displacement {disp} out of range for b "
+                        "(generated helper is too large)"
                     )
                 word = (word & ~0x03FFFFFC) | (disp & 0x03FFFFFC)
             else:  # conditional bc
                 # The BD field is signed 14 bits (scaled by 4).
                 if not -0x8000 <= disp < 0x8000:
                     raise OverflowError(
-                        f"branch displacement {disp} out of range for bc"
+                        f"branch displacement {disp} out of range for bc "
+                        "(generated helper is too large)"
                     )
                 word = (word & ~0xFFFC) | (disp & 0xFFFC)
             self.code[offset : offset + 4] = (word & 0xFFFFFFFF).to_bytes(4, "little")
@@ -1026,8 +1030,12 @@ class _CodeGen_ppc64le:
             self._emit(self._std(self._r11, self._r1, 32 + 8 * i))
         for i in range(min(len(args), n_reg)):
             self._materialize(self._argument_registers[i], args[i])
-        # Materialize the call target into r12 last so building it can't clobber
-        # an argument register.
+        # Unlike x86-64, which emits a loader-resolved relocation, ppc64le bakes
+        # the target in as an immediate, so it must be a live, stable kallsyms
+        # address (kmodify only ever modifies a running kernel). r12 must also
+        # hold the callee's global entry point, from which the callee computes
+        # its own TOC. Materialize it last so building it can't clobber an
+        # argument register.
         self._load_imm(self._r12, target_address)
         self._emit(self._mtctr(self._r12))
         self._emit(self._BCTRL)
@@ -1151,7 +1159,10 @@ class _Arch_PPC64:
                     # ppc64le bakes the target into the code as an immediate, so
                     # a zero address (e.g. an unresolved symbol) can't be fixed
                     # up by the loader the way an x86-64 relocation would be.
-                    raise ValueError(f"no address for call target {node.func.name!r}")
+                    raise ValueError(
+                        f"no address for call target {node.func.name!r} "
+                        "(unresolved kernel symbol)"
+                    )
                 cg.call(target_address, node.args)
             elif isinstance(node, _StoreReturnValue):
                 cg.store_return_value(node.size, node.dst)
