@@ -528,3 +528,47 @@ class TestPPC64BranchRange(unittest.TestCase):
         self._pad_body_to_displacement(cg, 0x8000)  # one past the bc reach
         with self.assertRaises(OverflowError):
             cg.leave_frame()
+
+
+class _FakeSymbol:
+    def __init__(self, address):
+        self.address = address
+
+
+class _FakeProgram:
+    # Minimal duck-typed stand-in: _kernel_function_address() must resolve via
+    # the symbol table (prog.symbol(name).address), never the debug-info object
+    # (prog[name]).
+    def __init__(self, symbols):
+        self._symbols = symbols
+
+    def symbol(self, name):
+        try:
+            return _FakeSymbol(self._symbols[name])
+        except KeyError:
+            raise LookupError(name) from None
+
+    def __getitem__(self, name):
+        raise AssertionError(
+            f"_kernel_function_address must not consult debug info (prog[{name!r}])"
+        )
+
+
+class TestKernelFunctionAddress(unittest.TestCase):
+    def test_uses_symbol_table_not_debuginfo(self):
+        # Symbol-table address is authoritative: with -freorder-blocks-and-
+        # partition the debug-info address can name a cold fragment, and calling
+        # it would run only part of the function.
+        from drgn.helpers.experimental.kmodify import _kernel_function_address
+
+        prog = _FakeProgram({"copy_to_kernel_nofault": 0xFFFFFFFF81000000})
+        self.assertEqual(
+            _kernel_function_address(prog, "copy_to_kernel_nofault"),
+            0xFFFFFFFF81000000,
+        )
+
+    def test_missing_symbol_raises_lookuperror(self):
+        from drgn.helpers.experimental.kmodify import _kernel_function_address
+
+        with self.assertRaises(LookupError):
+            _kernel_function_address(_FakeProgram({}), "nonexistent")
