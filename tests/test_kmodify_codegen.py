@@ -463,3 +463,42 @@ class TestArchSelection(unittest.TestCase):
         self.assertEqual(
             _Arch_PPC64.ABSOLUTE_ADDRESS_RELOCATION_TYPE, 38
         )  # R_PPC64_ADDR64
+
+
+class TestPPC64BranchRange(unittest.TestCase):
+    # A conditional bc to the epilogue has only a signed 14-bit (32 KiB)
+    # displacement, and call_functions() over a long list can grow the body. If
+    # it ever overflows, the fixup must raise instead of silently truncating to
+    # a wild branch target.
+    _NOP = b"\x60\x00\x00\x00"  # ori 0,0,0
+
+    def cg(self):
+        from drgn.helpers.experimental.kmodify import _CodeGen_ppc64le
+
+        return _CodeGen_ppc64le()
+
+    def _pad_body_to_displacement(self, cg, disp):
+        # Pad the body with nops so the recorded epilogue branch ends up exactly
+        # `disp` bytes from the (about to be appended) epilogue.
+        branch_offset = cg._epilogue_branches[-1]
+        pad = disp - (len(cg.code) - branch_offset)
+        self.assertGreaterEqual(pad, 0)
+        cg.code.extend(self._NOP * (pad // 4))
+
+    def test_conditional_branch_in_range_is_fixed_up(self):
+        cg = self.cg()
+        cg.enter_frame(0)
+        cg.return_if_last_return_value_nonzero(_Integer(4, -14))
+        branch_offset = cg._epilogue_branches[-1]
+        self._pad_body_to_displacement(cg, 0x7FFC)  # largest in-range bc
+        cg.leave_frame()
+        word = int.from_bytes(cg.code[branch_offset : branch_offset + 4], "little")
+        self.assertEqual(word & 0xFFFC, 0x7FFC)
+
+    def test_conditional_branch_overflow_raises(self):
+        cg = self.cg()
+        cg.enter_frame(0)
+        cg.return_if_last_return_value_nonzero(_Integer(4, -14))
+        self._pad_body_to_displacement(cg, 0x8000)  # one past the bc reach
+        with self.assertRaises(OverflowError):
+            cg.leave_frame()

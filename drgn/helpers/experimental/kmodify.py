@@ -952,8 +952,18 @@ class _CodeGen_ppc64le:
             word = int.from_bytes(self.code[offset : offset + 4], "little")
             disp = target - offset
             if (word & 0xFC000000) == 0x48000000:  # unconditional b
+                # The LI field is signed 26 bits (scaled by 4).
+                if not -0x2000000 <= disp < 0x2000000:
+                    raise OverflowError(
+                        f"branch displacement {disp} out of range for b"
+                    )
                 word = (word & ~0x03FFFFFC) | (disp & 0x03FFFFFC)
             else:  # conditional bc
+                # The BD field is signed 14 bits (scaled by 4).
+                if not -0x8000 <= disp < 0x8000:
+                    raise OverflowError(
+                        f"branch displacement {disp} out of range for bc"
+                    )
                 word = (word & ~0xFFFC) | (disp & 0xFFFC)
             self.code[offset : offset + 4] = (word & 0xFFFFFFFF).to_bytes(4, "little")
         self._emit(self._addi(self._r1, self._r1, self._frame))
@@ -1052,7 +1062,9 @@ class _CodeGen_ppc64le:
             self._emit(self._andc(self._r0, self._r0, self._r4))
         self._emit(self._stdcx(self._r0, 0, self._r3))
         disp = start - len(self.code)
-        self._emit(self._BNE_CR0 | (disp & 0xFFFC))  # bne- back to ldarx
+        # bne back to ldarx if the reservation was lost (stdcx. cleared CR0[EQ]).
+        # The backward displacement is tiny, so it always fits the 14-bit field.
+        self._emit(self._BNE_CR0 | (disp & 0xFFFC))
 
     def atomic_set_bit(self, nr: int, address: _Integer) -> None:
         self._atomic_bit(nr, address.value, True)
