@@ -29,6 +29,7 @@ import sys
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     List,
     Mapping,
     NamedTuple,
@@ -723,6 +724,12 @@ class _Arch_X86_64:
     ELF_MACHINE = 62  # EM_X86_64
     RELA = True
     ABSOLUTE_ADDRESS_RELOCATION_TYPE = 1  # R_X86_64_64
+    # x86-64 needs no extra ELF flags, sections, or symbols. These are declared
+    # so that every _Arch exposes the same interface (see _Arch_PPC64, which
+    # overrides them) and callers don't need getattr() with defaults.
+    ELF_FLAGS = 0
+    MODULE_SECTIONS: Sequence[Callable[[], _ElfSection]] = ()
+    MODULE_SYMBOLS: Sequence[_ElfSymbol] = ()
 
     @staticmethod
     def code_gen(
@@ -1381,7 +1388,7 @@ class _Kmodify:
 
         # Add any sections the architecture requires unconditionally (e.g. the
         # mandatory empty .stubs section on ppc64).
-        for section_factory in getattr(self.arch, "MODULE_SECTIONS", ()):
+        for section_factory in self.arch.MODULE_SECTIONS:
             sections.append(section_factory())
 
         # Add the Table of Contents section if the code generator produced one
@@ -1425,7 +1432,7 @@ class _Kmodify:
             ),
             # Symbols the architecture requires (e.g. ppc64's ".TOC."). These are
             # global, so they go after the local symbols above.
-            *getattr(self.arch, "MODULE_SYMBOLS", ()),
+            *self.arch.MODULE_SYMBOLS,
         ]
 
         relocations = {
@@ -1449,7 +1456,7 @@ class _Kmodify:
                 is_little_endian=self.is_little_endian,
                 is_64_bit=self.is_64_bit,
                 rela=self.arch.RELA,
-                flags=getattr(self.arch, "ELF_FLAGS", 0),
+                flags=self.arch.ELF_FLAGS,
                 sections=sections,
                 symbols=symbols,
                 relocations=relocations,

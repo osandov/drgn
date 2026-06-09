@@ -464,6 +464,19 @@ class TestArchSelection(unittest.TestCase):
             _Arch_PPC64.ABSOLUTE_ADDRESS_RELOCATION_TYPE, 38
         )  # R_PPC64_ADDR64
 
+    def test_both_arches_expose_optional_members(self):
+        # _Kmodify.insert() reads these directly (no getattr default), so every
+        # _Arch must declare them. x86-64 has no extra flags/sections/symbols.
+        from drgn.helpers.experimental.kmodify import _Arch_PPC64, _Arch_X86_64
+
+        for arch in (_Arch_X86_64, _Arch_PPC64):
+            self.assertIsInstance(arch.ELF_FLAGS, int)
+            self.assertIsInstance(tuple(arch.MODULE_SECTIONS), tuple)
+            self.assertIsInstance(tuple(arch.MODULE_SYMBOLS), tuple)
+        self.assertEqual(_Arch_X86_64.ELF_FLAGS, 0)
+        self.assertEqual(_Arch_X86_64.MODULE_SECTIONS, ())
+        self.assertEqual(_Arch_X86_64.MODULE_SYMBOLS, ())
+
 
 class TestPPC64ZeroCallTarget(unittest.TestCase):
     def test_code_gen_rejects_zero_call_target(self):
