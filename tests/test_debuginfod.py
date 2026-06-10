@@ -91,6 +91,18 @@ class TestDebuginfodDebugInfoFinder(TestCase):
                         *self.server.server_address
                     ),
                     "DEBUGINFOD_CACHE_PATH": str(self.cache_dir),
+                    "no_proxy": ",".join(
+                        filter(
+                            None,
+                            [os.environ.get("no_proxy"), self.server.server_address[0]],
+                        )
+                    ),
+                    "NO_PROXY": ",".join(
+                        filter(
+                            None,
+                            [os.environ.get("NO_PROXY"), self.server.server_address[0]],
+                        )
+                    ),
                 }
             )
         )
