@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Dict, List, Mapping, Sequence, Set, Tuple
+from typing import Dict, Iterator, List, Mapping, Sequence, Set, Tuple
 
 _SRCARCH_TO_MACHINE_NAMES = {
     "arm64": ["aarch64"],
@@ -19,6 +19,18 @@ _SRCARCH_TO_MACHINE_NAMES = {
     "s390": ["s390", "s390x"],
     "sparc": ["sparc", "sparc64"],
     "x86": ["i386", "x86_64"],
+}
+
+
+PREFERRED_SIGNAL_NAMES = {
+    "SIGCHLD",
+    "SIGABRT",
+    "SIGIO",
+    "SIGSYS",
+    # Preferred over SIGINFO on alpha.
+    "SIGPWR",
+    # Preferred over SIGSWI on arm.
+    "SIGRTMIN",
 }
 
 
@@ -37,6 +49,107 @@ def create_mandatory(
     for file in files:
         if not (arch_dir / file).exists():
             shutil.copyfile(generic_dir / file, dest_dir / file)
+
+
+def arch_signal_defines() -> Iterator[Tuple[str, str]]:
+    asm_generic_mandatory_y = parse_mandatory_y(Path("include/asm-generic/Kbuild"))
+    uapi_asm_generic_mandatory_y = parse_mandatory_y(
+        Path("include/uapi/asm-generic/Kbuild")
+    )
+
+    for arch_dir in Path("arch").iterdir():
+        if not arch_dir.is_dir() or arch_dir.name == "um":
+            continue
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+
+            tmp_include = tmp / "include"
+            tmp_include.mkdir()
+
+            arch_include_generated = tmp / "arch_include_generated"
+            arch_include_generated.mkdir()
+
+            create_mandatory(
+                arch_include_generated / "asm",
+                arch_dir / "include/asm",
+                Path("include/asm-generic"),
+                asm_generic_mandatory_y,
+            )
+            create_mandatory(
+                arch_include_generated / "uapi/asm",
+                arch_dir / "include/uapi/asm",
+                Path("include/uapi/asm-generic"),
+                uapi_asm_generic_mandatory_y,
+            )
+
+            # These headers get included at some point. Normally the kernel
+            # build process generates them, but we don't actually need their
+            # contents.
+            generated = tmp_include / "generated"
+            generated.mkdir()
+            for name in ("asm-offsets.h", "autoconf.h"):
+                (generated / name).touch()
+            if arch_dir.name == "arm64":
+                for name in ("cpucap-defs.h", "sysreg-defs.h"):
+                    (arch_include_generated / "asm" / name).touch()
+
+            gcc_args = [
+                "-w",
+                "-nostdinc",
+                f"-I{tmp_include}",
+                f"-I./{arch_dir}/include",
+                f"-I{arch_include_generated}",
+                "-I./include",
+                f"-I./{arch_dir}/include/uapi",
+                f"-I{arch_include_generated}/uapi",
+                "-I./include/uapi",
+                "-D__KERNEL__",
+                "-DIS_ENABLED(x)=0",
+            ]
+            # Defines needed to appease Linux kernel commit 62357a5888ea
+            # ("asm-generic/bitsperlong.h: Add sanity checks for
+            # __BITS_PER_LONG") (in v7.1).
+            if arch_dir.name == "arm64":
+                gcc_args.append("-D__aarch64__")
+            elif arch_dir.name == "mips":
+                gcc_args.append("-D_MIPS_SZLONG=64")
+            elif arch_dir.name == "powerpc":
+                gcc_args.append("-D__powerpc64__")
+            elif arch_dir.name == "sparc":
+                gcc_args.append("-D__sparc__")
+                gcc_args.append("-D__arch64__")
+
+            defines = subprocess.run(
+                ["gcc", *gcc_args, "-dM", "-E", "-"],
+                input="#include <linux/signal_types.h>\n",
+                stdout=subprocess.PIPE,
+                check=True,
+                text=True,
+            ).stdout
+
+            constant_names = set(
+                re.findall(
+                    r"^\s*#\s*define\s+(SIG[A-Z0-9]+|SA_\w+)\b", defines, flags=re.M
+                )
+            )
+            # This is the size of the signal stack, not a signal.
+            constant_names.discard("SIGSTKSZ")
+
+            lines = [
+                f"gen_signals_py_{constant_name} {constant_name}\n"
+                for constant_name in constant_names
+            ]
+            lines.insert(0, "#include <linux/signal_types.h>\n")
+            expanded = subprocess.run(
+                ["gcc", *gcc_args, "-E", "-"],
+                input="".join(lines),
+                stdout=subprocess.PIPE,
+                check=True,
+                text=True,
+            ).stdout
+
+            yield arch_dir.name, expanded
 
 
 def parse_constants(contents: str, prefix: str) -> Dict[str, int]:
@@ -139,144 +252,41 @@ del _{dict_name}_TMP
     )
 
 
-def main() -> None:
-    argparse.ArgumentParser(
-        description="Generate Python dictionaries containing signal numbers and sigaction flags from the kernel source code"
-    ).parse_args()
-
-    asm_generic_mandatory_y = parse_mandatory_y(Path("include/asm-generic/Kbuild"))
-    uapi_asm_generic_mandatory_y = parse_mandatory_y(
-        Path("include/uapi/asm-generic/Kbuild")
-    )
-
+def python_dicts() -> None:
     deduplicated_signals: Dict[Tuple[Tuple[str, int], ...], List[str]] = {}
     deduplicated_flags: Dict[Tuple[Tuple[str, int], ...], List[str]] = {}
-    for arch_dir in Path("arch").iterdir():
-        if not arch_dir.is_dir() or arch_dir.name == "um":
-            continue
+    for srcarch, defines in arch_signal_defines():
+        machine_names = srcarch_to_machine_names(srcarch)
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp = Path(tmp_dir)
+        signals = parse_constants(defines, "SIG")
+        add_synonym(signals, "SIGCHLD", "SIGCLD")
+        add_synonym(signals, "SIGABRT", "SIGIOT")
+        add_synonym(signals, "SIGIO", "SIGPOLL")
+        add_synonym(signals, "SIGSYS", "SIGUNUSED")
+        sorted_signals = sort_constants(signals, PREFERRED_SIGNAL_NAMES)
+        deduplicated_signals.setdefault(sorted_signals, []).extend(machine_names)
 
-            tmp_include = tmp / "include"
-            tmp_include.mkdir()
-
-            arch_include_generated = tmp / "arch_include_generated"
-            arch_include_generated.mkdir()
-
-            create_mandatory(
-                arch_include_generated / "asm",
-                arch_dir / "include/asm",
-                Path("include/asm-generic"),
-                asm_generic_mandatory_y,
-            )
-            create_mandatory(
-                arch_include_generated / "uapi/asm",
-                arch_dir / "include/uapi/asm",
-                Path("include/uapi/asm-generic"),
-                uapi_asm_generic_mandatory_y,
-            )
-
-            # These headers get included at some point. Normally the kernel
-            # build process generates them, but we don't actually need their
-            # contents.
-            generated = tmp_include / "generated"
-            generated.mkdir()
-            for name in ("asm-offsets.h", "autoconf.h"):
-                (generated / name).touch()
-            if arch_dir.name == "arm64":
-                for name in ("cpucap-defs.h", "sysreg-defs.h"):
-                    (arch_include_generated / "asm" / name).touch()
-
-            gcc_args = [
-                "-w",
-                "-nostdinc",
-                f"-I{tmp_include}",
-                f"-I./{arch_dir}/include",
-                f"-I{arch_include_generated}",
-                "-I./include",
-                f"-I./{arch_dir}/include/uapi",
-                f"-I{arch_include_generated}/uapi",
-                "-I./include/uapi",
-                "-D__KERNEL__",
-                "-DIS_ENABLED(x)=0",
-            ]
-            # Defines needed to appease Linux kernel commit 62357a5888ea
-            # ("asm-generic/bitsperlong.h: Add sanity checks for
-            # __BITS_PER_LONG") (in v7.1).
-            if arch_dir.name == "arm64":
-                gcc_args.append("-D__aarch64__")
-            elif arch_dir.name == "mips":
-                gcc_args.append("-D_MIPS_SZLONG=64")
-            elif arch_dir.name == "powerpc":
-                gcc_args.append("-D__powerpc64__")
-            elif arch_dir.name == "sparc":
-                gcc_args.append("-D__sparc__")
-                gcc_args.append("-D__arch64__")
-
-            defines = subprocess.run(
-                ["gcc", *gcc_args, "-dM", "-E", "-"],
-                input="#include <linux/signal_types.h>\n",
-                stdout=subprocess.PIPE,
-                check=True,
-                text=True,
-            ).stdout
-
-            constant_names = set(
-                re.findall(
-                    r"^\s*#\s*define\s+(SIG[A-Z0-9]+|SA_\w+)\b", defines, flags=re.M
-                )
-            )
-            # This is the size of the signal stack, not a signal.
-            constant_names.discard("SIGSTKSZ")
-
-            lines = [
-                f"gen_signals_py_{constant_name} {constant_name}\n"
-                for constant_name in constant_names
-            ]
-            lines.insert(0, "#include <linux/signal_types.h>\n")
-            expanded = subprocess.run(
-                ["gcc", *gcc_args, "-E", "-"],
-                input="".join(lines),
-                stdout=subprocess.PIPE,
-                check=True,
-                text=True,
-            ).stdout
-
-            machine_names = srcarch_to_machine_names(arch_dir.name)
-
-            signals = parse_constants(expanded, "SIG")
-            add_synonym(signals, "SIGCHLD", "SIGCLD")
-            add_synonym(signals, "SIGABRT", "SIGIOT")
-            add_synonym(signals, "SIGIO", "SIGPOLL")
-            add_synonym(signals, "SIGSYS", "SIGUNUSED")
-            sorted_signals = sort_constants(
-                signals,
-                {
-                    "SIGCHLD",
-                    "SIGABRT",
-                    "SIGIO",
-                    "SIGSYS",
-                    # Preferred over SIGINFO on alpha.
-                    "SIGPWR",
-                    # Preferred over SIGSWI on arm.
-                    "SIGRTMIN",
-                },
-            )
-            deduplicated_signals.setdefault(sorted_signals, []).extend(machine_names)
-
-            flags = parse_constants(expanded, "SA_")
-            add_synonym(flags, "SA_NODEFER", "SA_NOMASK")
-            add_synonym(flags, "SA_RESETHAND", "SA_ONESHOT")
-            add_synonym(flags, "SA_ONSTACK", "SA_STACK")
-            sorted_flags = sort_constants(
-                flags, {"SA_NODEFER", "SA_RESETHAND", "SA_ONSTACK"}
-            )
-            deduplicated_flags.setdefault(sorted_flags, []).extend(machine_names)
+        flags = parse_constants(defines, "SA_")
+        add_synonym(flags, "SA_NODEFER", "SA_NOMASK")
+        add_synonym(flags, "SA_RESETHAND", "SA_ONESHOT")
+        add_synonym(flags, "SA_ONSTACK", "SA_STACK")
+        sorted_flags = sort_constants(
+            flags, {"SA_NODEFER", "SA_RESETHAND", "SA_ONSTACK"}
+        )
+        deduplicated_flags.setdefault(sorted_flags, []).extend(machine_names)
 
     print_deduplicated(deduplicated_signals, "SIGNALS_BY_MACHINE_NAME", "")
     print()
     print_deduplicated(deduplicated_flags, "SIGACTION_FLAGS_BY_MACHINE_NAME", "#x")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate Python dictionaries containing signal numbers and sigaction flags from the kernel source code"
+    )
+    parser.parse_args()
+
+    python_dicts()
 
 
 if __name__ == "__main__":
