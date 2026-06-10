@@ -29,7 +29,7 @@ jobs:
         run: python3 -m vmtest.manage --kernel-directory build/vmtest/linux.git --build-directory build/vmtest/kbuild -K -a ${{ matrix.arch }} -f ${{ matrix.flavor }}
       - name: Upload kernel build logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kernel-build-logs-${{ matrix.arch }}-${{ matrix.flavor }}
           path: build/vmtest/kbuild/*.log
