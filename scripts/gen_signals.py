@@ -213,43 +213,33 @@ def print_deduplicated(
     dict_name: str,
     value_format: str,
 ) -> None:
-    sys.stdout.write(f"_{dict_name}_TMP = {{}}\n")
+    sys.stdout.write(f"{dict_name} = types.MappingProxyType({{\n")
     for items, machine_names in sorted(
         deduplicated.items(), key=lambda item: min(item[1])
     ):
         if len(machine_names) == 1:
-            sys.stdout.write(f'_{dict_name}_TMP["{machine_names[0]}"] = ')
-            indent = ""
+            indent = "    "
+            sys.stdout.write(f'    "{machine_names[0]}": ')
         else:
+            indent = "        "
             quoted_machine_names = [
                 f'"{machine_name}"' for machine_name in machine_names
             ]
             quoted_machine_names.sort()
             sys.stdout.write(
-                f"""\
-for _name in ({", ".join(quoted_machine_names)}):
-    _{dict_name}_TMP[_name] = """
+                f"    **dict.fromkeys(\n"
+                f"        ({', '.join(quoted_machine_names)}),\n"
+                f"        "
             )
-            indent = "    "
-        sys.stdout.write(
-            f"""types.MappingProxyType(
-{indent}    {{
-"""
-        )
+        sys.stdout.write(f"types.MappingProxyType(\n{indent}    {{\n")
         for name, value in items:
             sys.stdout.write(f'{indent}        "{name}": {value:{value_format}},\n')
-        sys.stdout.write(
-            f"""\
-{indent}    }}
-{indent})
-"""
-        )
-    sys.stdout.write(
-        f"""\
-{dict_name} = types.MappingProxyType(_{dict_name}_TMP)
-del _{dict_name}_TMP
-"""
-    )
+        sys.stdout.write(f"{indent}    }}\n{indent})")
+        if len(machine_names) == 1:
+            sys.stdout.write(",\n")
+        else:
+            sys.stdout.write(",\n    ),\n")
+    sys.stdout.write("})\n")
 
 
 def python_dicts() -> None:
