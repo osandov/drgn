@@ -44,6 +44,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    $(STRSWITCH_INCS) \
 			    accessors.c \
 			    arch_i386.c \
+			    arch_loongarch64.c \
 			    arch_riscv.c \
 			    array.h \
 			    binary_buffer.c \

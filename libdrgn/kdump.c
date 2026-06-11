@@ -46,6 +46,7 @@ static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 	else if (strcmp(str, KDUMP_ARCH_RISCV32) == 0)
 		arch = &arch_info_riscv32;
 #endif
+	// libkdumpfile doesn't support LoongArch as of version 0.5.6.
 	else
 		arch = &arch_info_unknown;
 
@@ -95,6 +96,7 @@ static struct drgn_error *drgn_platform_to_kdump(kdump_ctx_t *ctx,
 	else if (platform->arch == &arch_info_riscv32)
 		arch_str = KDUMP_ARCH_RISCV32;
 #endif
+	// libkdumpfile doesn't support LoongArch as of version 0.5.6.
 
 	if (arch_str) {
 		ks = kdump_set_string_attr(ctx, KDUMP_ATTR_ARCH_NAME, arch_str);

@@ -44,6 +44,10 @@ of this support is:
       - ✓
       -
       -
+    * - LoongArch64
+      -
+      -
+      -
 
 .. rubric:: Key
 
