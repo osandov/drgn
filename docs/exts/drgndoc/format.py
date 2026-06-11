@@ -220,6 +220,33 @@ class _FormatVisitor(NodeVisitor):
             self._parts.append("\\")
         self._parts.append("]")
 
+    def visit_Call(
+        self, node: ast.Call, parent: Optional[ast.AST], sibling: Optional[ast.AST]
+    ) -> None:
+        self._visit(node.func, node, None)
+        self._parts.append("(")
+        need_comma = False
+        for arg in node.args:
+            if need_comma:
+                self._parts.append(", ")
+            if isinstance(arg, ast.Starred):
+                self._parts.append("*")
+                self._visit(arg.value, arg, None)
+            else:
+                self._visit(arg, node, None)
+            need_comma = True
+        for keyword in node.keywords:
+            if need_comma:
+                self._parts.append(", ")
+            if keyword.arg is not None:
+                self._parts.append(keyword.arg)
+                self._parts.append("=")
+            else:
+                self._parts.append("**")
+            self._visit(keyword.value, keyword, None)
+            need_comma = True
+        self._parts.append(")")
+
     def visit_UnaryOp(
         self, node: ast.UnaryOp, parent: Optional[ast.AST], sibling: Optional[ast.AST]
     ) -> None:
