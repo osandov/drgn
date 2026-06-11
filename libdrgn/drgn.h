@@ -424,6 +424,7 @@ enum drgn_architecture {
 	DRGN_ARCH_RISCV32,
 	DRGN_ARCH_S390X,
 	DRGN_ARCH_S390,
+	DRGN_ARCH_LOONGARCH64,
 };
 
 /** Flags describing a @ref drgn_platform. */

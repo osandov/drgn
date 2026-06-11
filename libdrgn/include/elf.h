@@ -181,5 +181,8 @@
 #ifndef NT_ARM_PAC_MASK
 #define NT_ARM_PAC_MASK 0x406
 #endif
+#ifndef EM_LOONGARCH
+#define EM_LOONGARCH 258
+#endif
 
 #endif /* DRGN_ELF_H */

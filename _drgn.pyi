@@ -2350,6 +2350,9 @@ class Architecture(enum.Enum):
     S390 = ...
     """The 32-bit s390 architecture, a.k.a. System/390."""
 
+    LOONGARCH64 = ...
+    """The 64-bit LoongArch architecture."""
+
     UNKNOWN = ...
     """
     An architecture which is not known to drgn. Certain features are not

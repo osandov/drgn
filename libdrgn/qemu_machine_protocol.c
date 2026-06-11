@@ -262,6 +262,8 @@ static struct drgn_error *qmp_detect_platform(struct drgn_qmp_conn *conn,
 		arch_info = &arch_info_riscv32;
 	else if (strcmp(arch, "s390x") == 0)
 		arch_info = &arch_info_s390x;
+	else if (strcmp(arch, "loongarch64") == 0)
+		arch_info = &arch_info_loongarch64;
 	else
 		arch_info = &arch_info_unknown;
 

@@ -72,6 +72,8 @@ MACROS = (
     "R_RISCV_32_PCREL",
     # Added in glibc 2.30.
     "NT_ARM_PAC_MASK",
+    # Added in glibc 2.36.
+    "EM_LOONGARCH",
 )
 
 

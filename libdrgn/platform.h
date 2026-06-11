@@ -513,6 +513,7 @@ extern const struct drgn_architecture_info arch_info_riscv64;
 extern const struct drgn_architecture_info arch_info_riscv32;
 extern const struct drgn_architecture_info arch_info_s390x;
 extern const struct drgn_architecture_info arch_info_s390;
+extern const struct drgn_architecture_info arch_info_loongarch64;
 
 struct drgn_platform {
 	const struct drgn_architecture_info *arch;
