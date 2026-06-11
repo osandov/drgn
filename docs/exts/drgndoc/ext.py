@@ -240,7 +240,7 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
             py_classes.append(resolved.name)
             self.env.ref_context["py:class"] = resolved.name
             for member in resolved.attrs():
-                if member.name != "__init__":
+                if member.name != "__init__" and member.name != "__new__":
                     self._run(
                         top_name,
                         dot_join(attr_name, member.name),

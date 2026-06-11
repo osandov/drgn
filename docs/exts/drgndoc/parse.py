@@ -84,8 +84,13 @@ class Class:
     def has_docstring(self) -> bool:
         if self.docstring is not None:
             return True
-        init = self.attrs.get("__init__")
-        return isinstance(init, Function) and init.has_docstring()
+
+        for init_attr in ("__init__", "__new__"):
+            init = self.attrs.get(init_attr)
+            if isinstance(init, Function) and init.has_docstring():
+                return True
+
+        return False
 
 
 @dataclasses.dataclass

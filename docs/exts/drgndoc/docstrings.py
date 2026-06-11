@@ -101,7 +101,9 @@ if __name__ == "__main__":
                     output_file.write(' ""')
             output_file.write(";\n")
         for attr in resolved.attrs():
-            if isinstance(node, Class) and attr.name == "__init__":
+            if isinstance(node, Class) and (
+                attr.name == "__init__" or attr.name == "__new__"
+            ):
                 continue
             aux(attr, dot_join(name, attr.name))
 
