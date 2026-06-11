@@ -140,6 +140,7 @@ def create_elf_file(
     ] = None,
     little_endian: bool = True,
     bits: int = 64,
+    e_machine: Optional[int] = None,
 ):
     endian = "<" if little_endian else ">"
     if bits == 64:
@@ -147,14 +148,16 @@ def create_elf_file(
         shdr_struct = struct.Struct(endian + "IIQQQQIIQQ")
         phdr_struct = struct.Struct(endian + "IIQQQQQQ")
         chdr_struct = struct.Struct(endian + "IIQQ")
-        e_machine = 62 if little_endian else 43  # EM_X86_64 or EM_SPARCV9
+        if e_machine is None:
+            e_machine = 62 if little_endian else 43  # EM_X86_64 or EM_SPARCV9
     else:
         assert bits == 32
         ehdr_struct = struct.Struct(endian + "16BHHIIIIIHHHHHH")
         shdr_struct = struct.Struct(endian + "10I")
         phdr_struct = struct.Struct(endian + "8I")
         chdr_struct = struct.Struct(endian + "III")
-        e_machine = 3 if little_endian else 8  # EM_386 or EM_MIPS
+        if e_machine is None:
+            e_machine = 3 if little_endian else 8  # EM_386 or EM_MIPS
     nhdr_struct = struct.Struct(endian + "3I")
 
     sections = list(sections)

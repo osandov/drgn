@@ -1093,6 +1093,20 @@ class TestCoreDump(TestCase):
                 f.name,
             )
 
+    def test_loongarch64(self):
+        prog = Program()
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(create_elf_file(ET.CORE, [], e_machine=258))  # EM_LOONGARCH
+            f.flush()
+            prog.set_core_dump(f.name)
+        self.assertEqual(
+            prog.platform,
+            Platform(
+                Architecture.LOONGARCH64,
+                PlatformFlags.IS_64_BIT | PlatformFlags.IS_LITTLE_ENDIAN,
+            ),
+        )
+
     def test_simple(self):
         data = b"hello, world"
         prog = Program()
