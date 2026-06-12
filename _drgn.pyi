@@ -4101,15 +4101,10 @@ def offsetof(type: Union[Type, str], member: str) -> int:
     ...
 
 class FaultError(Exception):
-    """
-    This error is raised when a bad memory access is attempted (i.e., when
-    accessing a memory address which is not valid in a program).
-    """
-
     def __init__(self, message: str, address: int) -> None:
         """
-        :param message: :attr:`FaultError.message`
-        :param address: :attr:`FaultError.address`
+        Error raised when a bad memory access is attempted (i.e., when
+        accessing a memory address which is not valid in a program).
         """
         ...
     message: str
