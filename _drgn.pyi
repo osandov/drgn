@@ -4114,21 +4114,20 @@ class FaultError(Exception):
 
 class MissingDebugInfoError(Exception):
     """
-    This error is raised when one or more files in a program do not have debug
+    Error raised when one or more files in a program do not have debug
     information.
     """
 
     ...
 
 class ObjectAbsentError(Exception):
-    """This error is raised when attempting to use an absent object."""
+    """Error raised when attempting to use an absent object."""
 
     ...
 
 class OutOfBoundsError(Exception):
     """
-    This error is raised when attempting to access beyond the bounds of a value
-    object.
+    Error raised when attempting to access beyond the bounds of a value object.
     """
 
     ...
