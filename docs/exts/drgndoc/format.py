@@ -624,6 +624,20 @@ class Formatter:
                         qualify_typeshed=False,
                     )
                 )
+            if (
+                node.value
+                and isinstance(node.annotation, ast.Name)
+                and node.annotation.id == "TypeAlias"
+            ):
+                lines.append(
+                    "    :value: "
+                    + visitor.visit(
+                        node.value,
+                        rst=False,
+                        qualify_typing=False,
+                        qualify_typeshed=False,
+                    )
+                )
             if docstring_lines:
                 lines.append("")
             for line in docstring_lines:
