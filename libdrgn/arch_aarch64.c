@@ -430,7 +430,7 @@ linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 {
 	const uint64_t page_shift = prog->vmcoreinfo.page_shift;
 	if (page_shift != 12 && page_shift != 14 && page_shift != 16) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "unknown page size for virtual address translation");
 	}
 	const uint64_t pgtable_shift = page_shift - 3;
@@ -472,7 +472,7 @@ linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 	else
 		va_bits = 64 - prog->vmcoreinfo.tcr_el1_t1sz;
 	if (va_bits <= page_shift || va_bits > 52) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "VMCOREINFO does not contain valid TCR_EL1_T1SZ or VA_BITS");
 	}
 

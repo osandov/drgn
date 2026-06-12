@@ -214,7 +214,7 @@ drgn_register_names(const struct drgn_register *reg, size_t *num_names_ret)
 }
 
 struct drgn_error drgn_invalid_relocation_offset = {
-	.code = DRGN_ERROR_OTHER,
+	.code = DRGN_ERROR_BAD_DATA,
 	.message = "invalid relocation offset",
 };
 

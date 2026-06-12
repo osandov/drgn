@@ -30,6 +30,7 @@ static int add_bool(PyObject *module, const char *name, bool value)
 	return PyModule_AddObjectRef(module, name, value ? Py_True : Py_False);
 }
 
+PyObject *BadDataError;
 PyObject *MissingDebugInfoError;
 static PyObject *NoDefaultProgramError;
 PyObject *ObjectAbsentError;
@@ -387,6 +388,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &TypeMember_type) ||
 	    add_type(m, &TypeParameter_type) ||
 	    add_type(m, &TypeTemplateParameter_type) ||
+	    add_new_exception(m, BadDataError, NULL) ||
 	    add_new_exception(m, MissingDebugInfoError, NULL) ||
 	    add_new_exception(m, NoDefaultProgramError, NULL) ||
 	    add_new_exception(m, ObjectAbsentError, NULL) ||

@@ -344,7 +344,7 @@ linux_kernel_pgtable_iterator_create_ppc64(struct drgn_program * prog,
 	else if (page_shift == 12)
 		it->pt_levels = pt_levels_radix_4k;
 	else
-		return drgn_error_create(DRGN_ERROR_OTHER, "unknown page size");
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "unknown page size");
 
 	DRGN_OBJECT(tmp, prog);
 

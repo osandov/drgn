@@ -603,7 +603,7 @@ not_found:;
 		drgn_module_find_dwarf_file(regs->module,
 					    dwarf_cu_getdwarf(die.cu));
 	if (!file) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "couldn't find file containing DIE");
 	}
 	// It doesn't make sense to use the registers if the file has a

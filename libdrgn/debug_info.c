@@ -4487,7 +4487,7 @@ process_add_mapping(struct process_loaded_module_iterator *it,
 		   &segment.start, &segment.end, &map_name_len,
 		   &segment_file_offset, &dev_major, &dev_minor, &ino,
 		   &path_index) != 6) {
-		return drgn_error_format(DRGN_ERROR_OTHER, "couldn't parse %s",
+		return drgn_error_format(DRGN_ERROR_BAD_DATA, "couldn't parse %s",
 					 maps_path);
 	}
 	// Skip anonymous mappings.
@@ -4774,7 +4774,7 @@ static struct drgn_error *parse_nt_file_error(struct binary_buffer *bb,
 					      const char *pos,
 					      const char *message)
 {
-	return drgn_error_create(DRGN_ERROR_OTHER, "couldn't parse NT_FILE");
+	return drgn_error_create(DRGN_ERROR_BAD_DATA, "couldn't parse NT_FILE");
 }
 
 static struct drgn_error *

@@ -97,7 +97,7 @@ drgn_orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 		rule.offset = 0;
 		break;
 	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
+		return drgn_error_format(DRGN_ERROR_BAD_DATA,
 					 "unknown ORC SP base register %d",
 					 drgn_orc_sp_reg(orc));
 	}
@@ -175,7 +175,7 @@ drgn_orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 #undef SET_SAME_VALUE_RULE
 		break;
 	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
+		return drgn_error_format(DRGN_ERROR_BAD_DATA,
 					 "unknown ORC entry type %d",
 					 drgn_orc_type(orc));
 	}
@@ -198,7 +198,7 @@ drgn_orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 			rule.offset = orc->bp_offset;
 			break;
 		default:
-			return drgn_error_format(DRGN_ERROR_OTHER,
+			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "unknown ORC BP base register %d",
 						 drgn_orc_bp_reg(orc));
 		}
@@ -496,7 +496,7 @@ linux_kernel_get_initial_registers_x86_64(const struct drgn_object *task_obj,
 		err = get_registers_from_frame_pointer(prog, frame_pointer,
 						       ret);
 		if (err == &drgn_stop) {
-			err = drgn_error_create(DRGN_ERROR_OTHER,
+			err = drgn_error_create(DRGN_ERROR_BAD_DATA,
 						"invalid frame pointer");
 		}
 	}

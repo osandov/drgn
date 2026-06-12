@@ -105,7 +105,7 @@ drgn_reloc_add8(const struct drgn_relocating_section *relocating,
 
 /** Create an error for an unknown ELF relocation type. */
 #define DRGN_UNKNOWN_RELOCATION_TYPE(r_type)				\
-	drgn_error_format(DRGN_ERROR_OTHER,				\
+	drgn_error_format(DRGN_ERROR_BAD_DATA,				\
 			  "unknown relocation type %" PRIu32 " in %s; "	\
 			  "please report this to %s",			\
 			  (r_type), __func__, PACKAGE_BUGREPORT)

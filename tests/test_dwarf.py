@@ -12,6 +12,7 @@ from _drgn_util.elf import PT, SHF, SHT, STB, STT
 import drgn
 from drgn import (
     AbsenceReason,
+    BadDataError,
     FaultError,
     FindObjectFlags,
     Language,
@@ -274,7 +275,7 @@ def with_and_without_dw_form_indirect(f):
 
 class TestInvalidDwarf(TestCase):
     def test_name_out_of_bounds(self):
-        with self.assertRaisesRegex(Exception, "name is out of bounds"):
+        with self.assertRaisesRegex(BadDataError, "name is out of bounds"):
             "foo" in dwarf_program(
                 DwarfDie(
                     DW_TAG.base_type,
@@ -286,7 +287,7 @@ class TestInvalidDwarf(TestCase):
             )
 
     def test_sibling_out_of_bounds(self):
-        with self.assertRaisesRegex(Exception, "DW_AT_sibling is out of bounds"):
+        with self.assertRaisesRegex(BadDataError, "DW_AT_sibling is out of bounds"):
             "foo" in dwarf_program(
                 DwarfDie(
                     DW_TAG.base_type,
@@ -298,7 +299,7 @@ class TestInvalidDwarf(TestCase):
             )
 
     def test_sibling_points_backwards(self):
-        with self.assertRaisesRegex(Exception, "DW_AT_sibling points backwards"):
+        with self.assertRaisesRegex(BadDataError, "DW_AT_sibling points backwards"):
             "foo" in dwarf_program(
                 DwarfDie(
                     DW_TAG.base_type,
@@ -314,7 +315,7 @@ class TestTypes(TestCase):
     def test_unknown_tag(self):
         prog = dwarf_program(wrap_test_type_dies(DwarfDie(0x9999, ())))
         self.assertRaisesRegex(
-            Exception, "unknown DWARF type tag 0x9999", prog.type, "TEST"
+            BadDataError, "unknown DWARF type tag 0x9999", prog.type, "TEST"
         )
 
     def test_base_type_missing_byte_size(self):
@@ -330,7 +331,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_base_type has missing or invalid DW_AT_byte_size",
             prog.type,
             "TEST",
@@ -349,7 +350,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_base_type has missing or invalid DW_AT_encoding",
             prog.type,
             "TEST",
@@ -368,7 +369,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_base_type has missing or invalid DW_AT_name",
             prog.type,
             "TEST",
@@ -387,7 +388,9 @@ class TestTypes(TestCase):
                 )
             )
         )
-        self.assertRaisesRegex(Exception, "unknown DWARF encoding", prog.type, "TEST")
+        self.assertRaisesRegex(
+            BadDataError, "unknown DWARF encoding", prog.type, "TEST"
+        )
 
     def test_reference_forms(self):
         for form in (
@@ -768,7 +771,9 @@ class TestTypes(TestCase):
                 )
             )
         )
-        with self.assertRaisesRegex(Exception, "DW_TAG_member is missing DW_AT_type"):
+        with self.assertRaisesRegex(
+            BadDataError, "DW_TAG_member is missing DW_AT_type"
+        ):
             prog.type("TEST").type.members[0].type
 
     def test_struct_member_invalid_type(self):
@@ -791,7 +796,9 @@ class TestTypes(TestCase):
                 )
             )
         )
-        with self.assertRaisesRegex(Exception, "DW_TAG_member has invalid DW_AT_type"):
+        with self.assertRaisesRegex(
+            BadDataError, "DW_TAG_member has invalid DW_AT_type"
+        ):
             prog.type("TEST").type.members[0].type
 
     def test_struct_member_invalid_location(self):
@@ -818,7 +825,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_member has invalid DW_AT_data_member_location",
             prog.type,
             "TEST",
@@ -827,7 +834,7 @@ class TestTypes(TestCase):
     def test_struct_missing_size(self):
         prog = dwarf_program(wrap_test_type_dies(DwarfDie(DW_TAG.structure_type, ())))
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_structure_type has missing or invalid DW_AT_byte_size",
             prog.type,
             "TEST",
@@ -1842,7 +1849,7 @@ class TestTypes(TestCase):
 
     def test_template_value_parameter_missing_value(self):
         with self.assertRaisesRegex(
-            Exception, "DW_AT_template_value_parameter is missing value"
+            BadDataError, "DW_AT_template_value_parameter is missing value"
         ):
             dwarf_program(
                 wrap_test_type_dies(
@@ -1973,7 +1980,9 @@ class TestTypes(TestCase):
                 ),
             )
         )
-        self.assertRaisesRegex(Exception, "maximum.*depth exceeded", prog.type, "TEST")
+        self.assertRaisesRegex(
+            RecursionError, "maximum.*depth exceeded", prog.type, "TEST"
+        )
 
     def test_enum(self):
         prog = dwarf_program(
@@ -2277,7 +2286,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_AT_type of DW_TAG_enumeration_type is not an integer type",
             prog.type,
             "TEST",
@@ -2286,7 +2295,7 @@ class TestTypes(TestCase):
     def test_enum_missing_compatible_type_and_byte_size(self):
         prog = dwarf_program(wrap_test_type_dies(DwarfDie(DW_TAG.enumeration_type, ())))
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_enumeration_type has missing or invalid DW_AT_byte_size",
             prog.type,
             "TEST",
@@ -2312,7 +2321,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_enumerator has missing or invalid DW_AT_name",
             prog.type,
             "TEST",
@@ -2338,7 +2347,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_enumerator is missing DW_AT_const_value",
             prog.type,
             "TEST",
@@ -2367,7 +2376,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_enumerator has invalid DW_AT_const_value",
             prog.type,
             "TEST",
@@ -2553,7 +2562,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "DW_TAG_typedef has missing or invalid DW_AT_name",
             prog.type,
             "TEST",
@@ -2722,7 +2731,7 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(
-            Exception, "DW_TAG_array_type is missing DW_AT_type", prog.type, "TEST"
+            BadDataError, "DW_TAG_array_type is missing DW_AT_type", prog.type, "TEST"
         )
 
     def test_array_zero_length_count(self):
@@ -5644,7 +5653,7 @@ class TestObjects(TestCase):
         self.assertEqual(self._eval_dwarf_expr(ops, **kwds), expected)
 
     def _assert_dwarf_expr_stack_underflow(self, ops, **kwds):
-        with self.assertRaisesRegex(Exception, "stack underflow"):
+        with self.assertRaisesRegex(BadDataError, "stack underflow"):
             self._eval_dwarf_expr(ops, **kwds)
 
     def test_variable_expr_op_lit(self):
@@ -5710,13 +5719,13 @@ class TestObjects(TestCase):
 
     def test_variable_expr_op_constu_overflow(self):
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [assembler.U8(DW_OP.constu), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x02"],
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [
@@ -5725,7 +5734,7 @@ class TestObjects(TestCase):
             ],
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [
@@ -5734,7 +5743,7 @@ class TestObjects(TestCase):
             ],
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [
@@ -5826,13 +5835,13 @@ class TestObjects(TestCase):
 
     def test_variable_expr_op_consts_overflow(self):
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [assembler.U8(DW_OP.consts), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"],
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [
@@ -5841,7 +5850,7 @@ class TestObjects(TestCase):
             ],
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [
@@ -5850,7 +5859,7 @@ class TestObjects(TestCase):
             ],
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [
@@ -5859,7 +5868,7 @@ class TestObjects(TestCase):
             ],
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [
@@ -5868,7 +5877,7 @@ class TestObjects(TestCase):
             ],
         )
         self.assertRaisesRegex(
-            Exception,
+            BadDataError,
             "overflow",
             self._eval_dwarf_expr,
             [
@@ -6145,7 +6154,7 @@ class TestObjects(TestCase):
                 )
 
     def test_variable_expr_op_div_by_zero(self):
-        with self.assertRaisesRegex(Exception, "division by zero"):
+        with self.assertRaisesRegex(BadDataError, "division by zero"):
             self._eval_dwarf_expr(
                 [
                     assembler.U8(DW_OP.lit1),
@@ -6210,7 +6219,7 @@ class TestObjects(TestCase):
                 )
 
     def test_variable_expr_op_mod_by_zero(self):
-        with self.assertRaisesRegex(Exception, "modulo by zero"):
+        with self.assertRaisesRegex(BadDataError, "modulo by zero"):
             self._eval_dwarf_expr(
                 [
                     assembler.U8(DW_OP.lit1),
@@ -6535,11 +6544,11 @@ class TestObjects(TestCase):
         )
 
     def test_variable_expr_op_skip_infinite(self):
-        with self.assertRaisesRegex(Exception, "too many operations"):
+        with self.assertRaisesRegex(BadDataError, "too many operations"):
             self._eval_dwarf_expr([assembler.U8(DW_OP.skip), assembler.S16(-3)])
 
     def test_variable_expr_op_skip_out_of_bounds(self):
-        with self.assertRaisesRegex(Exception, "out of bounds"):
+        with self.assertRaisesRegex(BadDataError, "out of bounds"):
             self._eval_dwarf_expr(
                 [
                     assembler.U8(DW_OP.skip),
@@ -6601,7 +6610,7 @@ class TestObjects(TestCase):
         )
 
     def test_variable_expr_op_bra_out_of_bounds(self):
-        with self.assertRaisesRegex(Exception, "out of bounds"):
+        with self.assertRaisesRegex(BadDataError, "out of bounds"):
             self._eval_dwarf_expr(
                 [
                     assembler.U8(DW_OP.lit1),
@@ -6747,7 +6756,7 @@ class TestObjects(TestCase):
                 ),
             )
         )
-        self.assertRaisesRegex(Exception, "too small", prog.variable, "p")
+        self.assertRaisesRegex(BadDataError, "too small", prog.variable, "p")
 
     @with_and_without_dw_form_indirect
     def test_specification(self, use_dw_form_indirect):
@@ -8619,7 +8628,7 @@ class TestImportedUnit(TestCase):
 
     def test_missing_import(self):
         with self.assertRaisesRegex(
-            Exception, "DW_TAG_imported_unit is missing DW_AT_import"
+            BadDataError, "DW_TAG_imported_unit is missing DW_AT_import"
         ):
             "foo" in dwarf_program(
                 (
@@ -8635,7 +8644,7 @@ class TestImportedUnit(TestCase):
             )
 
     def test_out_of_bounds(self):
-        with self.assertRaisesRegex(Exception, "reference is out of bounds"):
+        with self.assertRaisesRegex(BadDataError, "reference is out of bounds"):
             "foo" in dwarf_program(
                 (
                     DwarfUnit(
@@ -8669,7 +8678,7 @@ class TestImportedUnit(TestCase):
             alt_f.write(alt_dwarf.data)
             alt_f.flush()
 
-            with self.assertRaisesRegex(Exception, "reference is out of bounds"):
+            with self.assertRaisesRegex(BadDataError, "reference is out of bounds"):
                 "foo" in dwarf_program(
                     (
                         DwarfUnit(
@@ -8697,7 +8706,7 @@ class TestImportedUnit(TestCase):
 
     def test_cycle(self):
         with self.assertRaisesRegex(
-            Exception, "maximum DWARF imported unit depth exceeded"
+            BadDataError, "maximum DWARF imported unit depth exceeded"
         ):
             "foo" in dwarf_program(
                 (
@@ -8755,7 +8764,7 @@ class TestImportedUnit(TestCase):
             alt_f.flush()
 
             with self.assertRaisesRegex(
-                Exception, "maximum DWARF imported unit depth exceeded"
+                BadDataError, "maximum DWARF imported unit depth exceeded"
             ):
                 "foo" in dwarf_program(
                     (

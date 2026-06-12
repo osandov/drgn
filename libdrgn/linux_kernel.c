@@ -93,7 +93,7 @@ struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 		*ret = strtoul(line, &end, 16);
 		if (errno || *end) {
 invalid:
-			err = drgn_error_create(DRGN_ERROR_OTHER,
+			err = drgn_error_create(DRGN_ERROR_BAD_DATA,
 						"could not parse /proc/kallsyms");
 			break;
 		}
@@ -137,7 +137,7 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_program *prog)
 	}
 	if (fscanf(file, "%" SCNx64 "%zx", &address, &size) != 2) {
 		fclose(file);
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "could not parse /sys/kernel/vmcoreinfo");
 	}
 	fclose(file);
@@ -159,7 +159,7 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_program *prog)
 	if (size < 24 || nhdr->n_namesz != 11 ||
 	    memcmp(buf + sizeof(*nhdr), "VMCOREINFO", 10) != 0 ||
 	    nhdr->n_descsz > size - 24) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
+		err = drgn_error_create(DRGN_ERROR_BAD_DATA,
 					"VMCOREINFO is invalid");
 		return err;
 	}
@@ -556,7 +556,7 @@ linux_kernel_get_sections_per_root_impl(struct drgn_program *prog, uint64_t *ret
 	if (err)
 		return err;
 	if (!is_power_of_two(sizeof_mem_section)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "struct mem_section has invalid size");
 	}
 	*ret = prog->cached_sections_per_root =
@@ -776,7 +776,7 @@ static struct drgn_error *depmod_index_buffer_error(struct binary_buffer *bb,
 {
 	struct depmod_index_buffer *buffer =
 		container_of(bb, struct depmod_index_buffer, bb);
-	return drgn_error_format(DRGN_ERROR_OTHER, "%s: %#tx: %s",
+	return drgn_error_format(DRGN_ERROR_BAD_DATA, "%s: %#tx: %s",
 				 buffer->depmod->path,
 				 pos - (const char *)buffer->depmod->addr,
 				 message);
@@ -2083,7 +2083,7 @@ kernel_module_set_section_addresses_live(struct drgn_module *module)
 			return drgn_error_create_os("fdopen", errno, NULL);
 		uint64_t address;
 		if (fscanf(file, "%" SCNx64, &address) != 1) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
+			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "could not parse %s/%s",
 						 path, ent->d_name);
 		}
@@ -2300,7 +2300,7 @@ kernel_module_find_or_create_internal(const struct drgn_object *module_ptr,
 	if (name_offset >= drgn_object_size(module_obj)
 	    || !memchr(drgn_object_buffer(module_obj) + name_offset, '\0',
 		       drgn_object_size(module_obj) - name_offset)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "couldn't read module name");
 	}
 	const char *name = drgn_object_buffer(module_obj) + name_offset;

@@ -230,7 +230,7 @@ static const char *dwarf_tag_str(Dwarf_Die *die, char buf[DW_TAG_STR_BUF_LEN])
 static inline struct drgn_error *drgn_check_address_size(uint8_t address_size)
 {
 	if (address_size < 1 || address_size > 8) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
+		return drgn_error_format(DRGN_ERROR_BAD_DATA,
 					 "unsupported address size %" PRIu8,
 					 address_size);
 	}
@@ -3105,7 +3105,7 @@ struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
 				return drgn_error_libdw();
 			if (sibling.cu != TOP()->cu ||
 			    (char *)sibling.addr <= (char *)TOP()->addr)
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							"invalid DW_AT_sibling");
 
 			if ((char *)sibling.addr > (char *)die->addr) {
@@ -3184,7 +3184,7 @@ struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
 #undef TOP
 
 not_found:
-	return drgn_error_create(DRGN_ERROR_OTHER,
+	return drgn_error_create(DRGN_ERROR_BAD_DATA,
 				 "could not find DWARF DIE ancestors");
 }
 
@@ -3212,7 +3212,7 @@ static struct drgn_error *drgn_dwarf_next_addrx(struct binary_buffer *bb,
 						  &attr_mem)) &&
 		    !(attr = dwarf_attr_integrate(cu_die, DW_AT_GNU_addr_base,
 						  &attr_mem))) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "indirect address without DW_AT_addr_base");
 		}
 		Dwarf_Word base;
@@ -3220,7 +3220,7 @@ static struct drgn_error *drgn_dwarf_next_addrx(struct binary_buffer *bb,
 			return drgn_error_libdw();
 
 		if (!file->scns[DRGN_SCN_DEBUG_ADDR]) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "indirect address without .debug_addr section");
 		}
 		Elf_Data *data;
@@ -3229,7 +3229,7 @@ static struct drgn_error *drgn_dwarf_next_addrx(struct binary_buffer *bb,
 			return err;
 
 		if (base > data->d_size) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_AT_addr_base is out of bounds");
 		}
 
@@ -3240,12 +3240,12 @@ static struct drgn_error *drgn_dwarf_next_addrx(struct binary_buffer *bb,
 		// doesn't contain any headers or segment selectors.
 		if (attr->code != DW_AT_GNU_addr_base) {
 			if (base == 0) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							 "DW_AT_addr_base is out of bounds");
 			}
 			uint8_t segment_selector_size = ((uint8_t *)*addr_base)[-1];
 			if (segment_selector_size != 0) {
-				return drgn_error_format(DRGN_ERROR_OTHER,
+				return drgn_error_format(DRGN_ERROR_BAD_DATA,
 							 "unsupported segment selector size %" PRIu8,
 							 segment_selector_size);
 			}
@@ -3299,7 +3299,7 @@ static struct drgn_error *drgn_dwarf_read_loclistx(struct drgn_elf_file *file,
 	base += dwp_offset;
 
 	if (!file->scns[DRGN_SCN_DEBUG_LOCLISTS]) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_FORM_loclistx without .debug_loclists section");
 	}
 	Elf_Data *data;
@@ -3308,11 +3308,11 @@ static struct drgn_error *drgn_dwarf_read_loclistx(struct drgn_elf_file *file,
 		return err;
 
 	if (base > data->d_size) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_AT_loclists_base is out of bounds");
 	}
 	if (index >= (data->d_size - base) / offset_size) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_FORM_loclistx is out of bounds");
 	}
 	const char *basep = (char *)data->d_buf + base;
@@ -3343,7 +3343,7 @@ static struct drgn_error *drgn_dwarf5_location_list(struct drgn_elf_file *file,
 	struct drgn_error *err;
 
 	if (!file->scns[DRGN_SCN_DEBUG_LOCLISTS]) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "loclist without .debug_loclists section");
 	}
 	struct drgn_elf_file_section_buffer buffer;
@@ -3352,7 +3352,7 @@ static struct drgn_error *drgn_dwarf5_location_list(struct drgn_elf_file *file,
 	if (err)
 		return err;
 	if (offset > buffer.bb.end - buffer.bb.pos) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "loclist is out of bounds");
 	}
 	buffer.bb.pos += offset;
@@ -3480,7 +3480,7 @@ drgn_dwarf4_split_location_list(struct drgn_elf_file *file, Dwarf_Word offset,
 	struct drgn_error *err;
 
 	if (!file->scns[DRGN_SCN_DEBUG_LOC]) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "loclistptr without .debug_loc section");
 	}
 	Dwarf_Off dwp_offset;
@@ -3494,7 +3494,7 @@ drgn_dwarf4_split_location_list(struct drgn_elf_file *file, Dwarf_Word offset,
 	if (err)
 		return err;
 	if (offset > buffer.bb.end - buffer.bb.pos) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "loclistptr is out of bounds");
 	}
 	buffer.bb.pos += offset;
@@ -3594,7 +3594,7 @@ static struct drgn_error *drgn_dwarf4_location_list(struct drgn_elf_file *file,
 	struct drgn_error *err;
 
 	if (!file->scns[DRGN_SCN_DEBUG_LOC]) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "loclistptr without .debug_loc section");
 	}
 	struct drgn_elf_file_section_buffer buffer;
@@ -3603,7 +3603,7 @@ static struct drgn_error *drgn_dwarf4_location_list(struct drgn_elf_file *file,
 	if (err)
 		return err;
 	if (offset > buffer.bb.end - buffer.bb.pos) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "loclistptr is out of bounds");
 	}
 	buffer.bb.pos += offset;
@@ -4442,7 +4442,7 @@ static struct drgn_error *dwarf_die_is_little_endian(Dwarf_Die *die,
 	    (endianity_attr = dwarf_attr_integrate(die, DW_AT_endianity,
 						   &endianity_attr_mem))) {
 		if (dwarf_formudata(endianity_attr, &endianity)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "invalid DW_AT_endianity");
 		}
 	} else {
@@ -4461,7 +4461,7 @@ static struct drgn_error *dwarf_die_is_little_endian(Dwarf_Die *die,
 		*ret = false;
 		return NULL;
 	default:
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "unknown DW_AT_endianity");
 	}
 }
@@ -4527,7 +4527,7 @@ struct drgn_error *drgn_dwarf_type_alignment(struct drgn_type *type,
 		drgn_dwarf_index_find_cu(&drgn_type_program(type)->dbinfo,
 					 die_addr);
 	if (!cu) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DIE from unknown DWARF CU");
 	}
 	Dwarf_Die die = {
@@ -4539,7 +4539,7 @@ struct drgn_error *drgn_dwarf_type_alignment(struct drgn_type *type,
 		return &drgn_not_found;
 	Dwarf_Word alignment;
 	if (dwarf_formudata(attr, &alignment) || alignment <= 0) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "invalid DW_AT_alignment");
 	}
 	*ret = alignment;
@@ -4641,7 +4641,7 @@ drgn_type_from_dwarf_attr(struct drgn_debug_info *dbinfo,
 			ret->qualifiers = 0;
 			return NULL;
 		} else {
-			return drgn_error_format(DRGN_ERROR_OTHER,
+			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "%s is missing DW_AT_type",
 						 dwarf_tag_str(die, tag_buf));
 		}
@@ -4649,7 +4649,7 @@ drgn_type_from_dwarf_attr(struct drgn_debug_info *dbinfo,
 
 	Dwarf_Die type_die;
 	if (!dwarf_formref_die(attr, &type_die)) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
+		return drgn_error_format(DRGN_ERROR_BAD_DATA,
 					 "%s has invalid DW_AT_type",
 					 dwarf_tag_str(die, tag_buf));
 	}
@@ -5062,7 +5062,7 @@ reg:
 	if (bit_pos < type.bit_size || (bit_offset < 0 && !value_buf)) {
 absent:
 		if (dwarf_tag(die) == DW_TAG_template_value_parameter) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_AT_template_value_parameter is missing value");
 		}
 		drgn_object_set_absent_internal(ret, &type, absence_reason);
@@ -5099,7 +5099,7 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	Dwarf_Block block;
 	if (dwarf_formblock(attr, &block) == 0) {
 		if (block.length < drgn_value_size(type.bit_size)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_AT_const_value block is too small");
 		}
 		return drgn_object_set_from_buffer_internal(ret, &type,
@@ -5107,19 +5107,19 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	} else if (type.encoding == DRGN_OBJECT_ENCODING_SIGNED) {
 		Dwarf_Sword svalue;
 		if (dwarf_formsdata(attr, &svalue)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "invalid DW_AT_const_value");
 		}
 		return drgn_object_set_signed_internal(ret, &type, svalue);
 	} else if (type.encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
 		Dwarf_Word uvalue;
 		if (dwarf_formudata(attr, &uvalue)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "invalid DW_AT_const_value");
 		}
 		return drgn_object_set_unsigned_internal(ret, &type, uvalue);
 	} else {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "unknown DW_AT_const_value form");
 	}
 }
@@ -5330,7 +5330,7 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 
 	const char *name = dwarf_diename(die);
 	if (!name) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_base_type has missing or invalid DW_AT_name");
 	}
 
@@ -5338,12 +5338,12 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	Dwarf_Word encoding;
 	if (!dwarf_attr_integrate(die, DW_AT_encoding, &attr) ||
 	    dwarf_formudata(&attr, &encoding)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_base_type has missing or invalid DW_AT_encoding");
 	}
 	int size = dwarf_bytesize(die);
 	if (size == -1) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_base_type has missing or invalid DW_AT_byte_size");
 	}
 
@@ -5371,7 +5371,7 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	/* We don't support complex types yet. */
 	case DW_ATE_complex_float:
 	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
+		return drgn_error_format(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_base_type has unknown DWARF encoding 0x%llx",
 					 (unsigned long long)encoding);
 	}
@@ -5504,7 +5504,7 @@ drgn_dwarf_member_thunk_fn(struct drgn_object *res, void *arg_)
 						 &attr_mem))) {
 			Dwarf_Word bit_size;
 			if (dwarf_formudata(attr, &bit_size)) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							 "DW_TAG_member has invalid DW_AT_bit_size");
 			}
 			bit_field_size = bit_size;
@@ -5561,7 +5561,7 @@ static struct drgn_error *invalid_data_member_location(struct binary_buffer *bb,
 						       const char *pos,
 						       const char *message)
 {
-	return drgn_error_create(DRGN_ERROR_OTHER,
+	return drgn_error_create(DRGN_ERROR_BAD_DATA,
 				 "DW_TAG_member has invalid DW_AT_data_member_location");
 }
 
@@ -5594,7 +5594,7 @@ drgn_parse_dwarf_data_member_location(Dwarf_Attribute *attr, uint64_t *ret)
 			return err;
 		if (opcode != DW_OP_plus_uconst) {
 unsupported:
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_TAG_member has unsupported DW_AT_data_member_location");
 		}
 		err = binary_buffer_next_uleb128(&bb, ret);
@@ -5631,7 +5631,7 @@ parse_member_offset(Dwarf_Die *die, union drgn_lazy_object *member_object,
 	if (attr) {
 		Dwarf_Word bit_offset;
 		if (dwarf_formudata(attr, &bit_offset)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_TAG_member has invalid DW_AT_data_bit_offset");
 		}
 		*ret = bit_offset;
@@ -5662,7 +5662,7 @@ parse_member_offset(Dwarf_Die *die, union drgn_lazy_object *member_object,
 	if (attr) {
 		Dwarf_Word bit_offset;
 		if (dwarf_formudata(attr, &bit_offset)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_TAG_member has invalid DW_AT_bit_offset");
 		}
 
@@ -5691,13 +5691,13 @@ parse_member_offset(Dwarf_Die *die, union drgn_lazy_object *member_object,
 			if (attr) {
 				Dwarf_Word word;
 				if (dwarf_formudata(attr, &word)) {
-					return drgn_error_create(DRGN_ERROR_OTHER,
+					return drgn_error_create(DRGN_ERROR_BAD_DATA,
 								 "DW_TAG_member has invalid DW_AT_byte_size");
 				}
 				byte_size = word;
 			} else {
 				if (!drgn_type_has_size(member_object->obj.type)) {
-					return drgn_error_create(DRGN_ERROR_OTHER,
+					return drgn_error_create(DRGN_ERROR_BAD_DATA,
 								 "DW_TAG_member bit field type does not have size");
 				}
 				err = drgn_type_sizeof(member_object->obj.type,
@@ -5726,7 +5726,7 @@ parse_member(struct drgn_debug_info *dbinfo, struct drgn_elf_file *file,
 	if ((attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem))) {
 		name = dwarf_formstring(attr);
 		if (!name) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_TAG_member has invalid DW_AT_name");
 		}
 	} else {
@@ -5831,7 +5831,7 @@ maybe_parse_template_parameter(struct drgn_debug_info *dbinfo,
 	if ((attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem))) {
 		name = dwarf_formstring(attr);
 		if (!name) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
+			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "%s has invalid DW_AT_name",
 						 dwarf_tag_str(die, tag_buf));
 		}
@@ -5841,7 +5841,7 @@ maybe_parse_template_parameter(struct drgn_debug_info *dbinfo,
 
 	bool defaulted;
 	if (dwarf_flag_integrate(die, DW_AT_default_value, &defaulted)) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
+		return drgn_error_format(DRGN_ERROR_BAD_DATA,
 					 "%s has invalid DW_AT_default_value",
 					 dwarf_tag_str(die, tag_buf));
 	}
@@ -5880,7 +5880,7 @@ drgn_parse_template_parameter_pack(struct drgn_debug_info *dbinfo,
 		r = dwarf_siblingof(&child, &child);
 	}
 	if (r == -1) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "libdw could not parse DIE children");
 	}
 	return NULL;
@@ -5902,7 +5902,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	if (attr) {
 		tag = dwarf_formstring(attr);
 		if (!tag) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
+			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "%s has invalid DW_AT_name",
 						 dwarf_tag_str(die, tag_buf));
 		}
@@ -5912,7 +5912,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 
 	bool declaration;
 	if (dwarf_flag(die, DW_AT_declaration, &declaration)) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
+		return drgn_error_format(DRGN_ERROR_BAD_DATA,
 					 "%s has invalid DW_AT_declaration",
 					 dwarf_tag_str(die, tag_buf));
 	}
@@ -5933,7 +5933,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	} else {
 		size = dwarf_bytesize(die);
 		if (size == -1) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
+			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "%s has missing or invalid DW_AT_byte_size",
 						 dwarf_tag_str(die, tag_buf));
 		}
@@ -5978,7 +5978,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		r = dwarf_siblingof(&child, &child);
 	}
 	if (r == -1) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
+		err = drgn_error_create(DRGN_ERROR_BAD_DATA,
 					"libdw could not parse DIE children");
 		goto err;
 	}
@@ -6011,13 +6011,13 @@ parse_enumerator(Dwarf_Die *die, struct drgn_enum_type_builder *builder,
 {
 	const char *name = dwarf_diename(die);
 	if (!name) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_enumerator has missing or invalid DW_AT_name");
 	}
 
 	Dwarf_Attribute attr_mem, *attr;
 	if (!(attr = dwarf_attr_integrate(die, DW_AT_const_value, &attr_mem))) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_enumerator is missing DW_AT_const_value");
 	}
 	struct drgn_error *err;
@@ -6045,7 +6045,7 @@ parse_enumerator(Dwarf_Die *die, struct drgn_enum_type_builder *builder,
 	return err;
 
 invalid:
-	return drgn_error_create(DRGN_ERROR_OTHER,
+	return drgn_error_create(DRGN_ERROR_BAD_DATA,
 				 "DW_TAG_enumerator has invalid DW_AT_const_value");
 }
 
@@ -6061,7 +6061,7 @@ enum_compatible_type_fallback(struct drgn_debug_info *dbinfo,
 {
 	int size = dwarf_bytesize(die);
 	if (size == -1) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_enumeration_type has missing or invalid DW_AT_byte_size");
 	}
 	enum drgn_byte_order byte_order;
@@ -6085,7 +6085,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	if (attr) {
 		tag = dwarf_formstring(attr);
 		if (!tag)
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_TAG_enumeration_type has invalid DW_AT_name");
 	} else {
 		tag = NULL;
@@ -6093,7 +6093,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 
 	bool declaration;
 	if (dwarf_flag(die, DW_AT_declaration, &declaration)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_enumeration_type has invalid DW_AT_declaration");
 	}
 	if (declaration && tag) {
@@ -6123,7 +6123,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		r = dwarf_siblingof(&child, &child);
 	}
 	if (r == -1) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
+		err = drgn_error_create(DRGN_ERROR_BAD_DATA,
 					"libdw could not parse DIE children");
 		goto err;
 	}
@@ -6131,7 +6131,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	struct drgn_type *compatible_type;
 	r = dwarf_type(die, &child);
 	if (r == -1) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
+		err = drgn_error_create(DRGN_ERROR_BAD_DATA,
 					"DW_TAG_enumeration_type has invalid DW_AT_type");
 		goto err;
 	} else if (r) {
@@ -6148,7 +6148,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		compatible_type =
 			drgn_underlying_type(qualified_compatible_type.type);
 		if (drgn_type_kind(compatible_type) != DRGN_TYPE_INT) {
-			err = drgn_error_create(DRGN_ERROR_OTHER,
+			err = drgn_error_create(DRGN_ERROR_BAD_DATA,
 						"DW_AT_type of DW_TAG_enumeration_type is not an integer type");
 			goto err;
 		}
@@ -6174,7 +6174,7 @@ drgn_typedef_type_from_dwarf(struct drgn_debug_info *dbinfo,
 {
 	const char *name = dwarf_diename(die);
 	if (!name) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_typedef has missing or invalid DW_AT_name");
 	}
 
@@ -6210,7 +6210,7 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	if ((attr = dwarf_attr_integrate(die, DW_AT_byte_size, &attr_mem))) {
 		Dwarf_Word word;
 		if (dwarf_formudata(attr, &word)) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
+			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "DW_TAG_pointer_type has invalid DW_AT_byte_size");
 		}
 		size = word;
@@ -6256,7 +6256,7 @@ static struct drgn_error *subrange_length(Dwarf_Die *die,
 	}
 
 	if (dwarf_formudata(attr, &word)) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
+		return drgn_error_format(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_subrange_type has invalid %s",
 					 attr->code == DW_AT_upper_bound ?
 					 "DW_AT_upper_bound" :
@@ -6312,7 +6312,7 @@ drgn_array_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		r = dwarf_siblingof(&child, &child);
 	}
 	if (r == -1) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "libdw could not parse DIE children");
 	}
 	if (array_dimension_vector_empty(&dimensions)) {
@@ -6390,7 +6390,7 @@ parse_formal_parameter(struct drgn_debug_info *dbinfo,
 	if ((attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem))) {
 		name = dwarf_formstring(attr);
 		if (!name) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_TAG_formal_parameter has invalid DW_AT_name");
 		}
 	} else {
@@ -6436,7 +6436,7 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		switch (dwarf_tag(&child)) {
 		case DW_TAG_formal_parameter:
 			if (is_variadic) {
-				err = drgn_error_format(DRGN_ERROR_OTHER,
+				err = drgn_error_format(DRGN_ERROR_BAD_DATA,
 							"%s has DW_TAG_formal_parameter child after DW_TAG_unspecified_parameters child",
 							dwarf_tag_str(die,
 								      tag_buf));
@@ -6449,7 +6449,7 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			break;
 		case DW_TAG_unspecified_parameters:
 			if (is_variadic) {
-				err = drgn_error_format(DRGN_ERROR_OTHER,
+				err = drgn_error_format(DRGN_ERROR_BAD_DATA,
 							"%s has multiple DW_TAG_unspecified_parameters children",
 							dwarf_tag_str(die,
 								      tag_buf));
@@ -6476,7 +6476,7 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		r = dwarf_siblingof(&child, &child);
 	}
 	if (r == -1) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
+		err = drgn_error_create(DRGN_ERROR_BAD_DATA,
 					"libdw could not parse DIE children");
 		goto err;
 	}
@@ -6639,7 +6639,7 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 						    &ret->type);
 		break;
 	default:
-		err = drgn_error_format(DRGN_ERROR_OTHER,
+		err = drgn_error_format(DRGN_ERROR_BAD_DATA,
 					"unknown DWARF type tag 0x%x",
 					dwarf_tag(die));
 		break;
@@ -7431,7 +7431,7 @@ advance_loc:
 						   &tmp) ||
 			    __builtin_add_overflow(pc, tmp, &pc) ||
 			    pc > uint_max(cie->address_size)) {
-				err = drgn_error_create(DRGN_ERROR_OTHER,
+				err = drgn_error_create(DRGN_ERROR_BAD_DATA,
 							"DW_CFA_advance_loc* overflows location");
 				goto out;
 			}

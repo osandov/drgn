@@ -4112,6 +4112,14 @@ class FaultError(Exception):
     address: int
     """Address that couldn't be accessed."""
 
+class BadDataError(Exception):
+    """
+    Error raised when external data is corrupted, unrecognized, inconsistent,
+    or otherwise invalid.
+    """
+
+    ...
+
 class MissingDebugInfoError(Exception):
     """
     Error raised when one or more files in a program do not have debug

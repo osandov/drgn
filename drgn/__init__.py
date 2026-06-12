@@ -50,6 +50,7 @@ from _drgn import (
     NULL,
     AbsenceReason,
     Architecture,
+    BadDataError,
     DebugInfoOptions,
     ExtraModule,
     FaultError,
@@ -130,6 +131,7 @@ from drgn.internal.version import __version__ as __version__  # noqa: F401
 __all__ = (
     "AbsenceReason",
     "Architecture",
+    "BadDataError",
     "DebugInfoOptions",
     "ExtraModule",
     "FaultError",

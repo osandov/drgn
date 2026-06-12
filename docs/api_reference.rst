@@ -247,6 +247,7 @@ Miscellaneous
 Exceptions
 ----------
 
+.. drgndoc:: BadDataError
 .. drgndoc:: FaultError
 .. drgndoc:: MissingDebugInfoError
 .. drgndoc:: ObjectAbsentError

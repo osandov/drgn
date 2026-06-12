@@ -68,7 +68,7 @@ static struct drgn_error *qmp_recv_msg(struct drgn_qmp_conn *conn,
 				enum json_tokener_error jerr =
 					json_tokener_get_error(conn->json_tok);
 				json_tokener_reset(conn->json_tok);
-				return drgn_error_format(DRGN_ERROR_OTHER,
+				return drgn_error_format(DRGN_ERROR_BAD_DATA,
 							 "could not parse QMP message: %s",
 							 json_tokener_error_desc(jerr));
 			}
@@ -147,7 +147,7 @@ static struct drgn_error *qmp_execute_str(struct drgn_qmp_conn *conn,
 		struct json_object *return_val;
 		if (!json_object_object_get_ex(response, "return",
 					       &return_val)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "QMP response missing \"return\"");
 		}
 		*ret = json_object_get(return_val);
@@ -216,7 +216,7 @@ static struct drgn_error *qmp_negotiate(struct drgn_qmp_conn *conn)
 	if (err)
 		return err;
 	if (!json_object_object_get_ex(greeting, "QMP", NULL)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "did not receive QMP greeting");
 	}
 
@@ -236,11 +236,11 @@ static struct drgn_error *qmp_detect_platform(struct drgn_qmp_conn *conn,
 
 	struct json_object *arch_obj;
 	if (!json_object_object_get_ex(result, "arch", &arch_obj)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "QMP query-target response missing \"arch\"");
 	}
 	if (!json_object_is_type(arch_obj, json_type_string)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "QMP query-target \"arch\" is not string");
 	}
 
@@ -281,7 +281,7 @@ static struct drgn_error *parse_qemu_xp(const char *str, void *buf,
 		// Skip "address:" prefix.
 		const char *colon = strchr(s, ':');
 		if (!colon) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "could not parse QEMU monitor xp response");
 		}
 		s = colon + 1;
@@ -353,7 +353,7 @@ static struct drgn_error *drgn_qmp_read_memory(void *buf, uint64_t address,
 			return err;
 
 		if (!json_object_is_type(result, json_type_string)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						"QMP human-monitor-command xp return value is not string");
 		}
 
@@ -407,7 +407,7 @@ qmp_get_ram_ranges(struct drgn_qmp_conn *conn, struct uint64_range **ranges_ret,
 		return err;
 
 	if (!json_object_is_type(obj, json_type_string)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "QMP human-monitor-command info mtree return value is not string");
 	}
 
@@ -507,7 +507,7 @@ static struct drgn_error *qmp_gpa2hva(struct drgn_qmp_conn *conn, uint64_t gpa,
 		return err;
 
 	if (!json_object_is_type(result, json_type_string)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					"QMP human-monitor-command gpa2hva return value is not string");
 	}
 

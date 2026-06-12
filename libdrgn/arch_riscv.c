@@ -13,7 +13,7 @@
  */
 
 static struct drgn_error drgn_invalid_rel = {
-	.code = DRGN_ERROR_OTHER,
+	.code = DRGN_ERROR_BAD_DATA,
 	.message = "invalid relocation type for SHT_REL",
 };
 

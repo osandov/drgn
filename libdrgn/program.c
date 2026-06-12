@@ -890,7 +890,7 @@ struct drgn_error *drgn_program_cache_auxv(struct drgn_program *prog)
 				  &note_size))
 			return drgn_error_libelf();
 		if (!note) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "core file is missing NT_AUXV");
 		}
 		drgn_log_debug(prog, "parsing NT_AUXV");
@@ -964,7 +964,7 @@ static struct drgn_error *get_prstatus_pid(struct drgn_program *prog, const char
 	size_t offset = is_64_bit ? 32 : 24;
 	uint32_t pr_pid;
 	if (size < offset + sizeof(pr_pid)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "NT_PRSTATUS is truncated");
 	}
 	memcpy(&pr_pid, data + offset, sizeof(pr_pid));
@@ -989,7 +989,7 @@ static struct drgn_error *get_prpsinfo_pid(struct drgn_program *prog,
 	size_t offset = is_64_bit ? 24 : 12;
 	uint32_t pr_pid;
 	if (size < offset + sizeof(pr_pid)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "NT_PRPSINFO is truncated");
 	}
 	memcpy(&pr_pid, data + offset, sizeof(pr_pid));
@@ -1012,7 +1012,7 @@ static struct drgn_error *get_prpsinfo_fname(struct drgn_program *prog,
 	// https://github.com/torvalds/linux/blob/075dbe9f6e3c21596c5245826a4ee1f1c1676eb8/include/linux/elfcore.h#L73
 #define PR_FNAME_LEN 16
 	if (size < offset + PR_FNAME_LEN) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "NT_PRPSINFO is truncated");
 	}
 	char *tmp = strndup(data + offset, PR_FNAME_LEN);

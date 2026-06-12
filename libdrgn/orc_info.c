@@ -349,7 +349,7 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 		if (orc_header->d_size == ORC_HEADER_SIZE)
 			module->orc.version = orc_version_from_header(orc_header->d_buf);
 		if (module->orc.version < 0) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "unrecognized .orc_header");
 		}
 	} else {
@@ -366,7 +366,7 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 
 	size_t num_entries = orc_unwind_ip->d_size / sizeof(int32_t);
 	if (num_entries > UINT_MAX) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 ".orc_unwind_ip is too large");
 	}
 	module->orc.num_entries = num_entries;
@@ -375,7 +375,7 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 	    orc_unwind->d_size % sizeof(struct drgn_orc_entry) != 0 ||
 	    orc_unwind->d_size / sizeof(struct drgn_orc_entry)
 	    != module->orc.num_entries) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 ".orc_unwind_ip and/or .orc_unwind has invalid size");
 	}
 
@@ -403,7 +403,7 @@ copy_builtin_orc_buffers(struct drgn_module *module, uint64_t num_entries,
 
 		module->orc.version = orc_version_from_header(header_data);
 		if (module->orc.version < 0)
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							"unrecognized .orc_header");
 	} else {
 		module->orc.version = orc_version_from_osrelease(module->prog);
@@ -466,19 +466,26 @@ static struct drgn_error *drgn_read_vmlinux_orc(struct drgn_module *module)
 	get_symbol("__stop_orc_header", header_end, true);
 #undef get_symbol
 
-	if ((unwind_ip_end - unwind_ip_start) % sizeof(int32_t))
-		return drgn_error_create(DRGN_ERROR_OTHER, "invalid built-in orc_unwind_ip range");
+	if ((unwind_ip_end - unwind_ip_start) % sizeof(int32_t)) {
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "invalid built-in orc_unwind_ip range");
+	}
 	uint64_t num_entries = (unwind_ip_end - unwind_ip_start) / sizeof(int32_t);
-	if (num_entries > UINT_MAX)
-		return drgn_error_create(DRGN_ERROR_OTHER,
+	if (num_entries > UINT_MAX) {
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "built-in orc_unwind_ip range is too large");
+	}
 
 	if ((unwind_end - unwind_start) % sizeof(struct drgn_orc_entry)
-	    || (unwind_end - unwind_start) / sizeof(struct drgn_orc_entry) != num_entries)
-		return drgn_error_create(DRGN_ERROR_OTHER, "invalid built-in orc_unwind range");
+	    || (unwind_end - unwind_start) / sizeof(struct drgn_orc_entry) != num_entries) {
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "invalid built-in orc_unwind range");
+	}
 
-	if (header_start && header_end && header_end - header_start != ORC_HEADER_SIZE)
-		return drgn_error_create(DRGN_ERROR_OTHER, "invalid built-in orc_header size");
+	if (header_start && header_end && header_end - header_start != ORC_HEADER_SIZE) {
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "invalid built-in orc_header size");
+	}
 
 	return copy_builtin_orc_buffers(module, num_entries, unwind_start,
 					unwind_ip_start, header_start);

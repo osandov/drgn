@@ -27,7 +27,7 @@ struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
 	if (!shdr)
 		return drgn_error_libelf();
 	if (shdr->sh_type == SHT_NOBITS) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "section has no data");
 	}
 	if ((shdr->sh_flags & SHF_COMPRESSED) && elf_compress(scn, 0, 0) < 0)
@@ -63,7 +63,7 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 					Elf *elf, struct drgn_elf_file **ret)
 {
 	if (elf_kind(elf) != ELF_K_ELF)
-		return drgn_error_create(DRGN_ERROR_OTHER, "not an ELF file");
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "not an ELF file");
 
 	GElf_Ehdr ehdr_mem, *ehdr = gelf_getehdr(elf, &ehdr_mem);
 	if (!ehdr)
@@ -262,7 +262,7 @@ static inline struct drgn_error *get_reloc_sym_value(const void *syms,
 						     uint64_t *ret)
 {
 	if (r_sym >= num_syms) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "invalid ELF relocation symbol");
 	}
 	uint16_t st_shndx;
@@ -287,7 +287,7 @@ static inline struct drgn_error *get_reloc_sym_value(const void *syms,
 		st_value = st_value32;
 	}
 	if (st_shndx >= shdrnum) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "invalid ELF symbol section index");
 	}
 	*ret = sh_addrs[st_shndx] + st_value;
@@ -493,7 +493,7 @@ drgn_elf_file_apply_relocations(struct drgn_elf_file *file)
 			if (!shdr)
 				return drgn_error_libelf();
 			if (shdr->sh_type == SHT_NOBITS) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							 "relocation symbol table has no data");
 			}
 
@@ -613,15 +613,15 @@ drgn_elf_file_section_error(struct drgn_elf_file *file, Elf_Scn *scn,
 		scnname = elf_strptr(file->elf, shstrndx, shdr->sh_name);
 
 	if (scnname && data) {
-		return drgn_error_format(DRGN_ERROR_OTHER, "%s: %s+%#tx: %s",
+		return drgn_error_format(DRGN_ERROR_BAD_DATA, "%s: %s+%#tx: %s",
 					 file->path, scnname,
 					 ptr - (const char *)data->d_buf,
 					 message);
 	} else if (scnname) {
-		return drgn_error_format(DRGN_ERROR_OTHER, "%s: %s: %s",
+		return drgn_error_format(DRGN_ERROR_BAD_DATA, "%s: %s: %s",
 					 file->path, scnname, message);
 	} else {
-		return drgn_error_format(DRGN_ERROR_OTHER, "%s: %s", file->path,
+		return drgn_error_format(DRGN_ERROR_BAD_DATA, "%s: %s", file->path,
 					 message);
 	}
 }

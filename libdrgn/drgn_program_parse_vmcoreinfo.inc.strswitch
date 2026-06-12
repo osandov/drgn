@@ -12,7 +12,7 @@ static struct drgn_error *parse_vmcoreinfo_u64(const char *value,
 		return drgn_error_create(DRGN_ERROR_OVERFLOW,
 					 "number in VMCOREINFO is too large");
 	} else if (errno || end == value || end != newline) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "number in VMCOREINFO is invalid");
 	}
 	return NULL;
@@ -69,12 +69,12 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 		{
 			size_t build_id_len = (newline - value) / 2;
 			if (build_id_len > sizeof(prog->vmcoreinfo.build_id)) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							 "BUILD-ID in VMCOREINFO is too long");
 			}
 			if (!unhexlify(value, newline - value,
 				       &prog->vmcoreinfo.build_id)) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							 "couldn't parse BUILD-ID in VMCOREINFO");
 			}
 			prog->vmcoreinfo.build_id_len = build_id_len;
@@ -86,7 +86,7 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 		@case "OSRELEASE"@
 			if ((size_t)(newline - value) >=
 			    sizeof(prog->vmcoreinfo.osrelease)) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							 "OSRELEASE in VMCOREINFO is too long");
 			}
 			memcpy(prog->vmcoreinfo.osrelease, value,
@@ -131,7 +131,7 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 			if (err)
 				return err;
 			if (tmp == 0 || tmp > 64) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							 "SECTION_SIZE_BITS in VMCOREINFO is invalid");
 			}
 			prog->vmcoreinfo.section_size_bits = tmp;
@@ -144,7 +144,7 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 			if (err)
 				return err;
 			if (tmp == 0 || tmp > 64) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							 "MAX_PHYSMEM_BITS in VMCOREINFO is invalid");
 			}
 			prog->vmcoreinfo.max_physmem_bits = tmp;
@@ -200,17 +200,17 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 		@endswitch@
 	}
 	if (!prog->vmcoreinfo.osrelease[0]) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "VMCOREINFO does not contain valid OSRELEASE");
 	}
 	ignore_broken_vmcoreinfo_build_id(prog);
 	if (!is_power_of_two(prog->vmcoreinfo.page_size)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "VMCOREINFO does not contain valid PAGESIZE");
 	}
 	prog->vmcoreinfo.page_shift = ctz(prog->vmcoreinfo.page_size);
 	if (!prog->vmcoreinfo.swapper_pg_dir) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "VMCOREINFO does not contain valid swapper_pg_dir");
 	}
 	// Everything else is optional.

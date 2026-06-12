@@ -174,7 +174,7 @@ kallsyms_copy_tables(struct drgn_program *prog, struct kallsyms_reader *kr,
 	// into token_table.
 	for (size_t i = 0; i <= UINT8_MAX; i++)
 		if (kr->token_index[i] >= kr->token_table_len)
-			return drgn_error_format(DRGN_ERROR_OTHER,
+			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "kallsyms: token_index out of bounds (token_index[%zu] = %u >= %zu)",
 						 i, kr->token_index[i], kr->token_table_len);
 
@@ -191,7 +191,7 @@ kallsyms_copy_tables(struct drgn_program *prog, struct kallsyms_reader *kr,
 		len = len_u8;
 		if ((len & 0x80) && kr->long_names) {
 			if (__builtin_add_overflow(names_idx, 1, &names_idx))
-				return drgn_error_create(DRGN_ERROR_OTHER,
+				return drgn_error_create(DRGN_ERROR_BAD_DATA,
 							 "couldn't find end of kallsyms_names");
 			err = drgn_program_read_u8(prog,
 						loc->kallsyms_names + names_idx,
@@ -208,14 +208,14 @@ kallsyms_copy_tables(struct drgn_program *prog, struct kallsyms_reader *kr,
 			// byte to the length.
 			if (len_u8 & 0x80)
 				return drgn_error_format(
-					DRGN_ERROR_OTHER,
+					DRGN_ERROR_BAD_DATA,
 					"Unexpected 3-byte length encoding in kallsyms names"
 				);
 			len = (len & 0x7F) | (len_u8 << 7);
 		}
 		if (__builtin_add_overflow(names_idx, len + 1, &names_idx))
 			return drgn_error_format(
-				DRGN_ERROR_OTHER, "couldn't find end of kallsyms_names");
+				DRGN_ERROR_BAD_DATA, "couldn't find end of kallsyms_names");
 	}
 	kr->names_len = names_idx;
 	kr->names = malloc(names_idx);
@@ -234,7 +234,7 @@ static struct drgn_error *kallsyms_binary_buffer_error(struct binary_buffer *bb,
 						       const char *pos,
 						       const char *message)
 {
-	return drgn_error_format(DRGN_ERROR_OTHER,
+	return drgn_error_format(DRGN_ERROR_BAD_DATA,
 				 "couldn't parse kallsyms: %s", message);
 }
 
@@ -310,7 +310,7 @@ search_for_string(struct kallsyms_reader *kr, const char *name, ssize_t *ret)
 			return NULL;
 		}
 	}
-	return drgn_error_format(DRGN_ERROR_OTHER,
+	return drgn_error_format(DRGN_ERROR_BAD_DATA,
 				 "Could not find '%s' symbol in kallsyms", name);
 }
 
@@ -539,7 +539,7 @@ kallsyms_load_addresses(struct drgn_program *prog, struct kallsyms_reader *kr,
 				addresses[i] = loc->kallsyms_offsets + 4 * i + (int32_t)addr32[i];
 		} else {
 			err = drgn_error_create(
-				DRGN_ERROR_OTHER,
+				DRGN_ERROR_BAD_DATA,
 				"Unable to interpret kallsyms offset encoding");
 			if (err)
 				return err;
@@ -599,7 +599,7 @@ drgn_load_builtin_kallsyms(struct drgn_program *prog,
 		if (err)
 			return err;
 		if (sb.len == 0)
-			return drgn_error_format(DRGN_ERROR_OTHER,
+			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "error: zero-length symbol in kallsyms");
 		if (i + 1 < kr.num_syms &&
 		    addresses[i + 1] - addresses[i] < MAX_SYMBOL_LENGTH)
@@ -642,7 +642,7 @@ struct drgn_error *drgn_load_proc_kallsyms(const char *filename, bool modules,
 		mod = strtok_r(NULL,"  \t\r\n", &save);
 
 		if (!addr_str || !type_str || !name) {
-			err = drgn_error_format(DRGN_ERROR_OTHER,
+			err = drgn_error_format(DRGN_ERROR_BAD_DATA,
 						"Error parsing kallsyms line %zu",
 						line_number);
 			break;
@@ -665,7 +665,7 @@ struct drgn_error *drgn_load_proc_kallsyms(const char *filename, bool modules,
 			// addr_rem should be set to the first un-parsed character, and
 			// since the entire string should be a valid base 16 integer,
 			// we expect it to be \0
-			 err = drgn_error_format(DRGN_ERROR_OTHER,
+			 err = drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "Invalid address \"%s\" in kallsyms line %zu",
 						 addr_str, line_number);
 			 break;
