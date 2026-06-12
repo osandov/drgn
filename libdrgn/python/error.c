@@ -98,7 +98,8 @@ static struct drgn_error drgn_error_python = {
 	X(DRGN_ERROR_ZERO_DIVISION, PyExc_ZeroDivisionError)		\
 	X(DRGN_ERROR_OUT_OF_BOUNDS, OutOfBoundsError)			\
 	X(DRGN_ERROR_OBJECT_ABSENT, ObjectAbsentError)			\
-	X(DRGN_ERROR_NOT_IMPLEMENTED, PyExc_NotImplementedError)
+	X(DRGN_ERROR_NOT_IMPLEMENTED, PyExc_NotImplementedError)	\
+	X(DRGN_ERROR_UNSUPPORTED_OPERATION, UnsupportedOperation)
 
 static struct drgn_error *
 drgn_error_from_python_simple(enum drgn_error_code code, PyObject *exc_value)

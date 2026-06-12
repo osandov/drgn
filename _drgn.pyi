@@ -4132,6 +4132,14 @@ class OutOfBoundsError(Exception):
 
     ...
 
+class UnsupportedOperation(ValueError):
+    """
+    Error raised when an operation is called on a program or object that
+    can't support it.
+    """
+
+    ...
+
 _elfutils_version: str
 _have_debuginfod: bool
 _enable_dlopen_debuginfod: bool

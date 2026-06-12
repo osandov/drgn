@@ -31,7 +31,7 @@ begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
 	prog->in_address_translation = true;
 	if (!prog->pgtable_it) {
 		if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-			err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+			err = drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
 						"virtual address translation is only available for the Linux kernel");
 			goto err;
 		}

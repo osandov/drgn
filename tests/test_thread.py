@@ -5,7 +5,7 @@ import os
 import os.path
 import tempfile
 
-from drgn import Program
+from drgn import Program, UnsupportedOperation
 from tests import TestCase
 from tests.resources import get_resource
 
@@ -35,7 +35,7 @@ class TestLive(TestCase):
 
     def test_crashed_thread(self):
         self.assertRaisesRegex(
-            ValueError,
+            UnsupportedOperation,
             "crashed thread is only defined for core dumps",
             self.prog.crashed_thread,
         )

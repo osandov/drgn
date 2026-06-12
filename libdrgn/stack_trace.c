@@ -877,7 +877,7 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			return err;
 		if (on_cpu) {
 			if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
-				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+				return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
 							 "cannot unwind stack of running task");
 			}
 			uint64_t cpu;

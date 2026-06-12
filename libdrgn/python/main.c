@@ -34,6 +34,7 @@ PyObject *MissingDebugInfoError;
 static PyObject *NoDefaultProgramError;
 PyObject *ObjectAbsentError;
 PyObject *OutOfBoundsError;
+PyObject *UnsupportedOperation;
 
 static _Thread_local Program *default_prog;
 
@@ -340,9 +341,9 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (!m)
 		return NULL;
 
-	#define add_new_exception(m, name) ({					\
+	#define add_new_exception(m, name, base) ({				\
 		name = PyErr_NewExceptionWithDoc("_drgn." #name,		\
-						 drgn_##name##_DOC, NULL,	\
+						 drgn_##name##_DOC, base,	\
 						 NULL);				\
 		!name || PyModule_AddObjectRef(m, #name, name);			\
 	})
@@ -386,10 +387,11 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &TypeMember_type) ||
 	    add_type(m, &TypeParameter_type) ||
 	    add_type(m, &TypeTemplateParameter_type) ||
-	    add_new_exception(m, MissingDebugInfoError) ||
-	    add_new_exception(m, NoDefaultProgramError) ||
-	    add_new_exception(m, ObjectAbsentError) ||
-	    add_new_exception(m, OutOfBoundsError) ||
+	    add_new_exception(m, MissingDebugInfoError, NULL) ||
+	    add_new_exception(m, NoDefaultProgramError, NULL) ||
+	    add_new_exception(m, ObjectAbsentError, NULL) ||
+	    add_new_exception(m, OutOfBoundsError, NULL) ||
+	    add_new_exception(m, UnsupportedOperation, PyExc_ValueError) ||
 	    add_type_aliases(m) ||
 	    init_logging())
 		goto err;

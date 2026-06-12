@@ -1604,7 +1604,7 @@ drgn_program_main_thread(struct drgn_program *prog, struct drgn_thread **ret)
 	struct drgn_error *err;
 
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+		return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
 					 "main thread is not defined for the Linux kernel");
 	}
 	if (drgn_program_is_userspace_process(prog)) {
@@ -1631,7 +1631,7 @@ drgn_program_crashed_thread(struct drgn_program *prog, struct drgn_thread **ret)
 	struct drgn_error *err;
 
 	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+		return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
 					 "crashed thread is only defined for core dumps");
 	}
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
@@ -1650,7 +1650,7 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_thread_object(struct drgn_thread *thread, const struct drgn_object **ret)
 {
 	if (!(thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+		return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
 					 "thread object is currently only defined for the Linux kernel");
 	}
 	*ret = &thread->object;

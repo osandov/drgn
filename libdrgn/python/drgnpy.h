@@ -360,6 +360,7 @@ extern PyTypeObject VdsoModule_type;
 extern PyObject *MissingDebugInfoError;
 extern PyObject *ObjectAbsentError;
 extern PyObject *OutOfBoundsError;
+extern PyObject *UnsupportedOperation;
 
 PyGILState_STATE drgn_initialize_python(bool *success_ret);
 

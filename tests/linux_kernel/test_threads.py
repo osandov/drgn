@@ -4,6 +4,7 @@
 from multiprocessing import Barrier, Process
 import os
 
+from drgn import UnsupportedOperation
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import LinuxKernelTestCase
 
@@ -36,14 +37,14 @@ class TestThreads(LinuxKernelTestCase):
 
     def test_main_thread(self):
         self.assertRaisesRegex(
-            ValueError,
+            UnsupportedOperation,
             "main thread is not defined for the Linux kernel",
             self.prog.main_thread,
         )
 
     def test_crashed_thread(self):
         self.assertRaisesRegex(
-            ValueError,
+            UnsupportedOperation,
             "crashed thread is only defined for core dumps",
             self.prog.crashed_thread,
         )

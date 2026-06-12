@@ -5,7 +5,7 @@ import os
 import unittest
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
-from drgn import Object, Program, ProgramFlags
+from drgn import Object, Program, ProgramFlags, UnsupportedOperation
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.stack import StackKind, kernel_stack_trace
 from drgn.helpers.linux.timekeeping import ktime_get_real_seconds
@@ -50,7 +50,7 @@ class TestVMCore(LinuxVMCoreTestCase):
 
     def test_main_thread(self):
         self.assertRaisesRegex(
-            ValueError,
+            UnsupportedOperation,
             "main thread is not defined for the Linux kernel",
             self.prog.main_thread,
         )
