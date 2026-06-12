@@ -899,7 +899,7 @@ drgn_module_section_address_iterator_next(struct drgn_module_section_address_ite
 {
 	if (it->map_it.entry) {
 		if (it->generation != it->module->section_addresses_generation) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
+			return drgn_error_create(DRGN_ERROR_RUNTIME,
 						 "section addresses changed during iteration");
 		}
 		*name_ret = it->map_it.entry->key;
@@ -3299,7 +3299,7 @@ drgn_created_module_iterator_next(struct drgn_module_iterator *_it,
 	}
 
 	if (it->generation != dbinfo->modules_generation) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
+		return drgn_error_create(DRGN_ERROR_RUNTIME,
 					 "modules changed during iteration");
 	}
 

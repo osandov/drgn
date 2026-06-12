@@ -611,7 +611,7 @@ class TestCreatedModules(TestCase):
     def test_change_during_iteration(self):
         prog = Program()
         prog.extra_module("/foo/bar", create=True)
-        with self.assertRaisesRegex(Exception, "modules changed during iteration"):
+        with self.assertRaisesRegex(RuntimeError, "modules changed during iteration"):
             for module in prog.modules():
                 prog.extra_module("/asdf/jkl", create=True)
                 prog.extra_module("/123/456", create=True)
