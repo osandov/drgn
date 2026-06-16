@@ -125,7 +125,9 @@ class TestMmzone(LinuxKernelTestCase):
     @skip_unless_sparsemem
     def test_section_decode_mem_map(self):
         self.assertEqual(
-            section_decode_mem_map(self.prog["drgn_test_mem_section"]),
+            section_decode_mem_map(
+                self.prog["drgn_test_mem_section"], self.prog["drgn_test_section_nr"]
+            ),
             self.prog["drgn_test_section_decoded_mem_map"],
         )
 
