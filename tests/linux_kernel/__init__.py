@@ -165,6 +165,7 @@ def skip_if_slob(f):
     def wrapper(self, *args, **kwargs):
         if self.prog["drgn_test_slob"]:
             self.skipTest("test does not support SLOB")
+        f(self, *args, **kwargs)
 
     return wrapper
 
@@ -174,6 +175,7 @@ def skip_if_highmem(f):
     def wrapper(self, *args, **kwargs):
         if self.prog["max_low_pfn"] < self.prog["max_pfn"]:
             self.skipTest("high memory is not supported")
+        f(self, *args, **kwargs)
 
     return wrapper
 

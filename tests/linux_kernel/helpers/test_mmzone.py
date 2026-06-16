@@ -31,6 +31,7 @@ def skip_unless_sparsemem(f):
     def wrapper(self, *args, **kwargs):
         if "mem_section" not in self.prog:
             self.skipTest("kernel does not use SPARSEMEM")
+        f(self, *args, **kwargs)
 
     return wrapper
 
