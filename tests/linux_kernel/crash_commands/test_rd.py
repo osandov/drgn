@@ -7,7 +7,6 @@ import os
 import tempfile
 
 from drgn import Architecture, FaultError, PlatformFlags
-from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
     skip_if_highmem,
     skip_unless_have_full_mm_support,
@@ -167,31 +166,32 @@ class TestRd(CrashCommandTestCase):
                 data = f.read()
                 self.assertEqual(len(data), 16)
 
+    @skip_unless_have_full_mm_support
     @skip_if_highmem
     def test_ascii_user(self):
         string = "hello, world!"
         buf = ctypes.create_string_buffer(string.encode("ascii"))
         address = ctypes.addressof(buf)
-        self.prog.config["crash_context"] = find_task(self.prog, os.getpid())
+        self.run_crash_command("set -p")
 
         # On s390x, the user and kernel address spaces occupy the same range, so
         # we cannot detect whether an address is a user address. Explicitly pass
         # the hint here.
         need_hint = self.prog.platform.arch == Architecture.S390X
 
-        expected_value = f"{address:{self.w}x}:  hello world, I am a string!"
+        expected_value = f"{address:x}:  {string}"
 
         if not need_hint:
             with self.subTest("without -u hint"):
-                cmd = self.check_crash_command(f"rd -a -o {self.w} 0x{address:x}")
+                cmd = self.check_crash_command(f"rd -a 0x{address:x}")
                 self.assertEqual(cmd.stdout.strip(), expected_value)
-                self.assertIn("access_process_vm", cmd.drgn_option)
-            self.assertNotIn("prog.read", cmd.drgn_option)
+                self.assertIn("access_process_vm", cmd.drgn_option.stdout)
+            self.assertNotIn("prog.read", cmd.drgn_option.stdout)
         with self.subTest("with -u hint"):
-            cmd = self.check_crash_command(f"rd -u -a -o {self.w} 0x{address:x}")
+            cmd = self.check_crash_command(f"rd -u -a 0x{address:x}")
             self.assertEqual(cmd.stdout.strip(), expected_value)
-            self.assertIn("access_process_vm", cmd.drgn_option)
-            self.assertNotIn("prog.read", cmd.drgn_option)
+            self.assertIn("access_process_vm", cmd.drgn_option.stdout)
+            self.assertNotIn("prog.read", cmd.drgn_option.stdout)
 
     def check_failing_command(self, command, exc_type):
         # Directly running the command should fail
