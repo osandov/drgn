@@ -105,20 +105,27 @@ PyTypeObject ObjectNotFoundError_type = {
 
 #define DRGN_ERROR_PYTHON (-1)
 
-struct drgn_error *drgn_error_from_python(void)
+// Steals a reference to exc.
+struct drgn_error *drgn_error_from_given_exception(PyObject *exc)
 {
-	_cleanup_pydecref_ PyObject *exc = PyErr_GetRaisedException();
-	if (!exc)
-		return NULL;
-
 	struct drgn_error *err = malloc(sizeof(*err));
-	if (!err)
+	if (!err) {
+		Py_DECREF(exc);
 		return &drgn_enomem;
+	}
 	err->_code = DRGN_ERROR_PYTHON;
 	err->_needs_destroy = true;
 	err->_message = NULL;
-	err->_python_exc = no_cleanup_ptr(exc);
+	err->_python_exc = exc;
 	return err;
+}
+
+struct drgn_error *drgn_error_from_python(void)
+{
+	PyObject *exc = PyErr_GetRaisedException();
+	if (!exc)
+		return NULL;
+	return drgn_error_from_given_exception(exc);
 }
 
 static void drgn_error_set_exception_message(struct drgn_error *err)

@@ -13,15 +13,14 @@ static PyObject *ExecutionController_not_implemented(PyObject *self,
 
 #define EXECUTION_CONTROLLER_METHODS	\
 	X(attach)			\
-	X(detach)			\
-	X(set_all_stop)			\
-	X(interrupt_thread)		\
-	X(interrupt_any_thread)		\
-	X(resume_all_threads)		\
-	X(resume_only_threads)		\
-	X(enable_breakpoint_sites)	\
-	X(disable_breakpoint_sites)	\
-	X(queue_events)
+	X(detach)
+	// X(set_all_stop)
+	// X(interrupt_thread)
+	// X(interrupt_any_thread)
+	// X(resume_all_threads)
+	// X(resume_only_threads)
+	// X(enable_breakpoint_sites)
+	// X(disable_breakpoint_sites)
 
 static PyMethodDef ExecutionController_methods[] = {
 #define X(name)									\
@@ -42,40 +41,88 @@ PyTypeObject ExecutionController_type = {
 	.tp_new = PyType_GenericNew,
 };
 
-static struct drgn_error *
+static Promise *NonePromise_wrap(drgn_success_fn *set_result,
+				 drgn_error_fn *set_error, void *arg)
+{
+	NonePromise *promise = call_tp_alloc(NonePromise);
+	if (!promise) {
+		set_error(arg, &drgn_enomem);
+		return NULL;
+	}
+	promise->set_result = set_result;
+	promise->set_error = set_error;
+	promise->arg = arg;
+	return (Promise *)promise;
+}
+
+static Promise *BoolPromise_wrap(void (*set_result)(void *arg, bool all_stop),
+				 drgn_error_fn *set_error, void *arg)
+{
+	BoolPromise *promise = call_tp_alloc(BoolPromise);
+	if (!promise) {
+		set_error(arg, &drgn_enomem);
+		return NULL;
+	}
+	promise->set_result = set_result;
+	promise->set_error = set_error;
+	promise->arg = arg;
+	return (Promise *)promise;
+}
+
+static void promise_catch_exception(Promise *promise)
+{
+	if (promise->done) {
+		// Exception was raised after promise result was already set.
+		PyErr_WriteUnraisable(NULL);
+		return;
+	}
+	promise->done = true;
+	promise->set_error(promise->arg, drgn_error_from_python());
+}
+
+static void
 py_execution_controller_attach(void *arg, struct drgn_program *prog,
 			       enum drgn_attach_flags flags,
-			       bool *all_stop_ret)
+			       void (*on_success)(void *result_arg, bool all_stop),
+			       drgn_error_fn *on_error, void *result_arg)
 {
 	PyGILState_guard();
 
+	_cleanup_pydecref_ Promise *promise =
+		BoolPromise_wrap(on_success, on_error, result_arg);
+	if (!promise)
+		return;
+
 	_cleanup_pydecref_ PyObject *res =
-		PyObject_CallMethod(arg, "attach", "ON",
+		PyObject_CallMethod(arg, "attach", "ONO",
 				    container_of(prog, Program, prog),
 				    PyObject_CallFunction(AttachFlags_class, "k",
-							  (unsigned long)flags));
+							  (unsigned long)flags),
+				    promise);
 	if (!res)
-		return drgn_error_from_python();
-	int b = PyObject_IsTrue(res);
-	if (b < 0)
-		return drgn_error_from_python();
-	*all_stop_ret = b;
-	return NULL;
+		promise_catch_exception(promise);
 }
 
-static struct drgn_error *
-py_execution_controller_detach(void *arg, struct drgn_program *prog)
+static void
+py_execution_controller_detach(void *arg, struct drgn_program *prog,
+			       drgn_success_fn *on_success,
+			       drgn_error_fn *on_error, void *result_arg)
 {
 	PyGILState_guard();
 
+	_cleanup_pydecref_ Promise *promise =
+		NonePromise_wrap(on_success, on_error, result_arg);
+	if (!promise)
+		return;
+
 	_cleanup_pydecref_ PyObject *res =
-		PyObject_CallMethod(arg, "detach", "O",
-				    container_of(prog, Program, prog));
+		PyObject_CallMethod(arg, "detach", "OO",
+				    container_of(prog, Program, prog), promise);
 	if (!res)
-		return drgn_error_from_python();
-	return NULL;
+		promise_catch_exception(promise);
 }
 
+#if 0
 static struct drgn_error *
 py_execution_controller_set_all_stop(void *arg, struct drgn_program *prog,
 				     bool all_stop)
@@ -232,6 +279,7 @@ py_execution_controller_queue_events(void *arg, struct drgn_program *prog,
 		return drgn_error_from_python();
 	return NULL;
 }
+#endif
 
 static int method_implemented(PyObject *finder, const char *name)
 {

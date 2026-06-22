@@ -2403,6 +2403,7 @@ static ProgramAttachContext *Program_attach(Program *self, PyObject *args,
 	return_ptr(ctx);
 }
 
+#if 0
 static PyObject *Program_detach(Program *self)
 {
 	struct drgn_error *err = drgn_program_detach(&self->prog);
@@ -2410,6 +2411,7 @@ static PyObject *Program_detach(Program *self)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
+#endif
 
 static PyObject *Program_get_attach_state(Program *self, void *arg)
 {
@@ -2426,6 +2428,7 @@ static PyObject *Program_get_all_stop(Program *self, void *arg)
 	Py_RETURN_BOOL(all_stop);
 }
 
+#if 0
 static PyObject *Program_set_all_stop(Program *self, PyObject *args,
 				      PyObject *kwds)
 {
@@ -2445,111 +2448,6 @@ static PyObject *Program_set_all_stop(Program *self, PyObject *args,
 static PyObject *Program_interrupt_any_thread(Program *self)
 {
 	struct drgn_error *err = drgn_program_interrupt_any_thread(&self->prog);
-	if (err)
-		return set_drgn_error(err);
-	Py_RETURN_NONE;
-}
-
-// Parse a sequence of (Thread, signal) pairs into parallel arrays. On success,
-// returns a new reference to the sequence (which keeps the Thread objects, and
-// thus the drgn_thread pointers, alive) and sets *threads_ret, *sigs_ret, and
-// *n_ret; the caller takes ownership of the arrays and must free() them.
-static PyObject *parse_thread_signal_pairs(PyObject *arg,
-					   struct drgn_thread ***threads_ret,
-					   int **sigs_ret, size_t *n_ret)
-{
-	_cleanup_pydecref_ PyObject *items =
-		PySequence_Fast(arg, "threads must be iterable");
-	if (!items)
-		return NULL;
-
-	Py_ssize_t n = PySequence_Fast_GET_SIZE(items);
-	_cleanup_free_ struct drgn_thread **threads =
-		malloc_array(n, sizeof(*threads));
-	if (n && !threads)
-		return PyErr_NoMemory();
-	_cleanup_free_ int *sigs = malloc_array(n, sizeof(*sigs));
-	if (n && !sigs)
-		return PyErr_NoMemory();
-
-	for (Py_ssize_t i = 0; i < n; i++) {
-		PyObject *item = PySequence_Fast_GET_ITEM(items, i);
-		PyObject *thread_obj;
-		if (!PyTuple_Check(item)
-		    || PyTuple_GET_SIZE(item) != 2
-		    || !PyObject_TypeCheck((thread_obj = PyTuple_GET_ITEM(item, 0)),
-					   &Thread_type)) {
-			PyErr_SetString(PyExc_TypeError,
-					"items must be (Thread, signal)");
-			return NULL;
-		}
-		long sig = PyLong_AsLong(PyTuple_GET_ITEM(item, 1));
-		if (sig == -1 && PyErr_Occurred())
-			return NULL;
-		if (sig < INT_MIN || sig > INT_MAX) {
-			PyErr_SetString(PyExc_OverflowError,
-					"signal out of range");
-			return NULL;
-		}
-		threads[i] = &((Thread *)thread_obj)->thread;
-		sigs[i] = sig;
-	}
-
-	*threads_ret = no_cleanup_ptr(threads);
-	*sigs_ret = no_cleanup_ptr(sigs);
-	*n_ret = n;
-	return_ptr(items);
-}
-
-static PyObject *Program_resume_all_threads(Program *self, PyObject *args,
-					    PyObject *kwds)
-{
-	static char *keywords[] = {"", "sync_events", NULL};
-	PyObject *arg = NULL;
-	int sync_events = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O$p:resume_all_threads",
-					 keywords, &arg, &sync_events))
-		return NULL;
-
-	_cleanup_pydecref_ PyObject *items = NULL;
-	_cleanup_free_ struct drgn_thread **threads = NULL;
-	_cleanup_free_ int *sigs = NULL;
-	size_t n = 0;
-	if (arg) {
-		items = parse_thread_signal_pairs(arg, &threads, &sigs, &n);
-		if (!items)
-			return NULL;
-	}
-
-	struct drgn_error *err =
-		drgn_program_resume_all_threads(&self->prog, threads, sigs, n,
-						sync_events);
-	if (err)
-		return set_drgn_error(err);
-	Py_RETURN_NONE;
-}
-
-static PyObject *Program_resume_only_threads(Program *self, PyObject *args,
-					     PyObject *kwds)
-{
-	static char *keywords[] = {"", "sync_events", NULL};
-	PyObject *arg;
-	int sync_events = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O$p:resume_only_threads",
-					 keywords, &arg, &sync_events))
-		return NULL;
-
-	_cleanup_free_ struct drgn_thread **threads = NULL;
-	_cleanup_free_ int *sigs = NULL;
-	size_t n;
-	_cleanup_pydecref_ PyObject *items =
-		parse_thread_signal_pairs(arg, &threads, &sigs, &n);
-	if (!items)
-		return NULL;
-
-	struct drgn_error *err =
-		drgn_program_resume_only_threads(&self->prog, threads, sigs, n,
-						 sync_events);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -2778,6 +2676,7 @@ static PyObject *Program_queue_event(Program *self, PyObject *args, PyObject *kw
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
+#endif
 
 static PyObject *Program_address_size(Program *self)
 {
@@ -2999,16 +2898,13 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_crashed_thread_DOC},
 	{"attach", (PyCFunction)Program_attach, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_attach_DOC},
+#if 0
 	{"detach", (PyCFunction)Program_detach, METH_NOARGS,
 	 drgn_Program_detach_DOC},
 	{"interrupt_any_thread", (PyCFunction)Program_interrupt_any_thread,
 	 METH_NOARGS, drgn_Program_interrupt_any_thread_DOC},
 	{"set_all_stop", (PyCFunction)Program_set_all_stop,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_all_stop_DOC},
-	{"resume_all_threads", (PyCFunction)Program_resume_all_threads,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_resume_all_threads_DOC},
-	{"resume_only_threads", (PyCFunction)Program_resume_only_threads,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_resume_only_threads_DOC},
 	{"set_breakpoint", (PyCFunction)Program_set_breakpoint,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_breakpoint_DOC},
 	{"breakpoints", (PyCFunction)Program_breakpoints, METH_NOARGS,
@@ -3029,6 +2925,7 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_sync_events_DOC},
 	{"queue_event", (PyCFunction)Program_queue_event,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_queue_event_DOC},
+#endif
 	{"address_size", (PyCFunction)Program_address_size, METH_NOARGS,
 	 drgn_Program_address_size_DOC},
 	{"void_type", (PyCFunction)Program_void_type,
@@ -3190,9 +3087,10 @@ static PyObject *ProgramAttachContext_enter(ProgramAttachContext *self,
 static PyObject *ProgramAttachContext_exit(ProgramAttachContext *self,
 					   PyObject *args)
 {
-	struct drgn_error *err = drgn_program_detach(&self->prog->prog);
-	if (err)
+#if 0
+	struct drgn_error *err = drgn_program_detach(&self->prog->prog); // TODO if (err)
 		return set_drgn_error(err);
+#endif
 	Py_RETURN_NONE;
 }
 

@@ -4851,8 +4851,11 @@ struct drgn_error *drgn_thread_interrupt(struct drgn_thread *thread);
  */
 #define DRGN_RESUME_DEFAULT_SIGNAL -1
 
-struct drgn_error *drgn_thread_resume(struct drgn_thread *thread, int sig,
-				      bool only, bool sync_events);
+struct drgn_error *drgn_thread_continue(struct drgn_thread *thread, int sig,
+					bool only, bool sync_events);
+
+struct drgn_error *drgn_thread_step(struct drgn_thread *thread, int sig,
+				    bool only, bool sync_events);
 
 /**
  * @struct drgn_thread_iterator
@@ -5302,6 +5305,7 @@ struct drgn_error *drgn_program_detach(struct drgn_program *prog);
 
 enum drgn_attach_state {
 	DRGN_ATTACH_STATE_DETACHED,
+	DRGN_ATTACH_STATE_ATTACHING,
 	DRGN_ATTACH_STATE_ATTACHED,
 	DRGN_ATTACH_STATE_EXITED,
 };
@@ -5318,17 +5322,23 @@ struct drgn_error *drgn_program_set_all_stop(struct drgn_program *prog,
 
 struct drgn_error *drgn_program_interrupt_any_thread(struct drgn_program *prog);
 
-struct drgn_error *
-drgn_program_resume_all_threads(struct drgn_program *prog,
-				struct drgn_thread * const *threads,
-				const int *sigs, size_t num_threads,
-				bool sync_events);
+enum drgn_thread_resume_mode {
+	// 0 is reserved.
+	DRGN_THREAD_RESUME_CONTINUE = 1,
+	DRGN_THREAD_RESUME_STEP,
+};
+
+struct drgn_thread_resume_action {
+	struct drgn_thread *thread;
+	enum drgn_thread_resume_mode mode;
+	int sig;
+	uint64_t _reserved[2];
+};
 
 struct drgn_error *
-drgn_program_resume_only_threads(struct drgn_program *prog,
-				 struct drgn_thread * const *threads,
-				 const int *sigs, size_t num_threads,
-				 bool sync_events);
+drgn_program_resume_threads(struct drgn_program *prog,
+			    const struct drgn_thread_resume_action *actions,
+			    size_t num_actions, bool sync_events);
 
 struct drgn_breakpoint;
 struct drgn_breakpoint_site;
@@ -5510,36 +5520,47 @@ struct drgn_error *drgn_program_sync_events(struct drgn_program *prog,
 struct drgn_error *drgn_program_queue_event(struct drgn_program *prog,
 					    struct drgn_event *event);
 
+typedef void drgn_success_fn(void *arg);
+typedef void drgn_error_fn(void *arg, struct drgn_error *err);
+
 struct drgn_execution_controller_ops {
 	void (*destroy)(void *arg);
-	struct drgn_error *(*attach)(void *arg, struct drgn_program *prog,
-				     enum drgn_attach_flags flags,
-				     bool *all_stop_ret);
-	struct drgn_error *(*detach)(void *arg, struct drgn_program *prog);
-	struct drgn_error *(*set_all_stop)(void *arg, struct drgn_program *prog,
-					   bool all_stop);
-	struct drgn_error *(*interrupt_thread)(void *arg,
-					       struct drgn_thread *thread);
-	struct drgn_error *(*interrupt_any_thread)(void *arg,
-						   struct drgn_program *prog);
-	struct drgn_error *(*resume_all_threads)(void *arg,
-						 struct drgn_program *prog,
-						 struct drgn_thread * const *threads,
-						 const int *sigs,
-						 size_t num_threads);
-	struct drgn_error *(*resume_only_threads)(void *arg,
-						  struct drgn_program *prog,
-						  struct drgn_thread * const *threads,
-						  const int *sigs,
-						  size_t num_threads);
-	struct drgn_error *(*enable_breakpoint_sites)(void *arg,
-						      struct drgn_breakpoint_site * const *sites,
-						      size_t num_sites);
-	struct drgn_error *(*disable_breakpoint_sites)(void *arg,
-						       struct drgn_breakpoint_site * const *sites,
-						       size_t num_sites);
-	struct drgn_error *(*queue_events)(void *arg, struct drgn_program *prog,
-					   bool block);
+	void (*attach)(void *arg, struct drgn_program *prog,
+		       enum drgn_attach_flags flags,
+		       void (*on_success)(void *result_arg, bool all_stop),
+		       drgn_error_fn *on_error, void *result_arg);
+	void (*detach)(void *arg, struct drgn_program *prog,
+		       drgn_success_fn *on_success, drgn_error_fn *on_error,
+		       void *result_arg);
+	void (*set_all_stop)(void *arg, struct drgn_program *prog,
+			     bool all_stop, drgn_success_fn *on_success,
+			     drgn_error_fn *on_error, void *result_arg);
+	void (*interrupt_thread)(void *arg, struct drgn_thread *thread,
+				 drgn_success_fn *on_success,
+				 drgn_error_fn *on_error, void *result_arg);
+	void (*interrupt_any_thread)(void *arg, struct drgn_program *prog,
+				     drgn_success_fn *on_success,
+				     drgn_error_fn *on_error, void *result_arg);
+	void (*pause_all_threads)(void *arg, struct drgn_program *prog,
+				  drgn_success_fn *on_success,
+				  drgn_error_fn *on_error, void *result_arg);
+	void (*resume_threads)(void *arg, struct drgn_program *prog,
+			       const struct drgn_thread_resume_action *actions,
+			       size_t num_actions, bool unpause,
+			       drgn_success_fn *on_success,
+			       drgn_error_fn *on_error, void *result_arg);
+	void (*enable_breakpoint_sites)(void *arg, struct drgn_program *prog,
+					struct drgn_breakpoint_site * const *sites,
+					size_t num_sites,
+					drgn_success_fn *on_success,
+					drgn_error_fn *on_error,
+					void *result_arg);
+	void (*disable_breakpoint_sites)(void *arg, struct drgn_program *prog,
+					 struct drgn_breakpoint_site * const *sites,
+					 size_t num_sites,
+					 drgn_success_fn *on_success,
+					 drgn_error_fn *on_error,
+					 void *result_arg);
 };
 
 /**

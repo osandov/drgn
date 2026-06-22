@@ -251,6 +251,7 @@ drgn_thread_cache_find_or_create(struct drgn_thread_cache *cache, uint32_t tid,
 	drgn_program_incref(cache->prog);
 	drgn_object_init(&thread->object, cache->prog);
 	INIT_LIST_HEAD(&thread->node);
+	thread->last_signal = -1;
 	thread->resume_signal = -1;
 	thread->tid = tid;
 	thread->generation = generation;

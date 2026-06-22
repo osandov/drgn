@@ -5,6 +5,8 @@
 
 struct drgn_breakpoint *drgn_breakpoint_alloc(void)
 {
+	// TODO: this sets the Python error indicator. I think we need to clear
+	// it. There are other instances of this bug.
 	Breakpoint *ret = call_tp_alloc(Breakpoint);
 	if (!ret)
 		return NULL;
@@ -119,6 +121,7 @@ static int Breakpoint_set_data(Breakpoint *self, PyObject *value)
 	return 0;
 }
 
+#if 0
 static PyObject *Breakpoint_remove(Breakpoint *self, PyObject *args,
 				   PyObject *kwds)
 {
@@ -160,6 +163,7 @@ static PyObject *Breakpoint_disable(Breakpoint *self, PyObject *args,
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
+#endif
 
 static PyObject *Breakpoint_get_enabled(Breakpoint *self)
 {
@@ -185,12 +189,14 @@ static PyGetSetDef Breakpoint_getset[] = {
 };
 
 static PyMethodDef Breakpoint_methods[] = {
+#if 0
 	{"remove", (PyCFunction)Breakpoint_remove,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Breakpoint_remove_DOC},
 	{"enable", (PyCFunction)Breakpoint_enable,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Breakpoint_enable_DOC},
 	{"disable", (PyCFunction)Breakpoint_disable,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Breakpoint_disable_DOC},
+#endif
 	{},
 };
 

@@ -18,6 +18,7 @@ from typing import (
     ContextManager,
     Dict,
     Final,
+    Generic,
     Iterable,
     Iterator,
     List,
@@ -2952,6 +2953,16 @@ class AttachState(enum.Enum):
     EXITED = ...
     """Program exited while attached."""
 
+
+# TODO: should this be a protocol?
+class Promise(Generic[T]):
+    def set_result(self, result: T, /) -> None:
+        ...
+
+    def set_exception(self, exception: BaseException, /) -> None:
+        ...
+
+
 class ExecutionController:
     """
     Implementation of program execution control.
@@ -2961,7 +2972,7 @@ class ExecutionController:
     <https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Protocol.html>`_).
     """
 
-    def attach(self, prog: Program, flags: AttachFlags) -> bool:
+    def attach(self, prog: Program, flags: AttachFlags, promise: Promise) -> bool:
         """
         Implement :meth:`Program.attach()`.
 
@@ -3171,7 +3182,11 @@ class BreakpointSite:
     """Address of this site."""
 
     hardware: Final[bool]
-    """Whether this site uses a hardware breakpoint."""
+    """
+    Whether this site uses a hardware breakpoint.
+
+    TODO: explain what this actually means to drgn
+    """
 
     enabled: bool
     """

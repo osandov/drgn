@@ -197,6 +197,7 @@ libdrgn_common_python_la_SOURCES = python/breakpoint.c \
 				   python/platform.c \
 				   python/plugins.c \
 				   python/program.c \
+				   python/promise.c \
 				   python/register_state.c \
 				   python/source_location.c \
 				   python/stack_trace.c \

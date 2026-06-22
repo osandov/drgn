@@ -274,6 +274,26 @@ typedef struct {
 	struct list_head held_objects;
 } Program;
 
+#define Promise_HEAD						\
+	PyObject_HEAD						\
+	bool done;						\
+	void *arg;						\
+	void (*set_error)(void *arg, struct drgn_error *err);
+
+typedef struct {
+	Promise_HEAD
+} Promise;
+
+typedef struct {
+	Promise_HEAD
+	void (*set_result)(void *arg);
+} NonePromise;
+
+typedef struct {
+	Promise_HEAD
+	void (*set_result)(void *arg, bool result);
+} BoolPromise;
+
 typedef struct {
 	PyObject_HEAD
 	Program *prog;
@@ -432,6 +452,8 @@ extern PyTypeObject ObjectNotFoundError_type;
 extern PyTypeObject Platform_type;
 extern PyTypeObject Program_type;
 extern PyTypeObject ProgramAttachContext_type;
+extern PyTypeObject NonePromise_type;
+extern PyTypeObject BoolPromise_type;
 extern PyTypeObject RegisterState_type;
 extern PyTypeObject Register_type;
 extern PyTypeObject RelocatableModule_type;
@@ -473,6 +495,7 @@ PyGILState_STATE drgn_initialize_python(bool *success_ret);
 int add_module_constants(PyObject *m);
 int init_logging(void);
 
+struct drgn_error *drgn_error_from_given_exception(PyObject *exc);
 struct drgn_error *drgn_error_from_python(void);
 void *set_drgn_error(struct drgn_error *err);
 void *set_error_type_name(const char *format,
@@ -547,6 +570,8 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds);
 Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
+
+PyObject *Promise_set_exception(Promise *self, PyObject *arg);
 
 int add_SourceLocation(PyObject *m);
 PyObject *SourceLocationList_wrap(struct drgn_source_location_list *locs);

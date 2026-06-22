@@ -329,10 +329,10 @@ bool drgn_register_state_interrupted(const struct drgn_register_state *regs)
 // +------------+--------------------+-----------+-------------+-----------------+
 // |State       |node                |last_signal|resume_signal|prog->in_all_stop|
 // +------------+--------------------+-----------+-------------+-----------------+
-// |RUNNING     |empty               |          0|           -1|false            |
-// |RUNNING-ONLY|on running_threads  |          0|           -1|true             |
-// |STOPPED     |on stopped_threads  |        > 0|           -1|any              |
-// |ALL-STOPPED |empty               |          0|           -1|true             |
+// |RUNNING     |empty               |         -1|           -1|false            |
+// |RUNNING-ONLY|on running_threads  |         -1|           -1|true             |
+// |STOPPED     |on stopped_threads  |       >= 0|           -1|any              |
+// |ALL-STOPPED |empty               |         -1|           -1|true             |
 // |RESUMED     |on resumed_threads  |       >= 0|         >= 0|any              |
 // +------------+--------------------+-----------+-------------+-----------------+
 //
@@ -367,6 +367,8 @@ struct drgn_thread {
 	struct drgn_object object;
 	uint32_t tid;
 	bool have_object;
+	// TODO: explain drgn_thread_resume_mode or 0.
+	int8_t resuming;
 	uint64_t generation;
 	struct drgn_thread_finder *finder;
 	void *finder_data;
