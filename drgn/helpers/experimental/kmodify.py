@@ -800,6 +800,7 @@ class _CodeGen_ppc64le:
     _R_PPC64_REL16_LO = 250
     _R_PPC64_TOC16_DS = 63
 
+    _B = 0x48000000
     _BCTRL = 0x4E800421
     _BLR = 0x4E800020
 
@@ -960,7 +961,7 @@ class _CodeGen_ppc64le:
         for offset in self._epilogue_branches:
             word = int.from_bytes(self.code[offset : offset + 4], "little")
             disp = target - offset
-            if (word & 0xFC000000) == 0x48000000:  # unconditional b
+            if (word & 0xFC000000) == self._B:  # unconditional b
                 # The LI field is signed 26 bits (scaled by 4).
                 if not -0x2000000 <= disp < 0x2000000:
                     raise OverflowError(
@@ -1054,7 +1055,7 @@ class _CodeGen_ppc64le:
         # Jump to the epilogue, unless this is the last node (fall through).
         if not last:
             self._epilogue_branches.append(len(self.code))
-            self._emit(0x48000000)  # b epilogue (fixed up in leave_frame)
+            self._emit(self._B)  # b epilogue (fixed up in leave_frame)
 
     def return_if_last_return_value_nonzero(self, value: _Integer) -> None:
         # The previous call's result is still in r3; test it before overwriting.

@@ -255,7 +255,7 @@ class TestPPC64Lowering(unittest.TestCase):
         cg.return_(_Integer(4, -115), last=False)
         words = _words(bytes(cg.code)[n:])
         self.assertEqual(words[0], cg._addi(3, 0, -115))  # li r3, -115
-        self.assertEqual(words[1] & 0xFC000000, 0x48000000)  # b (to be fixed up)
+        self.assertEqual(words[1], cg._B)  # b (to be fixed up)
         self.assertEqual(cg._epilogue_branches, [n + 4])
 
     def test_return_last_falls_through(self):
@@ -274,7 +274,7 @@ class TestPPC64Lowering(unittest.TestCase):
         words = _words(bytes(cg.code)[n:])
         self.assertEqual(words[0], cg._cmpdi(3, 0))  # cmpdi r3,0 BEFORE overwrite
         self.assertEqual(words[1], cg._addi(3, 0, -14))  # li r3,-14
-        self.assertEqual(words[2] & 0xFC000000, 0x40000000)  # bc (bne)
+        self.assertEqual(words[2], cg._BNE_CR0)  # bc (bne)
 
     def test_atomic_set_bit_loop(self):
         cg = self.cg()
@@ -285,7 +285,7 @@ class TestPPC64Lowering(unittest.TestCase):
         self.assertIn(cg._ldarx(0, 0, 3), words)
         self.assertIn(cg._or(0, 0, 4), words)
         self.assertIn(cg._stdcx(0, 0, 3), words)
-        self.assertEqual(words[-1] & 0xFC000000, 0x40000000)  # bc backward
+        self.assertEqual(words[-1] & 0xFFFF0000, cg._BNE_CR0)  # bc backward
 
     def test_atomic_clear_bit_uses_andc(self):
         cg = self.cg()
