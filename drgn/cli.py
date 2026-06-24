@@ -445,6 +445,10 @@ def _load_debugging_symbols(prog: drgn.Program, args: argparse.Namespace) -> Non
             critical = False
         logger.log(logging.CRITICAL if critical else logging.WARNING, "%s", e)
 
+
+def _load_only_extra_debug_symbols(
+    prog: drgn.Program, args: argparse.Namespace
+) -> None:
     if args.extra_symbols:
         for extra_symbol_path in args.extra_symbols:
             extra_symbol_path = os.path.abspath(extra_symbol_path)
@@ -676,6 +680,8 @@ def _main() -> None:
             vmcoreinfo = f.read()
 
     prog = drgn.Program(platform=platform, vmcoreinfo=vmcoreinfo)
+    _load_only_extra_debug_symbols(prog, args)
+
     try:
         if args.core is not None:
             prog.set_core_dump(args.core)

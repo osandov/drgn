@@ -360,7 +360,7 @@ linux_kernel_pgtable_iterator_create_ppc64(struct drgn_program * prog,
 	drgn_error_destroy(err);
 
 	// Identify the MMU type.
-	err = drgn_program_find_object(prog, "cur_cpu_spec", NULL,
+	/*err = drgn_program_find_object(prog, "cur_cpu_spec", NULL,
 				       DRGN_FIND_OBJECT_ANY, &tmp);
 	if (err)
 		return err;
@@ -375,7 +375,7 @@ linux_kernel_pgtable_iterator_create_ppc64(struct drgn_program * prog,
 	if (!(mmu_features & 0x40)) {
 		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
 					 "virtual address translation is only supported for Radix MMU");
-	}
+	}*/
 
 	*ret = &no_cleanup_ptr(it)->it;
 	return NULL;
@@ -420,8 +420,14 @@ linux_kernel_pgtable_iterator_next_ppc64(struct drgn_program *prog,
 		uint64_t table;
 		bool table_physical;
 		if (level == levels) {
-			table = it->it.pgtable;
-			table_physical = false;
+			if (it->it.pgtable == prog->vmcoreinfo.swapper_pg_dir) {
+						table = it->it.pgtable &
+								~UINT64_C(0xc000000000000000);
+						table_physical = true;
+				} else {
+						table = it->it.pgtable;
+						table_physical = false;
+				}
 		} else {
 			// PAGE_PTE bit represents huge page.
 			if (!(entry & PAGE_PRESENT) || (entry & PAGE_PTE) || level == 0) {
