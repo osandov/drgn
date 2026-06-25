@@ -44,6 +44,30 @@ static inline int PyModule_AddObjectRef(PyObject *mod, const char *name,
 }
 #endif
 
+#if PY_VERSION_HEX < 0x030c00a6
+static inline PyObject *PyErr_GetRaisedException(void)
+{
+	PyObject *exc_type, *exc_value, *exc_traceback;
+	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
+	if (!exc_type)
+		return NULL;
+	PyErr_NormalizeException(&exc_type, &exc_value, &exc_traceback);
+	Py_DECREF(exc_type);
+	if (exc_traceback) {
+		PyException_SetTraceback(exc_value, exc_traceback);
+		Py_DECREF(exc_traceback);
+	}
+	return exc_value;
+}
+
+static inline void PyErr_SetRaisedException(PyObject *exc)
+{
+	PyObject *exc_type = (PyObject *)Py_TYPE(exc);
+	Py_INCREF(exc_type);
+	PyErr_Restore(exc_type, exc, PyException_GetTraceback(exc));
+}
+#endif
+
 #if PY_VERSION_HEX < 0x030d00a1
 static inline int PyModule_Add(PyObject *mod, const char *name, PyObject *value)
 {

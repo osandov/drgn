@@ -3,8 +3,17 @@
 
 // Fallback implementations for builds without Python support.
 
+#include "error.h"
 #include "plugins.h"
 #include "program.h"
+
+void drgn_error_resolve(struct drgn_error *err)
+{
+}
+
+void drgn_error_python_exc_decref(void *python_exc)
+{
+}
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_create(const struct drgn_platform *platform,

@@ -26,7 +26,7 @@
  */
 
 struct drgn_error {
-	enum drgn_error_code _code;
+	int8_t _code;
 	/**
 	 * @private
 	 *
@@ -48,7 +48,11 @@ struct drgn_error {
 		uint64_t _address;
 	};
 	char *_message;
+	void *_python_exc;
 };
+
+void drgn_error_resolve(struct drgn_error *err);
+void drgn_error_python_exc_decref(void *python_exc);
 
 #define DRGN_ERROR_INIT(code, message) { ._code = (code), ._message = (message) }
 

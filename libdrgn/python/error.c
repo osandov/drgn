@@ -82,9 +82,6 @@ PyTypeObject ObjectNotFoundError_type = {
 	.tp_init = (initproc)ObjectNotFoundError_init,
 };
 
-static struct drgn_error drgn_error_python =
-	DRGN_ERROR_INIT(DRGN_ERROR_OTHER, "error in Python callback");
-
 #define SIMPLE_DRGN_EXCEPTIONS						\
 	X(DRGN_ERROR_INVALID_ARGUMENT, PyExc_ValueError)		\
 	X(DRGN_ERROR_OVERFLOW, PyExc_OverflowError)			\
@@ -101,134 +98,178 @@ static struct drgn_error drgn_error_python =
 	X(DRGN_ERROR_RUNTIME, PyExc_RuntimeError)			\
 	X(DRGN_ERROR_BAD_DATA, BadDataError)
 
-static struct drgn_error *
-drgn_error_from_python_simple(enum drgn_error_code code, PyObject *exc_value)
+#define DRGN_ERROR_PYTHON (-1)
+
+struct drgn_error *drgn_error_from_python(void)
 {
+	_cleanup_pydecref_ PyObject *exc = PyErr_GetRaisedException();
+	if (!exc)
+		return NULL;
+
+	struct drgn_error *err = malloc(sizeof(*err));
+	if (!err)
+		return &drgn_enomem;
+	err->_code = DRGN_ERROR_PYTHON;
+	err->_needs_destroy = true;
+	err->_message = NULL;
+	err->_python_exc = no_cleanup_ptr(exc);
+	return err;
+}
+
+static void drgn_error_set_exception_message(struct drgn_error *err)
+{
+	_cleanup_pydecref_ PyObject *exc_message =
+		PyObject_Str(err->_python_exc);
+	const char *message =
+		exc_message ? PyUnicode_AsUTF8(exc_message) : NULL;
+	if (message) {
+		err->_message = strdup(message);
+	} else {
+		PyErr_Clear();
+		err->_message = strdup("<exception str() failed>");
+	}
+	if (!err->_message) {
+		err->_code = DRGN_ERROR_NO_MEMORY;
+		err->_message = drgn_enomem._message;
+	}
+}
+
+static void drgn_error_resolve_other(struct drgn_error *err)
+{
+	err->_code = DRGN_ERROR_OTHER;
+	PyObject *exc_value = err->_python_exc;
 	_cleanup_pydecref_ PyObject *exc_message = PyObject_Str(exc_value);
 	const char *message =
 		exc_message ? PyUnicode_AsUTF8(exc_message) : NULL;
-	if (!message) {
+	if (message && message[0]) {
+		if (asprintf(&err->_message, "%s: %s",
+			     Py_TYPE(exc_value)->tp_name, message) < 0)
+			err->_message = NULL;
+	} else if (message) {
+		err->_message = strdup(Py_TYPE(exc_value)->tp_name);
+	} else {
 		PyErr_Clear();
-		return drgn_error_create(code, "<exception str() failed>");
+		err->_message = strdup("<exception str() failed>");
 	}
-	return drgn_error_create(code, message);
+	if (!err->_message) {
+		err->_code = DRGN_ERROR_NO_MEMORY;
+		err->_message = drgn_enomem._message;
+	}
 }
 
-static struct drgn_error *drgn_memory_error_from_python(PyObject *exc_value)
+static void drgn_error_resolve_os(struct drgn_error *err)
 {
-	if (!PyTuple_GET_SIZE(((PyBaseExceptionObject *)exc_value)->args))
-		return &drgn_enomem;
-	return drgn_error_from_python_simple(DRGN_ERROR_NO_MEMORY, exc_value);
-}
-
-static struct drgn_error *drgn_os_error_from_python(PyObject *exc_value)
-{
+	PyObject *exc_value = err->_python_exc;
 	_cleanup_pydecref_ PyObject *py_errno =
 		PyObject_GetAttrString(exc_value, "errno");
-	if (!py_errno)
-		return NULL;
-	long errnum = PyLong_AsLong(py_errno);
+	long errnum = py_errno ? PyLong_AsLong(py_errno) : -1;
 	if ((errnum == -1 && PyErr_Occurred())
-	    || errnum < INT_MIN || errnum > INT_MAX)
-		return NULL;
+	    || errnum < INT_MIN || errnum > INT_MAX) {
+		PyErr_Clear();
+		drgn_error_resolve_other(err);
+		return;
+	}
 
 	const char *path = NULL;
 	_cleanup_pydecref_ PyObject *py_filename =
 		PyObject_GetAttrString(exc_value, "filename");
-	if (!py_filename)
-		return NULL;
+	if (!py_filename) {
+		PyErr_Clear();
+		drgn_error_resolve_other(err);
+		return;
+	}
 	if (py_filename != Py_None) {
 		path = PyUnicode_AsUTF8(py_filename);
-		if (!path)
-			return NULL;
+		if (!path) {
+			PyErr_Clear();
+			drgn_error_resolve_other(err);
+			return;
+		}
 	}
 
-	return drgn_error_create_os("", errnum, path);
+	_cleanup_free_ char *path_copy = NULL;
+	if (path) {
+		path_copy = strdup(path);
+		if (!path_copy) {
+			err->_code = DRGN_ERROR_NO_MEMORY;
+			err->_message = drgn_enomem._message;
+			return;
+		}
+	}
+
+	err->_code = DRGN_ERROR_OS;
+	drgn_error_set_exception_message(err);
+	if (err->_code == DRGN_ERROR_OS) {
+		err->_errno = errnum;
+		err->_path = no_cleanup_ptr(path_copy);
+	}
 }
 
-static struct drgn_error *drgn_fault_error_from_python(PyObject *exc_value)
+static void drgn_error_resolve_fault(struct drgn_error *err)
 {
-	_cleanup_pydecref_ PyObject *py_message =
-		PyObject_GetAttrString(exc_value, "message");
-	const char *message = py_message ? PyUnicode_AsUTF8(py_message) : NULL;
-	if (!message)
-		return NULL;
-
+	PyObject *exc_value = err->_python_exc;
 	_cleanup_pydecref_ PyObject *py_address =
 		PyObject_GetAttrString(exc_value, "address");
 	uint64_t address;
-	if (!py_address || PyLong_AsUInt64(py_address, &address))
-		return NULL;
+	if (!py_address || PyLong_AsUInt64(py_address, &address)) {
+		PyErr_Clear();
+		drgn_error_resolve_other(err);
+		return;
+	}
 
-	return drgn_error_create_fault(message, address);
+	err->_code = DRGN_ERROR_FAULT;
+	err->_address = address;
+	drgn_error_set_exception_message(err);
 }
 
-struct drgn_error *drgn_error_from_python(void)
+void drgn_error_resolve(struct drgn_error *err)
 {
-	struct drgn_error *err;
-	PyObject *occurred = PyErr_Occurred();
-	if (!occurred)
-		return NULL;
+	if (err->_code != DRGN_ERROR_PYTHON)
+		return;
 
-	// If PyEval_GetFrame() returns non-NULL, then we are being called from
-	// Python. In that case, we should preserve the original Python
-	// exception for set_drgn_error() to bubble up.
-	//
-	// Python FaultErrors should always be translated back to drgn errors
-	// because they are frequently handled in libdrgn.
-	if (PyEval_GetFrame() && occurred != (PyObject *)&FaultError_type)
-		return &drgn_error_python;
+	PyGILState_guard();
+	PyObject *exc_value = err->_python_exc;
+	PyObject *exc_type = (PyObject *)Py_TYPE(exc_value);
 
-	_cleanup_pydecref_ PyObject *exc_type, *exc_value, *exc_traceback;
-	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
-	PyErr_NormalizeException(&exc_type, &exc_value, &exc_traceback);
-
-#define X(code, type)							\
-	if (exc_type == type)						\
-		return drgn_error_from_python_simple(code, exc_value);
+#define X(code, type)					\
+	if (exc_type == type) {				\
+		err->_code = code;			\
+		drgn_error_set_exception_message(err);	\
+	} else
 SIMPLE_DRGN_EXCEPTIONS
 #undef X
-	if (exc_type == PyExc_MemoryError)
-		return drgn_memory_error_from_python(exc_value);
-
-	// If we can't convert these exceptions to a valid error, then these
-	// functions return NULL (possibly with a Python exception set), and we
-	// fall back to the generic case.
-	if (exc_type == PyExc_OSError) {
-		err = drgn_os_error_from_python(exc_value);
-		if (err)
-			return err;
-		PyErr_Clear();
-	}
-	if (exc_type == (PyObject *)&FaultError_type) {
-		err = drgn_fault_error_from_python(exc_value);
-		if (err)
-			return err;
-		PyErr_Clear();
-	}
-
-	const char *type = ((PyTypeObject *)exc_type)->tp_name;
-	_cleanup_pydecref_ PyObject *exc_message = PyObject_Str(exc_value);
-	const char *message =
-		exc_message ? PyUnicode_AsUTF8(exc_message) : NULL;
-	if (!message) {
-		PyErr_Clear();
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "%s: <exception str() failed>", type);
-	}
-
-	if (message[0]) {
-		return drgn_error_format(DRGN_ERROR_OTHER, "%s: %s", type,
-					 message);
+	if (exc_type == PyExc_MemoryError) {
+		err->_code = DRGN_ERROR_NO_MEMORY;
+		if (PyTuple_GET_SIZE(((PyBaseExceptionObject *)exc_value)->args)
+		    == 0)
+			err->_message = drgn_enomem._message;
+		else
+			drgn_error_set_exception_message(err);
+	} else if (exc_type == PyExc_OSError) {
+		drgn_error_resolve_os(err);
+	} else if (exc_type == (PyObject *)&FaultError_type) {
+		drgn_error_resolve_fault(err);
 	} else {
-		return drgn_error_create(DRGN_ERROR_OTHER, type);
+		drgn_error_resolve_other(err);
+	}
+}
+
+void drgn_error_python_exc_decref(void *python_exc)
+{
+	if (python_exc) {
+		PyGILState_guard();
+		Py_DECREF(python_exc);
 	}
 }
 
 void *set_drgn_error(struct drgn_error *err)
 {
-	if (err == &drgn_error_python)
+	if (err->_python_exc) {
+		PyErr_SetRaisedException(err->_python_exc);
+		err->_python_exc = NULL;
+		drgn_error_destroy(err);
 		return NULL;
+	}
 
 	switch (err->_code) {
 #define X(code, type)					\
@@ -275,7 +316,8 @@ drgn_blocking_check_signals(drgn_blocking_state *statep)
 	if (!*statep)
 		return NULL;
 	PyEval_RestoreThread((PyThreadState *)*statep);
-	int r = PyErr_CheckSignals();
+	struct drgn_error *err = PyErr_CheckSignals()
+				 ? drgn_error_from_python() : NULL;
 	*statep = (drgn_blocking_state)PyEval_SaveThread();
-	return r ? &drgn_error_python : NULL;
+	return err;
 }
