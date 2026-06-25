@@ -10,11 +10,21 @@
 #include "../pp.h"
 
 #define drgn_ck_err(err, code, message) drgn_ck_err_impl(err, PP_UNIQUE(_err), code, message)
-#define drgn_ck_err_impl(err, unique_err, _code, _message) do {			\
+#define drgn_ck_err_impl(err, unique_err, code, message) do {			\
 	struct drgn_error *unique_err = (err);					\
 	ck_assert_msg(unique_err, "Assertion '%s != NULL' failed", #err);	\
-	ck_assert_int_eq(unique_err->code, (_code));				\
-	ck_assert_str_eq(unique_err->message, (_message));			\
+	ck_assert_int_eq(drgn_error_code(unique_err), (code));			\
+	ck_assert_str_eq(drgn_error_message(unique_err), (message));		\
+	drgn_error_destroy(unique_err);						\
+} while (0)
+
+#define drgn_ck_err_substr(err, code, message)	\
+	drgn_ck_err_substr_impl(err, PP_UNIQUE(_err), code, message)
+#define drgn_ck_err_substr_impl(err, unique_err, code, message) do {		\
+	struct drgn_error *unique_err = (err);					\
+	ck_assert_msg(unique_err, "Assertion '%s != NULL' failed", #err);	\
+	ck_assert_int_eq(drgn_error_code(unique_err), (code));			\
+	ck_assert(strstr(drgn_error_message(unique_err), (message)));		\
 	drgn_error_destroy(unique_err);						\
 } while (0)
 
@@ -22,7 +32,7 @@
 #define drgn_ck_no_err_impl(err, unique_err) do {				\
 	struct drgn_error *unique_err = (err);					\
 	ck_assert_msg(!unique_err, "Assertion '!(%s)' failed: error: %s", #err,	\
-		      unique_err ? unique_err->message : "");			\
+		      unique_err ? drgn_error_message(unique_err) : "");	\
 } while (0)
 
 // Copies of assert macros added in check 0.11.0.

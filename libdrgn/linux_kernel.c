@@ -335,10 +335,8 @@ static struct drgn_error *linux_kernel_get_jiffies(struct drgn_program *prog,
 	err = drgn_program_find_object(prog, "jiffies_64", NULL,
 				       DRGN_FIND_OBJECT_VARIABLE, &jiffies_64);
 	if (err) {
-		if (err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 			err = &drgn_not_found;
-		}
 		return err;
 	}
 	if (jiffies_64.kind != DRGN_OBJECT_REFERENCE)
@@ -393,9 +391,8 @@ linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 	err = drgn_program_find_object(prog, "vmemmap_populate", NULL,
 				       DRGN_FIND_OBJECT_FUNCTION, &mem_section);
 	if (err) {
-		if (err->code == DRGN_ERROR_LOOKUP) {
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 			// !CONFIG_SPARSEMEM_VMEMMAP
-			drgn_error_destroy(err);
 			err = &drgn_not_found;
 		}
 		return err;
@@ -2137,10 +2134,8 @@ kernel_module_set_section_addresses(struct drgn_module *module,
 			if (err)
 				return err;
 		}
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		// struct module::percpu doesn't exist if !SMP.
-		drgn_error_destroy(err);
-	} else {
+	// struct module::percpu doesn't exist if !SMP.
+	} else if (!drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		return err;
 	}
 
@@ -2150,7 +2145,7 @@ kernel_module_set_section_addresses(struct drgn_module *module,
 		// an fd that we were passed. If we didn't have permission to
 		// access the files in /sys/module/$module/sections, fall back
 		// to the non-live path.
-		if (!err || err->code != DRGN_ERROR_OS || err->errnum != EACCES)
+		if (!err || drgn_error_os_errno(err) != EACCES)
 			return err;
 		drgn_error_log_debug(prog, err,
 				     "falling back to section addresses from sect_attrs: ");
@@ -2516,8 +2511,7 @@ linux_kernel_loaded_module_iterator_next(struct drgn_module_iterator *_it,
 							       DRGN_FIND_OBJECT_VARIABLE,
 							       &it->node);
 			}
-			if (err && err->code == DRGN_ERROR_LOOKUP) {
-				drgn_error_destroy(err);
+			if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 				if (attempt == 1 && prog->dbinfo.main_module) {
 					struct drgn_module *module =
 						prog->dbinfo.main_module;

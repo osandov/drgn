@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "error.h"
 #include "platform.h"
 
 const struct drgn_register *drgn_register_by_name_unknown(const char *name)
@@ -213,10 +214,8 @@ drgn_register_names(const struct drgn_register *reg, size_t *num_names_ret)
 	return reg->names;
 }
 
-struct drgn_error drgn_invalid_relocation_offset = {
-	.code = DRGN_ERROR_BAD_DATA,
-	.message = "invalid relocation offset",
-};
+struct drgn_error drgn_invalid_relocation_offset =
+	DRGN_ERROR_INIT(DRGN_ERROR_BAD_DATA, "invalid relocation offset");
 
 #define DEFINE_DRGN_RELOC_ADD(bits)						\
 struct drgn_error *								\

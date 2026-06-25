@@ -1160,10 +1160,8 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 	 * If we couldn't read from memory, leave the register unknown instead
 	 * of failing hard.
 	 */
-	if (err && err->code == DRGN_ERROR_FAULT) {
-		drgn_error_destroy(err);
+	if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
 		err = &drgn_not_found;
-	}
 	return err;
 }
 

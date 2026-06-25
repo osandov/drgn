@@ -82,10 +82,8 @@ PyTypeObject ObjectNotFoundError_type = {
 	.tp_init = (initproc)ObjectNotFoundError_init,
 };
 
-static struct drgn_error drgn_error_python = {
-	.code = DRGN_ERROR_OTHER,
-	.message = "error in Python callback",
-};
+static struct drgn_error drgn_error_python =
+	DRGN_ERROR_INIT(DRGN_ERROR_OTHER, "error in Python callback");
 
 #define SIMPLE_DRGN_EXCEPTIONS						\
 	X(DRGN_ERROR_INVALID_ARGUMENT, PyExc_ValueError)		\
@@ -232,10 +230,10 @@ void *set_drgn_error(struct drgn_error *err)
 	if (err == &drgn_error_python)
 		return NULL;
 
-	switch (err->code) {
+	switch (err->_code) {
 #define X(code, type)					\
 	case code:					\
-		PyErr_SetString(type, err->message);	\
+		PyErr_SetString(type, err->_message);	\
 		break;
 	SIMPLE_DRGN_EXCEPTIONS
 #undef X
@@ -243,20 +241,20 @@ void *set_drgn_error(struct drgn_error *err)
 		PyErr_NoMemory();
 		break;
 	case DRGN_ERROR_OS:
-		errno = err->errnum;
-		PyErr_SetFromErrnoWithFilename(PyExc_OSError, err->path);
+		errno = err->_errno;
+		PyErr_SetFromErrnoWithFilename(PyExc_OSError, err->_path);
 		break;
 	case DRGN_ERROR_FAULT: {
 		_cleanup_pydecref_ PyObject *exc =
 			PyObject_CallFunction((PyObject *)&FaultError_type,
-					      "sK", err->message,
-					      (unsigned long long)err->address);
+					      "sK", err->_message,
+					      (unsigned long long)err->_address);
 		if (exc)
 			PyErr_SetObject((PyObject *)&FaultError_type, exc);
 		break;
 	}
 	default:
-		PyErr_SetString(PyExc_Exception, err->message);
+		PyErr_SetString(PyExc_Exception, err->_message);
 		break;
 	}
 

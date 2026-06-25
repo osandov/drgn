@@ -5,6 +5,7 @@
 #include <elf.h>
 #include <string.h>
 
+#include "error.h"
 #include "platform.h" // IWYU pragma: associated
 
 /*
@@ -12,10 +13,9 @@
  * https://github.com/riscv-non-isa/riscv-elf-psabi-doc
  */
 
-static struct drgn_error drgn_invalid_rel = {
-	.code = DRGN_ERROR_BAD_DATA,
-	.message = "invalid relocation type for SHT_REL",
-};
+static struct drgn_error drgn_invalid_rel =
+	DRGN_ERROR_INIT(DRGN_ERROR_BAD_DATA,
+			"invalid relocation type for SHT_REL");
 
 static struct drgn_error *
 apply_elf_reloc_riscv(const struct drgn_relocating_section *relocating,

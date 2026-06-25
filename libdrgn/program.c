@@ -1762,10 +1762,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	if (err)
 		return err;
 	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
-		drgn_error_destroy(err);
-		err = NULL;
-	}
+	drgn_error_catch(&err, DRGN_ERROR_MISSING_DEBUG_INFO);
 	return err;
 }
 
@@ -1777,10 +1774,7 @@ struct drgn_error *drgn_program_init_core_dump_fd(struct drgn_program *prog, int
 	if (err)
 		return err;
 	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
-		drgn_error_destroy(err);
-		err = NULL;
-	}
+	drgn_error_catch(&err, DRGN_ERROR_MISSING_DEBUG_INFO);
 	return err;
 }
 
@@ -1792,10 +1786,7 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog)
 	if (err)
 		return err;
 	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
-		drgn_error_destroy(err);
-		err = NULL;
-	}
+	drgn_error_catch(&err, DRGN_ERROR_MISSING_DEBUG_INFO);
 	return err;
 }
 
@@ -1807,10 +1798,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		return err;
 	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
-		drgn_error_destroy(err);
-		err = NULL;
-	}
+	drgn_error_catch(&err, DRGN_ERROR_MISSING_DEBUG_INFO);
 	return err;
 }
 

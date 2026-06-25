@@ -24,10 +24,7 @@ static struct drgn_error *limited_recursion_allowed(int *counter)
 {
 	int counter = 0;
 	struct drgn_error *err = no_recursion_allowed(&counter);
-	ck_assert_ptr_nonnull(err);
-	ck_assert_int_eq(err->code, DRGN_ERROR_RECURSION);
-	ck_assert_str_eq(err->message, "recursive call detected");
-	drgn_error_destroy(err);
+	drgn_ck_err(err, DRGN_ERROR_RECURSION, "recursive call detected");
 	ck_assert_int_eq(counter, 1);
 }
 
@@ -35,9 +32,7 @@ static struct drgn_error *limited_recursion_allowed(int *counter)
 {
 	int counter = 0;
 	struct drgn_error *err = limited_recursion_allowed(&counter);
-	ck_assert_ptr_nonnull(err);
-	ck_assert_int_eq(err->code, DRGN_ERROR_RECURSION);
-	ck_assert_str_eq(err->message, "maximum recursion depth exceeded");
-	drgn_error_destroy(err);
+	drgn_ck_err(err, DRGN_ERROR_RECURSION,
+		    "maximum recursion depth exceeded");
 	ck_assert_int_eq(counter, 11);
 }

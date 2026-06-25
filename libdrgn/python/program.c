@@ -1827,7 +1827,8 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 
 static void *set_object_not_found_error(struct drgn_error *err, PyObject *name)
 {
-	_cleanup_pydecref_ PyObject *args = Py_BuildValue("(s)", err->message);
+	_cleanup_pydecref_ PyObject *args =
+		Py_BuildValue("(s)", drgn_error_message(err));
 	drgn_error_destroy(err);
 	if (!args)
 		return NULL;
@@ -1865,7 +1866,7 @@ static DrgnObject *Program_find_object(Program *self, PyObject *name_obj,
 		return NULL;
 	err = drgn_program_find_object(&self->prog, name, filename, flags,
 				       &ret->obj);
-	if (err && err->code == DRGN_ERROR_LOOKUP)
+	if (err && drgn_error_code(err) == DRGN_ERROR_LOOKUP)
 		return set_object_not_found_error(err, name_obj);
 	else if (err)
 		return set_drgn_error(err);
@@ -2206,8 +2207,7 @@ static int Program_contains(Program *self, PyObject *key)
 	err = drgn_program_find_object(&self->prog, name, NULL,
 				       DRGN_FIND_OBJECT_ANY, &tmp);
 	if (err) {
-		if (err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 			return 0;
 		} else {
 			set_drgn_error(err);

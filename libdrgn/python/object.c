@@ -1418,8 +1418,8 @@ static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 		return PyErr_Format(PyExc_AttributeError,
 				    "'%s' object has no attribute '%U'",
 				    Py_TYPE(self)->tp_name, attr_name);
-	} else if (err && err->code == DRGN_ERROR_LOOKUP) {
-		PyErr_SetString(PyExc_AttributeError, err->message);
+	} else if (err && drgn_error_code(err) == DRGN_ERROR_LOOKUP) {
+		PyErr_SetString(PyExc_AttributeError, drgn_error_message(err));
 		drgn_error_destroy(err);
 		return NULL;
 	} else if (err) {

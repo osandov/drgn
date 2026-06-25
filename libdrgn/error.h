@@ -25,6 +25,27 @@
  * @{
  */
 
+struct drgn_error {
+	enum drgn_error_code _code;
+	/**
+	 * @private
+	 *
+	 * Whether this error needs to be passed to @ref drgn_error_destroy().
+	 *
+	 * This is @c true for the error codes returned from @ref
+	 * drgn_error_create() and its related functions. Certain errors are
+	 * statically allocated and do not need to be passed to @ref
+	 * drgn_error_destroy() (but they can be).
+	 */
+	bool _needs_destroy;
+	int _errno;
+	char *_path;
+	uint64_t _address;
+	char *_message;
+};
+
+#define DRGN_ERROR_INIT(code, message) { ._code = (code), ._message = (message) }
+
 struct drgn_operand_type;
 
 /** Global stop iteration error. */
@@ -162,7 +183,7 @@ static inline void drgn_recursion_guard_cleanup(int **guard)
 static inline bool drgn_error_catch(struct drgn_error **errp,
 				    enum drgn_error_code code)
 {
-	if (*errp && (*errp)->code == code) {
+	if (*errp && drgn_error_code(*errp) == code) {
 		drgn_error_destroy(*errp);
 		*errp = NULL;
 		return true;

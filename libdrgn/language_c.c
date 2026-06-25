@@ -856,10 +856,8 @@ c_format_float_object(const struct drgn_object *obj, struct string_builder *sb)
 	return NULL;
 }
 
-static struct drgn_error drgn_line_wrap = {
-	.code = DRGN_ERROR_STOP,
-	.message = "needs line wrap",
-};
+static struct drgn_error drgn_line_wrap =
+	DRGN_ERROR_INIT(DRGN_ERROR_STOP, "needs line wrap");
 
 struct initializer_iter {
 	struct drgn_error *(*next)(struct initializer_iter *,
@@ -1392,7 +1390,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 		DRGN_OBJECT(dereferenced, drgn_object_program(obj));
 		err = drgn_object_dereference(&dereferenced, obj);
 		if (err) {
-			if (err->code == DRGN_ERROR_TYPE)
+			if (drgn_error_code(err) == DRGN_ERROR_TYPE)
 				goto no_dereference;
 			return err;
 		}
@@ -1407,8 +1405,15 @@ c_format_pointer_object(const struct drgn_object *obj,
 					   one_line_columns, multi_line_columns,
 					   &dereferenced_options, sb);
 	}
-	if (!err || (err->code != DRGN_ERROR_FAULT && err->code != DRGN_ERROR_OUT_OF_BOUNDS)) {
-		/* We either succeeded or hit a fatal error. */
+	if (!err)
+		return NULL;
+	switch (drgn_error_code(err)) {
+	case DRGN_ERROR_FAULT:
+	case DRGN_ERROR_OUT_OF_BOUNDS:
+		// Non-fatal error.
+		break;
+	default:
+		// Fatal error.
 		return err;
 	}
 

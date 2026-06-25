@@ -286,10 +286,9 @@ drgn_object_set_unsigned(struct drgn_object *res,
 	return drgn_object_set_unsigned_internal(res, &type, uvalue);
 }
 
-static struct drgn_error drgn_float_size_unsupported = {
-	.code = DRGN_ERROR_NOT_IMPLEMENTED,
-	.message = "float values which are not 32 or 64 bits are not yet supported",
-};
+static struct drgn_error drgn_float_size_unsupported =
+	DRGN_ERROR_INIT(DRGN_ERROR_NOT_IMPLEMENTED,
+			"float values which are not 32 or 64 bits are not yet supported");
 
 struct drgn_error *
 drgn_object_set_float_internal(struct drgn_object *res,
@@ -981,10 +980,8 @@ drgn_object_value_float(const struct drgn_object *obj, double *ret)
 	return err;
 }
 
-static struct drgn_error drgn_integer_too_big = {
-	.code = DRGN_ERROR_OVERFLOW,
-	.message = "integer type is too big",
-};
+static struct drgn_error drgn_integer_too_big =
+	DRGN_ERROR_INIT(DRGN_ERROR_OVERFLOW, "integer type is too big");
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_read_signed(const struct drgn_object *obj, int64_t *ret)
@@ -1920,11 +1917,8 @@ struct drgn_error *drgn_op_cast(struct drgn_object *res,
 	}
 
 err:
-	if (err->code == DRGN_ERROR_TYPE) {
-		drgn_error_destroy(err);
-		goto type_error;
-	}
-	return err;
+	if (!drgn_error_catch(&err, DRGN_ERROR_TYPE))
+		return err;
 
 type_error:
 	return drgn_2_qualified_types_error("cannot convert '%s' to '%s'",
@@ -2222,10 +2216,8 @@ struct drgn_error *drgn_op_mul_impl(struct drgn_object *res,
 	}
 }
 
-static struct drgn_error drgn_zero_division = {
-	.code = DRGN_ERROR_ZERO_DIVISION,
-	.message = "division by zero",
-};
+static struct drgn_error drgn_zero_division =
+	DRGN_ERROR_INIT(DRGN_ERROR_ZERO_DIVISION, "division by zero");
 
 struct drgn_error *drgn_op_div_impl(struct drgn_object *res,
 				    const struct drgn_operand_type *op_type,

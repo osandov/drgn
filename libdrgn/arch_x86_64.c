@@ -254,10 +254,8 @@ bad_call_unwind_x86_64(struct drgn_program *prog,
 	uint64_t ret_addr;
 	err = drgn_program_read_u64(prog, rsp.value, false, &ret_addr);
 	if (err) {
-		if (err->code == DRGN_ERROR_FAULT) {
-			drgn_error_destroy(err);
-			err = &drgn_stop;
-		}
+		if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
+			return &drgn_stop;
 		return err;
 	}
 
@@ -477,8 +475,7 @@ linux_kernel_get_initial_registers_x86_64(const struct drgn_object *task_obj,
 		if (err)
 			return err;
 		err = get_initial_registers_inactive_task_frame(&sp_obj, ret);
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		drgn_error_destroy(err);
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		err = drgn_program_find_type(prog, "void **", NULL,
 					     &frame_type);
 		if (err)

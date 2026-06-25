@@ -201,10 +201,8 @@ static const char c_keywords[] =
 		do {
 			err = drgn_lexer_pop(&lexer.lexer, &token);
 		} while (!err && token.kind != C_TOKEN_EOF);
-		ck_assert_ptr_nonnull(err);
-		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
-		ck_assert(strstr(err->message, "invalid template arguments"));
-		drgn_error_destroy(err);
+		drgn_ck_err_substr(err, DRGN_ERROR_SYNTAX,
+				   "invalid template arguments");
 	}
 }
 
@@ -221,10 +219,7 @@ static const char c_keywords[] =
 		do {
 			err = drgn_lexer_pop(&lexer.lexer, &token);
 		} while (!err && token.kind != C_TOKEN_EOF);
-		ck_assert_ptr_nonnull(err);
-		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
-		ck_assert(strstr(err->message, "invalid character"));
-		drgn_error_destroy(err);
+		drgn_ck_err_substr(err, DRGN_ERROR_SYNTAX, "invalid character");
 	}
 }
 
@@ -247,10 +242,7 @@ static const char c_keywords[] =
 		DRGN_C_FAMILY_LEXER(lexer, s[i], false);
 		struct drgn_token token;
 		struct drgn_error *err = drgn_lexer_pop(&lexer.lexer, &token);
-		ck_assert_ptr_nonnull(err);
-		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
-		ck_assert(strstr(err->message, "invalid number"));
-		drgn_error_destroy(err);
+		drgn_ck_err_substr(err, DRGN_ERROR_SYNTAX, "invalid number");
 	}
 }
 
@@ -261,9 +253,6 @@ static const char c_keywords[] =
 		DRGN_C_FAMILY_LEXER(lexer, s[i], false);
 		struct drgn_token token;
 		struct drgn_error *err = drgn_lexer_pop(&lexer.lexer, &token);
-		ck_assert_ptr_nonnull(err);
-		ck_assert_int_eq(err->code, DRGN_ERROR_SYNTAX);
-		ck_assert(strstr(err->message, "invalid character"));
-		drgn_error_destroy(err);
+		drgn_ck_err_substr(err, DRGN_ERROR_SYNTAX, "invalid character");
 	}
 }

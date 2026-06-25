@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "drgnpy.h"
+#include "../error.h"
 #include "../util.h"
 
 PyObject *ModuleSectionAddresses_class;
@@ -117,8 +118,7 @@ static PyObject *ModuleSectionAddresses_subscript(ModuleSectionAddresses *self,
 	struct drgn_error *err = drgn_module_get_section_address(self->module,
 								 name,
 								 &address);
-	if (err && err->code == DRGN_ERROR_LOOKUP) {
-		drgn_error_destroy(err);
+	if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		PyErr_SetObject(PyExc_KeyError, key);
 		return NULL;
 	} else if (err) {
@@ -155,8 +155,7 @@ static int ModuleSectionAddresses_ass_subscript(ModuleSectionAddresses *self,
 		if (!name)
 			return -1;
 		err = drgn_module_delete_section_address(self->module, name);
-		if (err && err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 			PyErr_SetObject(PyExc_KeyError, key);
 			return -1;
 		}

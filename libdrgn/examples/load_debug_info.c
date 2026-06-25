@@ -168,10 +168,10 @@ int main(int argc, char **argv)
 	err = drgn_program_load_debug_info(prog, (const char **)&argv[optind],
 					   argc - optind, kernel || core || pid,
 					   false);
-	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO)
+	if ((!err || drgn_error_code(err) == DRGN_ERROR_MISSING_DEBUG_INFO)
 	    && print_time && clock_gettime(CLOCK_MONOTONIC, &end))
 		abort();
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
+	if (err && drgn_error_code(err) == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_fwrite(stderr, err);
 		drgn_error_destroy(err);
 	} else if (err) {

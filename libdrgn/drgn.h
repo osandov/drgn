@@ -108,42 +108,45 @@ enum drgn_error_code {
 } __attribute__((__packed__));
 
 /**
+ * @struct drgn_error
+ *
  * libdrgn error.
  *
  * All functions in libdrgn that can return an error return this type.
  */
-struct drgn_error {
-	/** Error code. */
-	enum drgn_error_code code;
-	/**
-	 * @private
-	 *
-	 * Whether this error needs to be passed to @ref drgn_error_destroy().
-	 *
-	 * This is @c true for the error codes returned from @ref
-	 * drgn_error_create() and its related functions. Certain errors are
-	 * statically allocated and do not need to be passed to @ref
-	 * drgn_error_destroy() (but they can be).
-	 */
-	bool needs_destroy;
-	/**
-	 * If @c code is @c DRGN_ERROR_OS, then the error number returned from
-	 * the system call.
-	 */
-	int errnum;
-	/**
-	 * If @c code is @c DRGN_ERROR_OS, then the path of the file which
-	 * encountered the error if applicable. Otherwise, @c NULL.
-	 */
-	char *path;
-	/**
-	 * If @c code is @c DRGN_ERROR_FAULT, then the address of the read
-	 * which encountered the error.
-	 */
-	uint64_t address;
-	/** Human-readable error message. */
-	char *message;
-};
+struct drgn_error;
+
+/** Get the error code of a @ref drgn_error. */
+enum drgn_error_code drgn_error_code(struct drgn_error *err);
+
+/**
+ * Get the error message of a @ref drgn_error.
+ *
+ * @return Human-readable message. Valid until @p err is destroyed.
+ */
+const char *drgn_error_message(struct drgn_error *err);
+
+/**
+ * Get the `errno` value of a system call error.
+ *
+ * @return Error number, or 0 if error code is not @ref DRGN_ERROR_OS.
+ */
+int drgn_error_os_errno(struct drgn_error *err);
+
+/**
+ * Get the path of the file that encountered a system call error.
+ *
+ * @return Path (valid until @p err is destroyed), or @c NULL if error code is
+ * not @ref DRGN_ERROR_OS or the error was not caused by a file.
+ */
+const char *drgn_error_os_path(struct drgn_error *err);
+
+/**
+ * Get the address that caused a fault error.
+ *
+ * @return Address, or 0 if error code is not @ref DRGN_ERROR_FAULT.
+ */
+uint64_t drgn_error_fault_address(struct drgn_error *err);
 
 /**
  * Out of memory @ref drgn_error.

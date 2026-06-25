@@ -3799,10 +3799,9 @@ drgn_dwarf_frame_base(struct drgn_program *prog, struct drgn_elf_file *file,
 		      Dwarf_Die *die, const struct drgn_register_state *regs,
 		      int *remaining_ops, uint64_t *ret);
 
-static struct drgn_error drgn_unknown_dwarf_opcode = {
-	.code = DRGN_ERROR_NOT_IMPLEMENTED,
-	.message = "unknown DWARF expression opcode",
-};
+static struct drgn_error drgn_unknown_dwarf_opcode =
+	DRGN_ERROR_INIT(DRGN_ERROR_NOT_IMPLEMENTED,
+			"unknown DWARF expression opcode");
 
 static bool drgn_dwarf_opcode_is_known(uint8_t opcode)
 {

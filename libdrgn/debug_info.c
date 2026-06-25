@@ -3512,10 +3512,11 @@ userspace_loaded_module_iterator_read_ehdr(struct userspace_loaded_module_iterat
 	struct drgn_program *prog = it->it.prog;
 
 	err = drgn_program_read_memory(prog, ret, address, sizeof(*ret), false);
-	if (err && err->code == DRGN_ERROR_FAULT) {
+	if (err && drgn_error_code(err) == DRGN_ERROR_FAULT) {
 		drgn_log_debug(prog,
 			       "couldn't read ELF header at 0x%" PRIx64 ": %s",
-			       err->address, err->message);
+			       drgn_error_fault_address(err),
+			       drgn_error_message(err));
 		drgn_error_destroy(err);
 		return &drgn_not_found;
 	} else if (err) {
@@ -3593,10 +3594,11 @@ userspace_loaded_module_iterator_read_phdrs(struct userspace_loaded_module_itera
 		return &drgn_enomem;
 	err = drgn_program_read_memory(prog, it->phdrs_buf, address, phdrs_size,
 				       false);
-	if (err && err->code == DRGN_ERROR_FAULT) {
+	if (err && drgn_error_code(err) == DRGN_ERROR_FAULT) {
 		drgn_log_debug(prog,
 			       "couldn't read program header table at 0x%" PRIx64 ": %s",
-			       err->address, err->message);
+			       drgn_error_fault_address(err),
+			       drgn_error_message(err));
 		drgn_error_destroy(err);
 		return &drgn_not_found;
 	}
@@ -3655,10 +3657,11 @@ userspace_loaded_module_iterator_read_dynamic(struct userspace_loaded_module_ite
 		return &drgn_enomem;
 	err = drgn_program_read_memory(prog, it->segment_buf, address,
 				       num_dyn * dyn_size, false);
-	if (err && err->code == DRGN_ERROR_FAULT) {
+	if (err && drgn_error_code(err) == DRGN_ERROR_FAULT) {
 		drgn_log_debug(prog,
 			       "couldn't read dynamic section at 0x%" PRIx64 ": %s",
-			       err->address, err->message);
+			       drgn_error_fault_address(err),
+			       drgn_error_message(err));
 		drgn_error_destroy(err);
 		return &drgn_not_found;
 	}
@@ -3792,11 +3795,12 @@ identify_module_from_phdrs(struct userspace_loaded_module_iterator *it,
 			err = drgn_program_read_memory(prog, it->segment_buf,
 						       phdr.p_vaddr + bias,
 						       note_size, false);
-			if (err && err->code == DRGN_ERROR_FAULT) {
+			if (err && drgn_error_code(err) == DRGN_ERROR_FAULT) {
 				drgn_log_debug(prog,
 					       "couldn't read note at 0x%" PRIx64 ": %s"
 					       "; ignoring",
-					       err->address, err->message);
+					       drgn_error_fault_address(err),
+					       drgn_error_message(err));
 				drgn_error_destroy(err);
 				continue;
 			} else if (err) {
@@ -4024,11 +4028,12 @@ no_vdso:
 	_cleanup_free_ char *name = NULL;
 	err = drgn_program_read_c_string(prog, dt_strtab + bias + dt_soname,
 					 false, SIZE_MAX, &name);
-	if (err && err->code == DRGN_ERROR_FAULT) {
+	if (err && drgn_error_code(err) == DRGN_ERROR_FAULT) {
 		drgn_log_warning(prog,
 				 "can't find vDSO: "
 				 "couldn't read soname at 0x%" PRIx64 ": %s",
-				 err->address, err->message);
+				 drgn_error_fault_address(err),
+				 drgn_error_message(err));
 		drgn_error_destroy(err);
 		goto no_vdso;
 	} else if (err) {
@@ -4150,14 +4155,15 @@ userspace_get_link_map(struct userspace_loaded_module_iterator *it)
 	err = read_struct64(prog, &r_debug, dyn.d_un.d_ptr,
 			    struct drgn_r_debug32, visit_r_debug_members);
 #undef visit_r_debug_members
-	if (err && err->code == DRGN_ERROR_FAULT) {
+	if (err && drgn_error_code(err) == DRGN_ERROR_FAULT) {
 		// Note: musl doesn't update DT_DEBUG for static PIE binaries
 		// compiled with GCC (as of musl v1.2.3 and GCC 13), so that
 		// case is known to fail here.
 		drgn_log_warning(prog,
 				 "can't find shared libraries: "
 				 "couldn't read r_debug at 0x%" PRIx64 ": %s",
-				 err->address, err->message);
+				 drgn_error_fault_address(err),
+				 drgn_error_message(err));
 		drgn_error_destroy(err);
 		return NULL;
 	} else if (err) {
@@ -4286,11 +4292,12 @@ userspace_next_link_map(struct userspace_loaded_module_iterator *it,
 	err = read_struct64(prog, ret, it->link_map, struct drgn_link_map32,
 			    visit_link_map_members);
 #undef visit_link_map_members
-	if (err && err->code == DRGN_ERROR_FAULT) {
+	if (err && drgn_error_code(err) == DRGN_ERROR_FAULT) {
 		drgn_log_warning(prog,
 				 "can't find remaining shared libraries: "
 				 "couldn't read next link_map at 0x%" PRIx64 ": %s",
-				 err->address, err->message);
+				 drgn_error_fault_address(err),
+				 drgn_error_message(err));
 		drgn_error_destroy(err);
 		return &drgn_stop;
 	} else if (err) {
@@ -4301,7 +4308,7 @@ userspace_next_link_map(struct userspace_loaded_module_iterator *it,
 
 	err = drgn_program_read_c_string(prog, ret->l_name, false, SIZE_MAX,
 					 name_ret);
-	if (err && err->code == DRGN_ERROR_FAULT)
+	if (err && drgn_error_code(err) == DRGN_ERROR_FAULT)
 		*name_ret = NULL;
 	else if (err)
 		return err;
@@ -4314,7 +4321,8 @@ userspace_next_link_map(struct userspace_loaded_module_iterator *it,
 		drgn_log_debug(prog,
 			       "couldn't read l_name at 0x%" PRIx64 ": %s"
 			       "; skipping",
-			       err->address, err->message);
+			       drgn_error_fault_address(err),
+			       drgn_error_message(err));
 		drgn_error_destroy(err);
 	}
 	return NULL;
