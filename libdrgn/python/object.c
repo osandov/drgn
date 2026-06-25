@@ -75,16 +75,9 @@ py_long_to_bytes_for_object_type(PyObject *value_obj,
 	int r = _PyLong_AsByteArray((PyLongObject *)long_obj, buf, size,
 				    type->little_endian, true);
 	if (r) {
-		PyObject *exc_type, *exc_value, *exc_traceback;
-		PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
-		if (PyErr_GivenExceptionMatches(exc_type, PyExc_OverflowError)) {
-			Py_XDECREF(exc_traceback);
-			Py_XDECREF(exc_value);
-			Py_DECREF(exc_type);
-		} else {
-			PyErr_Restore(exc_type, exc_value, exc_traceback);
+		if (!PyErr_ExceptionMatches(PyExc_OverflowError))
 			return NULL;
-		}
+		PyErr_Clear();
 	}
 #endif
 	return_ptr(buf);
