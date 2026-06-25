@@ -39,17 +39,17 @@ LIBDRGN_PUBLIC const char *drgn_error_message(struct drgn_error *err)
 
 LIBDRGN_PUBLIC int drgn_error_os_errno(struct drgn_error *err)
 {
-	return err->_errno;
+	return err->_code == DRGN_ERROR_OS ? err->_errno : 0;
 }
 
 LIBDRGN_PUBLIC const char *drgn_error_os_path(struct drgn_error *err)
 {
-	return err->_path;
+	return err->_code == DRGN_ERROR_OS ? err->_path : NULL;
 }
 
 LIBDRGN_PUBLIC uint64_t drgn_error_fault_address(struct drgn_error *err)
 {
-	return err->_address;
+	return err->_code == DRGN_ERROR_FAULT ? err->_address : 0;
 }
 
 static struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,
@@ -65,9 +65,12 @@ static struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,
 
 	err->_code = code;
 	err->_needs_destroy = true;
-	err->_errno = 0;
-	err->_path = NULL;
-	err->_address = 0;
+	if (code == DRGN_ERROR_OS) {
+		err->_errno = 0;
+		err->_path = NULL;
+	} else if (code == DRGN_ERROR_FAULT) {
+		err->_address = 0;
+	}
 	err->_message = message;
 	return err;
 }
@@ -109,7 +112,6 @@ drgn_error_format_os(const char *message, int errnum, const char *path_format,
 	} else {
 		err->_path = NULL;
 	}
-	err->_address = 0;
 	err->_message = strdup(message);
 	if (!err->_message) {
 		free(err->_path);
@@ -183,22 +185,24 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_error_copy(struct drgn_error *src)
 		return &drgn_enomem;
 	dst->_code = src->_code;
 	dst->_needs_destroy = true;
-	dst->_errno = src->_errno;
-	if (src->_path) {
-		dst->_path = strdup(src->_path);
-		if (!dst->_path) {
-			free(dst);
-			return &drgn_enomem;
+	if (src->_code == DRGN_ERROR_OS) {
+		dst->_errno = src->_errno;
+		if (src->_path) {
+			dst->_path = strdup(src->_path);
+			if (!dst->_path) {
+				free(dst);
+				return &drgn_enomem;
+			}
+		} else {
+			dst->_path = NULL;
 		}
-	} else {
-		dst->_path = NULL;
+	} else if (src->_code == DRGN_ERROR_FAULT) {
+		dst->_address = src->_address;
 	}
-	dst->_address = src->_address;
 	if (src->_message) {
 		dst->_message = strdup(src->_message);
 		if (!dst->_message) {
-			free(dst->_path);
-			free(dst);
+			drgn_error_destroy(dst);
 			return &drgn_enomem;
 		}
 	} else {
@@ -268,7 +272,8 @@ LIBDRGN_PUBLIC int drgn_error_dwrite(int fd, struct drgn_error *err)
 LIBDRGN_PUBLIC void drgn_error_destroy(struct drgn_error *err)
 {
 	if (err && err->_needs_destroy) {
-		free(err->_path);
+		if (err->_code == DRGN_ERROR_OS)
+			free(err->_path);
 		free(err->_message);
 		free(err);
 	}

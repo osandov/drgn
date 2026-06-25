@@ -38,9 +38,15 @@ struct drgn_error {
 	 * drgn_error_destroy() (but they can be).
 	 */
 	bool _needs_destroy;
-	int _errno;
-	char *_path;
-	uint64_t _address;
+	union {
+		// Only valid for DRGN_ERROR_OS.
+		struct {
+			int _errno;
+			char *_path;
+		};
+		// Only valid for DRGN_ERROR_FAULT.
+		uint64_t _address;
+	};
 	char *_message;
 };
 
