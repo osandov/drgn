@@ -1238,6 +1238,18 @@ class Program:
         """
         ...
 
+    def add_read_fd(self, fd: int, handler: Callable, *args) -> None:
+        ...
+
+    def remove_read_fd(self, fd: int) -> None:
+        ...
+
+    def add_write_fd(self, fd: int, handler: Callable, *args) -> None:
+        ...
+
+    def remove_write_fd(self, fd: int) -> None:
+        ...
+
     def set_core_dump(self, path: Union[Path, int]) -> None:
         """
         Set the program to a core dump.

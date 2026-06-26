@@ -57,6 +57,7 @@ DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *);
 DEFINE_HASH_TABLE_TYPE(drgn_prstatus_table, struct drgn_prstatus *);
 DEFINE_DEQUE_TYPE(drgn_event_deque, struct drgn_event *);
 DEFINE_HASH_TABLE_TYPE(drgn_breakpoint_site_table, struct drgn_breakpoint_site *);
+DEFINE_HASH_TABLE_TYPE(fd_handlers_table, struct drgn_fd_handlers *);
 
 struct drgn_prpsinfo {
 	uint32_t pid;
@@ -167,6 +168,8 @@ struct drgn_program {
 	const char *modifying_breakpoints;
 	uint64_t breakpoint_sites_generation;
 	uint64_t breakpoints_generation;
+	struct fd_handlers_table fd_handlers;
+	int epoll_fd;
 
 	// Cached `NT_PRPSINFO` note.
 	struct drgn_prpsinfo prpsinfo;

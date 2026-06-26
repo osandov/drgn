@@ -5520,6 +5520,30 @@ struct drgn_error *drgn_program_sync_events(struct drgn_program *prog,
 struct drgn_error *drgn_program_queue_event(struct drgn_program *prog,
 					    struct drgn_event *event);
 
+typedef void drgn_fd_handler_fn(int fd, void *arg);
+
+struct drgn_error *drgn_program_add_read_fd(struct drgn_program *prog, int fd,
+					    drgn_fd_handler_fn *handler,
+					    void *arg);
+
+struct drgn_error *drgn_program_remove_read_fd(struct drgn_program *prog,
+					       int fd);
+
+struct drgn_error *drgn_program_add_write_fd(struct drgn_program *prog, int fd,
+					     drgn_fd_handler_fn *handler,
+					     void *arg);
+
+struct drgn_error *drgn_program_remove_write_fd(struct drgn_program *prog,
+						int fd);
+
+struct drgn_fd_handlers {
+	int fd;
+	drgn_fd_handler_fn *read_handler;
+	void *read_arg;
+	drgn_fd_handler_fn *write_handler;
+	void *write_arg;
+};
+
 typedef void drgn_success_fn(void *arg);
 typedef void drgn_error_fn(void *arg, struct drgn_error *err);
 

@@ -4,7 +4,10 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/epoll.h>
+#include <unistd.h>
 
+#include "array.h"
 #include "breakpoint.h"
 #include "cleanup.h"
 #include "error.h"
@@ -31,6 +34,14 @@ drgn_breakpoint_site_to_key(struct drgn_breakpoint_site * const *entry)
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_breakpoint_site_table,
 			    drgn_breakpoint_site_to_key, int_key_hash_pair,
 			    scalar_key_eq);
+
+static inline int drgn_fd_handlers_key(struct drgn_fd_handlers * const *entry)
+{
+	return (*entry)->fd;
+}
+
+DEFINE_HASH_TABLE_FUNCTIONS(fd_handlers_table, drgn_fd_handlers_key,
+			    int_key_hash_pair, scalar_key_eq);
 
 struct drgn_breakpoint_iterator {
 	struct drgn_program *prog;
@@ -127,6 +138,8 @@ void drgn_program_init_execution_control(struct drgn_program *prog)
 	INIT_LIST_HEAD(&prog->stopped_threads);
 	INIT_LIST_HEAD(&prog->resumed_threads);
 	INIT_LIST_HEAD(&prog->running_threads);
+	fd_handlers_table_init(&prog->fd_handlers);
+	prog->epoll_fd = -1;
 }
 
 static void clear_events(struct drgn_program *prog)
@@ -256,6 +269,17 @@ int drgn_program_traverse_execution_control(struct drgn_program *prog,
 
 void drgn_program_deinit_execution_control(struct drgn_program *prog)
 {
+	if (prog->epoll_fd >= 0)
+		close(prog->epoll_fd);
+	hash_table_for_each(fd_handlers_table, it, &prog->fd_handlers) {
+		struct drgn_fd_handlers *handlers = *it.entry;
+		if (handlers->read_handler)
+			handlers->read_handler(-1, handlers->read_arg);
+		if (handlers->write_handler)
+			handlers->write_handler(-1, handlers->write_arg);
+		free(handlers);
+	}
+	fd_handlers_table_deinit(&prog->fd_handlers);
 	drgn_program_clear_execution_control(prog);
 	drgn_event_deque_deinit(&prog->event_queue);
 	drgn_breakpoint_site_table_deinit(&prog->breakpoint_sites);
@@ -273,8 +297,34 @@ static struct drgn_error drgn_error_pending =
 
 static struct drgn_error *wait_for_result(struct result_arg *result)
 {
+	struct drgn_program *prog = result->prog;
+	struct epoll_event events[64];
+	// TODO: should we return our own error if prog->epoll_fd == -1?
 	while (result->err == &drgn_error_pending) {
-		sleep(1);
+		int num_events = epoll_wait(prog->epoll_fd, events,
+					    array_size(events), -1);
+		if (num_events < 0) {
+			if (errno == EINTR)
+				continue;
+			// result is on the stack, so we can't return without it
+			// being done.
+			perror("epoll_wait");
+			abort();
+		}
+		for (int i = 0; i < num_events; i++) {
+			struct drgn_fd_handlers *handlers = events[i].data.ptr;
+			// Invert masks to catch error conditions, too.
+			if ((events[i].events & ~EPOLLOUT)
+			    && handlers->read_handler) {
+				handlers->read_handler(handlers->fd,
+						       handlers->read_arg);
+			}
+			if ((events[i].events & ~EPOLLIN)
+			    && handlers->write_handler) {
+				handlers->write_handler(handlers->fd,
+							handlers->write_arg);
+			}
+		}
 	}
 	return result->err;
 }
@@ -1876,5 +1926,191 @@ drgn_breakpoint_site_iterator_next(struct drgn_breakpoint_site_iterator *it,
 	drgn_breakpoint_site_incref(site);
 	*ret = site;
 	it->it = drgn_breakpoint_site_table_next(it->it);
+	return NULL;
+}
+
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_program_add_read_fd(struct drgn_program *prog, int fd,
+					    drgn_fd_handler_fn *handler,
+					    void *arg)
+{
+	if (prog->epoll_fd < 0) {
+		prog->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+		if (prog->epoll_fd < 0)
+			return drgn_error_create_os("epoll_create1", errno, NULL);
+	}
+
+	struct hash_pair hp = fd_handlers_table_hash(&fd);
+	auto it = fd_handlers_table_search_hashed(&prog->fd_handlers, &fd, hp);
+	if (it.entry) {
+		struct drgn_fd_handlers *handlers = *it.entry;
+		if (handlers->read_handler) {
+			handlers->read_handler(-1, handlers->read_arg);
+		} else {
+			struct epoll_event ee = {
+				.events = EPOLLIN | EPOLLOUT,
+				.data.ptr = handlers,
+			};
+			if (epoll_ctl(prog->epoll_fd, EPOLL_CTL_MOD, fd, &ee) < 0) {
+				return drgn_error_create_os("epoll_ctl", errno,
+							    NULL);
+			}
+		}
+		handlers->read_handler = handler;
+		handlers->read_arg = arg;
+	} else {
+		struct drgn_fd_handlers *handlers = malloc(sizeof(*handlers));
+		if (!handlers)
+			return &drgn_enomem;
+		handlers->fd = fd;
+		handlers->read_handler = handler;
+		handlers->read_arg = arg;
+		handlers->write_handler = NULL;
+		handlers->write_arg = NULL;
+		if (fd_handlers_table_insert_searched(&prog->fd_handlers,
+						      &handlers, hp, NULL) < 0) {
+			free(handlers);
+			return &drgn_enomem;
+		}
+
+		struct epoll_event ee = {
+			.events = EPOLLIN,
+			.data.ptr = handlers,
+		};
+		if (epoll_ctl(prog->epoll_fd, EPOLL_CTL_ADD, fd, &ee) < 0) {
+			int saved_errno = errno;
+			fd_handlers_table_delete(&prog->fd_handlers, &fd);
+			free(handlers);
+			return drgn_error_create_os("epoll_ctl", saved_errno,
+						    NULL);
+		}
+	}
+	return NULL;
+}
+
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_program_remove_read_fd(struct drgn_program *prog,
+					       int fd)
+{
+	auto it = fd_handlers_table_search(&prog->fd_handlers, &fd);
+	if (!it.entry || !(*it.entry)->read_handler)
+		return NULL;
+	struct drgn_fd_handlers *handlers = *it.entry;
+
+	if (handlers->write_handler) {
+		struct epoll_event ee = {
+			.events = EPOLLOUT,
+			.data.ptr = handlers,
+		};
+		if (epoll_ctl(prog->epoll_fd, EPOLL_CTL_MOD, fd, &ee) < 0
+		    // Caller may have closed fd first.
+		     && errno != EBADF && errno != ENOENT)
+			return drgn_error_create_os("epoll_ctl", errno, NULL);
+
+		handlers->read_handler(-1, handlers->read_arg);
+		handlers->read_handler = NULL;
+		handlers->read_arg = NULL;
+	} else {
+		if (epoll_ctl(prog->epoll_fd, EPOLL_CTL_DEL, fd, NULL) < 0
+		    && errno != EBADF && errno != ENOENT)
+			return drgn_error_create_os("epoll_ctl", errno, NULL);
+
+		handlers->read_handler(-1, handlers->read_arg);
+		fd_handlers_table_delete_iterator(&prog->fd_handlers, it);
+		free(handlers);
+	}
+	return NULL;
+}
+
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_program_add_write_fd(struct drgn_program *prog, int fd,
+					     drgn_fd_handler_fn *handler,
+					     void *arg)
+{
+	if (prog->epoll_fd < 0) {
+		prog->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+		if (prog->epoll_fd < 0)
+			return drgn_error_create_os("epoll_create1", errno, NULL);
+	}
+
+	struct hash_pair hp = fd_handlers_table_hash(&fd);
+	auto it = fd_handlers_table_search_hashed(&prog->fd_handlers, &fd, hp);
+	if (it.entry) {
+		struct drgn_fd_handlers *handlers = *it.entry;
+		if (handlers->write_handler) {
+			handlers->write_handler(-1, handlers->write_arg);
+		} else {
+			struct epoll_event ee = {
+				.events = EPOLLIN | EPOLLOUT,
+				.data.ptr = handlers,
+			};
+			if (epoll_ctl(prog->epoll_fd, EPOLL_CTL_MOD, fd, &ee) < 0) {
+				return drgn_error_create_os("epoll_ctl", errno,
+							    NULL);
+			}
+		}
+		handlers->write_handler = handler;
+		handlers->write_arg = arg;
+	} else {
+		struct drgn_fd_handlers *handlers = malloc(sizeof(*handlers));
+		if (!handlers)
+			return &drgn_enomem;
+		handlers->fd = fd;
+		handlers->read_handler = NULL;
+		handlers->read_arg = NULL;
+		handlers->write_handler = handler;
+		handlers->write_arg = arg;
+		if (fd_handlers_table_insert_searched(&prog->fd_handlers,
+						      &handlers, hp, NULL) < 0) {
+			free(handlers);
+			return &drgn_enomem;
+		}
+
+		struct epoll_event ee = {
+			.events = EPOLLOUT,
+			.data.ptr = handlers,
+		};
+		if (epoll_ctl(prog->epoll_fd, EPOLL_CTL_ADD, fd, &ee) < 0) {
+			int saved_errno = errno;
+			fd_handlers_table_delete(&prog->fd_handlers, &fd);
+			free(handlers);
+			return drgn_error_create_os("epoll_ctl", saved_errno,
+						    NULL);
+		}
+	}
+	return NULL;
+}
+
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_program_remove_write_fd(struct drgn_program *prog,
+						int fd)
+{
+	auto it = fd_handlers_table_search(&prog->fd_handlers, &fd);
+	if (!it.entry || !(*it.entry)->write_handler)
+		return NULL;
+	struct drgn_fd_handlers *handlers = *it.entry;
+
+	if (handlers->read_handler) {
+		struct epoll_event ee = {
+			.events = EPOLLIN,
+			.data.ptr = handlers,
+		};
+		if (epoll_ctl(prog->epoll_fd, EPOLL_CTL_MOD, fd, &ee) < 0
+		    // Caller may have closed fd first.
+		    && errno != EBADF && errno != ENOENT)
+			return drgn_error_create_os("epoll_ctl", errno, NULL);
+
+		handlers->write_handler(-1, handlers->write_arg);
+		handlers->write_handler = NULL;
+		handlers->write_arg = NULL;
+	} else {
+		if (epoll_ctl(prog->epoll_fd, EPOLL_CTL_DEL, fd, NULL) < 0
+		    && errno != EBADF && errno != ENOENT)
+			return drgn_error_create_os("epoll_ctl", errno, NULL);
+
+		handlers->write_handler(-1, handlers->write_arg);
+		fd_handlers_table_delete_iterator(&prog->fd_handlers, it);
+		free(handlers);
+	}
 	return NULL;
 }
