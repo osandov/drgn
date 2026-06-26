@@ -1238,16 +1238,16 @@ class Program:
         """
         ...
 
-    def add_read_fd(self, fd: int, handler: Callable, *args) -> None:
+    def register_fd(self, fd: int, events: FdEvents, callback: Callable[[Program, int, FdEvents], None]) -> None:
+        """TODO"""
         ...
 
-    def remove_read_fd(self, fd: int) -> None:
+    def modify_fd(self, fd: int, events: FdEvents, callback: Optional[Callable[[Program, int, FdEvents], None]] = None) -> None:
+        """TODO"""
         ...
 
-    def add_write_fd(self, fd: int, handler: Callable, *args) -> None:
-        ...
-
-    def remove_write_fd(self, fd: int) -> None:
+    def unregister_fd(self, fd: int) -> None:
+        """TODO"""
         ...
 
     def set_core_dump(self, path: Union[Path, int]) -> None:
@@ -2954,6 +2954,11 @@ class AttachFlags(enum.Flag):
     interrupting, then the program will be temporarily interrupted and then
     resumed before attach returns.
     """
+
+class FdEvents(enum.Flag):
+    """TODO"""
+    READ = ...
+    WRITE = ...
 
 class AttachState(enum.Enum):
     """Attachment state of :class:`Program`."""

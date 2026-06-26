@@ -57,7 +57,7 @@ DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *);
 DEFINE_HASH_TABLE_TYPE(drgn_prstatus_table, struct drgn_prstatus *);
 DEFINE_DEQUE_TYPE(drgn_event_deque, struct drgn_event *);
 DEFINE_HASH_TABLE_TYPE(drgn_breakpoint_site_table, struct drgn_breakpoint_site *);
-DEFINE_HASH_TABLE_TYPE(fd_handlers_table, struct drgn_fd_handlers *);
+DEFINE_HASH_TABLE_TYPE(fd_handler_table, struct fd_handler *);
 
 struct drgn_prpsinfo {
 	uint32_t pid;
@@ -168,7 +168,8 @@ struct drgn_program {
 	const char *modifying_breakpoints;
 	uint64_t breakpoint_sites_generation;
 	uint64_t breakpoints_generation;
-	struct fd_handlers_table fd_handlers;
+	struct fd_handler_table fd_handlers;
+	struct fd_handler *fd_handlers_to_free;
 	int epoll_fd;
 
 	// Cached `NT_PRPSINFO` note.
@@ -568,6 +569,10 @@ void drgn_end_blocking(drgn_blocking_state state);
  */
 struct drgn_error *
 drgn_blocking_check_signals(drgn_blocking_state *statep);
+
+// TODO: this needs a rework
+struct drgn_error *
+drgn_end_blocking_and_check_signals(drgn_blocking_state state);
 
 static inline void
 drgn_blocking_guard_cleanup(drgn_blocking_state *statep)

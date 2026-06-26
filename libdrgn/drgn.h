@@ -5520,29 +5520,31 @@ struct drgn_error *drgn_program_sync_events(struct drgn_program *prog,
 struct drgn_error *drgn_program_queue_event(struct drgn_program *prog,
 					    struct drgn_event *event);
 
-typedef void drgn_fd_handler_fn(int fd, void *arg);
+enum drgn_fd_events {
+	DRGN_FD_EVENT_READ = 1 << 0,
+	DRGN_FD_EVENT_WRITE = 1 << 1,
+};
 
-struct drgn_error *drgn_program_add_read_fd(struct drgn_program *prog, int fd,
-					    drgn_fd_handler_fn *handler,
+typedef struct drgn_error *drgn_fd_handler_fn(struct drgn_program *prog, int fd,
+					      enum drgn_fd_events events,
+					      void *arg);
+
+struct drgn_error *drgn_program_register_fd(struct drgn_program *prog, int fd,
+					    enum drgn_fd_events events,
+					    drgn_fd_handler_fn *callback,
 					    void *arg);
 
-struct drgn_error *drgn_program_remove_read_fd(struct drgn_program *prog,
-					       int fd);
+struct drgn_error *drgn_program_modify_fd(struct drgn_program *prog, int fd,
+					  enum drgn_fd_events events,
+					  drgn_fd_handler_fn *callback,
+					  void *arg);
 
-struct drgn_error *drgn_program_add_write_fd(struct drgn_program *prog, int fd,
-					     drgn_fd_handler_fn *handler,
-					     void *arg);
+struct drgn_error *drgn_program_unregister_fd(struct drgn_program *prog,
+					      int fd);
 
-struct drgn_error *drgn_program_remove_write_fd(struct drgn_program *prog,
-						int fd);
-
-struct drgn_fd_handlers {
-	int fd;
-	drgn_fd_handler_fn *read_handler;
-	void *read_arg;
-	drgn_fd_handler_fn *write_handler;
-	void *write_arg;
-};
+enum drgn_fd_events
+drgn_program_registered_fd(struct drgn_program *prog, int fd,
+			   drgn_fd_handler_fn **callback_ret, void **arg_ret);
 
 typedef void drgn_success_fn(void *arg);
 typedef void drgn_error_fn(void *arg, struct drgn_error *err);

@@ -333,3 +333,12 @@ drgn_blocking_check_signals(drgn_blocking_state *statep)
 	*statep = (drgn_blocking_state)PyEval_SaveThread();
 	return err;
 }
+
+struct drgn_error *
+drgn_end_blocking_and_check_signals(drgn_blocking_state state)
+{
+	if (!state)
+		return NULL;
+	PyEval_RestoreThread((PyThreadState *)state);
+	return PyErr_CheckSignals() ? drgn_error_from_python() : NULL;
+}

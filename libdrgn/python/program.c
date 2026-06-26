@@ -2776,6 +2776,121 @@ static int Program_set_language(Program *self, PyObject *value, void *arg)
 	return 0;
 }
 
+static struct drgn_error *py_fd_handler_fn(struct drgn_program *prog, int fd,
+					   enum drgn_fd_events events,
+					   void *arg)
+{
+	struct drgnpy_held_objects *held = arg;
+
+	PyGILState_guard();
+
+	if (events == 0) {
+		drgnpy_held_objects_destroy(held);
+		return NULL;
+	}
+
+	// The callback may unregister or replace itself while running, so keep
+	// it alive across the call.
+	_cleanup_pydecref_ PyObject *callback = held->obj[0];
+	if (!callback)
+		return NULL; // Program_clear() was called.
+	Py_INCREF(callback);
+
+	_cleanup_pydecref_ PyObject *ret =
+		PyObject_CallFunction(callback, "OiN",
+				      container_of(prog, Program, prog), fd,
+				      PyObject_CallFunction(FdEvents_class, "k",
+							    (unsigned long)events));
+	if (!ret)
+		return drgn_error_from_python();
+	return NULL;
+}
+
+static PyObject *Program_register_fd(Program *self, PyObject *args,
+				     PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"fd", "events", "callback", NULL};
+	int fd;
+	struct enum_arg events = { .type = FdEvents_class };
+	PyObject *callback;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "iO&O:register_fd",
+					 keywords, &fd, enum_converter, &events,
+					 &callback))
+		return NULL;
+	if (!PyCallable_Check(callback)) {
+		PyErr_SetString(PyExc_TypeError, "callback must be callable");
+		return NULL;
+	}
+
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(callback);
+	if (!held)
+		return NULL;
+
+	err = drgn_program_register_fd(&self->prog, fd, events.value,
+				       py_fd_handler_fn, held);
+	if (err)
+		return set_drgn_error(err);
+	Program_hold_objects(self, no_cleanup_ptr(held));
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_modify_fd(Program *self, PyObject *args,
+				   PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"fd", "events", "callback", NULL};
+	int fd;
+	struct enum_arg events = { .type = FdEvents_class };
+	PyObject *callback = Py_None;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "iO&|O:modify_fd",
+					 keywords, &fd, enum_converter, &events,
+					 &callback))
+		return NULL;
+
+	if (callback == Py_None) {
+		err = drgn_program_modify_fd(&self->prog, fd, events.value,
+					     NULL, NULL);
+		if (err)
+			return set_drgn_error(err);
+		Py_RETURN_NONE;
+	}
+
+	if (!PyCallable_Check(callback)) {
+		PyErr_SetString(PyExc_TypeError,
+				"callback must be callable or None");
+		return NULL;
+	}
+
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(callback);
+	if (!held)
+		return NULL;
+
+	err = drgn_program_modify_fd(&self->prog, fd, events.value,
+				     py_fd_handler_fn, held);
+	if (err)
+		return set_drgn_error(err);
+	Program_hold_objects(self, no_cleanup_ptr(held));
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_unregister_fd(Program *self, PyObject *args,
+				       PyObject *kwds)
+{
+	static char *keywords[] = {"fd", NULL};
+	int fd;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "i:unregister_fd", keywords,
+					 &fd))
+		return NULL;
+
+	struct drgn_error *err = drgn_program_unregister_fd(&self->prog, fd);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyMethodDef Program_methods[] = {
 	{"add_memory_segment", (PyCFunction)Program_add_memory_segment,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_memory_segment_DOC},
@@ -2898,6 +3013,12 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_crashed_thread_DOC},
 	{"attach", (PyCFunction)Program_attach, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_attach_DOC},
+	{"register_fd", (PyCFunction)Program_register_fd,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_register_fd_DOC},
+	{"modify_fd", (PyCFunction)Program_modify_fd,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_modify_fd_DOC},
+	{"unregister_fd", (PyCFunction)Program_unregister_fd,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_unregister_fd_DOC},
 #if 0
 	{"detach", (PyCFunction)Program_detach, METH_NOARGS,
 	 drgn_Program_detach_DOC},

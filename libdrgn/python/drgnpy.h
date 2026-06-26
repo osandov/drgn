@@ -166,6 +166,8 @@ static inline void PyGILState_Releasep(PyGILState_STATE *gstatep)
 /**
  * Destroy callback for C data slots (e.g., breakpoint data, thread finder data)
  * that hold a Python object reference.
+ *
+ * TODO: could this use held objects?
  */
 void py_destroy_data(void *data);
 
@@ -414,6 +416,7 @@ typedef struct {
 extern PyObject *AbsenceReason_class;
 extern PyObject *Architecture_class;
 extern PyObject *AttachFlags_class;
+extern PyObject *FdEvents_class;
 extern PyObject *FindObjectFlags_class;
 extern PyObject *KmodSearchMethod_class;
 extern PyObject *ModuleFileStatus_class;
