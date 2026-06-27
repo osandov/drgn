@@ -1416,7 +1416,9 @@ DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!name)
 		return NULL;
 
-	if (!Program_hold_reserve(self, 1))
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(name_obj);
+	if (!held)
 		return NULL;
 
 	struct drgn_qualified_type qualified_type;
@@ -1428,7 +1430,7 @@ DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds)
 		return set_drgn_error(err);
 
 	if (drgn_type_name(qualified_type.type) == name)
-		Program_hold_object(self, name_obj);
+		Program_hold_objects(self, no_cleanup_ptr(held));
 
 	qualified_type.qualifiers = qualifiers;
 	_cleanup_pydecref_ DrgnType *type_obj =
@@ -1469,7 +1471,9 @@ DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!name)
 		return NULL;
 
-	if (!Program_hold_reserve(self, 1))
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(name_obj);
+	if (!held)
 		return NULL;
 
 	struct drgn_qualified_type qualified_type;
@@ -1482,7 +1486,7 @@ DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds)
 		return set_drgn_error(err);
 
 	if (drgn_type_name(qualified_type.type) == name)
-		Program_hold_object(self, name_obj);
+		Program_hold_objects(self, no_cleanup_ptr(held));
 
 	qualified_type.qualifiers = qualifiers;
 	_cleanup_pydecref_ DrgnType *type_obj =
@@ -1524,7 +1528,9 @@ DrgnType *Program_float_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!name)
 		return NULL;
 
-	if (!Program_hold_reserve(self, 1))
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(name_obj);
+	if (!held)
 		return NULL;
 
 	struct drgn_qualified_type qualified_type;
@@ -1537,7 +1543,7 @@ DrgnType *Program_float_type(Program *self, PyObject *args, PyObject *kwds)
 		return set_drgn_error(err);
 
 	if (drgn_type_name(qualified_type.type) == name)
-		Program_hold_object(self, name_obj);
+		Program_hold_objects(self, no_cleanup_ptr(held));
 
 	qualified_type.qualifiers = qualifiers;
 	_cleanup_pydecref_ DrgnType *type_obj =
@@ -1761,11 +1767,20 @@ static DrgnType *Program_compound_type(Program *self, PyObject *args,
 			return NULL;
 	}
 
-	if (!Program_hold_reserve(self,
-				  (tag_obj != Py_None) +
-				  (num_members > 0) +
-				  (num_template_parameters > 0)))
-		return NULL;
+	PyObject *objs[3];
+	size_t num_held = 0;
+	if (tag_obj != Py_None)
+		objs[num_held++] = tag_obj;
+	if (num_members > 0)
+		objs[num_held++] = cached_members;
+	if (num_template_parameters > 0)
+		objs[num_held++] = cached_template_parameters;
+	_cleanup_held_objects_ struct drgnpy_held_objects *held = NULL;
+	if (num_held > 0) {
+		held = drgnpy_held_objects_create(objs, num_held);
+		if (!held)
+			return NULL;
+	}
 
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_compound_type_create(&builder, tag,
@@ -1778,12 +1793,8 @@ static DrgnType *Program_compound_type(Program *self, PyObject *args,
 		return NULL;
 	}
 
-	if (tag_obj != Py_None && drgn_type_tag(qualified_type.type) == tag)
-		Program_hold_object(self, tag_obj);
-	if (num_members > 0)
-		Program_hold_object(self, cached_members);
-	if (num_template_parameters > 0)
-		Program_hold_object(self, cached_template_parameters);
+	if (held)
+		Program_hold_objects(self, no_cleanup_ptr(held));
 
 	qualified_type.qualifiers = qualifiers;
 	_cleanup_pydecref_ DrgnType *type_obj =
@@ -1900,6 +1911,7 @@ DrgnType *Program_enum_type(Program *self, PyObject *args, PyObject *kwds)
 	_cleanup_pydecref_ PyObject *cached_enumerators = NULL;
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err;
+	_cleanup_held_objects_ struct drgnpy_held_objects *held = NULL;
 	if (enumerators_obj == Py_None) {
 		if (compatible_type_obj != Py_None) {
 			PyErr_SetString(PyExc_ValueError,
@@ -1907,8 +1919,11 @@ DrgnType *Program_enum_type(Program *self, PyObject *args, PyObject *kwds)
 			return NULL;
 		}
 
-		if (!Program_hold_reserve(self, tag_obj != Py_None))
-			return NULL;
+		if (tag_obj != Py_None) {
+			held = drgnpy_held_object_create(tag_obj);
+			if (!held)
+				return NULL;
+		}
 
 		err = drgn_incomplete_enum_type_create(&self->prog, tag,
 						       language,
@@ -1955,7 +1970,13 @@ DrgnType *Program_enum_type(Program *self, PyObject *args, PyObject *kwds)
 				return NULL;
 		}
 
-		if (!Program_hold_reserve(self, 1 + (tag_obj != Py_None)))
+		PyObject *objs[2];
+		size_t num_held = 0;
+		objs[num_held++] = cached_enumerators;
+		if (tag_obj != Py_None)
+			objs[num_held++] = tag_obj;
+		held = drgnpy_held_objects_create(objs, num_held);
+		if (!held)
 			return NULL;
 
 		err = drgn_enum_type_create(&builder, tag, compatible_type,
@@ -1964,12 +1985,10 @@ DrgnType *Program_enum_type(Program *self, PyObject *args, PyObject *kwds)
 			set_drgn_error(err);
 			return NULL;
 		}
-
-		Program_hold_object(self, cached_enumerators);
 	}
 
-	if (tag_obj != Py_None && drgn_type_tag(qualified_type.type) == tag)
-		Program_hold_object(self, tag_obj);
+	if (held)
+		Program_hold_objects(self, no_cleanup_ptr(held));
 
 	qualified_type.qualifiers = qualifiers;
 	_cleanup_pydecref_ DrgnType *type_obj =
@@ -2009,7 +2028,9 @@ DrgnType *Program_typedef_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!name)
 		return NULL;
 
-	if (!Program_hold_reserve(self, 1))
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(name_obj);
+	if (!held)
 		return NULL;
 
 	struct drgn_qualified_type qualified_type;
@@ -2021,7 +2042,7 @@ DrgnType *Program_typedef_type(Program *self, PyObject *args, PyObject *kwds)
 		return set_drgn_error(err);
 
 	if (drgn_type_name(qualified_type.type) == name)
-		Program_hold_object(self, name_obj);
+		Program_hold_objects(self, no_cleanup_ptr(held));
 
 	qualified_type.qualifiers = qualifiers;
 	_cleanup_pydecref_ DrgnType *type_obj =
@@ -2233,10 +2254,18 @@ DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds)
 			return NULL;
 	}
 
-	if (!Program_hold_reserve(self,
-				  (num_parameters > 0) +
-				  (num_template_parameters > 0)))
-		return NULL;
+	PyObject *objs[2];
+	size_t num_held = 0;
+	if (num_parameters > 0)
+		objs[num_held++] = cached_parameters;
+	if (num_template_parameters > 0)
+		objs[num_held++] = cached_template_parameters;
+	_cleanup_held_objects_ struct drgnpy_held_objects *held = NULL;
+	if (num_held > 0) {
+		held = drgnpy_held_objects_create(objs, num_held);
+		if (!held)
+			return NULL;
+	}
 
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_function_type_create(&builder,
@@ -2249,10 +2278,8 @@ DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	}
 
-	if (num_parameters > 0)
-		Program_hold_object(self, cached_parameters);
-	if (num_template_parameters > 0)
-		Program_hold_object(self, cached_template_parameters);
+	if (held)
+		Program_hold_objects(self, no_cleanup_ptr(held));
 
 	qualified_type.qualifiers = qualifiers;
 	_cleanup_pydecref_ DrgnType *type_obj =

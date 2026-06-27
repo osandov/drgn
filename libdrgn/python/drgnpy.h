@@ -15,7 +15,7 @@
 #include "../drgn_internal.h"
 // IWYU pragma: end_exports
 
-#include "../hash_table.h"
+#include "../list.h"
 #include "../pp.h"
 #include "../program.h"
 #include "../symbol.h"
@@ -224,18 +224,20 @@ typedef struct {
 	struct drgn_platform *platform;
 } Platform;
 
-DEFINE_HASH_SET_TYPE(pyobjectp_set, PyObject *);
+struct drgnpy_held_objects {
+	struct list_head node;
+	size_t num_objs;
+	PyObject *obj[];
+};
 
 typedef struct {
 	PyObject_HEAD
 	struct drgn_program prog;
 	PyObject *cache;
 	PyObject *config;
-	/*
-	 * Set of objects that we need to hold a reference to during the
-	 * lifetime of the Program.
-	 */
-	struct pyobjectp_set objects;
+	// List of drgnpy_held_objects containing objects that we need to hold a
+	// reference to during the lifetime of the Program.
+	struct list_head held_objects;
 } Program;
 
 typedef struct {
@@ -445,8 +447,23 @@ DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
 
 PyObject *Platform_wrap(const struct drgn_platform *platform);
 
-int Program_hold_object(Program *prog, PyObject *obj);
-bool Program_hold_reserve(Program *prog, size_t n);
+struct drgnpy_held_objects *drgnpy_held_objects_create(PyObject **objs,
+						       size_t n);
+static inline struct drgnpy_held_objects *
+drgnpy_held_object_create(PyObject *obj)
+{
+	return drgnpy_held_objects_create(&obj, 1);
+}
+void drgnpy_held_objects_destroy(struct drgnpy_held_objects *held);
+
+#define _cleanup_held_objects_	_cleanup_(drgnpy_held_objects_destroyp)
+static inline void drgnpy_held_objects_destroyp(struct drgnpy_held_objects **heldp)
+{
+	drgnpy_held_objects_destroy(*heldp);
+}
+
+void Program_hold_objects(Program *prog, struct drgnpy_held_objects *held);
+
 int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 		     struct drgn_qualified_type *ret);
 Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds);

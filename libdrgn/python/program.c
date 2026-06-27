@@ -17,7 +17,7 @@
 #include "../util.h"
 #include "../vector.h"
 
-DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq);
+DEFINE_HASH_SET(pyobjectp_set, PyObject *, ptr_key_hash_pair, scalar_key_eq);
 
 static PyObject *percent_s;
 static PyObject *logging_StreamHandler;
@@ -252,26 +252,37 @@ int init_logging(void)
 	return init_logger_cache_wrapper();
 }
 
-int Program_hold_object(Program *prog, PyObject *obj)
+struct drgnpy_held_objects *
+drgnpy_held_objects_create(PyObject **objs, size_t n)
 {
-	int ret = pyobjectp_set_insert(&prog->objects, &obj, NULL);
-	if (ret > 0) {
-		Py_INCREF(obj);
-		ret = 0;
-	} else if (ret < 0) {
+	struct drgnpy_held_objects *held =
+		malloc_flexible_array(struct drgnpy_held_objects, obj, n);
+	if (!held) {
 		PyErr_NoMemory();
+		return NULL;
 	}
-	return ret;
+	INIT_LIST_HEAD(&held->node);
+	held->num_objs = n;
+	for (size_t i = 0; i < n; i++) {
+		held->obj[i] = objs[i];
+		Py_XINCREF(objs[i]);
+	}
+	return held;
 }
 
-bool Program_hold_reserve(Program *prog, size_t n)
+void drgnpy_held_objects_destroy(struct drgnpy_held_objects *held)
 {
-	if (!pyobjectp_set_reserve(&prog->objects,
-				   pyobjectp_set_size(&prog->objects) + n)) {
-		PyErr_NoMemory();
-		return false;
-	}
-	return true;
+	if (!held)
+		return;
+	list_del(&held->node);
+	for (size_t i = 0; i < held->num_objs; i++)
+		Py_XDECREF(held->obj[i]);
+	free(held);
+}
+
+void Program_hold_objects(Program *prog, struct drgnpy_held_objects *held)
+{
+	list_add_tail(&held->node, &prog->held_objects);
 }
 
 int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
@@ -343,7 +354,7 @@ static Program *Program_new_impl(const struct drgn_platform *platform)
 		return NULL;
 	prog->cache = no_cleanup_ptr(cache);
 	prog->config = no_cleanup_ptr(config);
-	pyobjectp_set_init(&prog->objects);
+	INIT_LIST_HEAD(&prog->held_objects);
 	drgn_program_init(&prog->prog, platform);
 	if (Program_init_logging(prog))
 		return NULL;
@@ -412,9 +423,9 @@ static void Program_dealloc(Program *self)
 	PyObject_GC_UnTrack(self);
 	Program_deinit_logging(self);
 	drgn_program_deinit(&self->prog);
-	hash_table_for_each(pyobjectp_set, it, &self->objects)
-		Py_DECREF(*it.entry);
-	pyobjectp_set_deinit(&self->objects);
+	struct drgnpy_held_objects *held, *tmp;
+	list_for_each_entry_safe(held, tmp, &self->held_objects, node)
+		drgnpy_held_objects_destroy(held);
 	Py_XDECREF(self->config);
 	Py_XDECREF(self->cache);
 	Py_TYPE(self)->tp_free((PyObject *)self);
@@ -422,8 +433,11 @@ static void Program_dealloc(Program *self)
 
 static int Program_traverse(Program *self, visitproc visit, void *arg)
 {
-	hash_table_for_each(pyobjectp_set, it, &self->objects)
-		Py_VISIT(*it.entry);
+	struct drgnpy_held_objects *held;
+	list_for_each_entry(held, &self->held_objects, node) {
+		for (size_t i = 0; i < held->num_objs; i++)
+			Py_VISIT(held->obj[i]);
+	}
 	Py_VISIT(self->cache);
 	Py_VISIT(self->config);
 	return 0;
@@ -431,10 +445,11 @@ static int Program_traverse(Program *self, visitproc visit, void *arg)
 
 static int Program_clear(Program *self)
 {
-	hash_table_for_each(pyobjectp_set, it, &self->objects)
-		Py_DECREF(*it.entry);
-	pyobjectp_set_deinit(&self->objects);
-	pyobjectp_set_init(&self->objects);
+	struct drgnpy_held_objects *held;
+	list_for_each_entry(held, &self->held_objects, node) {
+		for (size_t i = 0; i < held->num_objs; i++)
+			Py_CLEAR(held->obj[i]);
+	}
 	Py_CLEAR(self->cache);
 	Py_CLEAR(self->config);
 	return 0;
@@ -496,13 +511,16 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 		return NULL;
 	}
 
-	if (Program_hold_object(self, read_fn) == -1)
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(read_fn);
+	if (!held)
 		return NULL;
 	err = drgn_program_add_memory_segment(&self->prog, address.uvalue,
 					      size.uvalue, py_memory_read_fn,
 					      read_fn, physical);
 	if (err)
 		return set_drgn_error(err);
+	Program_hold_objects(self, no_cleanup_ptr(held));
 	Py_RETURN_NONE;
 }
 
@@ -776,7 +794,9 @@ static PyObject *Program_register_##which##_finder(Program *self,		\
 	}									\
 										\
 	which##_finder_arg(self, fn)						\
-	if (!Program_hold_reserve(self, 1))					\
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =		\
+		drgnpy_held_object_create(arg);					\
+	if (!held)								\
 		return NULL;							\
 	const struct drgn_##which##_finder_ops ops = {				\
 		.find = py_##which##_find_fn,					\
@@ -785,7 +805,7 @@ static PyObject *Program_register_##which##_finder(Program *self,		\
 						     arg, enable_index);	\
 	if (err)								\
 		return set_drgn_error(err);					\
-	Program_hold_object(self, arg);						\
+	Program_hold_objects(self, no_cleanup_ptr(held));			\
 	Py_RETURN_NONE;								\
 										\
 }										\
@@ -911,7 +931,9 @@ static PyObject *Program_add_type_finder(Program *self, PyObject *args,
 	if (!name)
 		return NULL;
 
-	if (!Program_hold_reserve(self, 1))
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(arg);
+	if (!held)
 		return NULL;
 	const struct drgn_type_finder_ops ops = {
 		.find = py_type_find_fn_old,
@@ -920,7 +942,7 @@ static PyObject *Program_add_type_finder(Program *self, PyObject *args,
 						0);
 	if (err)
 		return set_drgn_error(err);
-	Program_hold_object(self, arg);
+	Program_hold_objects(self, no_cleanup_ptr(held));
 	Py_RETURN_NONE;
 }
 
@@ -947,7 +969,9 @@ static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 	if (!name)
 		return NULL;
 
-	if (!Program_hold_reserve(self, 1))
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(fn);
+	if (!held)
 		return NULL;
 	const struct drgn_object_finder_ops ops = {
 		.find = py_object_find_fn,
@@ -956,7 +980,7 @@ static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 						  0);
 	if (err)
 		return set_drgn_error(err);
-	Program_hold_object(self, fn);
+	Program_hold_objects(self, no_cleanup_ptr(held));
 	Py_RETURN_NONE;
 }
 
