@@ -219,7 +219,7 @@ void drgn_compound_type_builder_init(struct drgn_compound_type_builder *builder,
 /**
  * Deinitialize a @ref drgn_compound_type_builder.
  *
- * Don't call this if @ref drgn_compound_type_create() succeeded.
+ * No-op if @ref drgn_compound_type_create() succeeded.
  */
 void
 drgn_compound_type_builder_deinit(struct drgn_compound_type_builder *builder);
@@ -274,7 +274,7 @@ void drgn_enum_type_builder_init(struct drgn_enum_type_builder *builder,
 /**
  * Deinitialize a @ref drgn_enum_type_builder.
  *
- * Don't call this if @ref drgn_enum_type_create() succeeded.
+ * No-op if @ref drgn_enum_type_create() succeeded.
  */
 void drgn_enum_type_builder_deinit(struct drgn_enum_type_builder *builder);
 
@@ -420,7 +420,7 @@ void drgn_function_type_builder_init(struct drgn_function_type_builder *builder,
 /**
  * Deinitialize a @ref drgn_function_type_builder.
  *
- * Don't call this if @ref drgn_function_type_create() succeeded.
+ * No-op if @ref drgn_function_type_create() succeeded.
  */
 void
 drgn_function_type_builder_deinit(struct drgn_function_type_builder *builder);

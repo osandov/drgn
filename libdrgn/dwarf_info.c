@@ -5922,7 +5922,8 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			return err;
 	}
 
-	struct drgn_compound_type_builder builder;
+	_cleanup_(drgn_compound_type_builder_deinit)
+		struct drgn_compound_type_builder builder;
 	drgn_compound_type_builder_init(&builder, dbinfo->prog, kind);
 
 	int size;
@@ -5952,7 +5953,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 							   little_endian, false,
 							   &builder);
 					if (err)
-						goto err;
+						return err;
 					first_member = false;
 				}
 				member = child;
@@ -5963,13 +5964,13 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			err = maybe_parse_template_parameter(dbinfo, file, &child,
 							     &builder.template_builder);
 			if (err)
-				goto err;
+				return err;
 			break;
 		case DW_TAG_GNU_template_parameter_pack:
 			err = drgn_parse_template_parameter_pack(dbinfo, file, &child,
 								 &builder.template_builder);
 			if (err)
-				goto err;
+				return err;
 			break;
 		default:
 			break;
@@ -5977,9 +5978,8 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		r = dwarf_siblingof(&child, &child);
 	}
 	if (r == -1) {
-		err = drgn_error_create(DRGN_ERROR_BAD_DATA,
-					"libdw could not parse DIE children");
-		goto err;
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "libdw could not parse DIE children");
 	}
 	/*
 	 * Flexible array members are only allowed as the last member of a
@@ -5990,18 +5990,11 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 				   kind != DRGN_TYPE_UNION && !first_member,
 				   &builder);
 		if (err)
-			goto err;
+			return err;
 	}
 
-	err = drgn_compound_type_create(&builder, tag, size, !declaration, lang,
-					ret);
-	if (err)
-		goto err;
-	return NULL;
-
-err:
-	drgn_compound_type_builder_deinit(&builder);
-	return err;
+	return drgn_compound_type_create(&builder, tag, size, !declaration,
+					 lang, ret);
 }
 
 static struct drgn_error *
@@ -6108,7 +6101,8 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 							ret);
 	}
 
-	struct drgn_enum_type_builder builder;
+	_cleanup_(drgn_enum_type_builder_deinit)
+		struct drgn_enum_type_builder builder;
 	drgn_enum_type_builder_init(&builder, dbinfo->prog);
 	bool is_signed = false;
 	Dwarf_Die child;
@@ -6117,50 +6111,40 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		if (dwarf_tag(&child) == DW_TAG_enumerator) {
 			err = parse_enumerator(&child, &builder, &is_signed);
 			if (err)
-				goto err;
+				return err;
 		}
 		r = dwarf_siblingof(&child, &child);
 	}
 	if (r == -1) {
-		err = drgn_error_create(DRGN_ERROR_BAD_DATA,
-					"libdw could not parse DIE children");
-		goto err;
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "libdw could not parse DIE children");
 	}
 
 	struct drgn_type *compatible_type;
 	r = dwarf_type(die, &child);
 	if (r == -1) {
-		err = drgn_error_create(DRGN_ERROR_BAD_DATA,
-					"DW_TAG_enumeration_type has invalid DW_AT_type");
-		goto err;
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "DW_TAG_enumeration_type has invalid DW_AT_type");
 	} else if (r) {
 		err = enum_compatible_type_fallback(dbinfo, die, is_signed,
 						    lang, &compatible_type);
 		if (err)
-			goto err;
+			return err;
 	} else {
 		struct drgn_qualified_type qualified_compatible_type;
 		err = drgn_type_from_dwarf(dbinfo, file, &child,
 					   &qualified_compatible_type);
 		if (err)
-			goto err;
+			return err;
 		compatible_type =
 			drgn_underlying_type(qualified_compatible_type.type);
 		if (drgn_type_kind(compatible_type) != DRGN_TYPE_INT) {
-			err = drgn_error_create(DRGN_ERROR_BAD_DATA,
-						"DW_AT_type of DW_TAG_enumeration_type is not an integer type");
-			goto err;
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
+						 "DW_AT_type of DW_TAG_enumeration_type is not an integer type");
 		}
 	}
 
-	err = drgn_enum_type_create(&builder, tag, compatible_type, lang, ret);
-	if (err)
-		goto err;
-	return NULL;
-
-err:
-	drgn_enum_type_builder_deinit(&builder);
-	return err;
+	return drgn_enum_type_create(&builder, tag, compatible_type, lang, ret);
 }
 
 static struct drgn_error *
@@ -6426,7 +6410,8 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	struct drgn_error *err;
 	char tag_buf[DW_TAG_STR_BUF_LEN];
 
-	struct drgn_function_type_builder builder;
+	_cleanup_(drgn_function_type_builder_deinit)
+		struct drgn_function_type_builder builder;
 	drgn_function_type_builder_init(&builder, dbinfo->prog);
 	bool is_variadic = false;
 	Dwarf_Die child;
@@ -6435,24 +6420,20 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		switch (dwarf_tag(&child)) {
 		case DW_TAG_formal_parameter:
 			if (is_variadic) {
-				err = drgn_error_format(DRGN_ERROR_BAD_DATA,
-							"%s has DW_TAG_formal_parameter child after DW_TAG_unspecified_parameters child",
-							dwarf_tag_str(die,
-								      tag_buf));
-				goto err;
+				return drgn_error_format(DRGN_ERROR_BAD_DATA,
+							 "%s has DW_TAG_formal_parameter child after DW_TAG_unspecified_parameters child",
+							 dwarf_tag_str(die, tag_buf));
 			}
 			err = parse_formal_parameter(dbinfo, file, &child,
 						     &builder);
 			if (err)
-				goto err;
+				return err;
 			break;
 		case DW_TAG_unspecified_parameters:
 			if (is_variadic) {
-				err = drgn_error_format(DRGN_ERROR_BAD_DATA,
-							"%s has multiple DW_TAG_unspecified_parameters children",
-							dwarf_tag_str(die,
-								      tag_buf));
-				goto err;
+				return drgn_error_format(DRGN_ERROR_BAD_DATA,
+							 "%s has multiple DW_TAG_unspecified_parameters children",
+							 dwarf_tag_str(die, tag_buf));
 			}
 			is_variadic = true;
 			break;
@@ -6461,13 +6442,13 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			err = maybe_parse_template_parameter(dbinfo, file, &child,
 							     &builder.template_builder);
 			if (err)
-				goto err;
+				return err;
 			break;
 		case DW_TAG_GNU_template_parameter_pack:
 			err = drgn_parse_template_parameter_pack(dbinfo, file, &child,
 								 &builder.template_builder);
 			if (err)
-				goto err;
+				return err;
 			break;
 		default:
 			break;
@@ -6475,26 +6456,18 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		r = dwarf_siblingof(&child, &child);
 	}
 	if (r == -1) {
-		err = drgn_error_create(DRGN_ERROR_BAD_DATA,
-					"libdw could not parse DIE children");
-		goto err;
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "libdw could not parse DIE children");
 	}
 
 	struct drgn_qualified_type return_type;
 	err = drgn_type_from_dwarf_attr(dbinfo, file, die, lang, true, true,
 					NULL, &return_type);
 	if (err)
-		goto err;
+		return err;
 
-	err = drgn_function_type_create(&builder, return_type, is_variadic,
-					lang, ret);
-	if (err)
-		goto err;
-	return NULL;
-
-err:
-	drgn_function_type_builder_deinit(&builder);
-	return err;
+	return drgn_function_type_create(&builder, return_type, is_variadic,
+					 lang, ret);
 }
 
 static struct drgn_error *

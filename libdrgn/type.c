@@ -606,9 +606,11 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 	drgn_type_member_vector_steal(&builder->members,
 				      &type->templated.extended.type._members,
 				      &type->_num_members);
+	drgn_type_member_vector_init(&builder->members);
 	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
 						  &type->templated._template_parameters,
 						  &type->templated._num_template_parameters);
+	drgn_type_template_parameter_vector_init(&builder->template_builder.parameters);
 	*ret = &no_cleanup_ptr(type)->templated.extended.type;
 	return NULL;
 }
@@ -902,9 +904,11 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 	drgn_type_parameter_vector_steal(&builder->parameters,
 					 &type->extended.type._parameters,
 					 &type->extended.type._num_parameters);
+	drgn_type_parameter_vector_init(&builder->parameters);
 	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
 						  &type->_template_parameters,
 						  &type->_num_template_parameters);
+	drgn_type_template_parameter_vector_init(&builder->template_builder.parameters);
 	*ret = &no_cleanup_ptr(type)->extended.type;
 	return NULL;
 }
@@ -972,17 +976,15 @@ drgn_type_with_byte_order_impl(struct drgn_type **type,
 						     byte_order);
 		if (err)
 			return err;
-		struct drgn_enum_type_builder builder;
-		drgn_enum_type_builder_init(&builder,
-					    drgn_type_program(*type));
+		_cleanup_(drgn_enum_type_builder_deinit)
+			struct drgn_enum_type_builder builder;
+		drgn_enum_type_builder_init(&builder, drgn_type_program(*type));
 		size_t num_enumerators =
 			drgn_type_num_enumerators(*type);
 		if (num_enumerators) {
 			if (!drgn_type_enumerator_vector_resize(&builder.enumerators,
-								num_enumerators)) {
-				drgn_enum_type_builder_deinit(&builder);
+								num_enumerators))
 				return &drgn_enomem;
-			}
 			memcpy(drgn_type_enumerator_vector_begin(&builder.enumerators),
 			       drgn_type_enumerators(*type),
 			       num_enumerators * sizeof(struct drgn_type_enumerator));
@@ -990,11 +992,8 @@ drgn_type_with_byte_order_impl(struct drgn_type **type,
 		err = drgn_enum_type_create(&builder, drgn_type_tag(*type),
 					    compatible_type,
 					    drgn_type_language(*type), type);
-		if (err) {
-			drgn_enum_type_builder_deinit(&builder);
-			return err;
-		}
-		*underlying_type = *type;
+		if (!err)
+			*underlying_type = *type;
 		return err;
 	}
 	default:

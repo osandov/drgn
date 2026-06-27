@@ -1746,25 +1746,26 @@ static DrgnType *Program_compound_type(Program *self, PyObject *args,
 		PyTuple_GET_SIZE(cached_template_parameters);
 	bool can_cache_template_parameters = true;
 
-	struct drgn_compound_type_builder builder;
+	_cleanup_(drgn_compound_type_builder_deinit)
+		struct drgn_compound_type_builder builder;
 	drgn_compound_type_builder_init(&builder, &self->prog, kind);
 	for (size_t i = 0; i < num_members; i++) {
 		if (unpack_member(&builder, PyTuple_GET_ITEM(cached_members, i),
 				  &can_cache_members) == -1)
-			goto err_builder;
+			return NULL;
 	}
 	for (size_t i = 0; i < num_template_parameters; i++) {
 		if (unpack_template_parameter(&builder.template_builder,
 					      PyTuple_GET_ITEM(cached_template_parameters, i),
 					      &can_cache_template_parameters) == -1)
-			goto err_builder;
+			return NULL;
 	}
 
 	if (!Program_hold_reserve(self,
 				  (tag_obj != Py_None) +
 				  (num_members > 0) +
 				  (num_template_parameters > 0)))
-		goto err_builder;
+		return NULL;
 
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_compound_type_create(&builder, tag,
@@ -1774,8 +1775,6 @@ static DrgnType *Program_compound_type(Program *self, PyObject *args,
 							   &qualified_type.type);
 	if (err) {
 		set_drgn_error(err);
-err_builder:
-		drgn_compound_type_builder_deinit(&builder);
 		return NULL;
 	}
 
@@ -1945,7 +1944,8 @@ DrgnType *Program_enum_type(Program *self, PyObject *args, PyObject *kwds)
 			return NULL;
 		size_t num_enumerators = PyTuple_GET_SIZE(cached_enumerators);
 
-		struct drgn_enum_type_builder builder;
+		_cleanup_(drgn_enum_type_builder_deinit)
+			struct drgn_enum_type_builder builder;
 		drgn_enum_type_builder_init(&builder, &self->prog);
 		bool is_signed = drgn_type_is_signed(compatible_type);
 		for (size_t i = 0; i < num_enumerators; i++) {
@@ -1956,14 +1956,12 @@ DrgnType *Program_enum_type(Program *self, PyObject *args, PyObject *kwds)
 		}
 
 		if (!Program_hold_reserve(self, 1 + (tag_obj != Py_None)))
-			goto err_builder;
+			return NULL;
 
 		err = drgn_enum_type_create(&builder, tag, compatible_type,
 					    language, &qualified_type.type);
 		if (err) {
 			set_drgn_error(err);
-err_builder:
-			drgn_enum_type_builder_deinit(&builder);
 			return NULL;
 		}
 
@@ -2219,25 +2217,26 @@ DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds)
 		PyTuple_GET_SIZE(cached_template_parameters);
 	bool can_cache_template_parameters = true;
 
-	struct drgn_function_type_builder builder;
+	_cleanup_(drgn_function_type_builder_deinit)
+		struct drgn_function_type_builder builder;
 	drgn_function_type_builder_init(&builder, &self->prog);
 	for (size_t i = 0; i < num_parameters; i++) {
 		if (unpack_parameter(&builder,
 				     PyTuple_GET_ITEM(cached_parameters, i),
 				     &can_cache_parameters) == -1)
-			goto err_builder;
+			return NULL;
 	}
 	for (size_t i = 0; i < num_template_parameters; i++) {
 		if (unpack_template_parameter(&builder.template_builder,
 					      PyTuple_GET_ITEM(cached_template_parameters, i),
 					      &can_cache_template_parameters) == -1)
-			goto err_builder;
+			return NULL;
 	}
 
 	if (!Program_hold_reserve(self,
 				  (num_parameters > 0) +
 				  (num_template_parameters > 0)))
-		goto err_builder;
+		return NULL;
 
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_function_type_create(&builder,
@@ -2247,8 +2246,6 @@ DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds)
 							   &qualified_type.type);
 	if (err) {
 		set_drgn_error(err);
-err_builder:
-		drgn_function_type_builder_deinit(&builder);
 		return NULL;
 	}
 
