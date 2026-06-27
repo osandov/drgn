@@ -37,27 +37,24 @@ begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
 
 	if (!prog->pgtable_its[prog->address_translation_depth]) {
 		if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-			err = drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
-						"virtual address translation is only available for the Linux kernel");
-			goto err;
+			return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
+						 "virtual address translation is only available for the Linux kernel");
 		}
 		if (!prog->has_platform) {
-			err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						"cannot do virtual address translation without platform");
-			goto err;
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "cannot do virtual address translation without platform");
 		}
 		if (!prog->platform.arch->linux_kernel_pgtable_iterator_next) {
-			err = drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
-						"virtual address translation is not implemented for %s architecture",
-						prog->platform.arch->name);
-			goto err;
+			return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
+						 "virtual address translation is not implemented for %s architecture",
+						 prog->platform.arch->name);
 		}
 		err = prog->platform.arch->linux_kernel_pgtable_iterator_create(
 			prog, &prog->pgtable_its[prog->address_translation_depth]
 		);
 		if (err) {
 			prog->pgtable_its[prog->address_translation_depth] = NULL;
-			goto err;
+			return err;
 		}
 	}
 	struct pgtable_iterator *it =
@@ -68,10 +65,6 @@ begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
 	*ret = it;
 	prog->address_translation_depth++;
 	return NULL;
-
-err:
-	end_virtual_address_translation(prog);
-	return err;
 }
 
 struct drgn_error *linux_helper_direct_mapping_offset(struct drgn_program *prog,
