@@ -768,6 +768,171 @@ static struct drgn_error *qmp_read_vmcoreinfo(struct drgn_program *prog,
 	return parse_vmcoreinfo_from_dump(prog, fd);
 }
 
+static struct drgn_error *drgn_qmp_read_vmcoreinfo(struct drgn_program *prog)
+{
+	static const uint64_t addr_mask = ~UINT64_C(0xc000000000000000);
+	/*
+	 * vmcoreinfo_size holds only the descriptor payload size. The full ELF
+	 * note in memory also includes Elf64_Nhdr (12 bytes) + "VMCOREINFO\0"
+	 * padded to 4-byte alignment (12 bytes) = 24 bytes of overhead.
+	 */
+	static const size_t note_overhead =
+		sizeof(Elf64_Nhdr) + ((sizeof("VMCOREINFO") + 3) & ~3U);
+	struct drgn_error *err;
+
+	struct drgn_symbol *note_sym = NULL;
+	struct drgn_symbol *size_sym = NULL;
+
+	err = drgn_program_find_symbol_by_name(prog, "vmcoreinfo_note",
+					       &note_sym);
+	if (err) {
+		drgn_log_error(prog,
+			       "failed to find vmcoreinfo_note symbol: %s",
+			       err->message);
+		return err;
+	}
+
+	err = drgn_program_find_symbol_by_name(prog, "vmcoreinfo_size",
+					       &size_sym);
+	if (err) {
+		drgn_log_error(prog,
+			       "failed to find vmcoreinfo_size symbol: %s",
+			       err->message);
+		drgn_symbol_destroy(note_sym);
+		return err;
+	}
+
+	uint64_t note_sym_addr = drgn_symbol_address(note_sym) & addr_mask;
+	uint64_t size_sym_addr = drgn_symbol_address(size_sym) & addr_mask;
+	drgn_symbol_destroy(note_sym);
+	drgn_symbol_destroy(size_sym);
+
+	uint64_t vmcoreinfo_addr;
+	err = drgn_qmp_read_memory(&vmcoreinfo_addr, note_sym_addr,
+				   sizeof(vmcoreinfo_addr), 0, prog,
+				   true);
+	if (err) {
+		drgn_log_error(prog,
+			       "failed to read vmcoreinfo_note pointer: %s",
+			       err->message);
+		return err;
+	}
+
+	vmcoreinfo_addr &= addr_mask;
+
+	size_t vmcoreinfo_size;
+	err = drgn_qmp_read_memory(&vmcoreinfo_size, size_sym_addr,
+				   sizeof(vmcoreinfo_size), 0, prog,
+				   true);
+	if (err) {
+		drgn_log_error(prog,
+			       "failed to read vmcoreinfo_size: %s",
+			       err->message);
+		return err;
+	}
+
+	if (vmcoreinfo_size == 0) {
+		drgn_log_error(prog, "vmcoreinfo_size is zero");
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "vmcoreinfo_size is zero");
+	}
+
+	size_t note_size = note_overhead + vmcoreinfo_size;
+
+	void *buf = malloc(note_size);
+	if (!buf) {
+		drgn_log_error(prog,
+			       "failed to allocate %zu byte buffer", note_size);
+		return &drgn_enomem;
+	}
+
+	err = drgn_qmp_read_memory(buf, vmcoreinfo_addr, note_size,
+				   0, prog, true);
+	if (err) {
+		drgn_log_error(prog,
+			       "failed to read vmcoreinfo data: %s",
+			       err->message);
+		free(buf);
+		return err;
+	}
+
+	if (note_size < sizeof(Elf64_Nhdr)) {
+		drgn_log_error(prog,
+			       "vmcoreinfo buffer too small for ELF note header: "
+			       "got %zu, need %zu",
+			       note_size, sizeof(Elf64_Nhdr));
+		free(buf);
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "vmcoreinfo buffer too small for ELF note header");
+	}
+
+	Elf64_Nhdr nhdr;
+	memcpy(&nhdr, buf, sizeof(nhdr));
+
+	size_t name_offset = sizeof(Elf64_Nhdr);
+	size_t name_size   = (nhdr.n_namesz + 3) & ~3U;
+	size_t desc_offset = name_offset + name_size;
+
+	if (desc_offset > note_size) {
+		drgn_log_error(prog,
+			       "ELF note name field exceeds buffer bounds: "
+			       "desc_offset=%zu note_size=%zu",
+			       desc_offset, note_size);
+		free(buf);
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "ELF note name field exceeds buffer bounds");
+	}
+
+	const char *name = (const char *)buf + name_offset;
+	if (nhdr.n_namesz < sizeof("VMCOREINFO") ||
+	    memcmp(name, "VMCOREINFO", sizeof("VMCOREINFO")) != 0) {
+		drgn_log_error(prog,
+			       "ELF note name is not VMCOREINFO: got %.*s",
+			       (int)nhdr.n_namesz, name);
+		free(buf);
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "ELF note name is not VMCOREINFO");
+	}
+
+	if (desc_offset + nhdr.n_descsz > note_size) {
+		drgn_log_error(prog,
+			       "ELF note descriptor exceeds buffer bounds: "
+			       "desc_offset=%zu n_descsz=%" PRIu32
+			       " note_size=%zu",
+			       desc_offset, nhdr.n_descsz, note_size);
+		free(buf);
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "ELF note descriptor exceeds buffer bounds");
+	}
+
+	const char *desc = (const char *)buf + desc_offset;
+	size_t descsz = nhdr.n_descsz;
+
+	err = drgn_program_parse_vmcoreinfo(prog, desc, descsz);
+	if (err) {
+		drgn_log_error(prog,
+			       "drgn_program_parse_vmcoreinfo failed: %s",
+			       err->message);
+		free(buf);
+		return err;
+	}
+	free(buf);
+
+	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+	if (prog->platform.arch->linux_kernel_pgtable_iterator_next) {
+		err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
+						      read_memory_via_pgtable,
+						      prog, false);
+		if (err) {
+			drgn_log_error(prog,
+				       "failed to add pgtable memory segment: %s",
+				       err->message);
+			return err;
+		}
+	}
+	return drgn_program_finish_set_kernel(prog);
+}
+
 static struct drgn_error *qmp_connect_unix(const char *address, int *ret)
 {
 	struct sockaddr_un sa = { .sun_family = AF_UNIX };
@@ -902,10 +1067,22 @@ drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
 
 	struct sockaddr sa;
 	socklen_t sa_len = sizeof(sa);
+	bool vmcoreinfo_parsed = false;
 	if (getsockname(fd, &sa, &sa_len) < 0) {
 		err = drgn_error_create_os("getsockname", errno, NULL);
 		goto err;
 	}
+	if (!had_vmcoreinfo &&
+		prog->platform.arch == &arch_info_ppc64) {
+			err = drgn_qmp_read_vmcoreinfo(prog);
+			if (!err) {
+					vmcoreinfo_parsed = true;
+			} else {
+					drgn_error_destroy(err);
+					err = NULL;
+			}
+	}
+
 	if (sa.sa_family == AF_UNIX) {
 		pid_t pid = qmp_get_peer_pid(prog);
 
@@ -926,7 +1103,7 @@ drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
 						goto err;
 				}
 
-				if (!had_vmcoreinfo) {
+				if (!had_vmcoreinfo && !vmcoreinfo_parsed) {
 					err = qmp_read_vmcoreinfo(prog,
 								  ram_ranges[0].start);
 					if (err)
