@@ -142,7 +142,8 @@ void vector_shrink_to_fit(struct vector *vector);
  * Steal the array of entries from a @ref vector.
  *
  * This returns the internal array of entries. The vector can no longer be used
- * except to be passed to @ref vector_deinit(), which will do nothing.
+ * except to be passed to @ref vector_deinit(), which will do nothing, or @ref
+ * vector_init(), which allows the vector to be reused.
  *
  * This is undefined if the vector type was defined with a non-zero @c
  * inline_size.
