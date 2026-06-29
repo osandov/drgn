@@ -27,6 +27,7 @@ from drgn.helpers.linux.sched import (
     sched_entity_to_task,
     task_cpu,
     task_group_name,
+    task_group_sched_entity,
     task_on_cpu,
     task_since_last_arrival_ns,
     task_state_to_char,
@@ -180,7 +181,7 @@ class TestSched(LinuxKernelTestCase):
             css = cgrp.subsys[self.prog["cpu_cgrp_id"]]
             task_group = container_of(css, "struct task_group", "css")
             cpu = min(os.sched_getaffinity(0))
-            se = task_group.se[cpu].read_()
+            se = task_group_sched_entity(task_group, cpu)
             self.assertFalse(sched_entity_is_task(se))
 
     def test_sched_entity_to_task(self):
@@ -218,7 +219,7 @@ class TestSched(LinuxKernelTestCase):
                 cgrp = cgroup_get_from_path(self.prog, cgroup_dir.name)
                 css = cgrp.subsys[self.prog["cpu_cgrp_id"]]
                 task_group = container_of(css, "struct task_group", "css")
-                task_group_se = task_group.se[cpu].read_()
+                task_group_se = task_group_sched_entity(task_group, cpu)
 
                 task = find_task(self.prog, os.getpid())
                 task_se = task.se.address_of_()
