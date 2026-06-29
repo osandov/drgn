@@ -19,11 +19,11 @@ from _drgn import (
     _linux_helper_task_on_cpu as task_on_cpu,
     _linux_helper_task_thread_info as task_thread_info,
 )
-from drgn import IntegerLike, Object, Program, container_of
+from drgn import NULL, IntegerLike, Object, Program, container_of
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.cgroup import cgroup_name
 from drgn.helpers.linux.list import list_for_each_entry
-from drgn.helpers.linux.percpu import per_cpu
+from drgn.helpers.linux.percpu import per_cpu, per_cpu_ptr
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 __all__ = (
@@ -39,6 +39,7 @@ __all__ = (
     "sched_entity_to_task",
     "task_cpu",
     "task_group_name",
+    "task_group_sched_entity",
     "task_on_cpu",
     "task_rq",
     "task_since_last_arrival_ns",
@@ -274,6 +275,33 @@ def task_group_name(tg: Object) -> bytes:
     if not cgrp:
         return b""
     return cgroup_name(cgrp)
+
+
+def task_group_sched_entity(tg: Object, cpu: IntegerLike) -> Object:
+    """
+    Get the scheduler entity of a task group.
+
+    :param tg: ``struct task_group *``
+    :param cpu: CPU number.
+    :return: ``struct sched_entity *`` (``NULL`` for the root task group)
+    """
+    # struct task_group::se was removed in Linux kernel commit 89e1f67186ba
+    # ("sched/fair: Remove task_group->se pointer array") (in v7.2), and
+    # task_group::cfs_rq became a per-cpu pointer in Linux kernel commit
+    # b8fea7af0e40 ("sched/fair: Allocate cfs_tg_state with percpu allocator")
+    # (also in v7.2).
+    try:
+        return tg.se[cpu].read_()
+    except AttributeError:
+        pass
+
+    prog = tg.prog_
+    if tg == prog["root_task_group"].address_of_():
+        return NULL(prog, "struct sched_entity *")
+
+    return container_of(
+        per_cpu_ptr(tg.cfs_rq, cpu), "struct cfs_tg_state", "cfs_rq"
+    ).se.address_of_()
 
 
 def cfs_rq_for_each_entity(cfs_rq: Object) -> Iterator[Tuple[Object, int, bool, bool]]:

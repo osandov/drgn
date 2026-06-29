@@ -10,7 +10,7 @@ from threading import Condition, Thread
 import time
 import unittest
 
-from drgn import container_of
+from drgn import NULL, container_of
 from drgn.helpers.linux.cgroup import cgroup_get_from_path
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
@@ -193,6 +193,12 @@ class TestSched(LinuxKernelTestCase):
             css = cgrp.subsys[self.prog["cpu_cgrp_id"]]
             task_group = container_of(css, "struct task_group", "css")
             self.assertEqual(task_group_name(task_group), cgroup_dir.name.encode())
+
+    def test_task_group_sched_entity_root(self):
+        self.assertEqual(
+            task_group_sched_entity(self.prog["root_task_group"].address_of_(), 0),
+            NULL(self.prog, "struct sched_entity *"),
+        )
 
     def test_cfs_rq_for_each_entity(self):
         old_affinity = os.sched_getaffinity(0)
