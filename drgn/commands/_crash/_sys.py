@@ -70,6 +70,7 @@ from drgn.helpers.linux.irq import (
     irq_desc_action_names,
     irq_desc_affinity_mask,
     irq_desc_chip_name,
+    irq_get_nr_irqs,
     irq_to_desc,
 )
 from drgn.helpers.linux.kconfig import _get_raw_kconfig
@@ -1096,7 +1097,7 @@ def _crash_cmd_irq(
     if args.number:
 
         def irq_descs(prog: Program) -> Iterator[Tuple[int, Optional[Object]]]:
-            nr_irqs = prog["nr_irqs"].value_()
+            nr_irqs = irq_get_nr_irqs(prog)
             for number in args.number:
                 if number >= nr_irqs:
                     print("irq: invalid IRQ number:", number)
@@ -1115,7 +1116,7 @@ def _crash_cmd_irq(
                     yield prev_irq, None
                 prev_irq = irq
                 yield irq, irq_desc
-            for irq in range(prev_irq + 1, prog["nr_irqs"]):
+            for irq in range(prev_irq + 1, irq_get_nr_irqs(prog)):
                 yield irq, None
 
     rows: List[Sequence[Any]] = [
