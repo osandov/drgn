@@ -26,8 +26,21 @@ __all__ = (
     "irq_desc_affinity_mask",
     "irq_desc_chip_name",
     "irq_desc_kstat_cpu",
+    "irq_get_nr_irqs",
     "irq_to_desc",
 )
+
+
+@takes_program_or_default
+def irq_get_nr_irqs(prog: Program) -> int:
+    """Get the number of IRQs on the system."""
+    # Since Linux kernel commit b99dc723b12e ("genirq: Expose nr_irqs in core
+    # code") (in v7.2), the global variable is named total_nr_irqs. Before
+    # that, it was nr_irqs.
+    try:
+        return prog["total_nr_irqs"].value_()
+    except ObjectNotFoundError:
+        return prog["nr_irqs"].value_()
 
 
 @takes_program_or_default
