@@ -127,12 +127,6 @@
 #ifndef R_RISCV_SUB64
 #define R_RISCV_SUB64 40
 #endif
-#ifndef R_RISCV_GNU_VTINHERIT
-#define R_RISCV_GNU_VTINHERIT 41
-#endif
-#ifndef R_RISCV_GNU_VTENTRY
-#define R_RISCV_GNU_VTENTRY 42
-#endif
 #ifndef R_RISCV_ALIGN
 #define R_RISCV_ALIGN 43
 #endif
@@ -141,21 +135,6 @@
 #endif
 #ifndef R_RISCV_RVC_JUMP
 #define R_RISCV_RVC_JUMP 45
-#endif
-#ifndef R_RISCV_RVC_LUI
-#define R_RISCV_RVC_LUI 46
-#endif
-#ifndef R_RISCV_GPREL_I
-#define R_RISCV_GPREL_I 47
-#endif
-#ifndef R_RISCV_GPREL_S
-#define R_RISCV_GPREL_S 48
-#endif
-#ifndef R_RISCV_TPREL_I
-#define R_RISCV_TPREL_I 49
-#endif
-#ifndef R_RISCV_TPREL_S
-#define R_RISCV_TPREL_S 50
 #endif
 #ifndef R_RISCV_RELAX
 #define R_RISCV_RELAX 51
