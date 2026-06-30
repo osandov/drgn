@@ -34,6 +34,7 @@ _ROOTFS_PACKAGES = (
     "make",
     "pkgconf",
     "python3",
+    "python3-capstone",
     "python3-dev",
     "python3-pip",
     "python3-setuptools",
