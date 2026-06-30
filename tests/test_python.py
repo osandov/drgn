@@ -1,5 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
+
+import capstone  # noqa: F401
+
 import _drgn
 import drgn
 from tests import TestCase
