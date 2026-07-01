@@ -11,7 +11,6 @@ void drgn_program_init_execution_control(struct drgn_program *prog);
 void drgn_program_deinit_execution_control(struct drgn_program *prog);
 void drgn_program_clear_execution_control(struct drgn_program *prog);
 int drgn_program_traverse_execution_control(struct drgn_program *prog,
-	    int (*visit_event)(struct drgn_event *, void *),
 	    int (*visit_thread)(struct drgn_thread *, void *),
 	    int (*visit_breakpoint)(struct drgn_breakpoint *, void *),
 	    int (*visit_breakpoint_site)(struct drgn_breakpoint_site *, void *),

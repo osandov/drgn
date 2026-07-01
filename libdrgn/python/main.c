@@ -330,23 +330,6 @@ static int add_type_aliases(PyObject *m)
 
 	{
 		_cleanup_pydecref_ PyObject *item =
-			Py_BuildValue(
-#define X(type, TYPE, Type) "O"
-DRGN_EVENT_TYPES
-#undef X
-#define X(type, TYPE, Type) , &Type##Event_type
-DRGN_EVENT_TYPES
-#undef X
-				      );
-		if (!item)
-			return -1;
-		if (PyModule_Add(m, "Event",
-				 PyObject_GetItem(typing_Union, item)))
-			return -1;
-	}
-
-	{
-		_cleanup_pydecref_ PyObject *item =
 			Py_BuildValue("OOO", &PyUnicode_Type, &PyBytes_Type,
 				      os_PathLike);
 		if (!item)
@@ -382,9 +365,8 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &DebugInfoOptions_type) ||
 	    add_type(m, &Language_type) || add_languages() ||
 	    add_type(m, &DrgnObject_type) ||
-#define X(type, TYPE, Type) add_type(m, &Type##Event_type) ||
-	    DRGN_EVENT_TYPES
-#undef X
+	    add_event_types(m) ||
+	    add_type(m, &EventListener_type) ||
 	    add_type(m, &ExecutionController_type) ||
 	    PyType_Ready(&MemorySearchIteratorWithBytes_type) ||
 	    PyType_Ready(&MemorySearchIteratorWithInt_type) ||

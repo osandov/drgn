@@ -55,7 +55,6 @@ struct drgn_thread_finder;
 
 DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *);
 DEFINE_HASH_TABLE_TYPE(drgn_prstatus_table, struct drgn_prstatus *);
-DEFINE_DEQUE_TYPE(drgn_event_deque, struct drgn_event *);
 DEFINE_HASH_TABLE_TYPE(drgn_breakpoint_site_table, struct drgn_breakpoint_site *);
 DEFINE_HASH_TABLE_TYPE(fd_handler_table, struct fd_handler *);
 
@@ -159,7 +158,6 @@ struct drgn_program {
 	bool all_stop;
 	bool in_all_stop;
 	bool resuming_threads;
-	struct drgn_event_deque event_queue;
 	struct drgn_breakpoint_site_table breakpoint_sites;
 	struct list_head breakpoints;
 	struct list_head stopped_threads;
@@ -168,6 +166,8 @@ struct drgn_program {
 	const char *modifying_breakpoints;
 	uint64_t breakpoint_sites_generation;
 	uint64_t breakpoints_generation;
+	struct list_head event_listeners;
+	struct drgn_event_listener *event_listeners_to_free;
 	struct fd_handler_table fd_handlers;
 	struct fd_handler *fd_handlers_to_free;
 	int epoll_fd;

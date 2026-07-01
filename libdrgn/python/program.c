@@ -471,24 +471,6 @@ struct traverse_arg {
 	void *arg;
 };
 
-static int visit_event(struct drgn_event *event, void *_arg)
-{
-	struct traverse_arg *arg = _arg;
-	SWITCH_ENUM(event->type) {
-#define X(type, TYPE, Type)						\
-	case DRGN_EVENT_##TYPE:						\
-		return arg->visit(				\
-			(PyObject *)container_of(			\
-				(struct drgn_##type##_event *)event,	\
-				Type##Event, event),			\
-			arg->arg);
-	DRGN_EVENT_TYPES
-#undef X
-	default:
-		UNREACHABLE();
-	}
-}
-
 static int visit_thread(struct drgn_thread *thread, void *_arg)
 {
 	struct traverse_arg *arg = _arg;
@@ -514,7 +496,6 @@ static int Program_traverse(Program *self, visitproc visit, void *arg)
 {
 	struct traverse_arg traverse_arg = { visit, arg };
 	int ret = drgn_program_traverse_execution_control(&self->prog,
-							  visit_event,
 							  visit_thread,
 							  visit_breakpoint,
 							  visit_breakpoint_site,
@@ -2776,9 +2757,8 @@ static int Program_set_language(Program *self, PyObject *value, void *arg)
 	return 0;
 }
 
-static struct drgn_error *py_fd_handler_fn(struct drgn_program *prog, int fd,
-					   enum drgn_fd_events events,
-					   void *arg)
+static void py_fd_handler_fn(struct drgn_program *prog, int fd,
+			     enum drgn_fd_events events, void *arg)
 {
 	struct drgnpy_held_objects *held = arg;
 
@@ -2786,14 +2766,14 @@ static struct drgn_error *py_fd_handler_fn(struct drgn_program *prog, int fd,
 
 	if (events == 0) {
 		drgnpy_held_objects_destroy(held);
-		return NULL;
+		return;
 	}
 
 	// The callback may unregister or replace itself while running, so keep
 	// it alive across the call.
 	_cleanup_pydecref_ PyObject *callback = held->obj[0];
 	if (!callback)
-		return NULL; // Program_clear() was called.
+		return; // Program_clear() was called.
 	Py_INCREF(callback);
 
 	_cleanup_pydecref_ PyObject *ret =
@@ -2801,9 +2781,13 @@ static struct drgn_error *py_fd_handler_fn(struct drgn_program *prog, int fd,
 				      container_of(prog, Program, prog), fd,
 				      PyObject_CallFunction(FdEvents_class, "k",
 							    (unsigned long)events));
-	if (!ret)
-		return drgn_error_from_python();
-	return NULL;
+	if (!ret) {
+		PyErr_WriteUnraisable(callback);
+		// TODO: this is a temporary stopgap to avoid a buggy handler
+		// from looping forever. This should probably be reported as
+		// some sort of fatal error instead.
+		drgn_error_destroy(drgn_program_unregister_fd(prog, fd));
+	}
 }
 
 static PyObject *Program_register_fd(Program *self, PyObject *args,
@@ -2888,6 +2872,85 @@ static PyObject *Program_unregister_fd(Program *self, PyObject *args,
 	struct drgn_error *err = drgn_program_unregister_fd(&self->prog, fd);
 	if (err)
 		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static void py_event_listener_fn(struct drgn_program *prog,
+				 struct drgn_event *event, void *arg)
+{
+	struct drgnpy_held_objects *held = arg;
+
+	PyGILState_guard();
+
+	if (!event) {
+		drgnpy_held_objects_destroy(held);
+		return;
+	}
+
+	// The callback may remove its own listener while running, so keep it
+	// alive across the call.
+	_cleanup_pydecref_ PyObject *callback = held->obj[0];
+	if (!callback)
+		return; // Program_clear() was called.
+	Py_INCREF(callback);
+
+	_cleanup_pydecref_ PyObject *ret =
+		PyObject_CallFunction(callback, "ON",
+				      container_of(prog, Program, prog),
+				      Event_wrap(event));
+	if (!ret)
+		PyErr_WriteUnraisable(callback);
+}
+
+static EventListener *Program_add_event_listener(Program *self, PyObject *args,
+						 PyObject *kwds)
+{
+	static char *keywords[] = {"callback", NULL};
+	PyObject *callback;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_event_listener",
+					 keywords, &callback))
+		return NULL;
+	if (!PyCallable_Check(callback)) {
+		PyErr_SetString(PyExc_TypeError, "callback must be callable");
+		return NULL;
+	}
+
+	_cleanup_pydecref_ EventListener *listener =
+		call_tp_alloc(EventListener);
+	if (!listener)
+		return NULL;
+
+	_cleanup_held_objects_ struct drgnpy_held_objects *held =
+		drgnpy_held_object_create(callback);
+	if (!held)
+		return NULL;
+
+	struct drgn_error *err = drgn_program_add_event_listener(&self->prog,
+								 py_event_listener_fn,
+								 held,
+								 &listener->listener);
+	if (err)
+		return set_drgn_error(err);
+	Program_hold_objects(self, no_cleanup_ptr(held));
+	Py_INCREF(self);
+	return no_cleanup_ptr(listener);
+}
+
+static PyObject *Program_notify_thread_signal(Program *self, PyObject *args,
+					      PyObject *kwds)
+{
+	static char *keywords[] = {"thread", "sig", NULL};
+	Thread *thread;
+	int sig;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!i:notify_thread_signal",
+					 keywords, &Thread_type, &thread, &sig))
+		return NULL;
+	if (drgn_thread_program(&thread->thread) != &self->prog) {
+		PyErr_SetString(PyExc_ValueError,
+				"thread is from different program");
+		return NULL;
+	}
+	drgn_notify_thread_signal(&thread->thread, sig);
 	Py_RETURN_NONE;
 }
 
@@ -3019,6 +3082,10 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_modify_fd_DOC},
 	{"unregister_fd", (PyCFunction)Program_unregister_fd,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_unregister_fd_DOC},
+	{"add_event_listener", (PyCFunction)Program_add_event_listener,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_event_listener_DOC},
+	{"notify_thread_signal", (PyCFunction)Program_notify_thread_signal,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_thread_signal_DOC},
 #if 0
 	{"detach", (PyCFunction)Program_detach, METH_NOARGS,
 	 drgn_Program_detach_DOC},

@@ -198,14 +198,10 @@ typedef struct {
 	PyObject *attr_cache;
 } DrgnType;
 
-#define X(type, TYPE, Type)			\
-typedef struct {				\
-	PyObject_HEAD				\
-	struct drgn_##type##_event event;	\
-} Type##Event;					\
-extern PyTypeObject Type##Event_type;
-DRGN_EVENT_TYPES
-#undef X
+typedef struct {
+	PyObject_HEAD
+	struct drgn_event_listener *listener;
+} EventListener;
 
 typedef struct {
 	PyObject_HEAD
@@ -416,6 +412,7 @@ typedef struct {
 extern PyObject *AbsenceReason_class;
 extern PyObject *Architecture_class;
 extern PyObject *AttachFlags_class;
+extern PyObject *AttachState_class;
 extern PyObject *FdEvents_class;
 extern PyObject *FindObjectFlags_class;
 extern PyObject *KmodSearchMethod_class;
@@ -423,7 +420,6 @@ extern PyObject *ModuleFileStatus_class;
 extern PyObject *ModuleSectionAddresses_class;
 extern PyObject *PlatformFlags_class;
 extern PyObject *PrimitiveType_class;
-extern PyObject *AttachState_class;
 extern PyObject *ProgramFlags_class;
 extern PyObject *Qualifiers_class;
 extern PyObject *SupplementaryFileKind_class;
@@ -434,6 +430,7 @@ extern PyTypeObject Breakpoint_type;
 extern PyTypeObject BreakpointIterator_type;
 extern PyTypeObject BreakpointSite_type;
 extern PyTypeObject BreakpointSiteIterator_type;
+extern PyTypeObject EventListener_type;
 extern PyTypeObject ExecutionController_type;
 extern PyTypeObject DebugInfoOptions_type;
 extern PyTypeObject DrgnObject_type;
@@ -505,6 +502,9 @@ void *set_error_type_name(const char *format,
 			  struct drgn_qualified_type qualified_type);
 
 #define call_tp_alloc(type) ((type *)type##_type.tp_alloc(&type##_type, 0))
+
+int add_event_types(PyObject *m);
+PyObject *Event_wrap(struct drgn_event *event);
 
 int drgnpy_execution_controller_set_ops(struct drgn_execution_controller_ops *ops,
 					PyObject *controller);

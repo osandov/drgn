@@ -11,6 +11,7 @@ import collections.abc
 import enum
 import os
 import sys
+from types import TracebackType
 from typing import (
     Any,
     Callable,
@@ -1238,11 +1239,29 @@ class Program:
         """
         ...
 
-    def register_fd(self, fd: int, events: FdEvents, callback: Callable[[Program, int, FdEvents], None]) -> None:
+    def add_event_listener(self, callback: Callable[[Program, Event], None]) -> EventListener:
         """TODO"""
         ...
 
-    def modify_fd(self, fd: int, events: FdEvents, callback: Optional[Callable[[Program, int, FdEvents], None]] = None) -> None:
+    def notify_thread_signal(self, thread: Thread, sig: int) -> None:
+        """TODO"""
+        ...
+
+    def register_fd(
+        self,
+        fd: int,
+        events: FdEvents,
+        callback: Callable[[Program, int, FdEvents], None],
+    ) -> None:
+        """TODO"""
+        ...
+
+    def modify_fd(
+        self,
+        fd: int,
+        events: FdEvents,
+        callback: Optional[Callable[[Program, int, FdEvents], None]] = None,
+    ) -> None:
         """TODO"""
         ...
 
@@ -2957,6 +2976,7 @@ class AttachFlags(enum.Flag):
 
 class FdEvents(enum.Flag):
     """TODO"""
+
     READ = ...
     WRITE = ...
 
@@ -2970,15 +2990,28 @@ class AttachState(enum.Enum):
     EXITED = ...
     """Program exited while attached."""
 
+class EventListener:
+    """TODO"""
+
+    def remove(self) -> None:
+        """TODO"""
+        ...
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
+        pass
 
 # TODO: should this be a protocol?
 class Promise(Generic[T]):
-    def set_result(self, result: T, /) -> None:
-        ...
-
-    def set_exception(self, exception: BaseException, /) -> None:
-        ...
-
+    def set_result(self, result: T, /) -> None: ...
+    def set_exception(self, exception: BaseException, /) -> None: ...
 
 class ExecutionController:
     """
@@ -2989,7 +3022,7 @@ class ExecutionController:
     <https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Protocol.html>`_).
     """
 
-    def attach(self, prog: Program, flags: AttachFlags, promise: Promise) -> bool:
+    def attach(self, prog: Program, flags: AttachFlags, promise: Promise[bool]) -> None:
         """
         Implement :meth:`Program.attach()`.
 
@@ -3240,12 +3273,9 @@ More event types will be added. Unrecognized events should be ignored.
 """
 
 class ProgramExitEvent:
-    def __new__(cls, status: IntegerLike) -> Self:
+    def __new__(cls, status: int) -> Self:
         """
-        Event raised when the program exits or is terminated by a signal.
-
-        When this event is queued, :attr:`Program.attach_state` is set to
-        :attr:`AttachState.EXITED`.
+        Event delivered when the program exits or is terminated by a signal.
         """
         ...
     status: Final[int]
@@ -3254,10 +3284,9 @@ class ProgramExitEvent:
     the program was terminated by a signal, a negative signal number.
     """
 
-# TODO: this may need to flag something in the thread
 class ThreadExitEvent:
-    def __new__(cls, thread: Thread, status: IntegerLike) -> Self:
-        """Event raised when a thread exits or is terminated by a signal."""
+    def __new__(cls, thread: Thread, status: int) -> Self:
+        """Event delivered when a thread exits or is terminated by a signal."""
         ...
     thread: Final[Thread]
     """Thread that exited."""
@@ -3268,34 +3297,12 @@ class ThreadExitEvent:
     thread was terminated by a signal, a negative signal number.
     """
 
-class ThreadSignalEvent:
-    def __new__(cls, thread: Thread, signal: IntegerLike) -> Self:
-        """
-        Event raised when a thread stops due to receiving a signal.
-
-        When this event is queued, the thread is marked as stopped (see
-        :meth:`Thread.stopped()`). In all-stop mode, all other threads are also
-        marked as stopped.
-
-        In all-stop mode, the execution controller must stop all threads before
-        queueing this event.
-        """
+class ThreadStopEvent:
+    def __new__(cls, thread: Thread) -> Self:
+        """Event delivered when a thread stops."""
         ...
     thread: Final[Thread]
-    """Thread that received the signal."""
-
-    signal: Final[int]
-    """Signal number."""
-
-class BreakpointEvent(ThreadSignalEvent):
-    def __new__(cls, thread: Thread, signal: IntegerLike, site: BreakpointSite) -> Self:
-        """Event raised when a thread hits a breakpoint."""
-        ...
-    site: Final[BreakpointSite]
-    """
-    Site that was hit. Use :meth:`BreakpointSite.enabled_breakpoints()` to get
-    the enabled :class:`Breakpoint`\\ s set at this site.
-    """
+    """Thread that stopped."""
 
 def filename_matches(haystack: Optional[str], needle: Optional[str]) -> bool:
     """

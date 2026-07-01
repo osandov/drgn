@@ -112,7 +112,7 @@ enum drgn_error_code {
 	/** Thread is not currently stopped. */
 	DRGN_ERROR_NOT_STOPPED,
 	/** No events available without blocking. */
-	DRGN_ERROR_NO_EVENTS,
+	DRGN_ERROR_NO_EVENTS, // TODO: remove?
 	/** Number of defined error codes. */
 	DRGN_NUM_ERROR_CODES,
 } __attribute__((__packed__));
@@ -5453,81 +5453,65 @@ struct drgn_error *
 drgn_breakpoint_site_iterator_next(struct drgn_breakpoint_site_iterator *it,
 				   struct drgn_breakpoint_site **ret);
 
-// TODO: explain casting.
+struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms);
+
+struct drgn_event;
+
+// Called with event=NULL to free arg.
+typedef void drgn_event_listener_fn(struct drgn_program *prog,
+				    struct drgn_event *event, void *arg);
+
+struct drgn_event_listener;
+
+struct drgn_program *
+drgn_event_listener_program(const struct drgn_event_listener *listener);
+
+void drgn_event_listener_remove(struct drgn_event_listener *listener);
+
+// ret can be NULL (e.g., if you never plan to remove it).
+struct drgn_error *
+drgn_program_add_event_listener(struct drgn_program *prog,
+				drgn_event_listener_fn *callback, void *arg,
+				struct drgn_event_listener **ret);
+
 struct drgn_event;
 
 enum drgn_event_type {
 	DRGN_EVENT_PROGRAM_EXIT,
 	DRGN_EVENT_THREAD_EXIT,
-	DRGN_EVENT_THREAD_SIGNAL,
-	DRGN_EVENT_BREAKPOINT,
+	DRGN_EVENT_THREAD_STOP,
 };
 
-enum drgn_event_type drgn_event_type(const struct drgn_event *event);
+enum drgn_event_type drgn_event_type(struct drgn_event *event);
 
-struct drgn_program_exit_event;
-struct drgn_thread_exit_event;
-struct drgn_thread_signal_event;
-struct drgn_breakpoint_event;
+static inline bool drgn_event_type_has_exit_status(enum drgn_event_type type)
+{
+	return type == DRGN_EVENT_PROGRAM_EXIT
+	       || type == DRGN_EVENT_THREAD_EXIT;
+}
 
-void drgn_event_incref(struct drgn_event *event);
+struct drgn_error *drgn_event_exit_status(struct drgn_event *event, int *ret);
 
-void drgn_event_decref(struct drgn_event *event);
+static inline bool drgn_event_type_has_thread(enum drgn_event_type type)
+{
+	return type == DRGN_EVENT_THREAD_EXIT || type == DRGN_EVENT_THREAD_STOP;
+}
 
-struct drgn_error *
-drgn_program_exit_event_create(int status,
-			       struct drgn_program_exit_event **ret);
+// Returns borrowed reference.
+struct drgn_error *drgn_event_thread(struct drgn_event *event,
+				     struct drgn_thread **ret);
 
-int drgn_program_exit_event_status(const struct drgn_program_exit_event *event);
-
-struct drgn_error *
-drgn_thread_exit_event_create(struct drgn_thread *thread, int status,
-			      struct drgn_thread_exit_event **ret);
-
-struct drgn_thread *
-drgn_thread_exit_event_thread(const struct drgn_thread_exit_event *event);
-
-int drgn_thread_exit_event_status(const struct drgn_thread_exit_event *event);
-
-struct drgn_error *
-drgn_thread_signal_event_create(struct drgn_thread *thread, int signal,
-				struct drgn_thread_signal_event **ret);
-
-struct drgn_thread *
-drgn_thread_signal_event_thread(const struct drgn_thread_signal_event *event);
-
-int drgn_thread_signal_event_signal(const struct drgn_thread_signal_event *event);
-
-struct drgn_error *
-drgn_breakpoint_event_create(struct drgn_thread *thread, int signal,
-			     struct drgn_breakpoint_site *site,
-			     struct drgn_breakpoint_event **ret);
-
-struct drgn_thread *
-drgn_breakpoint_event_thread(const struct drgn_breakpoint_event *event);
-
-int drgn_breakpoint_event_signal(const struct drgn_breakpoint_event *event);
-
-struct drgn_breakpoint_site *
-drgn_breakpoint_event_site(const struct drgn_breakpoint_event *event);
-
-struct drgn_error *drgn_program_get_event(struct drgn_program *prog, bool block,
-					  struct drgn_event **ret);
-
-struct drgn_error *drgn_program_sync_events(struct drgn_program *prog,
-					    bool block);
-
-struct drgn_error *drgn_program_queue_event(struct drgn_program *prog,
-					    struct drgn_event *event);
+void drgn_notify_thread_signal(struct drgn_thread *thread, int sig);
 
 enum drgn_fd_events {
 	DRGN_FD_EVENT_READ = 1 << 0,
 	DRGN_FD_EVENT_WRITE = 1 << 1,
 };
 
-typedef struct drgn_error *drgn_fd_handler_fn(struct drgn_program *prog, int fd,
-					      enum drgn_fd_events events,
-					      void *arg);
+// TODO: naming
+// Called with events==0 to free arg.
+typedef void drgn_fd_handler_fn(struct drgn_program *prog, int fd,
+				enum drgn_fd_events events, void *arg);
 
 struct drgn_error *drgn_program_register_fd(struct drgn_program *prog, int fd,
 					    enum drgn_fd_events events,

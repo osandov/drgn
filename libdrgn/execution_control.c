@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "array.h"
@@ -23,7 +24,13 @@
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wunused-function"
 
-DEFINE_DEQUE_FUNCTIONS(drgn_event_deque);
+struct drgn_event_listener {
+	struct drgn_program *prog;
+	struct list_head node;
+	drgn_event_listener_fn *callback;
+	void *arg;
+	struct drgn_event_listener *next_to_free;
+};
 
 static inline uint64_t
 drgn_breakpoint_site_to_key(struct drgn_breakpoint_site * const *entry)
@@ -124,36 +131,16 @@ static struct drgn_error *check_attached(struct drgn_program *prog)
 	return NULL;
 }
 
-static inline struct drgn_error *
-sync_events_and_check_attached(struct drgn_program *prog, bool sync_events)
-{
-	if (sync_events) {
-		struct drgn_error *err = drgn_program_sync_events(prog, false);
-		if (err)
-			return err;
-		// drgn_program_sync_events() calls check_attached() before
-		// syncing, but we have to check again since a process exit
-		// event may have been queued.
-	}
-	return check_attached(prog);
-}
-
 void drgn_program_init_execution_control(struct drgn_program *prog)
 {
-	drgn_event_deque_init(&prog->event_queue);
 	drgn_breakpoint_site_table_init(&prog->breakpoint_sites);
 	INIT_LIST_HEAD(&prog->breakpoints);
 	INIT_LIST_HEAD(&prog->stopped_threads);
 	INIT_LIST_HEAD(&prog->resumed_threads);
 	INIT_LIST_HEAD(&prog->running_threads);
+	INIT_LIST_HEAD(&prog->event_listeners);
 	fd_handler_table_init(&prog->fd_handlers);
 	prog->epoll_fd = -1;
-}
-
-static void clear_events(struct drgn_program *prog)
-{
-	while (!drgn_event_deque_empty(&prog->event_queue))
-		drgn_event_decref(*drgn_event_deque_pop_first(&prog->event_queue));
 }
 
 static void clear_running_threads(struct drgn_program *prog)
@@ -224,26 +211,17 @@ static void clear_breakpoints(struct drgn_program *prog)
 
 void drgn_program_clear_execution_control(struct drgn_program *prog)
 {
-	clear_events(prog);
 	clear_controlled_threads(prog);
 	clear_breakpoints(prog);
 }
 
 int drgn_program_traverse_execution_control(struct drgn_program *prog,
-	    int (*visit_event)(struct drgn_event *, void *),
 	    int (*visit_thread)(struct drgn_thread *, void *),
 	    int (*visit_breakpoint)(struct drgn_breakpoint *, void *),
 	    int (*visit_breakpoint_site)(struct drgn_breakpoint_site *, void *),
 	    void *arg)
 {
 	int ret;
-	for (size_t i = 0, n = drgn_event_deque_size(&prog->event_queue);
-	     i < n; i++) {
-		ret = visit_event(*drgn_event_deque_at(&prog->event_queue, i),
-				  arg);
-		if (ret)
-			return ret;
-	}
 	struct drgn_thread *thread;
 	list_for_each_entry(thread, &prog->stopped_threads, node) {
 		ret = visit_thread(thread, arg);
@@ -285,9 +263,103 @@ void drgn_program_deinit_execution_control(struct drgn_program *prog)
 		free(handler);
 	}
 	fd_handler_table_deinit(&prog->fd_handlers);
+
+	struct drgn_event_listener *listener, *tmp;
+	list_for_each_entry_safe(listener, tmp, &prog->event_listeners, node)
+		drgn_event_listener_remove(listener);
+
 	drgn_program_clear_execution_control(prog);
-	drgn_event_deque_deinit(&prog->event_queue);
 	drgn_breakpoint_site_table_deinit(&prog->breakpoint_sites);
+}
+
+static struct fd_handler sentinel_fd_handler;
+
+static struct drgn_error *drgn_program_ensure_epoll_fd(struct drgn_program *prog)
+{
+	if (prog->epoll_fd < 0) {
+		prog->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+		if (prog->epoll_fd < 0)
+			return drgn_error_create_os("epoll_create1", errno, NULL);
+	}
+	return NULL;
+}
+
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms)
+{
+	struct drgn_error *err;
+
+	// Ensure that epoll_wait() works even if no fds have been registered.
+	err = drgn_program_ensure_epoll_fd(prog);
+	if (err)
+		return err;
+
+	struct timespec start, now;
+	if (timeout_ms > 0 && clock_gettime(CLOCK_MONOTONIC, &start) < 0)
+		return drgn_error_create_os("clock_gettime", errno, NULL);
+
+	struct epoll_event events[64];
+	int num_events;
+	int remaining_ms = timeout_ms;
+	for (;;) {
+		drgn_blocking_state blocking_state = drgn_begin_blocking();
+		num_events = epoll_wait(prog->epoll_fd, events,
+					array_size(events), remaining_ms);
+		int saved_errno = errno;
+		err = drgn_end_blocking_and_check_signals(blocking_state);
+		if (err)
+			return err;
+		if (num_events > 0)
+			break;
+		if (num_events == 0)
+			return &no_events_error; // TODO
+		if (saved_errno != EINTR) {
+			return drgn_error_create_os("epoll_wait", saved_errno,
+						    NULL);
+		}
+		if (timeout_ms > 0) {
+			if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
+				return drgn_error_create_os("clock_gettime",
+							    errno, NULL);
+			}
+			long elapsed_ms = (now.tv_sec - start.tv_sec) * 1000
+					  + (now.tv_nsec - start.tv_nsec) / 1000000;
+			if (elapsed_ms > timeout_ms)
+				return &no_events_error; // TODO
+			remaining_ms = timeout_ms - elapsed_ms;
+		}
+	}
+
+	bool free_handlers = !prog->fd_handlers_to_free;
+	if (free_handlers)
+		prog->fd_handlers_to_free = &sentinel_fd_handler;
+
+	for (int i = 0; i < num_events; i++) {
+		struct fd_handler *handler = events[i].data.ptr;
+		if (!handler->callback) {
+			// fd was unregistered from another callback.
+			continue;
+		}
+
+		enum drgn_fd_events fd_events = 0;
+		// Invert masks to catch error conditions, too.
+		if (events[i].events & ~EPOLLOUT)
+			fd_events |= DRGN_FD_EVENT_READ;
+		if (events[i].events & ~EPOLLIN)
+			fd_events |= DRGN_FD_EVENT_WRITE;
+		handler->callback(prog, handler->fd, fd_events, handler->arg);
+	}
+
+	if (free_handlers) {
+		struct fd_handler *handler = prog->fd_handlers_to_free;
+		while (handler != &sentinel_fd_handler) {
+			struct fd_handler *next = handler->next_to_free;
+			free(handler);
+			handler = next;
+		}
+		prog->fd_handlers_to_free = NULL;
+	}
+	return NULL;
 }
 
 struct result_arg {
@@ -311,68 +383,19 @@ static struct result_arg *result_arg_alloc(struct drgn_program *prog)
 	return result;
 }
 
-static struct fd_handler sentinel_fd_handler;
-
 static struct drgn_error *wait_for_result(struct result_arg *result)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = result->prog;
-	struct epoll_event events[64];
-	// TODO: should we return our own error if prog->epoll_fd == -1?
 	while (result->err == &result_pending) {
-		drgn_blocking_state blocking_state = drgn_begin_blocking();
-		int num_events = epoll_wait(prog->epoll_fd, events,
-					    array_size(events), -1);
-		err = drgn_end_blocking_and_check_signals(blocking_state);
-		if (!err && num_events < 0) {
-			if (errno == EINTR)
-				continue;
-			err = drgn_error_create_os("epoll_wait", errno, NULL);
-		}
+		err = drgn_program_poll(prog, -1);
 		if (err) {
+			// drgn_program_poll() never returns an error after
+			// calling any handlers, so the result must still be
+			// pending.
+			assert(result->err == &result_pending);
 			result->err = &result_aborted;
 			return err;
-		}
-
-		bool free_handlers = !prog->fd_handlers_to_free;
-		if (free_handlers)
-			prog->fd_handlers_to_free = &sentinel_fd_handler;
-
-		for (int i = 0; i < num_events; i++) {
-			struct fd_handler *handler = events[i].data.ptr;
-			if (!handler->callback) {
-				// fd was unregistered from another callback.
-				continue;
-			}
-
-			enum drgn_fd_events fd_events = 0;
-			// Invert masks to catch error conditions, too.
-			if (events[i].events & ~EPOLLOUT)
-				fd_events |= DRGN_FD_EVENT_READ;
-			if (events[i].events & ~EPOLLIN)
-				fd_events |= DRGN_FD_EVENT_WRITE;
-			err = handler->callback(prog, handler->fd, fd_events,
-						handler->arg);
-			if (err) {
-				// TODO: this is a stop-gap to prevent a buggy
-				// handler from looping forever. It leaks
-				// result. What should we actually do in this
-				// case? Maybe this should not be able to return
-				// an error, and instead this logic goes in the
-				// Python wrapper specifically for exceptions.
-				drgn_program_unregister_fd(prog, handler->fd);
-				return err;
-			}
-		}
-
-		if (free_handlers) {
-			struct fd_handler *handler = prog->fd_handlers_to_free;
-			while (handler != &sentinel_fd_handler) {
-				struct fd_handler *next = handler->next_to_free;
-				free(handler);
-				handler = next;
-			}
-			prog->fd_handlers_to_free = NULL;
 		}
 	}
 	err = result->err;
@@ -1997,6 +2020,114 @@ drgn_breakpoint_site_iterator_next(struct drgn_breakpoint_site_iterator *it,
 	return NULL;
 }
 
+LIBDRGN_PUBLIC struct drgn_program *
+drgn_event_listener_program(const struct drgn_event_listener *listener)
+{
+	return listener->prog;
+}
+
+LIBDRGN_PUBLIC
+void drgn_event_listener_remove(struct drgn_event_listener *listener)
+{
+	struct drgn_program *prog = listener->prog;
+	listener->callback(prog, NULL, listener->arg);
+	if (prog->event_listeners_to_free) {
+		listener->callback = NULL;
+		listener->next_to_free = prog->event_listeners_to_free;
+		prog->event_listeners_to_free = listener;
+		return;
+	}
+	list_del(&listener->node);
+	free(listener);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_add_event_listener(struct drgn_program *prog,
+				drgn_event_listener_fn *callback, void *arg,
+				struct drgn_event_listener **ret)
+{
+	if (!callback) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "invalid callback");
+	}
+
+	struct drgn_event_listener *listener = malloc(sizeof(*listener));
+	if (!listener)
+		return &drgn_enomem;
+	listener->prog = prog;
+	listener->callback = callback;
+	listener->arg = arg;
+	list_add_tail(&listener->node, &prog->event_listeners);
+	if (ret)
+		*ret = listener;
+	return NULL;
+}
+
+static struct drgn_event_listener sentinel_event_listener;
+
+static struct drgn_event_listener *
+start_for_each_event_listener(struct drgn_event_listener *listener)
+{
+	if (!listener || listener->prog->event_listeners_to_free)
+		return NULL;
+	listener->prog->event_listeners_to_free = &sentinel_event_listener;
+	return listener;
+}
+
+static void end_for_each_event_listener(struct drgn_event_listener **listenerp)
+{
+	if (!*listenerp)
+		return;
+	struct drgn_program *prog = (*listenerp)->prog;
+	struct drgn_event_listener *listener = prog->event_listeners_to_free;
+	while (listener != &sentinel_event_listener) {
+		struct drgn_event_listener *next = listener->next_to_free;
+		list_del(&listener->node);
+		free(listener);
+		listener = next;
+	}
+	prog->event_listeners_to_free = NULL;
+}
+
+static inline struct drgn_event_listener *
+next_event_listener(struct drgn_event_listener *listener,
+		    struct drgn_event_listener *last_listener)
+{
+	while (listener != last_listener) {
+		listener = list_next_entry(listener, node);
+		if (listener->callback)
+			return listener;
+		// Listener was removed.
+	}
+	return NULL;
+}
+
+#define for_each_event_listener(listener, prog)					\
+	for (struct drgn_event_listener *listener =				\
+	     list_first_entry_or_null(&(prog)->event_listeners,			\
+				      struct drgn_event_listener, node),	\
+	     *last_##listener =							\
+	     list_last_entry_or_null(&(prog)->event_listeners,			\
+				     struct drgn_event_listener, node),		\
+	     *cleanup_##listener _cleanup_(end_for_each_event_listener) =	\
+	     start_for_each_event_listener(listener);				\
+	     listener;								\
+	     listener = next_event_listener(listener, last_##listener))
+
+LIBDRGN_PUBLIC void drgn_notify_thread_signal(struct drgn_thread *thread,
+					      int sig)
+{
+	// TODO: this will need to set a stop reason and may need to filter out
+	// internally-generated events.
+	struct drgn_program *prog = drgn_thread_program(thread);
+	struct drgn_event event = {
+		.type = DRGN_EVENT_THREAD_STOP,
+		.thread = thread,
+	};
+	for_each_event_listener(listener, prog)
+		listener->callback(prog, &event, listener->arg);
+}
+
 static inline uint32_t drgn_fd_events_to_epoll(enum drgn_fd_events events)
 {
 	uint32_t ret = 0;
@@ -2013,6 +2144,7 @@ struct drgn_error *drgn_program_register_fd(struct drgn_program *prog, int fd,
 					    drgn_fd_handler_fn *callback,
 					    void *arg)
 {
+	struct drgn_error *err;
 	if (!events || (events & ~(DRGN_FD_EVENT_READ | DRGN_FD_EVENT_WRITE))) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "invalid events");
@@ -2028,11 +2160,9 @@ struct drgn_error *drgn_program_register_fd(struct drgn_program *prog, int fd,
 					 "fd is already registered");
 	}
 
-	if (prog->epoll_fd < 0) {
-		prog->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-		if (prog->epoll_fd < 0)
-			return drgn_error_create_os("epoll_create1", errno, NULL);
-	}
+	err = drgn_program_ensure_epoll_fd(prog);
+	if (err)
+		return err;
 
 	struct fd_handler *handler = malloc(sizeof(*handler));
 	if (!handler)
