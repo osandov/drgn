@@ -221,6 +221,53 @@ static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
 	return PyLong_FromUInt64(offset);
 }
 
+static struct drgn_program *input_hook_prog;
+
+#define input_hook_prog_obj()	\
+	((PyObject *)container_of(input_hook_prog, Program, prog))
+
+static int drgn_input_hook(void)
+{
+	struct drgn_error *err = drgn_program_poll(input_hook_prog, 0);
+	if (err && !drgn_error_catch(&err, DRGN_ERROR_NO_EVENTS)) {
+		PyGILState_guard();
+		_cleanup_pydecref_ PyObject *prog_obj = input_hook_prog_obj();
+		set_drgn_error(err);
+		PyErr_WriteUnraisable(prog_obj);
+		PyOS_InputHook = NULL;
+		input_hook_prog = NULL;
+	}
+	return 0;
+}
+
+static PyObject *install_input_hook(PyObject *self, PyObject *arg)
+{
+	if (!PyObject_TypeCheck(arg, &Program_type)) {
+		PyErr_BadArgument();
+		return NULL;
+	}
+	if (PyOS_InputHook)
+		Py_RETURN_FALSE;
+	Py_INCREF(arg);
+	input_hook_prog = &((Program *)arg)->prog;
+	PyOS_InputHook = drgn_input_hook;
+	Py_RETURN_TRUE;
+}
+
+static PyObject *uninstall_input_hook(PyObject *self, PyObject *arg)
+{
+	if (!PyObject_TypeCheck(arg, &Program_type)) {
+		PyErr_BadArgument();
+		return NULL;
+	}
+	if (PyOS_InputHook == drgn_input_hook && input_hook_prog_obj() == arg) {
+		PyOS_InputHook = NULL;
+		input_hook_prog = NULL;
+		Py_DECREF(arg);
+	}
+	Py_RETURN_NONE;
+}
+
 static PyMethodDef drgn_methods[] = {
 	{"get_default_prog", get_default_prog, METH_NOARGS,
 	 drgn_get_default_prog_DOC},
@@ -248,6 +295,8 @@ static PyMethodDef drgn_methods[] = {
 	 METH_NOARGS, drgn_program_from_kernel_DOC},
 	{"program_from_pid", (PyCFunction)program_from_pid,
 	 METH_VARARGS | METH_KEYWORDS, drgn_program_from_pid_DOC},
+	{"_install_input_hook", install_input_hook, METH_O},
+	{"_uninstall_input_hook", uninstall_input_hook, METH_O},
 	{"_linux_helper_direct_mapping_offset",
 	 (PyCFunction)drgnpy_linux_helper_direct_mapping_offset, METH_O},
 	{"_linux_helper_read_vm", (PyCFunction)drgnpy_linux_helper_read_vm,

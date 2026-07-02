@@ -1239,7 +1239,9 @@ class Program:
         """
         ...
 
-    def add_event_listener(self, callback: Callable[[Program, Event], None]) -> EventListener:
+    def add_event_listener(
+        self, callback: Callable[[Program, Event], None]
+    ) -> EventListener:
         """TODO"""
         ...
 
@@ -3263,11 +3265,9 @@ class BreakpointSite:
     enabled this breakpoint site. Initially ``None``.
     """
 
-Event: TypeAlias = Union[
-    ProgramExitEvent, ThreadExitEvent, ThreadSignalEvent, BreakpointEvent
-]
+Event: TypeAlias = Union[ProgramExitEvent, ThreadExitEvent, ThreadStopEvent]
 """
-Event returned by :meth:`Program.get_event()`.
+Event returned by :meth:`Program.get_event()` TODO.
 
 More event types will be added. Unrecognized events should be ignored.
 """
@@ -5451,3 +5451,5 @@ def _linux_helper_load_proc_kallsyms(
     modules: bool = False,
 ) -> SymbolIndex: ...
 def _linux_helper_load_builtin_kallsyms(prog: Program) -> SymbolIndex: ...
+def _install_input_hook(prog: Program) -> bool: ...
+def _uninstall_input_hook(prog: Program) -> None: ...

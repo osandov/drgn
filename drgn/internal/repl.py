@@ -46,12 +46,40 @@ try:
         console.write(banner + "\n")
         run_multiline_interactive_console(console)
 
+    def print_above_prompt(s: str) -> None:
+        reader = readline._get_reader()
+        console = reader.console
+
+        if reader.finished:
+            # Not in prompt right now.
+            os.write(console.output_fd, s.encode(console.encoding, "replace") + b"\n")
+            return
+
+        _, cy = console.posxy  # cursor's row within the rendered prompt block
+
+        out = bytearray(b"\r")  # Move cursor to column 0.
+        if cy:
+            out.extend(b"\x1b[%dA" % cy)  # Move cursor up to first row of prompt.
+        out.extend(b"\x1b[0J")  # Erase from cursor to end of screen.
+        out.extend(s.encode(console.encoding, "replace"))
+        out.extend(b"\r\n")
+        os.write(console.output_fd, out)
+
+        console.posxy = (0, 0)
+        if hasattr(console, "invalidate_render_state"):
+            console.invalidate_render_state()  # Python >= 3.15.
+        else:
+            console.screen = []  # Python < 3.15.
+        reader.refresh()
+
 except (ModuleNotFoundError, ImportError):
     from code import InteractiveConsole as _BaseConsole
     import readline
 
     def interact(local: Dict[str, Any], banner: str) -> None:
         _InteractiveConsoleWithCommand(local).interact(banner, exitmsg="")
+
+    # TODO: print_above_prompt
 
 
 class _InteractiveConsoleWithCommand(_BaseConsole):

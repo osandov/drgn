@@ -18,8 +18,9 @@ import shutil
 import sys
 from typing import IO, Any, Callable, Dict, Iterator, Optional, Tuple, Type, TypeVar
 
+from _drgn import _install_input_hook, _uninstall_input_hook
 import drgn
-from drgn.internal.repl import interact, readline
+from drgn.internal.repl import interact, print_above_prompt, readline
 from drgn.internal.rlcompleter import Completer
 from drgn.internal.sudohelper import open_via_sudo
 
@@ -814,6 +815,20 @@ def _setup_readline(
         current_history_file = old_history_file
 
 
+def _event_listener(prog: drgn.Program, event: drgn.Event) -> None:
+    print_above_prompt(str(event))
+
+
+@contextlib.contextmanager
+def _input_hook(prog: drgn.Program) -> Iterator[None]:
+    try:
+        installed = _install_input_hook(prog)
+        yield
+    finally:
+        if installed:
+            _uninstall_input_hook(prog)
+
+
 def run_interactive(
     prog: drgn.Program,
     banner_func: Optional[Callable[[str], str]] = None,
@@ -870,7 +885,9 @@ For help, type help(drgn).
         old_default_prog = None
     had_outer_repl = "outer_repl" in prog.config
 
-    with _setup_readline(_history_file(), Completer(init_globals).complete):
+    with _setup_readline(
+        _history_file(), Completer(init_globals).complete
+    ), prog.add_event_listener(_event_listener), _input_hook(prog):
         try:
             sys.path.insert(0, "")
             sys.displayhook = _displayhook
