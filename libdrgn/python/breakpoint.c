@@ -121,49 +121,32 @@ static int Breakpoint_set_data(Breakpoint *self, PyObject *value)
 	return 0;
 }
 
-#if 0
-static PyObject *Breakpoint_remove(Breakpoint *self, PyObject *args,
-				   PyObject *kwds)
+static PyObject *Breakpoint_remove(Breakpoint *self,
+				   PyObject *Py_UNUSED(ignored))
 {
-	static char *keywords[] = {"sync_events", NULL};
-	int sync_events = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$p:remove", keywords,
-					 &sync_events))
-		return NULL;
-	struct drgn_error *err = drgn_breakpoint_remove(&self->bp, sync_events);
+	struct drgn_error *err = drgn_breakpoint_remove(&self->bp);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
-static PyObject *Breakpoint_enable(Breakpoint *self, PyObject *args,
-				   PyObject *kwds)
+static PyObject *Breakpoint_enable(Breakpoint *self,
+				   PyObject *Py_UNUSED(ignored))
 {
-	static char *keywords[] = {"sync_events", NULL};
-	int sync_events = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$p:enable", keywords,
-					 &sync_events))
-		return NULL;
-	struct drgn_error *err = drgn_breakpoint_enable(&self->bp, sync_events);
+	struct drgn_error *err = drgn_breakpoint_enable(&self->bp);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
-static PyObject *Breakpoint_disable(Breakpoint *self, PyObject *args,
-				    PyObject *kwds)
+static PyObject *Breakpoint_disable(Breakpoint *self,
+				    PyObject *Py_UNUSED(ignored))
 {
-	static char *keywords[] = {"sync_events", NULL};
-	int sync_events = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$p:disable", keywords,
-					 &sync_events))
-		return NULL;
-	struct drgn_error *err = drgn_breakpoint_disable(&self->bp, sync_events);
+	struct drgn_error *err = drgn_breakpoint_disable(&self->bp);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
-#endif
 
 static PyObject *Breakpoint_get_enabled(Breakpoint *self)
 {
@@ -189,14 +172,12 @@ static PyGetSetDef Breakpoint_getset[] = {
 };
 
 static PyMethodDef Breakpoint_methods[] = {
-#if 0
-	{"remove", (PyCFunction)Breakpoint_remove,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Breakpoint_remove_DOC},
-	{"enable", (PyCFunction)Breakpoint_enable,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Breakpoint_enable_DOC},
-	{"disable", (PyCFunction)Breakpoint_disable,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Breakpoint_disable_DOC},
-#endif
+	{"remove", (PyCFunction)Breakpoint_remove, METH_NOARGS,
+	 drgn_Breakpoint_remove_DOC},
+	{"enable", (PyCFunction)Breakpoint_enable, METH_NOARGS,
+	 drgn_Breakpoint_enable_DOC},
+	{"disable", (PyCFunction)Breakpoint_disable, METH_NOARGS,
+	 drgn_Breakpoint_disable_DOC},
 	{},
 };
 

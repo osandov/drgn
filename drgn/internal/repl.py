@@ -4,12 +4,17 @@
 """Compatibility shim between drgn and the pyrepl/code modules"""
 
 import builtins
+import contextlib
 import os
-from typing import TYPE_CHECKING, Any, Dict
+import select
+import traceback
+from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional
 
+import _drgn
+import drgn
 from drgn.commands import _write_command_error, run_command
 
-__all__ = ("interact", "readline")
+__all__ = ("interact", "poll_program", "print_above_prompt", "readline")
 
 # Python 3.13 introduces a new REPL implemented by the "_pyrepl" internal
 # module. It includes features such as colored output and multiline editing.
@@ -46,6 +51,47 @@ try:
         console.write(banner + "\n")
         run_multiline_interactive_console(console)
 
+    @contextlib.contextmanager
+    def poll_program(prog: drgn.Program) -> Iterator[None]:
+        prog_fd = prog._poll_fd
+
+        console = readline._get_reader().console
+        orig_wait = console.wait
+
+        try:
+            console.pollob.register(prog_fd, select.POLLIN)
+
+            def wait(self: Any, timeout: Optional[float] = None) -> bool:
+                try:
+                    if not self.event_queue.empty():
+                        return True
+                    ret = False
+                    for fd, _ in self.pollob.poll(timeout):
+                        if fd == prog_fd:
+                            while prog.poll(0):
+                                pass
+                        else:
+                            ret = True
+                    return ret
+                except Exception:
+                    traceback.print_exc()
+                    console.wait = orig_wait
+                    try:
+                        console.pollob.unregister(prog_fd)
+                    except KeyError:
+                        pass
+                    return orig_wait(timeout)
+
+            console.wait = wait.__get__(console)
+
+            yield
+        finally:
+            console.wait = orig_wait
+            try:
+                console.pollob.unregister(prog_fd)
+            except KeyError:
+                pass
+
     def print_above_prompt(s: str) -> None:
         reader = readline._get_reader()
         console = reader.console
@@ -79,7 +125,17 @@ except (ModuleNotFoundError, ImportError):
     def interact(local: Dict[str, Any], banner: str) -> None:
         _InteractiveConsoleWithCommand(local).interact(banner, exitmsg="")
 
-    # TODO: print_above_prompt
+    @contextlib.contextmanager
+    def poll_program(prog: drgn.Program) -> Iterator[None]:
+        try:
+            installed = _drgn._install_input_hook(prog)
+            yield
+        finally:
+            if installed:
+                _drgn._uninstall_input_hook(prog)
+
+    def print_above_prompt(s: str) -> None:  # TODO
+        print(s)
 
 
 class _InteractiveConsoleWithCommand(_BaseConsole):

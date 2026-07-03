@@ -3,6 +3,30 @@
 
 #include "drgnpy.h"
 
+static PyObject *ResumeAction_wrap(const struct drgn_resume_action *action)
+{
+	PyObject *type;
+	SWITCH_ENUM(action->mode) {
+	case DRGN_RESUME_MODE_CONTINUE:
+		type = ContinueResumeAction_class;
+		break;
+	case DRGN_RESUME_MODE_STEPI:
+		type = StepiResumeAction_class;
+		break;
+	default:
+		UNREACHABLE();
+	}
+
+	PyObject *thread;
+	if (action->thread) {
+		thread = (PyObject *)container_of(action->thread, Thread,
+						  thread);
+	} else {
+		thread = Py_None;
+	}
+	return PyObject_CallFunction(type, "Oi", thread, action->sig);
+}
+
 static PyObject *ExecutionController_not_implemented(PyObject *self,
 						     PyObject *args,
 						     PyObject *kwds)
@@ -13,14 +37,13 @@ static PyObject *ExecutionController_not_implemented(PyObject *self,
 
 #define EXECUTION_CONTROLLER_METHODS	\
 	X(attach)			\
-	X(detach)
-	// X(set_all_stop)
-	// X(interrupt_thread)
-	// X(interrupt_any_thread)
-	// X(resume_all_threads)
-	// X(resume_only_threads)
-	// X(enable_breakpoint_sites)
-	// X(disable_breakpoint_sites)
+	X(detach)			\
+	/* X(set_all_stop) */		\
+	/* X(interrupt_thread) */	\
+	X(interrupt_any_thread)		\
+	X(resume_threads)		\
+	X(enable_breakpoint_sites)	\
+	X(disable_breakpoint_sites)
 
 static PyMethodDef ExecutionController_methods[] = {
 #define X(name)									\
@@ -151,21 +174,67 @@ py_execution_controller_interrupt_thread(void *arg,
 		return drgn_error_from_python();
 	return NULL;
 }
+#endif
 
-static struct drgn_error *
+static void
 py_execution_controller_interrupt_any_thread(void *arg,
-					     struct drgn_program *prog)
+					     struct drgn_program *prog,
+					     drgn_success_fn *on_success,
+					     drgn_error_fn *on_error,
+					     void *result_arg)
 {
 	PyGILState_guard();
 
+	_cleanup_pydecref_ Promise *promise =
+		NonePromise_wrap(on_success, on_error, result_arg);
+	if (!promise)
+		return;
+
 	_cleanup_pydecref_ PyObject *res =
-		PyObject_CallMethod(arg, "interrupt_any_thread", "O",
-				    container_of(prog, Program, prog));
+		PyObject_CallMethod(arg, "interrupt_any_thread", "OO",
+				    container_of(prog, Program, prog), promise);
 	if (!res)
-		return drgn_error_from_python();
-	return NULL;
+		promise_catch_exception(promise);
 }
 
+static void
+py_execution_controller_resume_threads(void *arg, struct drgn_program *prog,
+				       const struct drgn_resume_action *actions,
+				       size_t num_actions,
+				       drgn_success_fn *on_success,
+				       drgn_error_fn *on_error,
+				       void *result_arg)
+{
+	PyGILState_guard();
+
+	_cleanup_pydecref_ Promise *promise =
+		NonePromise_wrap(on_success, on_error, result_arg);
+	if (!promise)
+		return;
+
+	_cleanup_pydecref_ PyObject *actions_tuple = PyTuple_New(num_actions);
+	if (!actions_tuple)
+		goto err;
+
+	for (size_t i = 0; i < num_actions; i++) {
+		PyObject *action_obj = ResumeAction_wrap(&actions[i]);
+		if (!action_obj)
+			goto err;
+		PyTuple_SET_ITEM(actions_tuple, i, action_obj);
+	}
+
+	_cleanup_pydecref_ PyObject *res =
+		PyObject_CallMethod(arg, "resume_threads", "OOO",
+				    container_of(prog, Program, prog),
+				    actions_tuple, promise);
+	if (res)
+		return;
+
+err:
+	promise_catch_exception(promise);
+}
+
+#if 0
 static struct drgn_error *
 py_execution_controller_resume_threads_call(void *arg, const char *method,
 					    struct drgn_program *prog,
@@ -221,50 +290,72 @@ py_execution_controller_resume_only_threads(void *arg,
 							   prog, threads, sigs,
 							   num_threads);
 }
+#endif
 
-static struct drgn_error *
-py_execution_controller_breakpoint_sites_call(void *arg, const char *method,
+static void
+py_execution_controller_breakpoint_sites_call(const char *method, void *arg,
 					      struct drgn_breakpoint_site * const *sites,
-					      size_t num_sites)
+					      size_t num_sites,
+					      drgn_success_fn *on_success,
+					      drgn_error_fn *on_error,
+					      void *result_arg)
 {
+	PyGILState_guard();
+
+	_cleanup_pydecref_ Promise *promise =
+		NonePromise_wrap(on_success, on_error, result_arg);
+	if (!promise)
+		return;
+
 	_cleanup_pydecref_ PyObject *sites_tuple = PyTuple_New(num_sites);
 	if (!sites_tuple)
-		return drgn_error_from_python();
+		goto err;
+
 	for (size_t i = 0; i < num_sites; i++) {
 		BreakpointSite *py_site =
 			container_of(sites[i], BreakpointSite, site);
 		Py_INCREF(py_site);
 		PyTuple_SET_ITEM(sites_tuple, i, (PyObject *)py_site);
 	}
+
 	_cleanup_pydecref_ PyObject *res =
-		PyObject_CallMethod(arg, method, "O", sites_tuple);
-	if (!res)
-		return drgn_error_from_python();
-	return NULL;
+		PyObject_CallMethod(arg, method, "OO", sites_tuple, promise);
+	if (res)
+		return;
+
+err:
+	promise_catch_exception(promise);
 }
 
-static struct drgn_error *
+static void
 py_execution_controller_enable_breakpoint_sites(void *arg,
 						struct drgn_breakpoint_site * const *sites,
-						size_t num_sites)
+						size_t num_sites,
+						drgn_success_fn *on_success,
+						drgn_error_fn *on_error,
+						void *result_arg)
 {
-	PyGILState_guard();
-	return py_execution_controller_breakpoint_sites_call(arg,
-							     "enable_breakpoint_sites",
-							     sites, num_sites);
+	py_execution_controller_breakpoint_sites_call("enable_breakpoint_sites",
+						      arg, sites, num_sites,
+						      on_success, on_error,
+						      result_arg);
 }
 
-static struct drgn_error *
+static void
 py_execution_controller_disable_breakpoint_sites(void *arg,
 						 struct drgn_breakpoint_site * const *sites,
-						 size_t num_sites)
+						 size_t num_sites,
+						 drgn_success_fn *on_success,
+						 drgn_error_fn *on_error,
+						 void *result_arg)
 {
-	PyGILState_guard();
-	return py_execution_controller_breakpoint_sites_call(arg,
-							     "disable_breakpoint_sites",
-							     sites, num_sites);
+	py_execution_controller_breakpoint_sites_call("disable_breakpoint_sites",
+						      arg, sites, num_sites,
+						      on_success, on_error,
+						      result_arg);
 }
 
+#if 0
 static struct drgn_error *
 py_execution_controller_queue_events(void *arg, struct drgn_program *prog,
 				     bool block)

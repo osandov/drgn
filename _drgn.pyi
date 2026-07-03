@@ -586,7 +586,6 @@ class Program:
         *,
         hardware: bool = False,
         enable: bool = True,
-        sync_events: bool = True,
     ) -> Breakpoint:
         """
         Set a breakpoint at the given location.
@@ -600,8 +599,6 @@ class Program:
         :param enable: Whether the breakpoint is initially enabled. If
             ``False``, the breakpoint is created but does not stop execution
             until :meth:`Breakpoint.enable()` is called.
-        :param sync_events: Whether to update state using
-            :meth:`Program.sync_events()` first.
         :raises UnsupportedOperation: if breakpoints are not supported
         :raises ProgramExitedError: if program exited
         :raises NotAttachedError: if not attached to program
@@ -652,73 +649,10 @@ class Program:
         """
         ...
 
-    def get_event(self, block: bool = True) -> Event:
-        """
-        Get the next execution control event.
-
-        :param block: Whether to wait when there are no events available.
-        :raises NoEventsError: if *block* is ``False`` and there are no events
-            available without waiting
-        :raises ProgramExitedError: if program exited
-        :raises NotAttachedError: if not attached to program
-        """
+    def poll(self, timeout: Optional[float] = None) -> bool:
+        """TODO"""
         ...
-
-    def sync_events(self, block: bool = False) -> None:
-        """
-        Update state about thread stops, exits, etc.
-
-        This buffers all available execution control events, which updates
-        drgn's view of the current state of the program.
-
-        This is inherently racy since something else may happen to the program
-        between syncing and the subsequent operation.
-
-        Execution control operations that depend on program state call this by
-        default for convenience when debugging interactively.
-        Applications/scripts using an event loop may want to suppress this by
-        passing ``sync_events=False``:
-
-        .. code-block:: python3
-
-            while True:
-                event = prog.get_event()
-                if isinstance(event, ThreadSignalEvent):
-                    ...  # Handle event
-                    event.thread.resume(sync_events=False)
-
-        Tight loops may also want to call this once manually and suppress the
-        automatic calls:
-
-        .. code-block:: python3
-
-            prog.sync_events()
-            for thread in prog.threads():
-                if thread.stopped(sync_events=False):
-                    ...  # Handle stopped thread.
-
-        :param block: Whether to wait for at least one event before queuing
-            additional events that are available without waiting.
-        :raises ProgramExitedError: if program exited
-        :raises NotAttachedError: if not attached to program
-        """
-        ...
-
-    def queue_event(self, event: Event) -> None:
-        """
-        Queue an execution control event to be returned by a future call to
-        :meth:`get_event()`.
-
-        This is typically only used by :class:`ExecutionController`
-        implementations.
-
-        State is updated immediately when an event is queued, not when it is
-        returned by :meth:`get_event()`.
-
-        :raises ProgramExitedError: if program exited
-        :raises NotAttachedError: if not attached to program
-        """
-        ...
+    _poll_fd: int
 
     def read(
         self, address: IntegerLike, size: IntegerLike, physical: bool = False
@@ -1245,7 +1179,23 @@ class Program:
         """TODO"""
         ...
 
-    def notify_thread_signal(self, thread: Thread, sig: int) -> None:
+    def notify_thread_unknown_stop(
+        self, thread: Thread, sig: IntegerLike, pc: IntegerLike
+    ) -> None:
+        """TODO"""
+        ...
+
+    def notify_thread_signal(self, thread: Thread, sig: IntegerLike) -> None:
+        """TODO"""
+        ...
+
+    def notify_thread_breakpoint(
+        self, thread: Thread, sig: IntegerLike, site: BreakpointSite
+    ) -> None:
+        """TODO"""
+        ...
+
+    def notify_all_stop(self) -> None:
         """TODO"""
         ...
 
@@ -2747,18 +2697,8 @@ class Thread:
         :meth:`Program.stack_trace()`.
         """
         ...
-
-    def stopped(self, *, sync_events: bool = True) -> int:
-        """
-        Return non-zero if this thread is currently stopped.
-
-        :param sync_events: Whether to update state using
-            :meth:`Program.sync_events()` first.
-        :return: If this thread is stopped due to a signal, the signal number.
-            If this thread is stopped because another thread was stopped in
-            all-stop mode, -1. Otherwise, 0.
-        """
-        ...
+    stop_reason: Optional[StopReason]
+    """TODO"""
 
     def interrupt(self) -> None:
         """
@@ -2780,9 +2720,7 @@ class Thread:
         """
         ...
 
-    def resume(
-        self, sig: IntegerLike = -1, *, only: bool = False, sync_events: bool = True
-    ) -> None:
+    def cont(self, sig: IntegerLike = -1, *, only: bool = False) -> None:
         """
         Resume this stopped thread.
 
@@ -2806,8 +2744,6 @@ class Thread:
                     if isinstance(event, ThreadSignalEvent):
                         ...  # Handle event
                         event.thread.resume(sync_events=False)
-        :param sync_events: Whether to update state using
-            :meth:`Program.sync_events()` first.
         :raises UnsupportedOperation: if resuming threads with the given *only*
             argument is not supported
         :raises NotStoppedError: if the thread is not stopped
@@ -2992,6 +2928,34 @@ class AttachState(enum.Enum):
     EXITED = ...
     """Program exited while attached."""
 
+StopReason: TypeAlias = Union[
+    SyntheticStopReason, SignalStopReason, BreakpointStopReason
+]
+"""TODO"""
+
+class SyntheticStopReason:
+    def __new__(cls) -> Self:
+        """TODO"""
+        ...
+    # TODO: should it have sig that's always 0?
+
+class SignalStopReason:
+    def __new__(cls, sig: int) -> Self:
+        """TODO"""
+        ...
+    sig: Final[int]
+    """TODO"""
+
+class BreakpointStopReason:
+    def __new__(cls, sig: int, site: BreakpointSite) -> Self:
+        """TODO"""
+        ...
+    sig: Final[int]
+    """TODO"""
+
+    site: Final[BreakpointSite]
+    """TODO"""
+
 class EventListener:
     """TODO"""
 
@@ -3014,6 +2978,25 @@ class EventListener:
 class Promise(Generic[T]):
     def set_result(self, result: T, /) -> None: ...
     def set_exception(self, exception: BaseException, /) -> None: ...
+
+ResumeAction: TypeAlias = Union[ContinueResumeAction, StepiResumeAction]
+"""TODO"""
+
+class ContinueResumeAction:
+    """TODO"""
+
+    thread: Final[Optional[Thread]]
+    """TODO"""
+    sig: Final[int]
+    """TODO"""
+
+class StepiResumeAction:
+    """TODO"""
+
+    thread: Final[Optional[Thread]]
+    """TODO"""
+    sig: Final[int]
+    """TODO"""
 
 class ExecutionController:
     """
@@ -3069,48 +3052,15 @@ class ExecutionController:
         """Implement :meth:`Program.interrupt_any_thread()`."""
         ...
 
-    def resume_all_threads(
-        self, prog: Program, threads: Sequence[Tuple[Thread, int]]
+    def resume_threads(
+        self, prog: Program, actions: Sequence[ResumeAction], promise: Promise[None]
     ) -> None:
-        """
-        Resume all stopped threads.
-
-        This is called for :meth:`Program.resume_all_threads()` in all-stop
-        mode and :meth:`Thread.resume()` in all-stop mode when ``only=False``.
-
-        This should either resume all threads, or if it can't, raise an
-        exception and resume nothing.
-
-        :param threads: Sequence of ``(thread, signal)`` pairs, where *signal*
-            is the signal to forward to *thread* on resume or 0 to suppress.
-
-            This includes all threads that were stopped by a signal and any
-            threads that were explicitly resumed by the user. Threads that were
-            stopped automatically for all-stop mode and were not explicitly
-            resumed by the user are not included, but they should still be
-            resumed (with no signal).
-        """
+        """TODO"""
         ...
 
-    def resume_only_threads(
-        self, prog: Program, threads: Sequence[Tuple[Thread, int]]
+    def enable_breakpoint_sites(
+        self, sites: Sequence[BreakpointSite], promise: Promise[None]
     ) -> None:
-        """
-        Resume only the given threads.
-
-        This is called for :meth:`Program.resume_only_threads()`,
-        :meth:`Program.resume_all_threads()` in non-stop mode, and
-        :meth:`Thread.resume()` in non-stop mode or when ``only=True``.
-
-        This should either resume all of the given threads, or if it can't,
-        raise an exception and resume none of them.
-
-        :param threads: Sequence of ``(thread, signal)`` pairs, where *signal*
-            is the signal to forward to *thread* on resume or 0 to suppress.
-        """
-        ...
-
-    def enable_breakpoint_sites(self, sites: Sequence[BreakpointSite]) -> None:
         """
         Enable the given breakpoint sites in the program.
 
@@ -3125,7 +3075,9 @@ class ExecutionController:
         """
         ...
 
-    def disable_breakpoint_sites(self, sites: Sequence[BreakpointSite]) -> None:
+    def disable_breakpoint_sites(
+        self, sites: Sequence[BreakpointSite], promise: Promise[None]
+    ) -> None:
         """
         Disable the given breakpoint sites in the program.
 
@@ -3186,36 +3138,27 @@ class Breakpoint:
     removed: bool
     """Whether this breakpoint has been removed."""
 
-    def remove(self, *, sync_events: bool = True) -> None:
+    def remove(self) -> None:
         """
         Remove this breakpoint.
 
         If the breakpoint has already been removed, this does nothing.
-
-        :param sync_events: Whether to update state using
-            :meth:`Program.sync_events()` first.
         """
         ...
 
-    def enable(self, *, sync_events: bool = True) -> None:
+    def enable(self) -> None:
         """
         Enable this breakpoint.
 
         If the breakpoint is already enabled, this does nothing.
-
-        :param sync_events: Whether to update state using
-            :meth:`Program.sync_events()` first.
         """
         ...
 
-    def disable(self, *, sync_events: bool = True) -> None:
+    def disable(self) -> None:
         """
         Disable this breakpoint.
 
         If the breakpoint is already disabled, this does nothing.
-
-        :param sync_events: Whether to update state using
-            :meth:`Program.sync_events()` first.
         """
         ...
     data: object

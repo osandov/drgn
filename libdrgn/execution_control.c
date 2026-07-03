@@ -16,6 +16,7 @@
 #include "execution_control.h"
 #include "hash_table.h"
 #include "list.h"
+#include "log.h"
 #include "program.h"
 #include "thread.h"
 #include "util.h"
@@ -78,9 +79,6 @@ get_enabled_controller(struct drgn_program *prog)
 	return drgn_handler_list_first_enabled(&prog->execution_controllers);
 }
 
-static struct drgn_error exited_error =
-	DRGN_ERROR_INIT(DRGN_ERROR_PROGRAM_EXITED, "program exited");
-
 static struct drgn_error not_attached_error =
 	DRGN_ERROR_INIT(DRGN_ERROR_NOT_ATTACHED, "not attached to program");
 
@@ -98,6 +96,10 @@ drgn_execution_controller_init(struct drgn_program *prog,
 	if (!controller->ops.detach) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "drgn_execution_controller_ops::detach is required");
+	}
+	if (!controller->ops.resume_threads) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "drgn_execution_controller_ops::resume_threads is required");
 	}
 	if (!controller->ops.enable_breakpoint_sites
 	    != !controller->ops.disable_breakpoint_sites) {
@@ -124,11 +126,19 @@ drgn_execution_controller_check_change_enabled(struct drgn_program *prog,
 
 static struct drgn_error *check_attached(struct drgn_program *prog)
 {
-	if (prog->attach_state == DRGN_ATTACH_STATE_DETACHED)
-		return &not_attached_error;
-	else if (prog->attach_state == DRGN_ATTACH_STATE_EXITED)
-		return &exited_error;
-	return NULL;
+	SWITCH_ENUM(prog->attach_state) {
+	case DRGN_ATTACH_STATE_DETACHED:
+	case DRGN_ATTACH_STATE_ATTACHING:
+		return drgn_error_create(DRGN_ERROR_NOT_ATTACHED,
+					 "not attached to program");
+	case DRGN_ATTACH_STATE_ATTACHED:
+		return NULL;
+	case DRGN_ATTACH_STATE_EXITED:
+		return drgn_error_create(DRGN_ERROR_PROGRAM_EXITED,
+					 "program exited");
+	default:
+		UNREACHABLE();
+	}
 }
 
 void drgn_program_init_execution_control(struct drgn_program *prog)
@@ -274,7 +284,7 @@ void drgn_program_deinit_execution_control(struct drgn_program *prog)
 
 static struct fd_handler sentinel_fd_handler;
 
-static struct drgn_error *drgn_program_ensure_epoll_fd(struct drgn_program *prog)
+struct drgn_error *drgn_program_ensure_epoll_fd(struct drgn_program *prog)
 {
 	if (prog->epoll_fd < 0) {
 		prog->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -285,7 +295,8 @@ static struct drgn_error *drgn_program_ensure_epoll_fd(struct drgn_program *prog
 }
 
 LIBDRGN_PUBLIC
-struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms)
+struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms,
+				     bool *ret)
 {
 	struct drgn_error *err;
 
@@ -311,8 +322,11 @@ struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms)
 			return err;
 		if (num_events > 0)
 			break;
-		if (num_events == 0)
-			return &no_events_error; // TODO
+		if (num_events == 0) {
+			if (ret)
+				*ret = false;
+			return NULL;
+		}
 		if (saved_errno != EINTR) {
 			return drgn_error_create_os("epoll_wait", saved_errno,
 						    NULL);
@@ -324,11 +338,18 @@ struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms)
 			}
 			long elapsed_ms = (now.tv_sec - start.tv_sec) * 1000
 					  + (now.tv_nsec - start.tv_nsec) / 1000000;
-			if (elapsed_ms > timeout_ms)
-				return &no_events_error; // TODO
+			if (elapsed_ms > timeout_ms) {
+				if (ret)
+					*ret = false;
+				return NULL;
+			}
 			remaining_ms = timeout_ms - elapsed_ms;
 		}
 	}
+
+	// NB: we guarantee that an abort callback won't be called after its
+	// corresponding success or error callback is called, so we can't return
+	// an error after calling any handlers.
 
 	bool free_handlers = !prog->fd_handlers_to_free;
 	if (free_handlers)
@@ -359,6 +380,8 @@ struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms)
 		}
 		prog->fd_handlers_to_free = NULL;
 	}
+	if (ret)
+		*ret = true;
 	return NULL;
 }
 
@@ -373,28 +396,60 @@ static struct drgn_error result_pending =
 static struct drgn_error result_aborted =
 	DRGN_ERROR_INIT(DRGN_ERROR_RUNTIME, "result aborted");
 
+static void result_arg_init(struct result_arg *result, struct drgn_program *prog)
+{
+	result->prog = prog;
+	result->err = &result_pending;
+}
+
 static struct result_arg *result_arg_alloc(struct drgn_program *prog)
 {
 	struct result_arg *result = malloc(sizeof(*result));
-	if (result) {
-		result->prog = prog;
-		result->err = &result_pending;
-	}
+	if (result)
+		result_arg_init(result, prog);
 	return result;
 }
 
-static struct drgn_error *wait_for_result(struct result_arg *result)
+// Returns false if result was previously aborted and is now freed, false
+// otherwise.
+static bool set_result(struct result_arg *result, struct drgn_error *err)
+{
+	// pending -NULL------------> completed
+	//         -!NULL-----------> errored
+	//         -&result_aborted-> aborted -any-> freed
+	// TODO: document state transitions better
+	if (result->err != &result_pending) {
+		// Result must only be set once.
+		assert(result->err == &result_aborted);
+		// Result can only be aborted while it is pending.
+		assert(err != &result_aborted);
+		drgn_error_destroy(err);
+		free(result);
+		return false;
+	}
+	result->err = err;
+	return true;
+}
+
+static void noop_success(void *arg)
+{
+	set_result(arg, NULL);
+}
+
+static void noop_error(void *arg, struct drgn_error *err)
+{
+	set_result(arg, err);
+}
+
+static struct drgn_error *wait_for_result(struct result_arg *result,
+					  drgn_error_fn *on_abort)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = result->prog;
 	while (result->err == &result_pending) {
-		err = drgn_program_poll(prog, -1);
+		err = drgn_program_poll(prog, -1, NULL);
 		if (err) {
-			// drgn_program_poll() never returns an error after
-			// calling any handlers, so the result must still be
-			// pending.
-			assert(result->err == &result_pending);
-			result->err = &result_aborted;
+			on_abort(result, &result_aborted);
 			return err;
 		}
 	}
@@ -406,31 +461,21 @@ static struct drgn_error *wait_for_result(struct result_arg *result)
 static void attach_success(void *arg, bool all_stop)
 {
 	struct result_arg *result = arg;
-	if (result->err != &result_pending) {
-		if (result->err == &result_aborted)
-			free(result);
+	if (!set_result(result, NULL))
 		return;
-	}
 
 	struct drgn_program *prog = result->prog;
 	prog->attach_state = DRGN_ATTACH_STATE_ATTACHED;
 	prog->all_stop = all_stop;
-	result->err = NULL;
 }
 
 static void attach_error(void *arg, struct drgn_error *err)
 {
 	struct result_arg *result = arg;
-	if (result->err != &result_pending) {
-		drgn_error_destroy(err);
-		if (result->err == &result_aborted)
-			free(result);
+	if (!set_result(result, err))
 		return;
-	}
 
-	struct drgn_program *prog = result->prog;
-	prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
-	result->err = err;
+	result->prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -465,8 +510,7 @@ drgn_program_attach(struct drgn_program *prog, enum drgn_attach_flags flags)
 
 	ctrl->ops.attach(ctrl->arg, prog, flags, attach_success, attach_error,
 			 result);
-	// TODO: mark detached in aborted case?
-	return wait_for_result(result);
+	return wait_for_result(result, attach_error);
 }
 
 #if 0
@@ -551,6 +595,7 @@ drgn_program_set_all_stop(struct drgn_program *prog, bool all_stop,
 	// This only affects future events, so we don't touch in_all_stop.
 	return NULL;
 }
+#endif
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_interrupt_any_thread(struct drgn_program *prog)
@@ -563,27 +608,35 @@ drgn_program_interrupt_any_thread(struct drgn_program *prog)
 		return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
 					 "interrupting any thread is not supported");
 	}
-	return ctrl->ops.interrupt_any_thread(ctrl->arg, prog);
+
+	struct result_arg *result = result_arg_alloc(prog);
+	if (!result)
+		return &drgn_enomem;
+	ctrl->ops.interrupt_any_thread(ctrl->arg, prog, noop_success,
+				       noop_error, result);
+	return wait_for_result(result, noop_error);
 }
-#endif
 
-// TODO: update signature.
 LIBDRGN_PUBLIC
-struct drgn_error *drgn_thread_stopped(struct drgn_thread *thread,
-				       bool sync_events, int *ret)
+enum drgn_stop_reason drgn_thread_stop_reason(struct drgn_thread *thread)
 {
-	struct drgn_program *prog = drgn_thread_program(thread);
+	if (thread->stop_reason == DRGN_STOP_REASON_NONE
+	    && drgn_thread_program(thread)->in_all_stop)
+		return DRGN_STOP_REASON_SYNTHETIC;
+	return thread->stop_reason;
+}
 
-	// TODO: needs updates.
-	if (list_empty(&thread->node))
-		*ret = prog->in_all_stop /* TODO:|| prog->paused */ ? -1 : 0;
-	else if (thread->last_signal >= 0)
-		*ret = thread->last_signal;
-	else if (thread->resume_signal >= 0)
-		*ret = -1;
-	else
-		*ret = 0;
-	return NULL;
+LIBDRGN_PUBLIC int drgn_thread_stop_signal(struct drgn_thread *thread)
+{
+	if (drgn_thread_stop_reason(thread) == DRGN_STOP_REASON_SYNTHETIC)
+		return 0;
+	return thread->stop_signal;
+}
+
+LIBDRGN_PUBLIC struct drgn_breakpoint_site *
+drgn_thread_stop_breakpoint_site(struct drgn_thread *thread)
+{
+	return thread->stop_site;
 }
 
 #if 0
@@ -617,6 +670,7 @@ resuming_threads_guard_cleanup(struct drgn_program **progp)
 {
 	(*progp)->resuming_threads = false;
 }
+#endif
 
 static inline void move_thread(struct drgn_thread *thread,
 			       struct list_head *list)
@@ -628,7 +682,6 @@ static inline void move_thread(struct drgn_thread *thread,
 		list_move_tail(&thread->node, list);
 	}
 }
-
 // TODO: name
 static inline void unleash_thread(struct drgn_thread *thread)
 {
@@ -643,13 +696,14 @@ static void set_resume_signal(struct drgn_thread *thread, int sig)
 	if (sig == DRGN_RESUME_DEFAULT_SIGNAL) {
 		if (thread->resume_signal >= 0)
 			return;
-		sig = thread->last_signal;
+		sig = drgn_thread_stop_signal(thread);
 		if (sig == SIGINT || sig == SIGTRAP)
 			sig = 0;
 	}
 	thread->resume_signal = sig;
 }
 
+#if 0
 static void clear_resumed_threads(struct drgn_program *prog,
 				  struct drgn_thread * const *threads, size_t n)
 {
@@ -725,7 +779,241 @@ resume_all_threads(struct drgn_program *prog,
 	}
 	return NULL;
 }
+#endif
 
+static struct drgn_event_listener sentinel_event_listener;
+
+static struct drgn_event_listener *
+start_for_each_event_listener(struct drgn_event_listener *listener)
+{
+	if (!listener || listener->prog->event_listeners_to_free)
+		return NULL;
+	listener->prog->event_listeners_to_free = &sentinel_event_listener;
+	return listener;
+}
+
+static void end_for_each_event_listener(struct drgn_event_listener **listenerp)
+{
+	if (!*listenerp)
+		return;
+	struct drgn_program *prog = (*listenerp)->prog;
+	struct drgn_event_listener *listener = prog->event_listeners_to_free;
+	while (listener != &sentinel_event_listener) {
+		struct drgn_event_listener *next = listener->next_to_free;
+		list_del(&listener->node);
+		free(listener);
+		listener = next;
+	}
+	prog->event_listeners_to_free = NULL;
+}
+
+static inline struct drgn_event_listener *
+next_event_listener(struct drgn_event_listener *listener,
+		    struct drgn_event_listener *last_listener)
+{
+	while (listener != last_listener) {
+		listener = list_next_entry(listener, node);
+		if (listener->callback)
+			return listener;
+		// Listener was removed.
+	}
+	return NULL;
+}
+
+#define for_each_event_listener(listener, prog)					\
+	for (struct drgn_event_listener *listener =				\
+	     list_first_entry_or_null(&(prog)->event_listeners,			\
+				      struct drgn_event_listener, node),	\
+	     *last_##listener =							\
+	     list_last_entry_or_null(&(prog)->event_listeners,			\
+				     struct drgn_event_listener, node),		\
+	     *cleanup_##listener _cleanup_(end_for_each_event_listener) =	\
+	     start_for_each_event_listener(listener);				\
+	     listener;								\
+	     listener = next_event_listener(listener, last_##listener))
+
+static void emit_thread_stop_event(struct drgn_thread *thread)
+{
+	struct drgn_program *prog = drgn_thread_program(thread);
+	struct drgn_event event = {
+		.type = DRGN_EVENT_THREAD_STOP,
+		.thread = thread,
+	};
+	for_each_event_listener(listener, prog)
+		listener->callback(prog, &event, listener->arg);
+}
+
+struct resume_threads_result {
+	struct result_arg result;
+	struct drgn_resume_action *actions;
+	size_t num_actions;
+};
+
+static void resume_threads_success(void *arg)
+{
+	struct resume_threads_result *result = arg;
+	struct drgn_program *prog = result->result.prog;
+	_cleanup_free_ struct drgn_resume_action *actions = result->actions;
+	size_t num_actions = result->num_actions;
+	if (!set_result(&result->result, NULL))
+		return;
+
+	assert(!actions[num_actions - 1].thread
+	       && actions[num_actions - 1].mode == DRGN_RESUME_MODE_CONTINUE
+	       && actions[num_actions - 1].sig == 0);
+
+	num_actions--;
+
+	for (size_t i = 0; i < num_actions; i++) {
+		struct drgn_thread *thread = actions[i].thread;
+
+		thread->stop_reason = DRGN_STOP_REASON_NONE;
+		thread->stop_signal = -1;
+		thread->resume_signal = -1;
+		drgn_clear_ref(thread->stop_site);
+		unleash_thread(thread);
+	}
+
+	/* clear_running_threads(prog); */
+	prog->in_all_stop = false;
+}
+
+static void resume_threads_error(void *arg, struct drgn_error *err)
+{
+	struct resume_threads_result *result = arg;
+	free(result->actions);
+	set_result(&result->result, err);
+}
+
+// TODO: pass inline_size?
+DEFINE_VECTOR(drgn_resume_action_vector, struct drgn_resume_action);
+
+static struct drgn_error *resume_all_threads(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+	VECTOR(drgn_resume_action_vector, actions);
+	struct drgn_thread *thread;
+	list_for_each_entry(thread, &prog->resumed_threads, node) {
+		struct drgn_resume_action action = {
+			.thread = thread,
+			.mode = thread->resume_mode,
+			.sig = thread->resume_signal,
+		};
+		if (!drgn_resume_action_vector_append(&actions, &action))
+			return &drgn_enomem;
+	}
+
+	struct drgn_resume_action action = {
+		.mode = DRGN_RESUME_MODE_CONTINUE,
+	};
+	if (!drgn_resume_action_vector_append(&actions, &action))
+		return &drgn_enomem;
+
+	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
+
+	struct resume_threads_result *result = malloc(sizeof(*result));
+	if (!result)
+		return &drgn_enomem;
+	result_arg_init(&result->result, prog);
+	drgn_resume_action_vector_steal(&actions, &result->actions,
+					&result->num_actions);
+	ctrl->ops.resume_threads(ctrl->arg, prog, result->actions,
+				 result->num_actions, resume_threads_success,
+				 resume_threads_error, result);
+	return wait_for_result(&result->result, resume_threads_error);
+}
+
+#if 0
+static void resume_only_thread_success(void *arg)
+{
+	if (!set_result(result, NULL))
+		return;
+
+	if (thread->resume_signal < 0) {
+		// The thread stopped again while resuming.
+		continue;
+	}
+	thread->stop_reason = DRGN_STOP_REASON_NONE;
+	thread->resume_signal = -1;
+	unleash_thread(thread);
+}
+
+static struct drgn_error *resume_only_thread(struct drgn_thread *thread)
+{
+	struct drgn_program *prog = drgn_thread_program(thread);
+	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
+
+	struct drgn_thread_resume_action action = {
+		.thread = thread,
+		.mode = thread->resume_mode,
+		.sig = thread->resume_signal,
+	};
+
+	struct result_arg *result = result_arg_alloc(prog);
+	if (!result)
+		return &drgn_enomem;
+	ctrl->ops.resume_threads(ctrl->arg, prog, &action, 1, false,
+				 resume_only_thread_success, noop_error,
+				 result);
+	return wait_for_result(result);
+}
+#endif
+
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_thread_continue(struct drgn_thread *thread, int sig,
+					bool only)
+{
+	struct drgn_error *err;
+
+	if (sig < 0 && sig != DRGN_RESUME_DEFAULT_SIGNAL) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "resume signal must be non-negative");
+	}
+
+	if (drgn_thread_stop_reason(thread) == DRGN_STOP_REASON_NONE) {
+		return drgn_error_create(DRGN_ERROR_NOT_STOPPED,
+					 "thread is not stopped");
+	}
+
+	struct drgn_program *prog = drgn_thread_program(thread);
+
+	err = check_attached(prog);
+	if (err)
+		return err;
+
+	set_resume_signal(thread, sig);
+	thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
+
+	if (prog->in_all_stop && !only) {
+		bool was_first_stopped =
+			list_is_first(&thread->node, &prog->stopped_threads);
+
+		move_thread(thread, &prog->resumed_threads);
+
+		if (!list_empty(&prog->stopped_threads)) {
+			if (was_first_stopped) {
+				struct drgn_thread *next_stopped =
+					list_first_entry(&prog->stopped_threads,
+							 struct drgn_thread,
+							 node);
+				emit_thread_stop_event(next_stopped);
+			}
+			return NULL;
+		}
+
+		return resume_all_threads(prog);
+	} else {
+		return drgn_error_format(DRGN_ERROR_OTHER, "TODO %d %d",
+					 prog->in_all_stop, only);
+#if 0
+		move_thread(thread, &prog->resumed_threads);
+		return resume_only_thread(thread);
+#endif
+	}
+}
+
+#if 0
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_thread_resume(struct drgn_thread *thread, int sig, bool only,
 		   bool sync_events)
@@ -959,7 +1247,7 @@ static bool add_action(struct drgn_thread_resume_action_vector *controller_actio
 	    && drgn_breakpoint_site_enabled(thread->breakpoint_site)) {
 		struct drgn_thread_resume_action tmp_action = {
 			.thread = thread,
-			.mode = DRGN_THREAD_RESUME_STEP,
+			.mode = DRGN_RESUME_MODE_STEP,
 			.sig = action->sig,
 		};
 		// TODO: add to breakpoints
@@ -996,8 +1284,8 @@ drgn_program_resume_threads(struct drgn_program *prog,
 		struct drgn_thread *thread = action->thread;
 
 		SWITCH_ENUM(action->mode) {
-		case DRGN_THREAD_RESUME_CONTINUE:
-		case DRGN_THREAD_RESUME_STEP:
+		case DRGN_RESUME_MODE_CONTINUE:
+		case DRGN_RESUME_MODE_STEP:
 			if (action->sig < 0
 			    && action->sig != DRGN_RESUME_DEFAULT_SIGNAL) {
 				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -1087,10 +1375,10 @@ drgn_program_resume_threads(struct drgn_program *prog,
 				continue;
 			}
 
-			if (thread->resuming == DRGN_THREAD_RESUME_CONTINUE) {
+			if (thread->resuming == DRGN_RESUME_MODE_CONTINUE) {
 				struct drgn_thread_resume_action tmp_action = {
 					.thread = thread,
-					.mode = DRGN_THREAD_RESUME_CONTINUE,
+					.mode = DRGN_RESUME_MODE_CONTINUE,
 				};
 				// TODO: reserve so this can't fail.
 				drgn_thread_resume_action_vector_append(&controller_actions,
@@ -1125,7 +1413,7 @@ drgn_program_resume_threads(struct drgn_program *prog,
 		struct drgn_thread_resume_action *action =
 			drgn_thread_resume_action_vector_pop(&controller_actions);
 		SWITCH_ENUM(action->mode) {
-		case DRGN_THREAD_RESUME_CONTINUE:
+		case DRGN_RESUME_MODE_CONTINUE:
 			// As long as no other threads stopped, we're no longer
 			// in all-stop.
 			if (prog->in_all_stop && prog->resuming) {
@@ -1133,7 +1421,7 @@ drgn_program_resume_threads(struct drgn_program *prog,
 				clear_running_threads(prog);
 			}
 			break;
-		case DRGN_THREAD_RESUME_STEP:
+		case DRGN_RESUME_MODE_STEP:
 			if (prog->all_stop) {
 				prog->in_all_stop = true;
 				clear_running_threads(prog);
@@ -1155,13 +1443,13 @@ drgn_program_resume_threads(struct drgn_program *prog,
 		thread->last_signal = -1;
 		thread->resume_signal = -1;
 		SWITCH_ENUM(action->mode) {
-		case DRGN_THREAD_RESUME_CONTINUE:
+		case DRGN_RESUME_MODE_CONTINUE:
 			if (prog->in_all_stop)
 				move_thread(thread, &prog->running_threads);
 			else
 				unleash_thread(thread);
 			break;
-		case DRGN_THREAD_RESUME_STEP:
+		case DRGN_RESUME_MODE_STEP:
 			move_thread(thread, &prog->stopped_threads);
 			break;
 		default:
@@ -1169,101 +1457,6 @@ drgn_program_resume_threads(struct drgn_program *prog,
 		}
 	}
 
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_get_event(struct drgn_program *prog, bool block,
-		       struct drgn_event **ret)
-{
-	// Do this before check_attached() so that we can return queued events
-	// from an exited program.
-	if (!drgn_event_deque_empty(&prog->event_queue)) {
-		*ret = *drgn_event_deque_pop_first(&prog->event_queue);
-		return NULL;
-	}
-
-	struct drgn_error *err = check_attached(prog);
-	if (err)
-		return err;
-
-	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-	err = ctrl->ops.queue_events(ctrl->arg, prog, block);
-	if (err)
-		return err;
-
-	if (drgn_event_deque_empty(&prog->event_queue))
-		return &no_events_error;
-	*ret = *drgn_event_deque_pop_first(&prog->event_queue);
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_sync_events(struct drgn_program *prog, bool block)
-{
-	struct drgn_error *err = check_attached(prog);
-	if (err)
-		return err;
-	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-	if (block) {
-		err = ctrl->ops.queue_events(ctrl->arg, prog, true);
-		if (err)
-			return err;
-	}
-	size_t prev_size;
-	do {
-		prev_size = drgn_event_deque_size(&prog->event_queue);
-		err = ctrl->ops.queue_events(ctrl->arg, prog, false);
-		if (err)
-			return err;
-	} while (drgn_event_deque_size(&prog->event_queue) > prev_size);
-	return NULL;
-}
-
-LIBDRGN_PUBLIC
-struct drgn_error *drgn_program_queue_event(struct drgn_program *prog,
-					    struct drgn_event *event)
-{
-	struct drgn_error *err = check_attached(prog);
-	if (err)
-		return err;
-	if (!drgn_event_deque_reserve_for_append(&prog->event_queue))
-		return &drgn_enomem;
-
-	SWITCH_ENUM(event->type) {
-	case DRGN_EVENT_THREAD_SIGNAL:
-	case DRGN_EVENT_BREAKPOINT: {
-		struct drgn_thread_signal_event *se =
-			(struct drgn_thread_signal_event *)event;
-		struct drgn_thread *thread = se->thread_event.thread;
-		thread->last_signal = se->signal;
-		thread->resume_signal = -1;
-		thread->resuming = 0;
-		if (list_empty(&thread->node)) {
-			drgn_thread_incref(thread);
-			list_add_tail(&thread->node, &prog->stopped_threads);
-		} else {
-			list_move_tail(&thread->node, &prog->stopped_threads);
-		}
-		prog->resuming = 0;
-		if (prog->all_stop) {
-			prog->in_all_stop = true;
-			clear_running_threads(prog);
-		}
-		break;
-	}
-	case DRGN_EVENT_PROGRAM_EXIT:
-		prog->attach_state = DRGN_ATTACH_STATE_EXITED;
-		break;
-	case DRGN_EVENT_THREAD_EXIT:
-		break;
-	default:
-		UNREACHABLE();
-	}
-
-	// Reserved above.
-	drgn_event_deque_append(&prog->event_queue, &event);
-	drgn_event_incref(event);
 	return NULL;
 }
 #endif
@@ -1318,6 +1511,9 @@ modifying_breakpoints_guard_cleanup(struct drgn_program **progp)
 {
 	(*progp)->modifying_breakpoints = NULL;
 }
+#endif
+
+#define modifying_breakpoints_guard(prog, reason) do { } while (0) /* TODO */
 
 static void rollback_set_breakpoint(struct drgn_breakpoint **bpp)
 {
@@ -1327,11 +1523,42 @@ static void rollback_set_breakpoint(struct drgn_breakpoint **bpp)
 	}
 }
 
+struct breakpoint_sites_result {
+	struct result_arg result;
+	struct drgn_breakpoint_site **sites;
+	size_t num_sites;
+};
+
+static void breakpoint_sites_abort(void *arg, struct drgn_error *err)
+{
+	struct breakpoint_sites_result *result = arg;
+	// The caller is going to return and destroy the new breakpoint, so we
+	// need to keep the sites alive for the controller.
+	for (size_t i = 0; i < result->num_sites; i++)
+		drgn_breakpoint_site_incref(result->sites[i]);
+	set_result(&result->result, err);
+}
+
+static void breakpoint_sites_error(void *arg, struct drgn_error *err)
+{
+	struct breakpoint_sites_result *result = arg;
+	if (result->result.err == &result_aborted) {
+		for (size_t i = 0; i < result->num_sites; i++)
+			drgn_breakpoint_site_decref(result->sites[i]);
+	}
+	free(result->sites);
+	set_result(&result->result, err);
+}
+
+static void breakpoint_sites_success(void *arg)
+{
+	breakpoint_sites_error(arg, NULL);
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_breakpoint(struct drgn_program *prog,
 			    const uint64_t *addresses, size_t n, bool hardware,
-			    bool enable, bool sync_events,
-			    struct drgn_breakpoint **ret)
+			    bool enable, struct drgn_breakpoint **ret)
 {
 	struct drgn_error *err;
 	if (n == 0) {
@@ -1339,7 +1566,7 @@ drgn_program_set_breakpoint(struct drgn_program *prog,
 					 "breakpoint must have at least one address");
 	}
 
-	err = sync_events_and_check_attached(prog, sync_events);
+	err = check_attached(prog);
 	if (err)
 		return err;
 	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
@@ -1428,9 +1655,22 @@ drgn_program_set_breakpoint(struct drgn_program *prog,
 
 	if (enable) {
 		if (num_sites_to_enable) {
-			err = ctrl->ops.enable_breakpoint_sites(ctrl->arg,
-								sites_to_enable,
-								num_sites_to_enable);
+			struct breakpoint_sites_result *result =
+				malloc(sizeof(*result));
+			if (!result)
+				return &drgn_enomem;
+			result_arg_init(&result->result, prog);
+			result->sites = sites_to_enable;
+			result->num_sites = num_sites_to_enable;
+			ctrl->ops.enable_breakpoint_sites(ctrl->arg,
+							  sites_to_enable,
+							  num_sites_to_enable,
+							  breakpoint_sites_success,
+							  breakpoint_sites_error,
+							  result);
+			sites_to_enable = NULL; // Owned by result now.
+			err = wait_for_result(&result->result,
+					      breakpoint_sites_abort);
 			if (err)
 				return err;
 		}
@@ -1470,11 +1710,24 @@ drgn_breakpoint_disable_impl(struct drgn_breakpoint *bp)
 	}
 
 	if (num_sites_to_disable) {
+		struct drgn_program *prog = drgn_breakpoint_program(bp);
 		struct drgn_execution_controller *ctrl =
-			get_enabled_controller(drgn_breakpoint_program(bp));
-		err = ctrl->ops.disable_breakpoint_sites(ctrl->arg,
-							 sites_to_disable,
-							 num_sites_to_disable);
+			get_enabled_controller(prog);
+
+		struct breakpoint_sites_result *result =
+			malloc(sizeof(*result));
+		if (!result)
+			return &drgn_enomem;
+		result_arg_init(&result->result, prog);
+		result->sites = sites_to_disable;
+		result->num_sites = num_sites_to_disable;
+		ctrl->ops.disable_breakpoint_sites(ctrl->arg, sites_to_disable,
+						   num_sites_to_disable,
+						   breakpoint_sites_success,
+						   breakpoint_sites_error,
+						   result);
+		sites_to_disable = NULL; // Owned by result now.
+		err = wait_for_result(&result->result, breakpoint_sites_abort);
 		if (err)
 			return err;
 	}
@@ -1489,25 +1742,16 @@ drgn_breakpoint_disable_impl(struct drgn_breakpoint *bp)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_breakpoint_remove(struct drgn_breakpoint *bp, bool sync_events)
+drgn_breakpoint_remove(struct drgn_breakpoint *bp)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_breakpoint_program(bp);
 
-	for (;;) {
-		if (list_empty(&bp->prog_node))
-			return NULL;
+	if (list_empty(&bp->prog_node))
+		return NULL;
 
-		if (!sync_events)
-			break;
-		// Breakpoints can only be set while attached to the program, so
-		// we don't need to check.
-		err = drgn_program_sync_events(prog, false);
-		if (err)
-			return err;
-		// queue_events could have removed this breakpoint. Check again.
-		sync_events = false;
-	}
+	// Breakpoints can only be set while attached to the program, so we
+	// don't need to check.
 
 	modifying_breakpoints_guard(prog, "removing");
 
@@ -1519,31 +1763,20 @@ drgn_breakpoint_remove(struct drgn_breakpoint *bp, bool sync_events)
 }
 
 LIBDRGN_PUBLIC
-struct drgn_error *drgn_breakpoint_enable(struct drgn_breakpoint *bp,
-					  bool sync_events)
+struct drgn_error *drgn_breakpoint_enable(struct drgn_breakpoint *bp)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = bp->prog;
 
-	for (;;) {
-		if (bp->enabled)
-			return NULL;
-		if (list_empty(&bp->prog_node)) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "can't enable removed breakpoint");
-		}
-
-		if (!sync_events)
-			break;
-		// Breakpoints can only be set while attached to the program, so
-		// we don't need to check.
-		err = drgn_program_sync_events(prog, false);
-		if (err)
-			return err;
-		// queue_events could have enabled or removed this breakpoint.
-		// Check again.
-		sync_events = false;
+	if (bp->enabled)
+		return NULL;
+	if (list_empty(&bp->prog_node)) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "can't enable removed breakpoint");
 	}
+
+	// Breakpoints can only be set while attached to the program, so we
+	// don't need to check.
 
 	modifying_breakpoints_guard(prog, "enabling");
 
@@ -1564,9 +1797,21 @@ struct drgn_error *drgn_breakpoint_enable(struct drgn_breakpoint *bp,
 	if (num_sites_to_enable) {
 		struct drgn_execution_controller *ctrl =
 			get_enabled_controller(prog);
-		err = ctrl->ops.enable_breakpoint_sites(ctrl->arg,
-							sites_to_enable,
-							num_sites_to_enable);
+
+		struct breakpoint_sites_result *result =
+			malloc(sizeof(*result));
+		if (!result)
+			return &drgn_enomem;
+		result_arg_init(&result->result, prog);
+		result->sites = sites_to_enable;
+		result->num_sites = num_sites_to_enable;
+		ctrl->ops.enable_breakpoint_sites(ctrl->arg, sites_to_enable,
+						  num_sites_to_enable,
+						  breakpoint_sites_success,
+						  breakpoint_sites_error,
+						  result);
+		sites_to_enable = NULL; // Owned by result now.
+		err = wait_for_result(&result->result, breakpoint_sites_abort);
 		if (err)
 			return err;
 	}
@@ -1581,33 +1826,21 @@ struct drgn_error *drgn_breakpoint_enable(struct drgn_breakpoint *bp,
 }
 
 LIBDRGN_PUBLIC
-struct drgn_error *drgn_breakpoint_disable(struct drgn_breakpoint *bp,
-					   bool sync_events)
+struct drgn_error *drgn_breakpoint_disable(struct drgn_breakpoint *bp)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_breakpoint_program(bp);
 
-	for (;;) {
-		if (!bp->enabled)
-			return NULL;
+	if (!bp->enabled) // TODO: remove redundant check?
+		return NULL;
 
-		if (!sync_events)
-			break;
-		// Breakpoints can only be enabled while attached to the
-		// program, so we don't need to check.
-		err = drgn_program_sync_events(prog, false);
-		if (err)
-			return err;
-		// queue_events could have disabled this breakpoint. Check
-		// again.
-		sync_events = false;
-	}
+	// Breakpoints can only be enabled while attached to the program, so we
+	// don't need to check.
 
 	modifying_breakpoints_guard(prog, "disabling");
 
 	return drgn_breakpoint_disable_impl(bp);
 }
-#endif
 
 LIBDRGN_PUBLIC bool drgn_breakpoint_enabled(const struct drgn_breakpoint *bp)
 {
@@ -2063,69 +2296,117 @@ drgn_program_add_event_listener(struct drgn_program *prog,
 	return NULL;
 }
 
-static struct drgn_event_listener sentinel_event_listener;
-
-static struct drgn_event_listener *
-start_for_each_event_listener(struct drgn_event_listener *listener)
+static bool ignore_notify_thread_stop(struct drgn_thread *thread)
 {
-	if (!listener || listener->prog->event_listeners_to_free)
-		return NULL;
-	listener->prog->event_listeners_to_free = &sentinel_event_listener;
-	return listener;
+	struct drgn_program *prog = drgn_thread_program(thread);
+	if (prog->in_all_stop) {
+		drgn_log_warning(prog,
+				 "ignored thread stop notification while in all-stop");
+		return true;
+	}
+	if (thread->stop_reason != DRGN_STOP_REASON_NONE) {
+		drgn_log_warning(prog,
+				 "ignored thread stop notification on stopped thread");
+		return true;
+	}
+	return false;
 }
 
-static void end_for_each_event_listener(struct drgn_event_listener **listenerp)
+static void drgn_notify_thread_stop_common(struct drgn_thread *thread)
 {
-	if (!*listenerp)
+	struct drgn_program *prog = drgn_thread_program(thread);
+	move_thread(thread, &prog->stopped_threads);
+	if (!prog->all_stop)
+		emit_thread_stop_event(thread);
+}
+
+static void drgn_notify_thread_signal_impl(struct drgn_thread *thread, int sig)
+{
+	thread->stop_reason = DRGN_STOP_REASON_SIGNAL;
+	// TODO: we don't check sig now
+	thread->stop_signal = sig;
+
+	drgn_notify_thread_stop_common(thread);
+}
+
+static void drgn_notify_thread_breakpoint_impl(struct drgn_thread *thread, int sig,
+					       struct drgn_breakpoint_site *site)
+{
+	thread->stop_reason = DRGN_STOP_REASON_BREAKPOINT;
+	thread->stop_signal = sig;
+	drgn_breakpoint_site_incref(site);
+	thread->stop_site = site;
+
+	drgn_notify_thread_stop_common(thread);
+}
+
+LIBDRGN_PUBLIC void drgn_notify_thread_unknown_stop(struct drgn_thread *thread,
+						    int sig, uint64_t pc)
+{
+	if (ignore_notify_thread_stop(thread))
 		return;
-	struct drgn_program *prog = (*listenerp)->prog;
-	struct drgn_event_listener *listener = prog->event_listeners_to_free;
-	while (listener != &sentinel_event_listener) {
-		struct drgn_event_listener *next = listener->next_to_free;
-		list_del(&listener->node);
-		free(listener);
-		listener = next;
-	}
-	prog->event_listeners_to_free = NULL;
-}
 
-static inline struct drgn_event_listener *
-next_event_listener(struct drgn_event_listener *listener,
-		    struct drgn_event_listener *last_listener)
-{
-	while (listener != last_listener) {
-		listener = list_next_entry(listener, node);
-		if (listener->callback)
-			return listener;
-		// Listener was removed.
-	}
-	return NULL;
+	struct drgn_program *prog = drgn_thread_program(thread);
+	auto it = drgn_breakpoint_site_table_search(&prog->breakpoint_sites,
+						    &pc);
+	if (it.entry)
+		drgn_notify_thread_breakpoint_impl(thread, sig, *it.entry);
+	else
+		drgn_notify_thread_signal_impl(thread, sig);
 }
-
-#define for_each_event_listener(listener, prog)					\
-	for (struct drgn_event_listener *listener =				\
-	     list_first_entry_or_null(&(prog)->event_listeners,			\
-				      struct drgn_event_listener, node),	\
-	     *last_##listener =							\
-	     list_last_entry_or_null(&(prog)->event_listeners,			\
-				     struct drgn_event_listener, node),		\
-	     *cleanup_##listener _cleanup_(end_for_each_event_listener) =	\
-	     start_for_each_event_listener(listener);				\
-	     listener;								\
-	     listener = next_event_listener(listener, last_##listener))
 
 LIBDRGN_PUBLIC void drgn_notify_thread_signal(struct drgn_thread *thread,
 					      int sig)
 {
-	// TODO: this will need to set a stop reason and may need to filter out
-	// internally-generated events.
-	struct drgn_program *prog = drgn_thread_program(thread);
-	struct drgn_event event = {
-		.type = DRGN_EVENT_THREAD_STOP,
-		.thread = thread,
-	};
-	for_each_event_listener(listener, prog)
-		listener->callback(prog, &event, listener->arg);
+	if (!ignore_notify_thread_stop(thread))
+		drgn_notify_thread_signal_impl(thread, sig);
+}
+
+LIBDRGN_PUBLIC
+void drgn_notify_thread_breakpoint(struct drgn_thread *thread, int sig,
+				   struct drgn_breakpoint_site *site)
+{
+	if (!ignore_notify_thread_stop(thread))
+		drgn_notify_thread_breakpoint_impl(thread, sig, site);
+}
+
+LIBDRGN_PUBLIC void drgn_notify_all_stop(struct drgn_program *prog)
+{
+	if (!prog->all_stop) {
+		drgn_log_warning(prog,
+				 "ignored all-stop notification in non-stop mode");
+		return;
+	}
+	if (prog->in_all_stop) {
+		drgn_log_warning(prog,
+				 "ignored all-stop notification while already in all-stop");
+		return;
+	}
+
+	prog->in_all_stop = true;
+
+	struct drgn_thread *thread;
+	if (list_is_singular(&prog->stopped_threads)) {
+		// Common case: only one thread stopped.
+		thread = list_first_entry(&prog->stopped_threads,
+					  struct drgn_thread, node);
+	} else {
+		// Multiple threads stopped simultaneously. Pick the first
+		// thread to emit a stop event for randomly using reservoir
+		// sampling. TODO: explain why
+		thread = NULL;
+		struct drgn_thread *thread2;
+		long i = 0;
+		list_for_each_entry(thread2, &prog->stopped_threads, node) {
+			i++;
+			if (random() % i == 0)
+				thread = thread2;
+		}
+		if (!thread)
+			return; // TODO: no stopped threads?
+		list_rotate_to_front(&thread->node, &prog->stopped_threads);
+	}
+	emit_thread_stop_event(thread);
 }
 
 static inline uint32_t drgn_fd_events_to_epoll(enum drgn_fd_events events)

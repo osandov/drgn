@@ -16,6 +16,8 @@ int drgn_program_traverse_execution_control(struct drgn_program *prog,
 	    int (*visit_breakpoint_site)(struct drgn_breakpoint_site *, void *),
 	    void *arg);
 
+struct drgn_error *drgn_program_ensure_epoll_fd(struct drgn_program *prog);
+
 struct drgn_execution_controller {
 	struct drgn_handler handler;
 	struct drgn_execution_controller_ops ops;

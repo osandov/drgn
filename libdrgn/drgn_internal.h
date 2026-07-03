@@ -367,7 +367,7 @@ struct drgn_thread {
 	struct drgn_object object;
 	uint32_t tid;
 	bool have_object;
-	// TODO: explain drgn_thread_resume_mode or 0.
+	// TODO: explain drgn_resume_mode or 0.
 	int8_t resuming;
 	uint64_t generation;
 	struct drgn_thread_finder *finder;
@@ -375,7 +375,11 @@ struct drgn_thread {
 	// Node on drgn_program::stopped_threads, drgn_program::resumed_threads,
 	// or drgn_program::running_threads.
 	struct list_head node;
-	int last_signal;
+	enum drgn_stop_reason stop_reason;
+	int stop_signal;
+	struct drgn_breakpoint_site *stop_site;
+	int last_signal; // TODO: remove?
+	enum drgn_resume_mode resume_mode;
 	int resume_signal;
 	size_t resume_index;
 };
@@ -396,5 +400,16 @@ uint64_t drgn_thread_generation(const struct drgn_thread *thread)
 {
 	return thread->generation;
 }
+
+#define drgn_clear_ref(obj) do {						\
+	auto _tmp_objp_ = &(obj);						\
+	auto _tmp_obj_ = *_tmp_objp_;						\
+	if (_tmp_obj_) {							\
+		*_tmp_objp_ = NULL;						\
+		_Generic(_tmp_obj_,						\
+			 struct drgn_breakpoint_site *: drgn_breakpoint_site_decref)\
+		(_tmp_obj_);							\
+	}									\
+} while (0)
 
 #endif /* DRGN_INTERNAL_H */

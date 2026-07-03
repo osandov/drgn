@@ -2425,6 +2425,7 @@ static PyObject *Program_set_all_stop(Program *self, PyObject *args,
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
+#endif
 
 static PyObject *Program_interrupt_any_thread(Program *self)
 {
@@ -2438,15 +2439,13 @@ static Breakpoint *Program_set_breakpoint(Program *self, PyObject *args,
 					  PyObject *kwds)
 {
 	struct drgn_error *err;
-	static char *keywords[] = {"location", "hardware", "enable",
-				   "sync_events", NULL};
+	static char *keywords[] = {"location", "hardware", "enable", NULL};
 	PyObject *location;
 	int hardware = 0;
 	int enable = 1;
-	int sync_events = 1;
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|$ppp:set_breakpoint",
 					 keywords, &location, &hardware,
-					 &enable, &sync_events))
+					 &enable))
 		return NULL;
 
 	// TODO: support str (function name, function name + offset, file:line)
@@ -2487,12 +2486,13 @@ static Breakpoint *Program_set_breakpoint(Program *self, PyObject *args,
 
 	struct drgn_breakpoint *bp;
 	err = drgn_program_set_breakpoint(&self->prog, addresses, n, hardware,
-					  enable, sync_events, &bp);
+					  enable, &bp);
 	if (err)
 		return set_drgn_error(err);
 	return container_of(bp, Breakpoint, bp);
 }
 
+#if 0
 static PyObject *Program_remove_all_breakpoints(Program *self, PyObject *args,
 						PyObject *kwds)
 {
@@ -2589,75 +2589,40 @@ static BreakpointSiteIterator *Program_breakpoint_sites(Program *self)
 	ret->it = it;
 	return ret;
 }
+#endif
 
-static PyObject *Program_get_event(Program *self, PyObject *args, PyObject *kwds)
+static PyObject *Program_poll(Program *self, PyObject *args, PyObject *kwds)
 {
 	struct drgn_error *err;
-	static char *keywords[] = {"block", NULL};
-	int block = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|p:get_event", keywords,
-					 &block))
+	static char *keywords[] = {"timeout", NULL};
+	PyObject *timeout_arg = Py_None;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O:poll", keywords,
+					 &timeout_arg))
 		return NULL;
 
-	struct drgn_event *event;
-	err = drgn_program_get_event(&self->prog, block, &event);
-	if (err)
-		return set_drgn_error(err);
-
-	SWITCH_ENUM(drgn_event_type(event)) {
-#define X(type, TYPE, Type)						\
-	case DRGN_EVENT_##TYPE:						\
-		return (PyObject *)container_of(			\
-			(struct drgn_##type##_event *)event,		\
-			Type##Event, event);
-	DRGN_EVENT_TYPES
-#undef X
-	default:
-		UNREACHABLE();
+	int timeout_ms;
+	if (timeout_arg == Py_None) {
+		timeout_ms = -1;
+	} else {
+		double timeout_s = PyFloat_AsDouble(timeout_arg);
+		if (timeout_s == -1.0 && PyErr_Occurred())
+			return NULL;
+		timeout_ms = timeout_s * 1000;
 	}
-}
-
-static PyObject *Program_sync_events(Program *self, PyObject *args,
-				     PyObject *kwds)
-{
-	static char *keywords[] = {"block", NULL};
-	int block = 0;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|p:sync_events", keywords,
-					 &block))
-		return NULL;
-	struct drgn_error *err = drgn_program_sync_events(&self->prog, block);
+	bool ret;
+	err = drgn_program_poll(&self->prog, timeout_ms, &ret);
 	if (err)
 		return set_drgn_error(err);
-	Py_RETURN_NONE;
+	Py_RETURN_BOOL(ret);
 }
 
-static PyObject *Program_queue_event(Program *self, PyObject *args, PyObject *kwds)
+static PyObject *Program_get_poll_fd(Program *self, void *arg)
 {
-	static char *keywords[] = {"event", NULL};
-	PyObject *event_obj;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:queue_event", keywords,
-					 &event_obj))
-		return NULL;
-
-	struct drgn_event *event;
-#define X(type, TYPE, Type)							\
-	if (PyObject_TypeCheck(event_obj, &Type##Event_type))			\
-		event = (struct drgn_event *)&((Type##Event *)event_obj)->event;\
-	else
-	DRGN_EVENT_TYPES
-#undef X
-	{
-		return PyErr_Format(PyExc_TypeError,
-				    "event must be Event, not %s",
-				    Py_TYPE(event_obj)->tp_name);
-	}
-
-	struct drgn_error *err = drgn_program_queue_event(&self->prog, event);
+	struct drgn_error *err = drgn_program_ensure_epoll_fd(&self->prog);
 	if (err)
 		return set_drgn_error(err);
-	Py_RETURN_NONE;
+	return PyLong_FromLong(self->prog.epoll_fd);
 }
-#endif
 
 static PyObject *Program_address_size(Program *self)
 {
@@ -2936,6 +2901,28 @@ static EventListener *Program_add_event_listener(Program *self, PyObject *args,
 	return no_cleanup_ptr(listener);
 }
 
+static PyObject *Program_notify_thread_unknown_stop(Program *self,
+						    PyObject *args,
+						    PyObject *kwds)
+{
+	static char *keywords[] = {"thread", "sig", "pc", NULL};
+	Thread *thread;
+	int sig;
+	uint64_t pc;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O!iO&:notify_thread_unknown_stop",
+					 keywords, &Thread_type, &thread, &sig,
+					 u64_converter, &pc))
+		return NULL;
+	if (drgn_thread_program(&thread->thread) != &self->prog) {
+		PyErr_SetString(PyExc_ValueError,
+				"thread is from different program");
+		return NULL;
+	}
+	drgn_notify_thread_unknown_stop(&thread->thread, sig, pc);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_notify_thread_signal(Program *self, PyObject *args,
 					      PyObject *kwds)
 {
@@ -2951,6 +2938,34 @@ static PyObject *Program_notify_thread_signal(Program *self, PyObject *args,
 		return NULL;
 	}
 	drgn_notify_thread_signal(&thread->thread, sig);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_notify_thread_breakpoint(Program *self, PyObject *args,
+						  PyObject *kwds)
+{
+	static char *keywords[] = {"thread", "sig", "site", NULL};
+	Thread *thread;
+	int sig;
+	BreakpointSite *site;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O!iO!:notify_thread_breakpoint",
+					 keywords, &Thread_type, &thread, &sig,
+					 &BreakpointSite_type, &site))
+		return NULL;
+	if (drgn_thread_program(&thread->thread) != &self->prog) {
+		PyErr_SetString(PyExc_ValueError,
+				"thread is from different program");
+		return NULL;
+	}
+	drgn_notify_thread_breakpoint(&thread->thread, sig, &site->site);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_notify_all_stop(Program *self,
+					 PyObject *Py_UNUSED(ignored))
+{
+	drgn_notify_all_stop(&self->prog);
 	Py_RETURN_NONE;
 }
 
@@ -3084,17 +3099,31 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_unregister_fd_DOC},
 	{"add_event_listener", (PyCFunction)Program_add_event_listener,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_event_listener_DOC},
+	{"notify_thread_unknown_stop",
+	 (PyCFunction)Program_notify_thread_unknown_stop,
+	 METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_notify_thread_unknown_stop_DOC},
 	{"notify_thread_signal", (PyCFunction)Program_notify_thread_signal,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_thread_signal_DOC},
+	{"notify_thread_breakpoint",
+	 (PyCFunction)Program_notify_thread_breakpoint,
+	 METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_notify_thread_breakpoint_DOC},
+	{"notify_all_stop", (PyCFunction)Program_notify_all_stop, METH_NOARGS,
+	 drgn_Program_notify_all_stop_DOC},
 #if 0
 	{"detach", (PyCFunction)Program_detach, METH_NOARGS,
 	 drgn_Program_detach_DOC},
+#endif
 	{"interrupt_any_thread", (PyCFunction)Program_interrupt_any_thread,
 	 METH_NOARGS, drgn_Program_interrupt_any_thread_DOC},
+#if 0
 	{"set_all_stop", (PyCFunction)Program_set_all_stop,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_all_stop_DOC},
+#endif
 	{"set_breakpoint", (PyCFunction)Program_set_breakpoint,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_breakpoint_DOC},
+#if 0
 	{"breakpoints", (PyCFunction)Program_breakpoints, METH_NOARGS,
 	 drgn_Program_breakpoints_DOC},
 	{"find_breakpoint_site", (PyCFunction)Program_find_breakpoint_site,
@@ -3107,13 +3136,9 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_enable_all_breakpoints_DOC},
 	{"disable_all_breakpoints", (PyCFunction)Program_disable_all_breakpoints,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_disable_all_breakpoints_DOC},
-	{"get_event", (PyCFunction)Program_get_event,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_get_event_DOC},
-	{"sync_events", (PyCFunction)Program_sync_events,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_sync_events_DOC},
-	{"queue_event", (PyCFunction)Program_queue_event,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_queue_event_DOC},
 #endif
+	{"poll", (PyCFunction)Program_poll, METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_poll_DOC},
 	{"address_size", (PyCFunction)Program_address_size, METH_NOARGS,
 	 drgn_Program_address_size_DOC},
 	{"void_type", (PyCFunction)Program_void_type,
@@ -3167,6 +3192,7 @@ static PyGetSetDef Program_getset[] = {
 	 drgn_Program_attach_state_DOC},
 	{"all_stop", (getter)Program_get_all_stop, NULL,
 	 drgn_Program_all_stop_DOC},
+	{"_poll_fd", (getter)Program_get_poll_fd},
 	{},
 };
 

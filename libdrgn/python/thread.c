@@ -122,6 +122,49 @@ static PyObject *Thread_get_finder_data(Thread *self, void *arg)
 	return data;
 }
 
+static PyObject *Thread_stop_signal_obj(Thread *self)
+{
+	int sig = drgn_thread_stop_signal(&self->thread);
+	if (sig > 0) {
+		PyObject *ret = PyObject_CallFunction(Signals_class, "i", sig);
+		if (ret || !PyErr_ExceptionMatches(PyExc_ValueError))
+			return ret;
+		PyErr_Clear();
+	}
+	return PyLong_FromLong(sig);
+}
+
+static PyObject *Thread_get_stop_reason(Thread *self, void *arg)
+{
+	enum drgn_stop_reason reason = drgn_thread_stop_reason(&self->thread);
+	SWITCH_ENUM(reason) {
+	case DRGN_STOP_REASON_NONE:
+		Py_RETURN_NONE;
+	case DRGN_STOP_REASON_SYNTHETIC:
+		return PyObject_CallNoArgs(SyntheticStopReason_class);
+	case DRGN_STOP_REASON_SIGNAL: {
+		_cleanup_pydecref_ PyObject *sig_obj =
+			Thread_stop_signal_obj(self);
+		if (!sig_obj)
+			return NULL;
+		return PyObject_CallOneArg(SignalStopReason_class, sig_obj);
+	}
+	case DRGN_STOP_REASON_BREAKPOINT: {
+		_cleanup_pydecref_ PyObject *sig_obj =
+			Thread_stop_signal_obj(self);
+		if (!sig_obj)
+			return NULL;
+		BreakpointSite *site =
+			container_of(drgn_thread_stop_breakpoint_site(&self->thread),
+				     BreakpointSite, site);
+		return PyObject_CallFunctionObjArgs(BreakpointStopReason_class,
+						    sig_obj, site, NULL);
+	}
+	default:
+		UNREACHABLE();
+	}
+}
+
 static int Thread_set_finder_data(Thread *self, PyObject *value, void *arg)
 {
 	SETTER_NO_DELETE("_finder_data", value);
@@ -163,21 +206,6 @@ static PyObject *Thread_stack_trace(Thread *self)
 	return ret;
 }
 
-static PyObject *Thread_stopped(Thread *self, PyObject *args, PyObject *kwds)
-{
-	static char *keywords[] = {"sync_events", NULL};
-	int sync_events = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$p:stopped", keywords,
-					 &sync_events))
-		return NULL;
-	int ret;
-	struct drgn_error *err = drgn_thread_stopped(&self->thread, sync_events,
-						     &ret);
-	if (err)
-		return set_drgn_error(err);
-	return PyLong_FromLong(ret);
-}
-
 #if 0
 static PyObject *Thread_interrupt(Thread *self)
 {
@@ -188,6 +216,22 @@ static PyObject *Thread_interrupt(Thread *self)
 }
 #endif
 
+static PyObject *Thread_cont(Thread *self, PyObject *args, PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = { "sig", "only", NULL };
+	int sig = -1;
+	int only = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|i$p:cont", keywords,
+					 &sig, &only))
+	    return NULL;
+
+	err = drgn_thread_continue(&self->thread, sig, only);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyGetSetDef Thread_getset[] = {
 	{"prog", (getter)Thread_get_prog, NULL, drgn_Thread_prog_DOC},
 	{"tid", (getter)Thread_get_tid, NULL, drgn_Thread_tid_DOC},
@@ -195,6 +239,8 @@ static PyGetSetDef Thread_getset[] = {
 	 drgn_Thread_generation_DOC},
 	{"object", (getter)Thread_get_object, NULL, drgn_Thread_object_DOC},
 	{"name", (getter)Thread_get_name, NULL, drgn_Thread_name_DOC},
+	{"stop_reason", (getter)Thread_get_stop_reason, NULL,
+	 drgn_Thread_stop_reason_DOC},
 	{"_finder_data", (getter)Thread_get_finder_data,
 	 (setter)Thread_set_finder_data, drgn_Thread__finder_data_DOC},
 	{},
@@ -205,12 +251,12 @@ static PyMethodDef Thread_methods[] = {
 	 drgn_Thread_register_state_DOC},
 	{"stack_trace", (PyCFunction)Thread_stack_trace, METH_NOARGS,
 	 drgn_Thread_stack_trace_DOC},
-	{"stopped", (PyCFunction)Thread_stopped,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Thread_stopped_DOC},
 #if 0
 	{"interrupt", (PyCFunction)Thread_interrupt, METH_NOARGS,
 	 drgn_Thread_interrupt_DOC},
 #endif
+	{"cont", (PyCFunction)Thread_cont, METH_VARARGS | METH_KEYWORDS,
+	 drgn_Thread_cont_DOC},
 	{},
 };
 

@@ -4840,8 +4840,19 @@ struct drgn_error *drgn_thread_register_state(struct drgn_thread *thread,
 struct drgn_error *drgn_thread_stack_trace(struct drgn_thread *thread,
 					   struct drgn_stack_trace **ret);
 
-struct drgn_error *drgn_thread_stopped(struct drgn_thread *thread,
-				       bool sync_events, int *ret);
+enum drgn_stop_reason {
+	DRGN_STOP_REASON_NONE,
+	DRGN_STOP_REASON_SYNTHETIC,
+	DRGN_STOP_REASON_SIGNAL,
+	DRGN_STOP_REASON_BREAKPOINT,
+};
+
+enum drgn_stop_reason drgn_thread_stop_reason(struct drgn_thread *thread);
+
+int drgn_thread_stop_signal(struct drgn_thread *thread);
+
+struct drgn_breakpoint_site *
+drgn_thread_stop_breakpoint_site(struct drgn_thread *thread);
 
 struct drgn_error *drgn_thread_interrupt(struct drgn_thread *thread);
 
@@ -4852,10 +4863,10 @@ struct drgn_error *drgn_thread_interrupt(struct drgn_thread *thread);
 #define DRGN_RESUME_DEFAULT_SIGNAL -1
 
 struct drgn_error *drgn_thread_continue(struct drgn_thread *thread, int sig,
-					bool only, bool sync_events);
+					bool only);
 
 struct drgn_error *drgn_thread_step(struct drgn_thread *thread, int sig,
-				    bool only, bool sync_events);
+				    bool only);
 
 /**
  * @struct drgn_thread_iterator
@@ -5322,24 +5333,6 @@ struct drgn_error *drgn_program_set_all_stop(struct drgn_program *prog,
 
 struct drgn_error *drgn_program_interrupt_any_thread(struct drgn_program *prog);
 
-enum drgn_thread_resume_mode {
-	// 0 is reserved.
-	DRGN_THREAD_RESUME_CONTINUE = 1,
-	DRGN_THREAD_RESUME_STEP,
-};
-
-struct drgn_thread_resume_action {
-	struct drgn_thread *thread;
-	enum drgn_thread_resume_mode mode;
-	int sig;
-	uint64_t _reserved[2];
-};
-
-struct drgn_error *
-drgn_program_resume_threads(struct drgn_program *prog,
-			    const struct drgn_thread_resume_action *actions,
-			    size_t num_actions, bool sync_events);
-
 struct drgn_breakpoint;
 struct drgn_breakpoint_site;
 struct drgn_breakpoint_iterator;
@@ -5348,8 +5341,7 @@ struct drgn_breakpoint_site_iterator;
 struct drgn_error *
 drgn_program_set_breakpoint(struct drgn_program *prog,
 			    const uint64_t *addresses, size_t n, bool hardware,
-			    bool enable, bool sync_events,
-			    struct drgn_breakpoint **ret);
+			    bool enable, struct drgn_breakpoint **ret);
 
 struct drgn_breakpoint_site *
 drgn_program_find_breakpoint_site(struct drgn_program *prog, uint64_t address);
@@ -5360,14 +5352,11 @@ void drgn_breakpoint_decref(struct drgn_breakpoint *bp);
 
 struct drgn_program *drgn_breakpoint_program(const struct drgn_breakpoint *bp);
 
-struct drgn_error *drgn_breakpoint_remove(struct drgn_breakpoint *bp,
-					  bool sync_events);
+struct drgn_error *drgn_breakpoint_remove(struct drgn_breakpoint *bp);
 
-struct drgn_error *drgn_breakpoint_enable(struct drgn_breakpoint *bp,
-					  bool sync_events);
+struct drgn_error *drgn_breakpoint_enable(struct drgn_breakpoint *bp);
 
-struct drgn_error *drgn_breakpoint_disable(struct drgn_breakpoint *bp,
-					   bool sync_events);
+struct drgn_error *drgn_breakpoint_disable(struct drgn_breakpoint *bp);
 
 bool drgn_breakpoint_enabled(const struct drgn_breakpoint *bp);
 
@@ -5453,7 +5442,8 @@ struct drgn_error *
 drgn_breakpoint_site_iterator_next(struct drgn_breakpoint_site_iterator *it,
 				   struct drgn_breakpoint_site **ret);
 
-struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms);
+struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms,
+				     bool *ret);
 
 struct drgn_event;
 
@@ -5501,7 +5491,15 @@ static inline bool drgn_event_type_has_thread(enum drgn_event_type type)
 struct drgn_error *drgn_event_thread(struct drgn_event *event,
 				     struct drgn_thread **ret);
 
+void drgn_notify_thread_unknown_stop(struct drgn_thread *thread, int sig,
+				     uint64_t pc);
+
 void drgn_notify_thread_signal(struct drgn_thread *thread, int sig);
+
+void drgn_notify_thread_breakpoint(struct drgn_thread *thread, int sig,
+				   struct drgn_breakpoint_site *site);
+
+void drgn_notify_all_stop(struct drgn_program *prog);
 
 enum drgn_fd_events {
 	DRGN_FD_EVENT_READ = 1 << 0,
@@ -5533,6 +5531,19 @@ drgn_program_registered_fd(struct drgn_program *prog, int fd,
 typedef void drgn_success_fn(void *arg);
 typedef void drgn_error_fn(void *arg, struct drgn_error *err);
 
+enum drgn_resume_mode {
+	// 0 is reserved. TODO: is this still necessary?
+	DRGN_RESUME_MODE_CONTINUE = 1,
+	DRGN_RESUME_MODE_STEPI,
+};
+
+struct drgn_resume_action {
+	struct drgn_thread *thread;
+	enum drgn_resume_mode mode;
+	int sig;
+	uint64_t _reserved[2];
+};
+
 struct drgn_execution_controller_ops {
 	void (*destroy)(void *arg);
 	void (*attach)(void *arg, struct drgn_program *prog,
@@ -5554,18 +5565,19 @@ struct drgn_execution_controller_ops {
 	void (*pause_all_threads)(void *arg, struct drgn_program *prog,
 				  drgn_success_fn *on_success,
 				  drgn_error_fn *on_error, void *result_arg);
+	// TODO: should we guarantee that actions stays valid after this
+	// returns? I think no.
 	void (*resume_threads)(void *arg, struct drgn_program *prog,
-			       const struct drgn_thread_resume_action *actions,
-			       size_t num_actions, bool unpause,
-			       drgn_success_fn *on_success,
+			       const struct drgn_resume_action *actions,
+			       size_t num_actions, drgn_success_fn *on_success,
 			       drgn_error_fn *on_error, void *result_arg);
-	void (*enable_breakpoint_sites)(void *arg, struct drgn_program *prog,
+	void (*enable_breakpoint_sites)(void *arg,
 					struct drgn_breakpoint_site * const *sites,
 					size_t num_sites,
 					drgn_success_fn *on_success,
 					drgn_error_fn *on_error,
 					void *result_arg);
-	void (*disable_breakpoint_sites)(void *arg, struct drgn_program *prog,
+	void (*disable_breakpoint_sites)(void *arg,
 					 struct drgn_breakpoint_site * const *sites,
 					 size_t num_sites,
 					 drgn_success_fn *on_success,

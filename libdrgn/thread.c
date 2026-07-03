@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 
+#include "pp.h"
 #include "program.h"
 #include "thread.h"
 #include "util.h"
@@ -216,6 +217,7 @@ struct drgn_thread *drgn_thread_cache_find(struct drgn_thread_cache *cache,
 void drgn_thread_deinit(struct drgn_thread *thread)
 {
 	struct drgn_program *prog = drgn_thread_program(thread);
+	drgn_clear_ref(thread->stop_site);
 	drgn_thread_set_delete_entry(&thread->finder->cache.threads, &thread);
 	if (thread->finder_data && thread->finder->ops.thread_data_destroy)
 		thread->finder->ops.thread_data_destroy(thread->finder_data);

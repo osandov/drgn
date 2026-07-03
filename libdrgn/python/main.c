@@ -11,6 +11,9 @@
 #include "../debug_info.h"
 #include "../error.h"
 #include "../path.h"
+#include "../pp.h"
+
+PyObject *Signals_class;
 
 /* Basically PyModule_AddType(), which is only available since Python 3.9. */
 static int add_type(PyObject *module, PyTypeObject *type)
@@ -228,15 +231,20 @@ static struct drgn_program *input_hook_prog;
 
 static int drgn_input_hook(void)
 {
-	struct drgn_error *err = drgn_program_poll(input_hook_prog, 0);
-	if (err && !drgn_error_catch(&err, DRGN_ERROR_NO_EVENTS)) {
-		PyGILState_guard();
-		_cleanup_pydecref_ PyObject *prog_obj = input_hook_prog_obj();
-		set_drgn_error(err);
-		PyErr_WriteUnraisable(prog_obj);
-		PyOS_InputHook = NULL;
-		input_hook_prog = NULL;
-	}
+	struct drgn_error *err;
+	bool progress;
+	do {
+		err = drgn_program_poll(input_hook_prog, 0, &progress);
+		if (err) {
+			PyGILState_guard();
+			_cleanup_pydecref_ PyObject *prog_obj = input_hook_prog_obj();
+			set_drgn_error(err);
+			PyErr_WriteUnraisable(prog_obj);
+			PyOS_InputHook = NULL;
+			input_hook_prog = NULL;
+			break;
+		}
+	} while (progress);
 	return 0;
 }
 
@@ -351,11 +359,24 @@ static struct PyModuleDef drgnmodule = {
 	drgn_methods,
 };
 
-// These are for type checking and aren't strictly required at runtime, but
-// adding them anyways results in better pydoc output and saves us from fiddling
-// with typing.TYPE_CHECKING/forward references.
-static int add_type_aliases(PyObject *m)
+#define X(name) PyObject *name##_class;
+EVENT_TYPES
+RESUME_ACTION_TYPES
+STOP_REASON_TYPES
+#undef X
+
+// TODO: naming, move comment
+static int add_stdlib_types(PyObject *m)
 {
+	_cleanup_pydecref_ PyObject *collections_module =
+		PyImport_ImportModule("collections");
+	if (!collections_module)
+		return -1;
+	_cleanup_pydecref_ PyObject *namedtuple =
+		PyObject_GetAttrString(collections_module, "namedtuple");
+	if (!namedtuple)
+		return -1;
+
 	_cleanup_pydecref_ PyObject *os_module = PyImport_ImportModule("os");
 	if (!os_module)
 		return -1;
@@ -373,20 +394,78 @@ static int add_type_aliases(PyObject *m)
 	if (!typing_Union)
 		return -1;
 
+	_cleanup_pydecref_ PyObject *namedtuple_kwargs =
+		Py_BuildValue("{s:s}", "module", "_drgn");
+	if (!namedtuple_kwargs)
+		return -1;
+
+#define add_namedtuple_type(name, field_names)					\
+	do {									\
+		_cleanup_pydecref_ PyObject *args =				\
+			Py_BuildValue("ss", #name, field_names);		\
+		if (!args)							\
+			return -1;						\
+										\
+		_cleanup_pydecref_ PyObject *doc =				\
+			PyUnicode_FromString(drgn_##name##_DOC);		\
+		if (!doc)							\
+			return -1;						\
+										\
+		name##_class = PyObject_Call(namedtuple, args,			\
+					     namedtuple_kwargs);		\
+		if (!name##_class						\
+		    || PyObject_SetAttrString(name##_class, "__doc__", doc))	\
+			return -1;						\
+										\
+		if (PyModule_AddObjectRef(m, #name, name##_class))		\
+			return -1;						\
+	} while (0)
+
+	add_namedtuple_type(ProgramExitEvent, "status");
+	add_namedtuple_type(ThreadExitEvent, "thread status");
+	add_namedtuple_type(ThreadStopEvent, "thread");
+
+	add_namedtuple_type(ContinueResumeAction, "thread sig");
+	add_namedtuple_type(StepiResumeAction, "thread sig");
+
+	add_namedtuple_type(SyntheticStopReason, "");
+	add_namedtuple_type(SignalStopReason, "sig");
+	add_namedtuple_type(BreakpointStopReason, "sig site");
+
+#undef add_namedtuple_type
+
+#define add_typing_union(name, ...)						\
+	do {									\
+		_cleanup_pydecref_ PyObject *item =				\
+			PyTuple_Pack(PP_NARGS(__VA_ARGS__), __VA_ARGS__);	\
+		if (!item)							\
+			return -1;						\
+										\
+		if (PyModule_Add(m, name, PyObject_GetItem(typing_Union, item)))\
+			return -1;						\
+	} while (0)
+
+	// These type aliases are for type checking and aren't strictly required
+	// at runtime, but adding them anyways results in better pydoc output
+	// and saves us from fiddling with typing.TYPE_CHECKING/forward
+	// references.
+
+#define add_typing_union_expand(name, types) add_typing_union(name types);
+
+#define X(name) , name##_class
+	add_typing_union_expand("Event", EVENT_TYPES);
+	add_typing_union_expand("ResumeAction", RESUME_ACTION_TYPES);
+	add_typing_union_expand("StopReason", STOP_REASON_TYPES);
+#undef X
+
+	add_typing_union("Path", &PyUnicode_Type, &PyBytes_Type, os_PathLike);
+
+#undef add_typing_union_expand
+#undef add_typing_union
+
 	if (PyModule_Add(m, "IntegerLike",
 			 PyObject_GetAttrString(typing_module, "SupportsIndex")))
 		return -1;
-
-	{
-		_cleanup_pydecref_ PyObject *item =
-			Py_BuildValue("OOO", &PyUnicode_Type, &PyBytes_Type,
-				      os_PathLike);
-		if (!item)
-			return -1;
-		if (PyModule_Add(m, "Path",
-				 PyObject_GetItem(typing_Union, item)))
-			return -1;
-	}
 
 	return PyModule_Add(m, "MemorySearchIterator",
 			    PyObject_GetAttrString(typing_module, "Iterator"));
@@ -395,6 +474,17 @@ static int add_type_aliases(PyObject *m)
 PyMODINIT_FUNC PyInit__drgn(void); // Silence -Wmissing-prototypes.
 DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 {
+	{
+		_cleanup_pydecref_ PyObject *signal_module =
+			PyImport_ImportModule("signal");
+		if (!signal_module)
+			return NULL;
+		Signals_class =
+			PyObject_GetAttrString(signal_module, "Signals");
+		if (!Signals_class)
+			return NULL;
+	}
+
 	PyObject *m = PyModule_Create(&drgnmodule);
 	if (!m)
 		return NULL;
@@ -414,7 +504,6 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &DebugInfoOptions_type) ||
 	    add_type(m, &Language_type) || add_languages() ||
 	    add_type(m, &DrgnObject_type) ||
-	    add_event_types(m) ||
 	    add_type(m, &EventListener_type) ||
 	    add_type(m, &ExecutionController_type) ||
 	    PyType_Ready(&MemorySearchIteratorWithBytes_type) ||
@@ -469,7 +558,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_new_exception(m, AlreadyAttachedError, NULL) ||
 	    add_new_exception(m, NotStoppedError, NULL) ||
 	    add_new_exception(m, NoEventsError, NULL) ||
-	    add_type_aliases(m) ||
+	    add_stdlib_types(m) ||
 	    init_logging())
 		goto err;
 

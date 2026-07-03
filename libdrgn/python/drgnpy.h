@@ -422,6 +422,7 @@ extern PyObject *PlatformFlags_class;
 extern PyObject *PrimitiveType_class;
 extern PyObject *ProgramFlags_class;
 extern PyObject *Qualifiers_class;
+extern PyObject *Signals_class;
 extern PyObject *SupplementaryFileKind_class;
 extern PyObject *SymbolBinding_class;
 extern PyObject *SymbolKind_class;
@@ -486,6 +487,26 @@ extern PyObject *AlreadyAttachedError;
 extern PyObject *NotStoppedError;
 extern PyObject *NoEventsError;
 
+#define EVENT_TYPES		\
+	X(ProgramExitEvent)	\
+	X(ThreadExitEvent)	\
+	X(ThreadStopEvent)
+
+#define RESUME_ACTION_TYPES	\
+	X(ContinueResumeAction)	\
+	X(StepiResumeAction)
+
+#define STOP_REASON_TYPES	\
+	X(SyntheticStopReason)	\
+	X(SignalStopReason)	\
+	X(BreakpointStopReason)
+
+#define X(name) extern PyObject *name##_class;
+EVENT_TYPES
+RESUME_ACTION_TYPES
+STOP_REASON_TYPES
+#undef X
+
 PyGILState_STATE drgn_initialize_python(bool *success_ret);
 
 #define drgn_initialize_python_guard(success_ret)				\
@@ -503,7 +524,6 @@ void *set_error_type_name(const char *format,
 
 #define call_tp_alloc(type) ((type *)type##_type.tp_alloc(&type##_type, 0))
 
-int add_event_types(PyObject *m);
 PyObject *Event_wrap(struct drgn_event *event);
 
 int drgnpy_execution_controller_set_ops(struct drgn_execution_controller_ops *ops,

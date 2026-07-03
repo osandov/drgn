@@ -70,9 +70,33 @@ static inline void list_move_tail(struct list_head *list, struct list_head *head
 	list_add_tail(list, head);
 }
 
+static inline int list_is_first(const struct list_head *list,
+				const struct list_head *head)
+{
+	return list->prev == head;
+}
+
+static inline int list_is_last(const struct list_head *list,
+			       const struct list_head *head)
+{
+	return list->next == head;
+}
+
+static inline int list_is_head(const struct list_head *list,
+			       const struct list_head *head)
+{
+	return list == head;
+}
+
 static inline bool list_empty(const struct list_head *head)
 {
 	return head->next == head;
+}
+
+static inline void list_rotate_to_front(struct list_head *list,
+					struct list_head *head)
+{
+	list_move_tail(head, list);
 }
 
 static inline int list_is_singular(const struct list_head *head)
