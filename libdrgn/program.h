@@ -296,7 +296,7 @@ struct drgn_program {
 	/* Cached vmemmap. */
 	struct drgn_object vmemmap;
 	/* Page table iterator. */
-	struct pgtable_iterator *pgtable_its[2];
+	struct pgtable_iterator pgtable_its[2];
 	/*
          * Current address translation depth; always kept at the index of the current
          * page table iterator + 1.

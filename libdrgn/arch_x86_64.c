@@ -569,39 +569,32 @@ linux_kernel_direct_mapping_offset_x86_64(struct drgn_program *prog,
 }
 
 struct pgtable_iterator_x86_64 {
-	struct pgtable_iterator it;
 	uint16_t index[5];
 	uint64_t table[5][512];
 };
 
 static struct drgn_error *
-linux_kernel_pgtable_iterator_create_x86_64(struct drgn_program *prog,
-					    struct pgtable_iterator **ret)
+linux_kernel_pgtable_iterator_arch_create_x86_64(struct drgn_program *prog,
+						 void **ret)
 {
-	struct pgtable_iterator_x86_64 *it = malloc(sizeof(*it));
-	if (!it)
+	struct pgtable_iterator_x86_64 *it_arch = malloc(sizeof(*it_arch));
+	if (!it_arch)
 		return &drgn_enomem;
-	*ret = &it->it;
+	*ret = it_arch;
 	return NULL;
-}
-
-static void linux_kernel_pgtable_iterator_destroy_x86_64(struct pgtable_iterator *_it)
-{
-	free(container_of(_it, struct pgtable_iterator_x86_64, it));
 }
 
 static void
 linux_kernel_pgtable_iterator_init_x86_64(struct drgn_program *prog,
-					  struct pgtable_iterator *_it)
+					  struct pgtable_iterator *it)
 {
-	struct pgtable_iterator_x86_64 *it =
-		container_of(_it, struct pgtable_iterator_x86_64, it);
-	memset(it->index, 0xff, sizeof(it->index));
+	struct pgtable_iterator_x86_64 *it_arch = it->arch;
+	memset(it_arch->index, 0xff, sizeof(it_arch->index));
 }
 
 static struct drgn_error *
 linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
-					  struct pgtable_iterator *_it,
+					  struct pgtable_iterator *it,
 					  uint64_t *virt_addr_ret,
 					  uint64_t *phys_addr_ret)
 {
@@ -613,9 +606,8 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 	static const uint64_t ADDRESS_MASK = UINT64_C(0xffffffffff000);
 	struct drgn_error *err;
 	bool bswap = drgn_platform_bswap(&prog->platform);
-	struct pgtable_iterator_x86_64 *it =
-		container_of(_it, struct pgtable_iterator_x86_64, it);
-	uint64_t virt_addr = it->it.virt_addr;
+	struct pgtable_iterator_x86_64 *it_arch = it->arch;
+	uint64_t virt_addr = it->virt_addr;
 	int levels = prog->vmcoreinfo.pgtable_l5_enabled ? 5 : 4;
 
 	uint64_t start_non_canonical =
@@ -627,14 +619,14 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 	if (virt_addr >= start_non_canonical && virt_addr < end_non_canonical) {
 		*virt_addr_ret = start_non_canonical;
 		*phys_addr_ret = UINT64_MAX;
-		it->it.virt_addr = end_non_canonical;
+		it->virt_addr = end_non_canonical;
 		return NULL;
 	}
 
 	// Find the lowest level with cached entries.
 	int level;
 	for (level = 0; level < levels; level++) {
-		if (it->index[level] < array_size(it->table[level]))
+		if (it_arch->index[level] < array_size(it_arch->table[level]))
 			break;
 	}
 	// For every level below that, refill the cache/return pages.
@@ -642,19 +634,19 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 		uint64_t table;
 		bool table_physical;
 		if (level == levels && prog->vmcoreinfo.have_phys_base &&
-		    it->it.pgtable == prog->vmcoreinfo.swapper_pg_dir) {
+		    it->pgtable == prog->vmcoreinfo.swapper_pg_dir) {
 			// Avoid recursive address translation on swapper_pg_dir
 			// by directly resolving to a physical address.
 			// phys_base has been present since Linux kernel commit
 			// 401721ecd1dc ("kexec: export the value of phys_base
 			// instead of symbol address") (in v4.10).
-			table = it->it.pgtable + prog->vmcoreinfo.phys_base - START_KERNEL_MAP;
+			table = it->pgtable + prog->vmcoreinfo.phys_base - START_KERNEL_MAP;
 			table_physical = true;
 		} else if (level == levels) {
-			table = it->it.pgtable;
+			table = it->pgtable;
 			table_physical = false;
 		} else {
-			uint64_t entry = it->table[level][it->index[level]++];
+			uint64_t entry = it_arch->table[level][it_arch->index[level]++];
 			if (bswap)
 				entry = bswap_64(entry);
 			table = entry & ADDRESS_MASK;
@@ -667,7 +659,7 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 					*phys_addr_ret = table & ~mask;
 				else
 					*phys_addr_ret = UINT64_MAX;
-				it->it.virt_addr = (virt_addr | mask) + 1;
+				it->virt_addr = (virt_addr | mask) + 1;
 				return NULL;
 			}
 			table_physical = true;
@@ -678,13 +670,13 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 		// It's only marginally more expensive to read 4096 bytes than 8
 		// bytes, so we always read to the end of the table.
 		err = drgn_program_read_memory(prog,
-					       &it->table[level - 1][index],
+					       &it_arch->table[level - 1][index],
 					       table + 8 * index,
-					       sizeof(it->table[0]) - 8 * index,
+					       sizeof(it_arch->table[0]) - 8 * index,
 					       table_physical);
 		if (err)
 			return err;
-		it->index[level - 1] = index;
+		it_arch->index[level - 1] = index;
 	}
 }
 
@@ -725,10 +717,9 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 		linux_kernel_live_direct_mapping_fallback_x86_64,
 	.linux_kernel_direct_mapping_offset =
 		linux_kernel_direct_mapping_offset_x86_64,
-	.linux_kernel_pgtable_iterator_create =
-		linux_kernel_pgtable_iterator_create_x86_64,
-	.linux_kernel_pgtable_iterator_destroy =
-		linux_kernel_pgtable_iterator_destroy_x86_64,
+	.linux_kernel_pgtable_iterator_arch_create =
+		linux_kernel_pgtable_iterator_arch_create_x86_64,
+	.linux_kernel_pgtable_iterator_arch_destroy = free,
 	.linux_kernel_pgtable_iterator_init =
 		linux_kernel_pgtable_iterator_init_x86_64,
 	.linux_kernel_pgtable_iterator_next =

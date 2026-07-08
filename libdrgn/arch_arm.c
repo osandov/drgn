@@ -168,7 +168,6 @@ apply_elf_reloc_arm(const struct drgn_relocating_section *relocating,
 }
 
 struct pgtable_iterator_arm {
-	struct pgtable_iterator it;
 	union {
 		// For LPAE.
 		struct {
@@ -184,49 +183,44 @@ struct pgtable_iterator_arm {
 };
 
 static struct drgn_error *
-linux_kernel_pgtable_iterator_create_arm(struct drgn_program *prog,
-					 struct pgtable_iterator **ret)
+linux_kernel_pgtable_iterator_arch_create_arm(struct drgn_program *prog,
+					      void **ret)
 {
-	struct pgtable_iterator_arm *it = malloc(sizeof(*it));
-	if (!it)
+	struct pgtable_iterator_arm *it_arch = malloc(sizeof(*it_arch));
+	if (!it_arch)
 		return &drgn_enomem;
-	*ret = &it->it;
+	*ret = it_arch;
 	return NULL;
 }
 
-static void linux_kernel_pgtable_iterator_destroy_arm(struct pgtable_iterator *it)
-{
-	free(container_of(it, struct pgtable_iterator_arm, it));
-}
-
 static void linux_kernel_pgtable_iterator_init_arm(struct drgn_program *prog,
-						   struct pgtable_iterator *_it)
+						   struct pgtable_iterator *it)
 {
-	struct pgtable_iterator_arm *it =
-		container_of(_it, struct pgtable_iterator_arm, it);
-	memset(it->cached_entries, 0, sizeof(it->cached_entries));
-	it->cached_virt_addr = 0;
+	struct pgtable_iterator_arm *it_arch = it->arch;
+	memset(it_arch->cached_entries, 0, sizeof(it_arch->cached_entries));
+	it_arch->cached_virt_addr = 0;
 }
 
 static struct drgn_error *
 linux_kernel_pgtable_iterator_next_arm_lpae(struct drgn_program *prog,
-					    struct pgtable_iterator_arm *it,
+					    struct pgtable_iterator *it,
 					    uint64_t *virt_addr_ret,
 					    uint64_t *phys_addr_ret)
 {
 	struct drgn_error *err;
-	const uint32_t virt_addr = it->it.virt_addr;
+	struct pgtable_iterator_arm *it_arch = it->arch;
+	const uint32_t virt_addr = it->virt_addr;
 
 	const uint64_t phys_addr_mask = 0xfffffff000;
 	uint32_t index_mask = 0x3;
-	uint64_t table = it->it.pgtable;
+	uint64_t table = it->pgtable;
 	bool table_physical = false;
 	for (int level = 2;; level--) {
 		int level_shift = 12 + 9 * level;
 		uint32_t index = (virt_addr >> level_shift) & index_mask;
 		uint32_t cached_index =
-			(it->cached_virt_addr >> level_shift) & index_mask;
-		uint64_t *entry_ptr = &it->cached_entries[2 - level];
+			(it_arch->cached_virt_addr >> level_shift) & index_mask;
+		uint64_t *entry_ptr = &it_arch->cached_entries[2 - level];
 		if (index != cached_index)
 			memset(entry_ptr, 0, (level + 1) * 8);
 		if (!*entry_ptr) {
@@ -248,8 +242,8 @@ linux_kernel_pgtable_iterator_next_arm_lpae(struct drgn_program *prog,
 				*phys_addr_ret = table & ~mask;
 			else
 				*phys_addr_ret = UINT64_MAX;
-			it->cached_virt_addr = virt_addr;
-			it->it.virt_addr = (virt_addr | mask) + 1;
+			it_arch->cached_virt_addr = virt_addr;
+			it->virt_addr = (virt_addr | mask) + 1;
 			return NULL;
 		}
 	}
@@ -257,13 +251,12 @@ linux_kernel_pgtable_iterator_next_arm_lpae(struct drgn_program *prog,
 
 static struct drgn_error *
 linux_kernel_pgtable_iterator_next_arm(struct drgn_program *prog,
-				       struct pgtable_iterator *_it,
+				       struct pgtable_iterator *it,
 				       uint64_t *virt_addr_ret,
 				       uint64_t *phys_addr_ret)
 {
 	struct drgn_error *err;
-	struct pgtable_iterator_arm *it =
-		container_of(_it, struct pgtable_iterator_arm, it);
+	struct pgtable_iterator_arm *it_arch = it->arch;
 
 	if (prog->vmcoreinfo.arm_lpae) {
 		return linux_kernel_pgtable_iterator_next_arm_lpae(prog, it,
@@ -271,17 +264,17 @@ linux_kernel_pgtable_iterator_next_arm(struct drgn_program *prog,
 								   phys_addr_ret);
 	}
 
-	const uint32_t virt_addr = it->it.virt_addr;
+	const uint32_t virt_addr = it->virt_addr;
 
 	uint32_t index = virt_addr >> 20;
-	if (it->cached_index != index || !it->cached_entry) {
-		err = drgn_program_read_u32(prog, it->it.pgtable + index * 4,
-					    false, &it->cached_entry);
+	if (it_arch->cached_index != index || !it_arch->cached_entry) {
+		err = drgn_program_read_u32(prog, it->pgtable + index * 4,
+					    false, &it_arch->cached_entry);
 		if (err)
 			return err;
-		it->cached_index = index;
+		it_arch->cached_index = index;
 	}
-	uint32_t entry = it->cached_entry;
+	uint32_t entry = it_arch->cached_entry;
 
 	if ((entry & 0x3) != 0x1) {
 		uint32_t mask = (UINT32_C(1) << 20) - 1;
@@ -298,7 +291,7 @@ linux_kernel_pgtable_iterator_next_arm(struct drgn_program *prog,
 			*phys_addr_ret = UINT64_MAX;
 		}
 		*virt_addr_ret = virt_addr & ~mask;
-		it->it.virt_addr = (virt_addr | mask) + 1;
+		it->virt_addr = (virt_addr | mask) + 1;
 		return NULL;
 	}
 
@@ -320,7 +313,7 @@ linux_kernel_pgtable_iterator_next_arm(struct drgn_program *prog,
 		*phys_addr_ret = UINT64_MAX;
 	}
 	*virt_addr_ret = virt_addr & ~mask;
-	it->it.virt_addr = (virt_addr | mask) + 1;
+	it->virt_addr = (virt_addr | mask) + 1;
 	return NULL;
 }
 
@@ -353,10 +346,9 @@ const struct drgn_architecture_info arch_info_arm = {
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_arm,
 	.apply_elf_reloc = apply_elf_reloc_arm,
-	.linux_kernel_pgtable_iterator_create =
-		linux_kernel_pgtable_iterator_create_arm,
-	.linux_kernel_pgtable_iterator_destroy =
-		linux_kernel_pgtable_iterator_destroy_arm,
+	.linux_kernel_pgtable_iterator_arch_create =
+		linux_kernel_pgtable_iterator_arch_create_arm,
+	.linux_kernel_pgtable_iterator_arch_destroy = free,
 	.linux_kernel_pgtable_iterator_init =
 		linux_kernel_pgtable_iterator_init_arm,
 	.linux_kernel_pgtable_iterator_next =

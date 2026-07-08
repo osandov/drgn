@@ -242,7 +242,6 @@ struct pgtable_data {
 };
 
 struct pgtable_iterator_s390x {
-	struct pgtable_iterator it;
 	struct pgtable_data pagetable[5];
 	int levels;
 };
@@ -270,32 +269,24 @@ static const struct dat_level dat_levels[] = {
 #define PAGE_LARGE		0x800
 
 static struct drgn_error *
-linux_kernel_pgtable_iterator_create_s390x(struct drgn_program *prog,
-					  struct pgtable_iterator **ret)
+linux_kernel_pgtable_iterator_arch_create_s390x(struct drgn_program *prog,
+						void **ret)
 {
-	struct pgtable_iterator_s390x *it = malloc(sizeof(*it));
-	if (!it)
+	struct pgtable_iterator_s390x *it_arch = malloc(sizeof(*it_arch));
+	if (!it_arch)
 		return &drgn_enomem;
-
-	*ret = &it->it;
+	*ret = it_arch;
 	return NULL;
 }
 
 static void
-linux_kernel_pgtable_iterator_destroy_s390x(struct pgtable_iterator *_it)
-{
-	free(container_of(_it, struct pgtable_iterator_s390x, it));
-}
-
-static void
 linux_kernel_pgtable_iterator_init_s390x(struct drgn_program *prog,
-					struct pgtable_iterator *_it)
+					struct pgtable_iterator *it)
 {
-	struct pgtable_iterator_s390x *it =
-		container_of(_it, struct pgtable_iterator_s390x, it);
+	struct pgtable_iterator_s390x *it_arch = it->arch;
 	for (int i = 0; i < 5; i++)
-		it->pagetable[i].addr = UINT64_MAX;
-	it->levels = 3;
+		it_arch->pagetable[i].addr = UINT64_MAX;
+	it_arch->levels = 3;
 }
 
 static bool
@@ -316,15 +307,15 @@ entry_is_invalid(uint64_t entry, int level)
 }
 
 static int
-get_mask(struct pgtable_iterator_s390x *it, int level)
+get_mask(struct pgtable_iterator_s390x *it_arch, int level)
 {
 	return (1 << dat_levels[level].bits) - 1;
 }
 
 static int
-get_index(struct pgtable_iterator_s390x *it, int level, uint64_t va)
+get_index(struct pgtable_iterator_s390x *it_arch, int level, uint64_t va)
 {
-	return (va >> dat_levels[level].shift) & get_mask(it, level);
+	return (va >> dat_levels[level].shift) & get_mask(it_arch, level);
 }
 
 static int
@@ -384,14 +375,13 @@ static uint64_t get_level_mask(int level)
 
 static struct drgn_error *
 linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
-					struct pgtable_iterator *_it,
+					struct pgtable_iterator *it,
 					uint64_t *virt_addr_ret,
 					uint64_t *phys_addr_ret)
 {
-	struct pgtable_iterator_s390x *it =
-		container_of(_it, struct pgtable_iterator_s390x, it);
-	const uint64_t va = it->it.virt_addr;
-	uint64_t table = _it->pgtable & ~UINT64_C(0xfff);
+	struct pgtable_iterator_s390x *it_arch = it->arch;
+	const uint64_t va = it->virt_addr;
+	uint64_t table = it->pgtable & ~UINT64_C(0xfff);
 	bool table_physical = false;
 	if (table == prog->vmcoreinfo.swapper_pg_dir) {
 		// Since Linux kernel commits 378e32aa8197 ("s390/vmcoreinfo:
@@ -423,36 +413,36 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 	level = 2 + ((entry >> 2) & 3);
 
 	while(level-- > 0) {
-		int index = get_index(it, level, va);
+		int index = get_index(it_arch, level, va);
 
 		if (index < offset || index - offset > length) {
 			uint64_t mask = get_level_mask(level);
 			*phys_addr_ret = UINT64_MAX;
-			it->it.virt_addr = (va | ~mask) + 1;
+			it->virt_addr = (va | ~mask) + 1;
 			return NULL;
 		}
 
 		index -= offset;
-		if (it->pagetable[level].addr != table ||
-		    it->pagetable[level].length != length ||
-		    it->pagetable[level].offset != offset) {
+		if (it_arch->pagetable[level].addr != table ||
+		    it_arch->pagetable[level].length != length ||
+		    it_arch->pagetable[level].offset != offset) {
 			/*
 			 * It's only marginally more expensive to read 4096
 			 * bytes than 8 bytes, so we always read the full table.
 			 */
 			err = drgn_program_read_memory(prog,
-						       it->pagetable[level].entries,
+						       it_arch->pagetable[level].entries,
 						       table, length * 8,
 						       table_physical);
 			if (err)
 				return err;
 
-			it->pagetable[level].addr = table;
-			it->pagetable[level].length = length;
-			it->pagetable[level].offset = offset;
+			it_arch->pagetable[level].addr = table;
+			it_arch->pagetable[level].length = length;
+			it_arch->pagetable[level].offset = offset;
 		}
 
-		entry = it->pagetable[level].entries[index];
+		entry = it_arch->pagetable[level].entries[index];
 		if (drgn_platform_bswap(&prog->platform))
 			entry = bswap_64(entry);
 
@@ -471,7 +461,7 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 			uint64_t mask = get_level_mask(level);
 			*phys_addr_ret = table;
 			*virt_addr_ret = va & mask;
-			it->it.virt_addr = (va | ~mask) + 1;
+			it->virt_addr = (va | ~mask) + 1;
 			return NULL;
 		}
 	}
@@ -502,10 +492,9 @@ const struct drgn_architecture_info arch_info_s390x = {
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_s390x,
 	.apply_elf_reloc = apply_elf_reloc_s390,
-	.linux_kernel_pgtable_iterator_create =
-		linux_kernel_pgtable_iterator_create_s390x,
-	.linux_kernel_pgtable_iterator_destroy =
-		linux_kernel_pgtable_iterator_destroy_s390x,
+	.linux_kernel_pgtable_iterator_arch_create =
+		linux_kernel_pgtable_iterator_arch_create_s390x,
+	.linux_kernel_pgtable_iterator_arch_destroy = free,
 	.linux_kernel_pgtable_iterator_init =
 		linux_kernel_pgtable_iterator_init_s390x,
 	.linux_kernel_pgtable_iterator_next =

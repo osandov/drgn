@@ -125,6 +125,8 @@ struct pgtable_iterator {
 	uint64_t pgtable;
 	/** Current virtual address to translate. */
 	uint64_t virt_addr;
+	/** Architecture-specific data. */
+	void *arch;
 };
 
 /**
@@ -210,8 +212,8 @@ typedef struct drgn_error *
  * To support virtual address translation:
  *
  * - Define the @ref drgn_architecture_info page table iterator members:
- *   - @ref linux_kernel_pgtable_iterator_create
- *   - @ref linux_kernel_pgtable_iterator_destroy
+ *   - @ref linux_kernel_pgtable_iterator_arch_create
+ *   - @ref linux_kernel_pgtable_iterator_arch_destroy
  *   - @ref linux_kernel_pgtable_iterator_init
  *   - @ref linux_kernel_pgtable_iterator_next
  * - Define the SPARSEMEM constant fallback getters if applicable:
@@ -225,24 +227,25 @@ typedef struct drgn_error *
  * (ignoring error handling):
  *
  * ```
- * // Create the iterator.
- * struct pgtable_iterator *it;
- * arch->linux_kernel_pgtable_iterator_create(prog, &it);
+ * struct pgtable_iterator it;
+ *
+ * // Create the architecture-specific data for the iterator.
+ * arch->linux_kernel_pgtable_iterator_arch_create(prog, &it.arch);
  *
  * // Initialize the iterator to translate virtual address 0x80000000 using
  * // the page table "pgtable".
- * it->pgtable = pgtable;
- * it->virt_addr = 0x80000000;
- * arch->linux_kernel_pgtable_iterator_init(prog, it);
+ * it.pgtable = pgtable;
+ * it.virt_addr = 0x80000000;
+ * arch->linux_kernel_pgtable_iterator_init(prog, &it);
  * // Iterate up to virtual address 0x90000000.
- * while (it->virt_addr < 0x90000000) {
+ * while (it.virt_addr < 0x90000000) {
  *         uint64_t virt_addr, phys_addr;
- *         arch->linux_kernel_pgtable_iterator_next(prog, it, &virt_addr,
+ *         arch->linux_kernel_pgtable_iterator_next(prog, &it, &virt_addr,
  *                                                  &phys_addr);
  *         if (phys_addr == UINT64_MAX) {
  *                 printf("Virtual address range 0x%" PRIx64 "-0x%" PRIx64
  *                        " is not mapped\n",
- *                        virt_addr, it->virt_addr);
+ *                        virt_addr, it.virt_addr);
  *         } else {
  *                 printf("Virtual address range 0x%" PRIx64 "-0x%" PRIx64
  *                        " maps to physical address 0x%" PRIx64 "\n",
@@ -252,17 +255,18 @@ typedef struct drgn_error *
  *
  * // Reuse the iterator to translate a different address using a different page
  * // table.
- * it->pgtable = another_pgtable;
- * it->virt_addr = 0x11110000;
+ * it.pgtable = another_pgtable;
+ * it.virt_addr = 0x11110000;
+ * arch->linux_kernel_pgtable_iterator_init(prog, &it);
  * uint64_t virt_addr, phys_addr;
- * arch->linux_kernel_pgtable_iterator_next(prog, it, &virt_addr, &phys_addr);
+ * arch->linux_kernel_pgtable_iterator_next(prog, &it, &virt_addr, &phys_addr);
  * if (phys_addr != UINT64_MAX) {
  *         printf("Virtual address 0x11110000 maps to physical address 0x%" PRIx64 "\n",
  *                phys_addr + (0x11110000 - virt_addr));
  * }
  *
- * // Free the iterator now that we're done with it.
- * arch->linux_kernel_pgtable_iterator_destroy(prog, &it);
+ * // Free the architecture-specific data now that we're done with it.
+ * arch->linux_kernel_pgtable_iterator_arch_destroy(it.arch);
  * ```
  */
 struct drgn_architecture_info {
@@ -444,11 +448,19 @@ struct drgn_architecture_info {
 	 */
 	struct drgn_error *(*linux_kernel_direct_mapping_offset)(struct drgn_program *prog,
 								 uint64_t *address_ret);
-	/** Allocate a Linux kernel page table iterator. */
-	struct drgn_error *(*linux_kernel_pgtable_iterator_create)(struct drgn_program *,
-								   struct pgtable_iterator **);
-	/** Free a Linux kernel page table iterator. */
-	void (*linux_kernel_pgtable_iterator_destroy)(struct pgtable_iterator *);
+	/**
+	 * Allocate architecture-specific data for a Linux kernel page table
+	 * iterator.
+	 *
+	 * `*ret` must not be modified on error.
+	 */
+	struct drgn_error *(*linux_kernel_pgtable_iterator_arch_create)(struct drgn_program *,
+									void **ret);
+	/**
+	 * Free architecture-specific data for a Linux kernel page table
+	 * iterator.
+	 */
+	void (*linux_kernel_pgtable_iterator_arch_destroy)(void *);
 	/**
 	 * (Re)initialize a Linux kernel page table iterator.
 	 *

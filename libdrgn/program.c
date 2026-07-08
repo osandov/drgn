@@ -164,9 +164,9 @@ void drgn_program_deinit(struct drgn_program *prog)
 		drgn_thread_destroy(prog->main_thread);
 	}
 	for (int i = 0; i < array_size(prog->pgtable_its); i++) {
-		struct pgtable_iterator *it = prog->pgtable_its[i];
-		if (it)
-			prog->platform.arch->linux_kernel_pgtable_iterator_destroy(it);
+		struct pgtable_iterator *it = &prog->pgtable_its[i];
+		if (it->arch)
+			prog->platform.arch->linux_kernel_pgtable_iterator_arch_destroy(it->arch);
 	}
 
 	drgn_object_deinit(&prog->vmemmap);

@@ -24,7 +24,7 @@ begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
 {
 	struct drgn_error *err;
 	for (int i = 0; i < prog->address_translation_depth; i++) {
-		if (prog->pgtable_its[i]->pgtable == pgtable) {
+		if (prog->pgtable_its[i].pgtable == pgtable) {
 			return drgn_error_create_fault("recursive address translation; "
 						       "page table may be missing from core dump",
 						       virt_addr);
@@ -35,7 +35,14 @@ begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
 					       virt_addr);
 	}
 
-	if (!prog->pgtable_its[prog->address_translation_depth]) {
+	struct pgtable_iterator *it =
+		&prog->pgtable_its[prog->address_translation_depth];
+	it->pgtable = pgtable;
+	it->virt_addr = virt_addr;
+
+	if (it->arch) {
+		prog->address_translation_depth++;
+	} else {
 		if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
 			return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
 						 "virtual address translation is only available for the Linux kernel");
@@ -49,21 +56,16 @@ begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
 						 "virtual address translation is not implemented for %s architecture",
 						 prog->platform.arch->name);
 		}
-		err = prog->platform.arch->linux_kernel_pgtable_iterator_create(
-			prog, &prog->pgtable_its[prog->address_translation_depth]
-		);
+		prog->address_translation_depth++;
+		err = prog->platform.arch->linux_kernel_pgtable_iterator_arch_create(prog,
+										     &it->arch);
 		if (err) {
-			prog->pgtable_its[prog->address_translation_depth] = NULL;
+			prog->address_translation_depth--;
 			return err;
 		}
 	}
-	struct pgtable_iterator *it =
-		prog->pgtable_its[prog->address_translation_depth];
-	it->pgtable = pgtable;
-	it->virt_addr = virt_addr;
 	prog->platform.arch->linux_kernel_pgtable_iterator_init(prog, it);
 	*ret = it;
-	prog->address_translation_depth++;
 	return NULL;
 }
 
