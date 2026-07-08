@@ -15,9 +15,17 @@ import itertools
 from typing import Iterator
 
 from drgn import IntegerLike, Object, Program, cast
+from drgn.helpers.common.disasm import disasm
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.idr import idr_find, idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
+
+try:
+    import capstone  # type: ignore # no type hints available
+
+    HAVE_CAPSTONE = True
+except ImportError:
+    HAVE_CAPSTONE = False
 
 __all__ = (
     "bpf_btf_for_each",
@@ -29,6 +37,8 @@ __all__ = (
     "bpf_prog_used_maps",
     "bpf_prog_by_id",
     "bpf_map_by_id",
+    "bpf_prog_disasm",
+    "bpf_prog_disasm_jited",
 )
 
 
@@ -194,6 +204,52 @@ def bpf_prog_used_maps(bpf_prog: Object) -> Iterator[Object]:
     """
     aux = bpf_prog.aux.read_()
     return iter(aux.used_maps[: aux.used_map_cnt])
+
+
+def bpf_prog_disasm_jited(bpf_prog: Object) -> None:
+    """
+    disassemble the jited code for a BPF program.
+
+    :param bpf_prog: ``struct bpf_prog *``
+    :param jited: dump machine code as compiled by the kernel
+    :param bytecode: dump the bpf byte code as submitted to the kernel
+    :param dump_bytes: include the byte values of the bpf byte code in
+        the bytecode dump
+    """
+    try:
+        jited_len = bpf_prog.member_("jited_len").value_()
+        bpf_func = bpf_prog.member_("bpf_func").value_()
+        if jited_len > 0:
+            disasm(bpf_prog.prog_, bpf_func, jited_len)
+        else:
+            print("(program not jited)")
+    except LookupError:
+        return
+
+
+def bpf_prog_disasm(bpf_prog: Object, dump_bytes: bool) -> None:
+    """
+    disassemble a BPF program.
+
+    :param bpf_prog: ``struct bpf_prog *``
+    :param dump_bytes: include the byte values of the bpf byte code in
+        the bytecode dump
+    """
+    if not HAVE_CAPSTONE:
+        raise NotImplementedError()
+
+    try:
+        bpf_len = bpf_prog.member_("len").value_()
+        insnsi = bpf_prog.member_("insnsi").address_of_()
+        machine_code = bpf_prog.prog_.read(insnsi, bpf_len * 8)
+    except LookupError:
+        return
+
+    disassembler = capstone.Cs(capstone.CS_ARCH_BPF, capstone.CS_MODE_BPF_EXTENDED)
+    for idx, i in enumerate(disassembler.disasm(machine_code, insnsi)):
+        print(f"{idx:4x}:\t{i.mnemonic}\t{i.op_str}")
+        if dump_bytes:
+            print("\t{}".format(" ".join([f"{b:02x}" for b in i.bytes])))
 
 
 @takes_program_or_default
