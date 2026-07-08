@@ -73,6 +73,11 @@ except ImportError:
 class LinuxKernelTestCase(TestCase):
     prog = None
     skip_reason = None
+    loaded_modules = set()
+
+    def require_module(self, module):
+        if module not in LinuxKernelTestCase.loaded_modules:
+            self.skipTest(f"module {module} is not available")
 
     @staticmethod
     def _load_debug_info(prog):
@@ -119,9 +124,10 @@ class LinuxKernelTestCase(TestCase):
                     )
                 else:
                     # Load modules that are used by test cases.
-                    subprocess.check_call(
-                        ["modprobe", "-a", "btrfs", "configs", "loop"]
-                    )
+                    for module in ["btrfs", "configs", "loop"]:
+                        result = subprocess.run(["modprobe", module])
+                        if result.returncode == 0:
+                            LinuxKernelTestCase.loaded_modules.add(module)
                     try:
                         cls._load_debug_info(prog)
                         LinuxKernelTestCase.prog = prog
