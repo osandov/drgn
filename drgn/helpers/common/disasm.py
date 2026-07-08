@@ -14,7 +14,10 @@ from _drgn import _parse_addr2line
 from drgn import Architecture, IntegerLike, PlatformFlags, Program
 from drgn.helpers.common.prog import takes_program_or_default
 
-__all__ = ("disasm",)
+__all__ = (
+    "disasm",
+    "disasm_bytes",
+)
 
 try:
     import capstone  # type: ignore # no type hints available
@@ -255,6 +258,36 @@ def disasm(
     else:
         insns = [i for i in insns if i.address >= addr]
         insns = insns[:count]
+    for i in insns:
+        addr_str = _symbolize(prog, i.address, offset_base) or ""
+        dest_str = _symbolize_dest(prog, i, offset_base) or ""
+        print(f"0x{i.address:x}{addr_str}:\t{i.mnemonic}\t{i.op_str}{dest_str}")
+
+
+@takes_program_or_default
+def disasm_bytes(
+    prog: Program,
+    address: Union[IntegerLike, str],
+    nbytes: int,
+    *,
+    offset_base: int = 10,
+) -> None:
+    """
+    Print a disassembly.
+
+    :param address: the start address.
+    :param nbytes: The size, in bytes, of the buffer to disassemble
+    :param reverse: The disassembly will end at the specified address instead of
+        starting there.
+    :param offset_base: print all symbol offsets using this base.
+    """
+    disassembler = _get_diasassembler(prog)
+
+    if isinstance(address, str):
+        addr = _resolve_addr(prog, address)
+    else:
+        addr = int(address)
+    insns = disassembler.disasm(prog.read(addr, nbytes), addr)
     for i in insns:
         addr_str = _symbolize(prog, i.address, offset_base) or ""
         dest_str = _symbolize_dest(prog, i, offset_base) or ""
