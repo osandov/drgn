@@ -222,6 +222,7 @@ class TestFsRefs(LinuxKernelTestCase):
 
     @skip_unless_have_test_disk
     def test_super_block_on_block_device(self):
+        self.require_module("btrfs")
         disk = os.environ["DRGN_TEST_DISK"]
         for fstype, mkfs in (
             ("ext2", ("mke2fs", "-qF")),
@@ -247,6 +248,7 @@ class TestFsRefs(LinuxKernelTestCase):
 
     @skip_unless_have_test_disk
     def test_btrfs_subvolume(self):
+        self.require_module("btrfs")
         disk = os.environ["DRGN_TEST_DISK"]
         with contextlib.ExitStack() as exit_stack:
             subprocess.check_call([*mkfs_btrfs_args(), disk])
@@ -367,6 +369,7 @@ class TestFsRefs(LinuxKernelTestCase):
             )
 
     def test_loop_device(self):
+        self.require_module("loop")
         path = self._tmp / "file"
         with open(path, "wb") as f:
             os.ftruncate(f.fileno(), 1024 * 1024)
