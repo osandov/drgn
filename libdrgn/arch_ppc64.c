@@ -440,6 +440,18 @@ linux_kernel_pgtable_iterator_next_ppc64(struct drgn_program *prog,
 }
 
 static int
+linux_kernel_address_translate_fallback_ppc64(struct drgn_program *prog,
+					      int attempt, uint64_t virt_addr,
+					      bool image_addr, uint64_t *ret)
+{
+	if (attempt != 0)
+		return 0;
+	// Mask from __pa() in the Linux kernel.
+	*ret = virt_addr & UINT64_C(0xfffffffffffffff);
+	return 1;
+}
+
+static int
 linux_kernel_section_size_bits_fallback_ppc64(struct drgn_program *prog)
 {
 	// This hasn't changed since Linux kernel commit 145e66423164 ("[PATCH]
@@ -468,6 +480,8 @@ const struct drgn_architecture_info arch_info_ppc64 = {
 		linux_kernel_pgtable_iterator_init_ppc64,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_ppc64,
+	.linux_kernel_address_translate_fallback =
+		linux_kernel_address_translate_fallback_ppc64,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_ppc64,
 	// MAX_PHYSMEM_BITS depends on CONFIG_SPARSEMEM_VMEMMAP,

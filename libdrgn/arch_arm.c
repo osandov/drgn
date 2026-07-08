@@ -317,6 +317,23 @@ linux_kernel_pgtable_iterator_next_arm(struct drgn_program *prog,
 	return NULL;
 }
 
+static int
+linux_kernel_address_translate_fallback_arm(struct drgn_program *prog,
+					    int attempt, uint64_t virt_addr,
+					    bool image_addr, uint64_t *ret)
+{
+	// Try every 128MB-aligned offset up to 4GB.
+	// TODO: explain more about AUTO_ZRELADDR, PAGE_OFFSET, PHYS_OFFSET.
+	static const int probe_shift = 27;
+	if (attempt >= (1 << (32 - probe_shift)))
+		return 0;
+	uint64_t delta = (uint64_t)attempt << probe_shift;
+	if (delta > virt_addr)
+		return -1;
+	*ret = virt_addr - delta;
+	return 1;
+}
+
 // StrongARM 1100 and RiscPC technically use different values for
 // SECTION_SIZE_BITS and MAX_PHYSMEM_BITS, but it's vanishingly unlikely that
 // drgn will run on those platforms. Ignoring those, these haven't changed since
@@ -353,6 +370,8 @@ const struct drgn_architecture_info arch_info_arm = {
 		linux_kernel_pgtable_iterator_init_arm,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_arm,
+	.linux_kernel_address_translate_fallback =
+		linux_kernel_address_translate_fallback_arm,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_arm,
 	.linux_kernel_max_physmem_bits_fallback =

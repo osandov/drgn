@@ -60,7 +60,7 @@ static inline bool elf_data_contains_ptr(Elf_Data *data, const void *ptr)
 
 /** An ELF file used by a @ref drgn_module. */
 struct drgn_elf_file {
-	/** Module using this file. */
+	/** Module using this file. May be @c NULL. */
 	struct drgn_module *module;
 	/** Filesystem path to this file. */
 	char *path;

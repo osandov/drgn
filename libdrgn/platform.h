@@ -488,6 +488,12 @@ struct drgn_architecture_info {
 	 * @see pgtable_iterator_next_fn
 	 */
 	pgtable_iterator_next_fn *linux_kernel_pgtable_iterator_next;
+	// TODO: document (including in architecture porting guide above).
+	int (*linux_kernel_address_translate_fallback)(struct drgn_program *,
+						       int attempt,
+						       uint64_t virt_addr,
+						       bool image_addr,
+						       uint64_t *ret);
 	/**
 	 * Get the value of `SECTION_SIZE_BITS` for Linux kernel versions before
 	 * v5.13.

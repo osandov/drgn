@@ -389,8 +389,9 @@ static bool elf_symbol_address(struct drgn_elf_symbol_table *symtab,
 	// probably something special like a Linux per-CPU variable (which isn't
 	// actually a variable address but an offset). Don't apply the bias in
 	// that case.
-	if (drgn_module_contains_address(symtab->file->module,
-					 addr + symtab->bias))
+	if (!symtab->file->module
+	    || drgn_module_contains_address(symtab->file->module,
+					    addr + symtab->bias))
 		addr += symtab->bias;
 	if (symtab->file->is_relocatable) {
 		size_t shndx = elf_symbol_shndx(symtab, sym_idx, sym);
@@ -702,5 +703,61 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 							&state.sizeless_sym))
 		return &drgn_enomem;
 
+	return NULL;
+}
+
+static void cleanup_borrowed_elf_file(struct drgn_elf_file **filep)
+{
+	(*filep)->elf = NULL;
+	drgn_elf_file_destroy(*filep);
+}
+
+// This is a hack: it creates a temporary drgn_elf_file and
+// drgn_elf_symbol_table for every call. It's fine since this is only needed
+// rarely, but if that changes, we will need something better.
+struct drgn_error *find_elf_symbol_by_name(const char *path, Elf *elf,
+					   uint64_t bias, const char *name,
+					   bool *found_ret, uint64_t *addr_ret)
+{
+	struct drgn_error *err;
+
+	_cleanup_(cleanup_borrowed_elf_file) struct drgn_elf_file *file = NULL;
+	err = drgn_elf_file_create(NULL, path, -1, NULL, elf, &file);
+	if (err)
+		return err;
+
+	Elf_Scn *symtab_scn;
+	GElf_Word strtab_idx, num_local_symbols;
+	bool full_symtab = false;
+
+	err = find_elf_file_symtab(file, bias, &file, &bias, &symtab_scn,
+				   &strtab_idx, &num_local_symbols,
+				   &full_symtab, NULL);
+	if (err)
+		return err;
+
+	struct drgn_elf_symbol_table symtab;
+	err = set_elf_symtab(&symtab, file, bias, symtab_scn, strtab_idx,
+			     num_local_symbols);
+	if (err)
+		return err;
+
+	_cleanup_(drgn_symbol_result_builder_abort)
+		struct drgn_symbol_result_builder builder;
+	drgn_symbol_result_builder_init(&builder, true);
+
+	struct elf_symtab_search_state state = {};
+
+	err = drgn_elf_symbol_table_search(&symtab, name, 0,
+					   DRGN_FIND_SYMBOL_NAME
+					   | DRGN_FIND_SYMBOL_ONE,
+					   &state, &builder);
+	if (err && err != &drgn_stop)
+		return err;
+
+	struct drgn_symbol *sym = drgn_symbol_result_builder_single(&builder);
+	*found_ret = sym;
+	if (sym)
+		*addr_ret = drgn_symbol_address(sym);
 	return NULL;
 }

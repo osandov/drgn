@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <assert.h>
+#include <byteswap.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <elf.h>
@@ -5303,6 +5304,166 @@ load_debug_info_try_provided_files(struct drgn_module *module,
 	return NULL;
 }
 
+static struct drgn_error *
+load_debug_info_read_vmcoreinfo(struct drgn_program *prog,
+				uint64_t vmcoreinfo_note_sym)
+{
+	struct drgn_error *err;
+
+	bool bswap = drgn_platform_bswap(&prog->platform);
+	auto translate = prog->platform.arch->linux_kernel_address_translate_fallback;
+	for (int attempt = -1; attempt == -1 || translate; attempt++) {
+		uint64_t read_addr = vmcoreinfo_note_sym;
+		if (attempt >= 0) {
+			int r = translate(prog, attempt, read_addr, true,
+					  &read_addr);
+			if (r == 0)
+				break;
+			else if (r < 0)
+				continue;
+		}
+
+		err = drgn_program_read_word(prog, read_addr, attempt >= 0,
+					     &read_addr);
+		if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
+			continue;
+		else if (err)
+			return err;
+
+		if (attempt >= 0) {
+			int r = translate(prog, attempt, read_addr, false,
+					  &read_addr);
+			if (r == 0)
+				break;
+			else if (r < 0)
+				continue;
+		}
+
+		Elf64_Nhdr nhdr;
+		err = drgn_program_read_memory(prog, &nhdr, read_addr,
+					       sizeof(nhdr), attempt >= 0);
+		if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
+			continue;
+		else if (err)
+			return err;
+
+		if (bswap) {
+			nhdr.n_namesz = bswap_32(nhdr.n_namesz);
+			nhdr.n_descsz = bswap_32(nhdr.n_descsz);
+			nhdr.n_type = bswap_32(nhdr.n_type);
+		}
+
+		if (nhdr.n_namesz != sizeof("VMCOREINFO")
+		    || nhdr.n_descsz > MAX_MEMORY_READ_FOR_DEBUG_INFO)
+			continue;
+
+		char name_buf[sizeof("VMCOREINFO")];
+		err = drgn_program_read_memory(prog, name_buf,
+					       read_addr + sizeof(nhdr),
+					       sizeof(name_buf), attempt >= 0);
+		if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
+			continue;
+		else if (err)
+			return err;
+
+		if (memcmp(name_buf, "VMCOREINFO", sizeof("VMCOREINFO")) != 0)
+			continue;
+
+		_cleanup_free_ char *desc = malloc(nhdr.n_descsz);
+		if (!desc)
+			return &drgn_enomem;
+
+		err = drgn_program_read_memory(prog, desc,
+					       read_addr + sizeof(nhdr)
+					       + sizeof("VMCOREINFO\0"),
+					       nhdr.n_descsz, attempt >= 0);
+		if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
+			continue;
+		else if (err)
+			return err;
+
+		err = drgn_program_parse_vmcoreinfo(prog, desc, nhdr.n_descsz);
+		if (err)
+			return err;
+
+		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+		if (prog->platform.arch->linux_kernel_pgtable_iterator_next) {
+			err = drgn_program_add_memory_segment(prog, 0,
+							      UINT64_MAX,
+							      read_memory_via_pgtable,
+							      prog, false);
+			if (err)
+				return err;
+		}
+		return drgn_program_finish_set_kernel(prog);
+	}
+	return NULL;
+}
+
+static struct drgn_error *
+load_debug_info_try_vmcoreinfo(struct drgn_program *prog,
+			       struct load_debug_info_state *state)
+{
+	struct drgn_error *err;
+
+	if (!prog->has_platform
+	    || (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+	    || drgn_module_table_size(&prog->dbinfo.modules) > 1
+	    || (prog->dbinfo.main_module
+		&& (prog->dbinfo.main_module->next_same_name
+		    || strcmp(prog->dbinfo.main_module->name, "kernel") != 0
+		    // TODO: check loaded_file_status, too?
+		    || prog->dbinfo.main_module->debug_file_status
+		       != DRGN_MODULE_FILE_WANT)))
+		return NULL;
+
+	hash_table_for_each(load_debug_info_provided_table, it,
+			    &state->provided) {
+		vector_for_each(load_debug_info_file_vector, file,
+				&it.entry->files) {
+			int r = elf_is_vmlinux(file->elf);
+			if (r < 0) {
+				drgn_log_debug(prog, "%s: %s", file->path,
+					       elf_errmsg(-1));
+			}
+			if (r <= 0)
+				continue;
+
+			bool found;
+			uint64_t vmcoreinfo_note_sym;
+			err = find_elf_symbol_by_name(file->path, file->elf, 0,
+						      "vmcoreinfo_note", &found,
+						      &vmcoreinfo_note_sym);
+			if (err) {
+				if (!drgn_error_is_fatal(err)) {
+					drgn_error_log_debug(prog, err, "");
+					drgn_error_destroy(err);
+					continue;
+				}
+				return err;
+			}
+
+			if (!found)
+				continue;
+
+			err = load_debug_info_read_vmcoreinfo(prog,
+							      vmcoreinfo_note_sym);
+			if (err) {
+				if (!drgn_error_is_fatal(err)) {
+					drgn_error_log_debug(prog, err, "");
+					drgn_error_destroy(err);
+					continue;
+				}
+				return err;
+			}
+
+			if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+				return NULL;
+		}
+	}
+	return NULL;
+}
+
 static void load_debug_info_log_missing(struct drgn_module *module,
 					unsigned int max_warnings,
 					unsigned int *num_missing)
@@ -5381,6 +5542,10 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 		drgn_log_debug(prog, "no usable provided files");
 		return NULL;
 	}
+
+	err = load_debug_info_try_vmcoreinfo(prog, &state);
+	if (err)
+		return err;
 
 	uint64_t old_generation = prog->dbinfo.load_debug_info_generation;
 

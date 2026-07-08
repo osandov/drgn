@@ -552,7 +552,8 @@ struct drgn_error *drgn_elf_file_get_dwarf(struct drgn_elf_file *file,
 	struct drgn_error *err;
 	if (!file->_dwarf) {
 		struct drgn_elf_file *supplementary_file =
-			file->module->supplementary_debug_file;
+			file->module
+			? file->module->supplementary_debug_file : NULL;
 		if (supplementary_file) {
 			supplementary_file->_dwarf =
 				dwarf_begin_elf(supplementary_file->elf,

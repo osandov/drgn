@@ -681,6 +681,27 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 }
 
 static int
+linux_kernel_address_translate_fallback_x86_64(struct drgn_program *prog,
+					       int attempt, uint64_t virt_addr,
+					       bool image_addr, uint64_t *ret)
+{
+	// Known PAGE_OFFSET values.
+	static const uint64_t page_offset[] = {
+		// Since Linux kernel commit d52888aa2753 ("x86/mm: Move LDT
+		// remap out of KASLR region on 5-level paging") (in v4.20).
+		UINT64_C(0xffff888000000000), // 4-level paging.
+		UINT64_C(0xff11000000000000), // 5-level paging.
+		// Before that commit.
+		UINT64_C(0xffff880000000000), // 4-level paging.
+		UINT64_C(0xff10000000000000), // 5-level paging.
+	};
+	if (attempt >= array_size(page_offset))
+		return 0;
+	*ret = virt_addr - (image_addr ? START_KERNEL_MAP : page_offset[attempt]);
+	return 1;
+}
+
+static int
 linux_kernel_section_size_bits_fallback_x86_64(struct drgn_program *prog)
 {
 	// This hasn't changed since Linux kernel commit bbfceef47fb9 ("[PATCH]
@@ -724,6 +745,8 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 		linux_kernel_pgtable_iterator_init_x86_64,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_x86_64,
+	.linux_kernel_address_translate_fallback =
+		linux_kernel_address_translate_fallback_x86_64,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_x86_64,
 	.linux_kernel_max_physmem_bits_fallback =

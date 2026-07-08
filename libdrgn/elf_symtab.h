@@ -50,6 +50,11 @@ drgn_module_elf_symbols_search(struct drgn_module *module, const char *name,
 			       uint64_t addr, enum drgn_find_symbol_flags flags,
 			       struct drgn_symbol_result_builder *builder);
 
+/** Find an symbol by name in an Elf handle. */
+struct drgn_error *find_elf_symbol_by_name(const char *path, Elf *elf,
+					   uint64_t bias, const char *name,
+					   bool *found_ret, uint64_t *addr_ret);
+
 /** @} */
 
 #endif /* DRGN_ELF_SYMBOL_H */
