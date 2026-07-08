@@ -394,8 +394,8 @@ static pid_t qmp_get_peer_pid(struct drgn_program *prog)
 DEFINE_VECTOR(uint64_range_vector, struct uint64_range);
 
 static struct drgn_error *
-qmp_get_ram_ranges(struct drgn_qmp_conn *conn, struct uint64_range **ranges_ret,
-		   size_t *num_ranges_ret)
+qmp_get_mem_ranges(struct drgn_qmp_conn *conn, struct uint64_range **ranges_ret,
+		   size_t *num_ram_ranges_ret, size_t *num_rom_ranges_ret)
 {
 	struct drgn_error *err;
 
@@ -413,7 +413,8 @@ qmp_get_ram_ranges(struct drgn_qmp_conn *conn, struct uint64_range **ranges_ret,
 					 "QMP human-monitor-command info mtree return value is not string");
 	}
 
-	VECTOR(uint64_range_vector, ranges);
+	VECTOR(uint64_range_vector, ram_ranges);
+	VECTOR(uint64_range_vector, rom_ranges);
 
 	// As of QEMU 11.0.0, the format is a series of:
 	//
@@ -478,16 +479,26 @@ qmp_get_ram_ranges(struct drgn_qmp_conn *conn, struct uint64_range **ranges_ret,
 		p += strspn(p, " \t");
 		if (strstartswith(p, "nv-"))
 			p += 3;
-		if (!strstartswith(p, "ram)")
-		    && !strstartswith(p, "rom)")
-		    && !strstartswith(p, "romd)"))
+		bool ram;
+		if (strstartswith(p, "ram)"))
+			ram = true;
+		else if (strstartswith(p, "rom)") || strstartswith(p, "romd)"))
+			ram = false;
+		else
 			continue;
 
-		if (!uint64_range_vector_append(&ranges, &range))
+		if (!uint64_range_vector_append(ram ? &ram_ranges : &rom_ranges,
+						&range))
 			return &drgn_enomem;
 	}
 
-	uint64_range_vector_steal(&ranges, ranges_ret, num_ranges_ret);
+	*num_ram_ranges_ret = uint64_range_vector_size(&ram_ranges);
+	*num_rom_ranges_ret = uint64_range_vector_size(&rom_ranges);
+
+	if (!uint64_range_vector_extend(&ram_ranges, &rom_ranges))
+		return &drgn_enomem;
+
+	uint64_range_vector_steal(&ram_ranges, ranges_ret, NULL);
 	return NULL;
 }
 
@@ -609,20 +620,20 @@ drgn_read_qemu_process_mem(void *buf, uint64_t address, size_t count,
 // parsing failures), we fall back to the xp reader.
 static struct drgn_error *
 qmp_setup_process_mem(struct drgn_program *prog, pid_t pid,
-		      const struct uint64_range *ram_ranges,
-		      size_t num_ram_ranges)
+		      const struct uint64_range *mem_ranges,
+		      size_t num_mem_ranges)
 {
 	struct drgn_error *err;
 	struct drgn_qmp_conn *conn = &prog->qmp_conn;
 
 	_cleanup_free_ struct drgn_qemu_process_mem_segment *segments =
-		malloc_array(num_ram_ranges, sizeof(*segments));
+		malloc_array(num_mem_ranges, sizeof(*segments));
 	if (!segments)
 		return &drgn_enomem;
 	size_t num_succeeded = 0;
-	for (size_t i = 0; i < num_ram_ranges; i++) {
-		uint64_t address = ram_ranges[i].start;
-		uint64_t size = ram_ranges[i].end - address + 1;
+	for (size_t i = 0; i < num_mem_ranges; i++) {
+		uint64_t address = mem_ranges[i].start;
+		uint64_t size = mem_ranges[i].end - address + 1;
 		uint64_t hva;
 		err = qmp_gpa2hva(conn, address, &hva);
 		if (err) {
@@ -912,31 +923,36 @@ drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
 		pid_t pid = qmp_get_peer_pid(prog);
 
 		if (pid || !had_vmcoreinfo) {
-			_cleanup_free_ struct uint64_range *ram_ranges = NULL;
-			size_t num_ram_ranges = 0;
-			err = qmp_get_ram_ranges(&prog->qmp_conn, &ram_ranges,
-						 &num_ram_ranges);
+			_cleanup_free_ struct uint64_range *mem_ranges = NULL;
+			size_t num_ram_ranges, num_rom_ranges;
+			err = qmp_get_mem_ranges(&prog->qmp_conn, &mem_ranges,
+						 &num_ram_ranges,
+						 &num_rom_ranges);
 			if (err)
 				goto err;
 
-			if (num_ram_ranges > 0) {
-				if (pid) {
-					err = qmp_setup_process_mem(prog, pid,
-								    ram_ranges,
-								    num_ram_ranges);
-					if (err)
-						goto err;
-				}
-
-				if (!had_vmcoreinfo) {
-					err = qmp_read_vmcoreinfo(prog,
-								  ram_ranges[0].start);
-					if (err)
-						goto err;
-				}
-			} else {
+			if (num_ram_ranges == 0 && num_rom_ranges == 0) {
+				drgn_log_debug(prog,
+					       "no QEMU RAM or ROM ranges found");
+			} else if (num_ram_ranges == 0) {
 				drgn_log_debug(prog,
 					       "no QEMU RAM ranges found");
+			}
+
+			if (pid && num_ram_ranges + num_rom_ranges > 0) {
+				err = qmp_setup_process_mem(prog, pid,
+							    mem_ranges,
+							    num_ram_ranges
+							    + num_rom_ranges);
+				if (err)
+					goto err;
+			}
+
+			if (!had_vmcoreinfo && num_ram_ranges > 0) {
+				err = qmp_read_vmcoreinfo(prog,
+							  mem_ranges[0].start);
+				if (err)
+					goto err;
 			}
 		}
 	}
