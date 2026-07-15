@@ -12,6 +12,7 @@ import enum
 import os
 import sys
 from types import TracebackType
+import typing
 from typing import (
     Any,
     Callable,
@@ -1179,13 +1180,18 @@ class Program:
         """TODO"""
         ...
 
-    def notify_thread_unknown_stop(
-        self, thread: Thread, sig: IntegerLike, pc: IntegerLike
+    def notify_thread_stop(
+        self,
+        thread: Thread,
+        sig: IntegerLike,
+        pc: IntegerLike,
+        reasons: Union[
+            None, typing.Type[StopReason], Tuple[typing.Type[StopReason], ...]
+        ] = None,
+        ignore_reasons: Union[
+            None, typing.Type[StopReason], Tuple[typing.Type[StopReason], ...]
+        ] = None,
     ) -> None:
-        """TODO"""
-        ...
-
-    def notify_thread_signal(self, thread: Thread, sig: IntegerLike) -> None:
         """TODO"""
         ...
 

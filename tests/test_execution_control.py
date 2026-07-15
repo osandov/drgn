@@ -105,7 +105,27 @@ class TestAllStop(TestCase):
             self.assertIsNone(prog.thread(1).stop_reason)
 
             ctrl.queue_call(
-                lambda prog: prog.notify_thread_signal(prog.thread(1), signal.SIGWINCH)
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(1), signal.SIGWINCH, 0x1337
+                )
+            )
+            ctrl.queue_call(lambda prog: prog.notify_all_stop())
+            self.assertEqual(events(), [drgn.ThreadStopEvent(prog.thread(1))])
+            self.assertEqual(
+                prog.thread(1).stop_reason, drgn.SignalStopReason(signal.SIGWINCH)
+            )
+            self.assertEqual(prog.thread(2).stop_reason, drgn.SyntheticStopReason())
+
+    def test_signal_stop_explicit(self):
+        # TODO: move this to setUp()?
+        prog, ctrl, events = program_with_controller()
+        with prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.assertIsNone(prog.thread(1).stop_reason)
+
+            ctrl.queue_call(
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(1), signal.SIGWINCH, 0x1337, drgn.SignalStopReason
+                )
             )
             ctrl.queue_call(lambda prog: prog.notify_all_stop())
             self.assertEqual(events(), [drgn.ThreadStopEvent(prog.thread(1))])
@@ -118,7 +138,9 @@ class TestAllStop(TestCase):
         prog, ctrl, events = program_with_controller()
         with prog.attach(drgn.AttachFlags.ALL_STOP):
             ctrl.queue_call(
-                lambda prog: prog.notify_thread_signal(prog.thread(1), signal.SIGWINCH)
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(1), signal.SIGWINCH, 0x1337
+                )
             )
             ctrl.queue_call(lambda prog: prog.notify_all_stop())
             self.assertEqual(events(), [drgn.ThreadStopEvent(prog.thread(1))])
@@ -145,7 +167,9 @@ class TestAllStop(TestCase):
         prog, ctrl, events = program_with_controller()
         with prog.attach(drgn.AttachFlags.ALL_STOP):
             ctrl.queue_call(
-                lambda prog: prog.notify_thread_signal(prog.thread(1), signal.SIGWINCH)
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(1), signal.SIGWINCH, 0x1337
+                )
             )
             ctrl.queue_call(lambda prog: prog.notify_all_stop())
             self.assertEqual(events(), [drgn.ThreadStopEvent(prog.thread(1))])
@@ -174,7 +198,9 @@ class TestAllStop(TestCase):
                 prog, ctrl, events = program_with_controller()
                 with prog.attach(drgn.AttachFlags.ALL_STOP):
                     ctrl.queue_call(
-                        lambda prog: prog.notify_thread_signal(prog.thread(1), sig)
+                        lambda prog: prog.notify_thread_stop(
+                            prog.thread(1), sig, 0x1337
+                        )
                     )
                     ctrl.queue_call(lambda prog: prog.notify_all_stop())
                     self.assertEqual(events(), [drgn.ThreadStopEvent(prog.thread(1))])
@@ -201,10 +227,14 @@ class TestAllStop(TestCase):
         prog, ctrl, events = program_with_controller()
         with prog.attach(drgn.AttachFlags.ALL_STOP):
             ctrl.queue_call(
-                lambda prog: prog.notify_thread_signal(prog.thread(1), signal.SIGWINCH)
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(1), signal.SIGWINCH, 0x1337
+                )
             )
             ctrl.queue_call(
-                lambda prog: prog.notify_thread_signal(prog.thread(2), signal.SIGCHLD)
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(2), signal.SIGCHLD, 0xDEAD
+                )
             )
             ctrl.queue_call(lambda prog: prog.notify_all_stop())
 
@@ -275,10 +305,14 @@ class TestAllStop(TestCase):
         prog, ctrl, events = program_with_controller()
         with prog.attach(drgn.AttachFlags.ALL_STOP):
             ctrl.queue_call(
-                lambda prog: prog.notify_thread_signal(prog.thread(1), signal.SIGWINCH)
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(1), signal.SIGWINCH, 0x1337
+                )
             )
             ctrl.queue_call(
-                lambda prog: prog.notify_thread_signal(prog.thread(2), signal.SIGCHLD)
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(2), signal.SIGCHLD, 0xDEAD
+                )
             )
             ctrl.queue_call(lambda prog: prog.notify_all_stop())
 
@@ -364,7 +398,7 @@ class TestAllStop(TestCase):
                 [
                     ("disable_breakpoint_sites", [site]),
                     ("resume_threads", [drgn.StepiResumeAction(prog.thread(1), 0)]),
-                ]
+                ],
             )
 
             # ctrl.queue_call(

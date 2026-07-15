@@ -5492,10 +5492,8 @@ static inline bool drgn_event_type_has_thread(enum drgn_event_type type)
 struct drgn_error *drgn_event_thread(struct drgn_event *event,
 				     struct drgn_thread **ret);
 
-void drgn_notify_thread_unknown_stop(struct drgn_thread *thread, int sig,
-				     uint64_t pc);
-
-void drgn_notify_thread_signal(struct drgn_thread *thread, int sig);
+void drgn_notify_thread_stop(struct drgn_thread *thread, int sig, uint64_t pc,
+			     uint64_t reason_mask);
 
 void drgn_notify_thread_breakpoint(struct drgn_thread *thread,
 				   struct drgn_breakpoint_site *site);

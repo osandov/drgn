@@ -2899,43 +2899,69 @@ static EventListener *Program_add_event_listener(Program *self, PyObject *args,
 	return no_cleanup_ptr(listener);
 }
 
-static PyObject *Program_notify_thread_unknown_stop(Program *self,
-						    PyObject *args,
-						    PyObject *kwds)
+static inline uint64_t stop_reason_item(PyObject *o)
 {
-	static char *keywords[] = {"thread", "sig", "pc", NULL};
+#define X(name, enum_name)		\
+	if (o == name##_class)		\
+		return 1 << enum_name;
+	STOP_REASON_TYPES
+#undef X
+	PyErr_SetString(PyExc_TypeError,
+			"reasons must be StopReason type, tuple of StopReason types, or None");
+	return 0;
+}
+
+static int stop_reasons_converter(PyObject *o, void *p)
+{
+	uint64_t arg;
+	if (o == Py_None) {
+		return 1;
+	} else if (PyTuple_Check(o)) {
+		arg = 0;
+		Py_ssize_t size = PyTuple_GET_SIZE(o);
+		for (Py_ssize_t i = 0; i < size; i++) {
+			uint64_t item = stop_reason_item(PyTuple_GET_ITEM(o, i));
+			if (!item)
+				return 0;
+			arg |= item;
+		}
+	} else {
+		arg = stop_reason_item(o);
+		if (!arg)
+			return 0;
+	}
+	*(uint64_t *)p = arg;
+	return 1;
+}
+
+static PyObject *Program_notify_thread_stop(Program *self, PyObject *args,
+					    PyObject *kwds)
+{
+	static char *keywords[] = {
+		"thread", "sig", "pc", "reasons", "ignore_reasons", NULL
+	};
 	Thread *thread;
 	int sig;
 	uint64_t pc;
+	uint64_t reasons = -1;
+	uint64_t ignore_reasons = 0;
 	if (!PyArg_ParseTupleAndKeywords(args, kwds,
-					 "O!iO&:notify_thread_unknown_stop",
+					 "O!iO&|O&O&:notify_thread_stop",
 					 keywords, &Thread_type, &thread, &sig,
-					 u64_converter, &pc))
+					 u64_converter, &pc,
+					 stop_reasons_converter, &reasons,
+					 stop_reasons_converter,
+					 &ignore_reasons))
 		return NULL;
-	if (drgn_thread_program(&thread->thread) != &self->prog) {
-		PyErr_SetString(PyExc_ValueError,
-				"thread is from different program");
-		return NULL;
-	}
-	drgn_notify_thread_unknown_stop(&thread->thread, sig, pc);
-	Py_RETURN_NONE;
-}
 
-static PyObject *Program_notify_thread_signal(Program *self, PyObject *args,
-					      PyObject *kwds)
-{
-	static char *keywords[] = {"thread", "sig", NULL};
-	Thread *thread;
-	int sig;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!i:notify_thread_signal",
-					 keywords, &Thread_type, &thread, &sig))
-		return NULL;
 	if (drgn_thread_program(&thread->thread) != &self->prog) {
 		PyErr_SetString(PyExc_ValueError,
 				"thread is from different program");
 		return NULL;
 	}
-	drgn_notify_thread_signal(&thread->thread, sig);
+
+	drgn_notify_thread_stop(&thread->thread, sig, pc,
+				reasons & ~ignore_reasons);
 	Py_RETURN_NONE;
 }
 
@@ -3096,12 +3122,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_unregister_fd_DOC},
 	{"add_event_listener", (PyCFunction)Program_add_event_listener,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_event_listener_DOC},
-	{"notify_thread_unknown_stop",
-	 (PyCFunction)Program_notify_thread_unknown_stop,
-	 METH_VARARGS | METH_KEYWORDS,
-	 drgn_Program_notify_thread_unknown_stop_DOC},
-	{"notify_thread_signal", (PyCFunction)Program_notify_thread_signal,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_thread_signal_DOC},
+	{"notify_thread_stop", (PyCFunction)Program_notify_thread_stop,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_thread_stop_DOC},
 	{"notify_thread_breakpoint",
 	 (PyCFunction)Program_notify_thread_breakpoint,
 	 METH_VARARGS | METH_KEYWORDS,

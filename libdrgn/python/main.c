@@ -359,7 +359,7 @@ static struct PyModuleDef drgnmodule = {
 	drgn_methods,
 };
 
-#define X(name) PyObject *name##_class;
+#define X(name, enum_name) PyObject *name##_class;
 EVENT_TYPES
 RESUME_ACTION_TYPES
 STOP_REASON_TYPES
@@ -452,7 +452,7 @@ static int add_stdlib_types(PyObject *m)
 
 #define add_typing_union_expand(name, types) add_typing_union(name types);
 
-#define X(name) , name##_class
+#define X(name, enum_name) , name##_class
 	add_typing_union_expand("Event", EVENT_TYPES);
 	add_typing_union_expand("ResumeAction", RESUME_ACTION_TYPES);
 	add_typing_union_expand("StopReason", STOP_REASON_TYPES);

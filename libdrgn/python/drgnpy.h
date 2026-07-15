@@ -487,21 +487,21 @@ extern PyObject *AlreadyAttachedError;
 extern PyObject *NotStoppedError;
 extern PyObject *NoEventsError;
 
-#define EVENT_TYPES		\
-	X(ProgramExitEvent)	\
-	X(ThreadExitEvent)	\
-	X(ThreadStopEvent)
+#define EVENT_TYPES					\
+	X(ProgramExitEvent, DRGN_EVENT_PROGRAM_EXIT)	\
+	X(ThreadExitEvent, DRGN_EVENT_THREAD_EXIT)	\
+	X(ThreadStopEvent, DRGN_EVENT_THREAD_STOP)
 
-#define RESUME_ACTION_TYPES	\
-	X(ContinueResumeAction)	\
-	X(StepiResumeAction)
+#define RESUME_ACTION_TYPES					\
+	X(ContinueResumeAction, DRGN_RESUME_MODE_CONTINUE)	\
+	X(StepiResumeAction, DRGN_RESUME_MODE_STEPI)
 
-#define STOP_REASON_TYPES	\
-	X(SyntheticStopReason)	\
-	X(SignalStopReason)	\
-	X(BreakpointStopReason)
+#define STOP_REASON_TYPES					\
+	X(SyntheticStopReason, DRGN_STOP_REASON_SYNTHETIC)	\
+	X(SignalStopReason, DRGN_STOP_REASON_SIGNAL)		\
+	X(BreakpointStopReason, DRGN_STOP_REASON_BREAKPOINT)
 
-#define X(name) extern PyObject *name##_class;
+#define X(name, enum_name) extern PyObject *name##_class;
 EVENT_TYPES
 RESUME_ACTION_TYPES
 STOP_REASON_TYPES

@@ -2350,15 +2350,6 @@ static void drgn_notify_thread_stop_common(struct drgn_thread *thread)
 		emit_thread_stop_event(thread);
 }
 
-static void drgn_notify_thread_signal_impl(struct drgn_thread *thread, int sig)
-{
-	thread->stop_reason = DRGN_STOP_REASON_SIGNAL;
-	// TODO: we don't check sig now
-	thread->stop_signal = sig;
-
-	drgn_notify_thread_stop_common(thread);
-}
-
 static void
 drgn_notify_thread_breakpoint_impl(struct drgn_thread *thread,
 				   struct drgn_breakpoint_site *site)
@@ -2371,13 +2362,14 @@ drgn_notify_thread_breakpoint_impl(struct drgn_thread *thread,
 	drgn_notify_thread_stop_common(thread);
 }
 
-LIBDRGN_PUBLIC void drgn_notify_thread_unknown_stop(struct drgn_thread *thread,
-						    int sig, uint64_t pc)
+LIBDRGN_PUBLIC void drgn_notify_thread_stop(struct drgn_thread *thread, int sig,
+					    uint64_t pc, uint64_t reason_mask)
 {
 	if (ignore_notify_thread_stop(thread))
 		return;
 
-	if (sig == SIGTRAP) {
+	if (reason_mask & (1 << DRGN_STOP_REASON_BREAKPOINT)
+	    && sig == SIGTRAP) {
 		struct drgn_program *prog = drgn_thread_program(thread);
 		auto it = drgn_breakpoint_site_table_search(&prog->breakpoint_sites,
 							    &pc);
@@ -2386,14 +2378,12 @@ LIBDRGN_PUBLIC void drgn_notify_thread_unknown_stop(struct drgn_thread *thread,
 			return;
 		}
 	}
-	drgn_notify_thread_signal_impl(thread, sig);
-}
 
-LIBDRGN_PUBLIC void drgn_notify_thread_signal(struct drgn_thread *thread,
-					      int sig)
-{
-	if (!ignore_notify_thread_stop(thread))
-		drgn_notify_thread_signal_impl(thread, sig);
+	thread->stop_reason = DRGN_STOP_REASON_SIGNAL;
+	// TODO: we don't check sig now
+	thread->stop_signal = sig;
+
+	drgn_notify_thread_stop_common(thread);
 }
 
 LIBDRGN_PUBLIC
