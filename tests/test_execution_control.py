@@ -331,14 +331,14 @@ class TestAllStop(TestCase):
     def test_breakpoint_stop(self):
         prog, ctrl, events = program_with_controller()
         with prog.attach(drgn.AttachFlags.ALL_STOP):
-            bp = prog.set_breakpoint(0x1337)
-            site = bp.sites[0]
+            site = prog.set_breakpoint(0x1337).sites[0]
 
             ctrl.queue_call(
                 lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
             )
             ctrl.queue_call(lambda prog: prog.notify_all_stop())
             self.assertEqual(events(), [drgn.ThreadStopEvent(prog.thread(1))])
+
             self.assertEqual(
                 prog.thread(1).stop_reason, drgn.BreakpointStopReason(site)
             )
@@ -347,8 +347,8 @@ class TestAllStop(TestCase):
     def test_breakpoint_cont(self):
         prog, ctrl, events = program_with_controller()
         with prog.attach(drgn.AttachFlags.ALL_STOP):
-            bp = prog.set_breakpoint(0x1337)
-            site = bp.sites[0]
+            site = prog.set_breakpoint(0x1337).sites[0]
+            ctrl.ops()
 
             ctrl.queue_call(
                 lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
@@ -357,6 +357,41 @@ class TestAllStop(TestCase):
             self.assertEqual(events(), [drgn.ThreadStopEvent(prog.thread(1))])
 
             prog.thread(1).cont()
-            import pprint
 
-            pprint.pprint(ctrl.ops())
+            self.assertEqual(events(), [])
+            self.assertEqual(
+                ctrl.ops(),
+                [
+                    ("disable_breakpoint_sites", [site]),
+                    ("resume_threads", [drgn.StepiResumeAction(prog.thread(1), 0)]),
+                ]
+            )
+
+            # ctrl.queue_call(
+            #     lambda prog: prog.notify_thread_single_step(prog.thread(1), site)
+            # )
+            ctrl.queue_call(lambda prog: prog.notify_all_stop())
+
+
+class TestBreakpoints(TestCase):
+    def test_set(self):
+        prog, ctrl, events = program_with_controller()
+        with prog.attach(drgn.AttachFlags.ALL_STOP):
+            site = prog.set_breakpoint(0x1337).sites[0]
+            self.assertEqual(ctrl.ops(), [("enable_breakpoint_sites", [site])])
+
+    def test_set_disabled(self):
+        prog, ctrl, events = program_with_controller()
+        with prog.attach(drgn.AttachFlags.ALL_STOP):
+            prog.set_breakpoint(0x1337, enable=False)
+            self.assertEqual(ctrl.ops(), [])
+
+    def test_disable(self):
+        prog, ctrl, events = program_with_controller()
+        with prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = prog.set_breakpoint(0x1337)
+            site = bp.sites[0]
+            ctrl.ops()
+
+            bp.disable()
+            self.assertEqual(ctrl.ops(), [("disable_breakpoint_sites", [site])])

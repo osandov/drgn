@@ -2441,7 +2441,7 @@ static Breakpoint *Program_set_breakpoint(Program *self, PyObject *args,
 	PyObject *location;
 	int hardware = 0;
 	int enable = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|$ppp:set_breakpoint",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|$pp:set_breakpoint",
 					 keywords, &location, &hardware,
 					 &enable))
 		return NULL;
