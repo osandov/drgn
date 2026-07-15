@@ -5496,7 +5496,7 @@ void drgn_notify_thread_unknown_stop(struct drgn_thread *thread, int sig,
 
 void drgn_notify_thread_signal(struct drgn_thread *thread, int sig);
 
-void drgn_notify_thread_breakpoint(struct drgn_thread *thread, int sig,
+void drgn_notify_thread_breakpoint(struct drgn_thread *thread,
 				   struct drgn_breakpoint_site *site);
 
 void drgn_notify_all_stop(struct drgn_program *prog);

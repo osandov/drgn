@@ -150,15 +150,11 @@ static PyObject *Thread_get_stop_reason(Thread *self, void *arg)
 		return PyObject_CallOneArg(SignalStopReason_class, sig_obj);
 	}
 	case DRGN_STOP_REASON_BREAKPOINT: {
-		_cleanup_pydecref_ PyObject *sig_obj =
-			Thread_stop_signal_obj(self);
-		if (!sig_obj)
-			return NULL;
 		BreakpointSite *site =
 			container_of(drgn_thread_stop_breakpoint_site(&self->thread),
 				     BreakpointSite, site);
-		return PyObject_CallFunctionObjArgs(BreakpointStopReason_class,
-						    sig_obj, site, NULL);
+		return PyObject_CallOneArg(BreakpointStopReason_class,
+					   (PyObject *)site);
 	}
 	default:
 		UNREACHABLE();

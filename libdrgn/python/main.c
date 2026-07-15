@@ -430,7 +430,7 @@ static int add_stdlib_types(PyObject *m)
 
 	add_namedtuple_type(SyntheticStopReason, "");
 	add_namedtuple_type(SignalStopReason, "sig");
-	add_namedtuple_type(BreakpointStopReason, "sig site");
+	add_namedtuple_type(BreakpointStopReason, "site");
 
 #undef add_namedtuple_type
 

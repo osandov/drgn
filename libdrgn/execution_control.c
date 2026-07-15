@@ -895,6 +895,7 @@ static struct drgn_error *resume_all_threads(struct drgn_program *prog)
 	VECTOR(drgn_resume_action_vector, actions);
 	struct drgn_thread *thread;
 	list_for_each_entry(thread, &prog->resumed_threads, node) {
+		// TODO: skip redundant actions?
 		struct drgn_resume_action action = {
 			.thread = thread,
 			.mode = thread->resume_mode,
@@ -2329,11 +2330,12 @@ static void drgn_notify_thread_signal_impl(struct drgn_thread *thread, int sig)
 	drgn_notify_thread_stop_common(thread);
 }
 
-static void drgn_notify_thread_breakpoint_impl(struct drgn_thread *thread, int sig,
-					       struct drgn_breakpoint_site *site)
+static void
+drgn_notify_thread_breakpoint_impl(struct drgn_thread *thread,
+				   struct drgn_breakpoint_site *site)
 {
 	thread->stop_reason = DRGN_STOP_REASON_BREAKPOINT;
-	thread->stop_signal = sig;
+	thread->stop_signal = SIGTRAP;
 	drgn_breakpoint_site_incref(site);
 	thread->stop_site = site;
 
@@ -2346,13 +2348,16 @@ LIBDRGN_PUBLIC void drgn_notify_thread_unknown_stop(struct drgn_thread *thread,
 	if (ignore_notify_thread_stop(thread))
 		return;
 
-	struct drgn_program *prog = drgn_thread_program(thread);
-	auto it = drgn_breakpoint_site_table_search(&prog->breakpoint_sites,
-						    &pc);
-	if (it.entry)
-		drgn_notify_thread_breakpoint_impl(thread, sig, *it.entry);
-	else
-		drgn_notify_thread_signal_impl(thread, sig);
+	if (sig == SIGTRAP) {
+		struct drgn_program *prog = drgn_thread_program(thread);
+		auto it = drgn_breakpoint_site_table_search(&prog->breakpoint_sites,
+							    &pc);
+		if (it.entry && drgn_breakpoint_site_enabled(*it.entry)) {
+			drgn_notify_thread_breakpoint_impl(thread, *it.entry);
+			return;
+		}
+	}
+	drgn_notify_thread_signal_impl(thread, sig);
 }
 
 LIBDRGN_PUBLIC void drgn_notify_thread_signal(struct drgn_thread *thread,
@@ -2363,11 +2368,11 @@ LIBDRGN_PUBLIC void drgn_notify_thread_signal(struct drgn_thread *thread,
 }
 
 LIBDRGN_PUBLIC
-void drgn_notify_thread_breakpoint(struct drgn_thread *thread, int sig,
+void drgn_notify_thread_breakpoint(struct drgn_thread *thread,
 				   struct drgn_breakpoint_site *site)
 {
 	if (!ignore_notify_thread_stop(thread))
-		drgn_notify_thread_breakpoint_impl(thread, sig, site);
+		drgn_notify_thread_breakpoint_impl(thread, site);
 }
 
 LIBDRGN_PUBLIC void drgn_notify_all_stop(struct drgn_program *prog)

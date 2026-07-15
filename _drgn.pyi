@@ -1189,9 +1189,7 @@ class Program:
         """TODO"""
         ...
 
-    def notify_thread_breakpoint(
-        self, thread: Thread, sig: IntegerLike, site: BreakpointSite
-    ) -> None:
+    def notify_thread_breakpoint(self, thread: Thread, site: BreakpointSite) -> None:
         """TODO"""
         ...
 
@@ -2947,12 +2945,9 @@ class SignalStopReason:
     """TODO"""
 
 class BreakpointStopReason:
-    def __new__(cls, sig: int, site: BreakpointSite) -> Self:
+    def __new__(cls, site: BreakpointSite) -> Self:
         """TODO"""
         ...
-    sig: Final[int]
-    """TODO"""
-
     site: Final[BreakpointSite]
     """TODO"""
 

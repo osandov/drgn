@@ -2944,13 +2944,12 @@ static PyObject *Program_notify_thread_signal(Program *self, PyObject *args,
 static PyObject *Program_notify_thread_breakpoint(Program *self, PyObject *args,
 						  PyObject *kwds)
 {
-	static char *keywords[] = {"thread", "sig", "site", NULL};
+	static char *keywords[] = {"thread", "site", NULL};
 	Thread *thread;
-	int sig;
 	BreakpointSite *site;
 	if (!PyArg_ParseTupleAndKeywords(args, kwds,
-					 "O!iO!:notify_thread_breakpoint",
-					 keywords, &Thread_type, &thread, &sig,
+					 "O!O!:notify_thread_breakpoint",
+					 keywords, &Thread_type, &thread,
 					 &BreakpointSite_type, &site))
 		return NULL;
 	if (drgn_thread_program(&thread->thread) != &self->prog) {
@@ -2958,7 +2957,7 @@ static PyObject *Program_notify_thread_breakpoint(Program *self, PyObject *args,
 				"thread is from different program");
 		return NULL;
 	}
-	drgn_notify_thread_breakpoint(&thread->thread, sig, &site->site);
+	drgn_notify_thread_breakpoint(&thread->thread, &site->site);
 	Py_RETURN_NONE;
 }
 
