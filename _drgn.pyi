@@ -3010,7 +3010,7 @@ class ExecutionController:
         """
         ...
 
-    def detach(self, prog: Program) -> None:
+    def detach(self, prog: Program, promise: Promise[None]) -> None:
         """
         Implement :meth:`Program.detach()`.
 

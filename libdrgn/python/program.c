@@ -2384,15 +2384,13 @@ static ProgramAttachContext *Program_attach(Program *self, PyObject *args,
 	return_ptr(ctx);
 }
 
-#if 0
-static PyObject *Program_detach(Program *self)
+static PyObject *Program_detach(Program *self, PyObject *Py_UNUSED(ignored))
 {
 	struct drgn_error *err = drgn_program_detach(&self->prog);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
-#endif
 
 static PyObject *Program_get_attach_state(Program *self, void *arg)
 {
@@ -3110,10 +3108,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_notify_thread_breakpoint_DOC},
 	{"notify_all_stop", (PyCFunction)Program_notify_all_stop, METH_NOARGS,
 	 drgn_Program_notify_all_stop_DOC},
-#if 0
 	{"detach", (PyCFunction)Program_detach, METH_NOARGS,
 	 drgn_Program_detach_DOC},
-#endif
 	{"interrupt_any_thread", (PyCFunction)Program_interrupt_any_thread,
 	 METH_NOARGS, drgn_Program_interrupt_any_thread_DOC},
 #if 0
@@ -3292,19 +3288,15 @@ static int ProgramAttachContext_traverse(ProgramAttachContext *self,
 }
 
 static PyObject *ProgramAttachContext_enter(ProgramAttachContext *self,
-					    PyObject *Py_UNUSED(args))
+					    PyObject *Py_UNUSED(ignored))
 {
 	Py_RETURN_NONE;
 }
 
 static PyObject *ProgramAttachContext_exit(ProgramAttachContext *self,
-					   PyObject *args)
+					   PyObject *Py_UNUSED(args))
 {
-#if 0
-	struct drgn_error *err = drgn_program_detach(&self->prog->prog); // TODO if (err)
-		return set_drgn_error(err);
-#endif
-	Py_RETURN_NONE;
+	return Program_detach(self->prog, NULL);
 }
 
 static PyMethodDef ProgramAttachContext_methods[] = {

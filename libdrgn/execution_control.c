@@ -129,6 +129,7 @@ static struct drgn_error *check_attached(struct drgn_program *prog)
 	SWITCH_ENUM(prog->attach_state) {
 	case DRGN_ATTACH_STATE_DETACHED:
 	case DRGN_ATTACH_STATE_ATTACHING:
+	case DRGN_ATTACH_STATE_DETACHING:
 		return drgn_error_create(DRGN_ERROR_NOT_ATTACHED,
 					 "not attached to program");
 	case DRGN_ATTACH_STATE_ATTACHED:
@@ -472,10 +473,8 @@ static void attach_success(void *arg, bool all_stop)
 static void attach_error(void *arg, struct drgn_error *err)
 {
 	struct result_arg *result = arg;
-	if (!set_result(result, err))
-		return;
-
 	result->prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
+	set_result(result, err);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -513,15 +512,39 @@ drgn_program_attach(struct drgn_program *prog, enum drgn_attach_flags flags)
 	return wait_for_result(result, attach_error);
 }
 
-#if 0
+struct detach_result {
+	struct result_arg result;
+	enum drgn_attach_state orig_attach_state;
+};
+
+static void detach_success(void *arg)
+{
+	struct detach_result *result = arg;
+	if (!set_result(&result->result, NULL))
+		return;
+
+	struct drgn_program *prog = result->result.prog;
+	drgn_program_clear_execution_control(prog);
+	prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
+	prog->in_all_stop = false;
+}
+
+static void detach_error(void *arg, struct drgn_error *err)
+{
+	struct detach_result *result = arg;
+	result->result.prog->attach_state = result->orig_attach_state;
+	set_result(&result->result, err);
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_detach(struct drgn_program *prog)
 {
-	struct drgn_error *err;
-
+	// TODO: what about ATTACHING or DETACHING?
 	if (prog->attach_state == DRGN_ATTACH_STATE_DETACHED)
 		return NULL;
 
+#if 0
+	// TODO: still need some of these protections?
 	if (prog->resuming_threads) {
 		return drgn_error_create(DRGN_ERROR_RUNTIME,
 					 "detaching while resuming threads is not allowed");
@@ -531,18 +554,20 @@ drgn_program_detach(struct drgn_program *prog)
 					 "detaching while %s a breakpoint is not allowed",
 					 prog->modifying_breakpoints);
 	}
+#endif
+
+	struct detach_result *result = malloc(sizeof(*result));
+	if (!result)
+		return &drgn_enomem;
+	result_arg_init(&result->result, prog);
+	result->orig_attach_state = prog->attach_state;
+
+	prog->attach_state = DRGN_ATTACH_STATE_DETACHING;
 
 	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-	err = ctrl->ops.detach(ctrl->arg, prog);
-	if (err)
-		return err;
-
-	drgn_program_clear_execution_control(prog);
-	prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
-	prog->in_all_stop = false;
-	return NULL;
+	ctrl->ops.detach(ctrl->arg, prog, detach_success, detach_error, result);
+	return wait_for_result(&result->result, detach_error);
 }
-#endif
 
 LIBDRGN_PUBLIC enum drgn_attach_state
 drgn_program_attach_state(const struct drgn_program *prog)
@@ -620,9 +645,12 @@ drgn_program_interrupt_any_thread(struct drgn_program *prog)
 LIBDRGN_PUBLIC
 enum drgn_stop_reason drgn_thread_stop_reason(struct drgn_thread *thread)
 {
-	if (thread->stop_reason == DRGN_STOP_REASON_NONE
-	    && drgn_thread_program(thread)->in_all_stop)
+	if (thread->stop_reason == DRGN_STOP_REASON_NONE) {
+		if (drgn_thread_program(thread)->in_all_stop)
+			return DRGN_STOP_REASON_SYNTHETIC;
+	} else if (thread->resume_signal >= 0) {
 		return DRGN_STOP_REASON_SYNTHETIC;
+	}
 	return thread->stop_reason;
 }
 
@@ -682,6 +710,7 @@ static inline void move_thread(struct drgn_thread *thread,
 		list_move_tail(&thread->node, list);
 	}
 }
+
 // TODO: name
 static inline void unleash_thread(struct drgn_thread *thread)
 {
