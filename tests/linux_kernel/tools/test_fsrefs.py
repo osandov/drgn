@@ -45,6 +45,18 @@ from tools.fsrefs import main
 UPROBE_TYPE_PATH = Path("/sys/bus/event_source/devices/uprobe/type")
 
 
+def mkfs_btrfs_args():
+    args = ["mkfs.btrfs", "-qf", "-s", str(mmap.PAGESIZE)]
+    # btrfs-progs 6.19 enabled block-group-tree by default, which can only be
+    # mounted since Linux 6.1. Disable it if btrfs-progs supports it.
+    if "block-group-tree" in subprocess.check_output(
+        ["mkfs.btrfs", "-O", "list-all"], stderr=subprocess.STDOUT, text=True
+    ):
+        args.append("-O")
+        args.append("^block-group-tree")
+    return args
+
+
 class TestFsRefs(LinuxKernelTestCase):
     def setUp(self):
         super().setUp()
@@ -213,7 +225,7 @@ class TestFsRefs(LinuxKernelTestCase):
         disk = os.environ["DRGN_TEST_DISK"]
         for fstype, mkfs in (
             ("ext2", ("mke2fs", "-qF")),
-            ("btrfs", ("mkfs.btrfs", "-qf", "-s", str(mmap.PAGESIZE))),
+            ("btrfs", mkfs_btrfs_args()),
         ):
             with self.subTest(fstype=fstype):
                 subprocess.check_call([*mkfs, disk])
@@ -237,7 +249,7 @@ class TestFsRefs(LinuxKernelTestCase):
     def test_btrfs_subvolume(self):
         disk = os.environ["DRGN_TEST_DISK"]
         with contextlib.ExitStack() as exit_stack:
-            subprocess.check_call(["mkfs.btrfs", "-qf", "-s", str(mmap.PAGESIZE), disk])
+            subprocess.check_call([*mkfs_btrfs_args(), disk])
 
             mount(disk, self._tmp, "btrfs")
             exit_stack.callback(umount, self._tmp)
