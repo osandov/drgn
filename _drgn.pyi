@@ -2933,7 +2933,7 @@ class AttachState(enum.Enum):
     """Program exited while attached."""
 
 StopReason: TypeAlias = Union[
-    SyntheticStopReason, SignalStopReason, BreakpointStopReason
+    SyntheticStopReason, SignalStopReason, StepStopReason, BreakpointStopReason
 ]
 """TODO"""
 
@@ -2941,7 +2941,6 @@ class SyntheticStopReason:
     def __new__(cls) -> Self:
         """TODO"""
         ...
-    # TODO: should it have sig that's always 0?
 
 class SignalStopReason:
     def __new__(cls, sig: int) -> Self:
@@ -2949,6 +2948,13 @@ class SignalStopReason:
         ...
     sig: Final[int]
     """TODO"""
+
+
+class StepStopReason:
+    def __new__(cls) -> Self:
+        """TODO"""
+        ...
+
 
 class BreakpointStopReason:
     def __new__(cls, site: BreakpointSite) -> Self:

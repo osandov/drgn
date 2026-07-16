@@ -499,6 +499,7 @@ extern PyObject *NoEventsError;
 #define STOP_REASON_TYPES					\
 	X(SyntheticStopReason, DRGN_STOP_REASON_SYNTHETIC)	\
 	X(SignalStopReason, DRGN_STOP_REASON_SIGNAL)		\
+	X(StepStopReason, DRGN_STOP_REASON_STEP)		\
 	X(BreakpointStopReason, DRGN_STOP_REASON_BREAKPOINT)
 
 #define X(name, enum_name) extern PyObject *name##_class;
