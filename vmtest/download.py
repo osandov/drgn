@@ -4,7 +4,6 @@
 import argparse
 from contextlib import contextmanager
 import fnmatch
-import functools
 import glob
 import logging
 import os
@@ -17,7 +16,6 @@ import tempfile
 import threading
 from typing import (
     Any,
-    Callable,
     Dict,
     Generator,
     Iterable,
@@ -277,27 +275,36 @@ def _download_thread(
     download_dir: Path,
     downloads: Iterable[Download],
     q: "queue.Queue[Union[Downloaded, Exception]]",
+    sem: threading.Semaphore,
+    stop: threading.Event,
 ) -> None:
     try:
         downloader = Downloader(download_dir)
-        download_calls: List[Callable[[], Downloaded]] = []
+        resolved_downloads: List[Downloaded] = []
 
         for download in downloads:
+            if stop.is_set():
+                return
             if isinstance(download, DownloadKernel):
-                kernel = downloader.resolve_kernel(download.arch, download.pattern)
-                download_calls.append(
-                    functools.partial(downloader.download_kernel, kernel)
+                resolved_downloads.append(
+                    downloader.resolve_kernel(download.arch, download.pattern)
                 )
             elif isinstance(download, DownloadCompiler):
-                compiler = downloader.resolve_compiler(download.target)
-                download_calls.append(
-                    functools.partial(downloader.download_compiler, compiler)
-                )
+                resolved_downloads.append(downloader.resolve_compiler(download.target))
             else:
                 assert False
 
-        for call in download_calls:
-            q.put(call())
+        for resolved in resolved_downloads:
+            if isinstance(resolved, Kernel):
+                sem.acquire()
+            if stop.is_set():
+                return
+            if isinstance(resolved, Kernel):
+                q.put(downloader.download_kernel(resolved))
+            elif isinstance(resolved, Compiler):
+                q.put(downloader.download_compiler(resolved))
+            else:
+                assert False
     except Exception as e:
         q.put(e)
 
@@ -306,9 +313,11 @@ def _download_thread(
 def download_in_thread(
     download_dir: Path, downloads: Iterable[Download], max_pending_kernels: int = 0
 ) -> Generator[Iterator[Downloaded], None, None]:
-    q: "queue.Queue[Union[Downloaded, Exception]]" = queue.Queue(
-        maxsize=max_pending_kernels
+    q: "queue.Queue[Union[Downloaded, Exception]]" = queue.Queue()
+    sem = threading.Semaphore(
+        max_pending_kernels or 1000000  # Default to an arbitrary high limit.
     )
+    stop = threading.Event()
 
     def aux() -> Iterator[Downloaded]:
         while True:
@@ -317,19 +326,24 @@ def download_in_thread(
                 break
             elif isinstance(obj, Exception):
                 raise obj
+            elif isinstance(obj, Kernel):
+                sem.release()
             yield obj
 
     thread = None
     try:
         thread = threading.Thread(
             target=_download_thread,
-            args=(download_dir, downloads, q),
+            args=(download_dir, downloads, q, sem, stop),
             daemon=True,
         )
         thread.start()
         yield aux()
     finally:
         if thread:
+            stop.set()
+            # Unblock the download thread if it's blocked on the semaphore.
+            sem.release()
             thread.join()
 
 
