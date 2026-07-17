@@ -2938,13 +2938,31 @@ static PyObject *Program_notify_program_exit(Program *self, PyObject *args,
 					     PyObject *kwds)
 {
 	struct drgn_error *err;
-	static char *keywords[] = { "status" };
+	static char *keywords[] = { "status", NULL };
 	int status;
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "i:notify_program_exit",
 					 keywords, &status))
 		return NULL;
 
 	err = drgn_notify_program_exit(&self->prog, status);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_notify_program_lost(Program *self, PyObject *args,
+					     PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = { "exception", NULL };
+	PyObject *exc;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:notify_program_lost",
+					 keywords, PyExc_BaseException, &exc))
+		return NULL;
+
+	Py_INCREF(exc);
+	struct drgn_error *event_err = drgn_error_from_given_exception(exc);
+	err = drgn_notify_program_lost(&self->prog, event_err);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -3140,6 +3158,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_event_listener_DOC},
 	{"notify_program_exit", (PyCFunction)Program_notify_program_exit,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_program_exit_DOC},
+	{"notify_program_lost", (PyCFunction)Program_notify_program_lost,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_program_lost_DOC},
 	{"notify_thread_stop", (PyCFunction)Program_notify_thread_stop,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_thread_stop_DOC},
 	{"notify_thread_breakpoint",

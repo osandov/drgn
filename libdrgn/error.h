@@ -201,6 +201,11 @@ static inline bool drgn_error_catch(struct drgn_error **errp,
 	return false;
 }
 
+static inline void drgn_error_destroyp(struct drgn_error **errp)
+{
+	drgn_error_destroy(*errp);
+}
+
 /** @} */
 
 #endif /* DRGN_ERROR_H */

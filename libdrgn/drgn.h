@@ -105,6 +105,8 @@ enum drgn_error_code {
 	DRGN_ERROR_BAD_DATA,
 	/* Program exited. */
 	DRGN_ERROR_PROGRAM_EXITED,
+	/* Program was lost. */
+	DRGN_ERROR_PROGRAM_LOST,
 	/** Not attached to program for execution control. */
 	DRGN_ERROR_NOT_ATTACHED,
 	/** Already attached to program for execution control. */
@@ -5320,6 +5322,7 @@ enum drgn_attach_state {
 	DRGN_ATTACH_STATE_ATTACHING,
 	DRGN_ATTACH_STATE_ATTACHED,
 	DRGN_ATTACH_STATE_EXITED,
+	DRGN_ATTACH_STATE_LOST,
 	DRGN_ATTACH_STATE_DETACHING,
 };
 
@@ -5470,6 +5473,7 @@ struct drgn_event;
 
 enum drgn_event_type {
 	DRGN_EVENT_PROGRAM_EXIT,
+	DRGN_EVENT_PROGRAM_LOST,
 	DRGN_EVENT_THREAD_EXIT,
 	DRGN_EVENT_THREAD_STOP,
 };
@@ -5484,6 +5488,14 @@ static inline bool drgn_event_type_has_exit_status(enum drgn_event_type type)
 
 struct drgn_error *drgn_event_exit_status(struct drgn_event *event, int *ret);
 
+static inline bool drgn_event_type_has_error(enum drgn_event_type type)
+{
+	return type == DRGN_EVENT_PROGRAM_LOST;
+}
+
+// Returns borrowed error.
+struct drgn_error *drgn_event_error(struct drgn_event *event);
+
 static inline bool drgn_event_type_has_thread(enum drgn_event_type type)
 {
 	return type == DRGN_EVENT_THREAD_EXIT || type == DRGN_EVENT_THREAD_STOP;
@@ -5495,6 +5507,9 @@ struct drgn_error *drgn_event_thread(struct drgn_event *event,
 
 struct drgn_error *drgn_notify_program_exit(struct drgn_program *prog,
 					    int status);
+
+struct drgn_error *drgn_notify_program_lost(struct drgn_program *prog,
+					    struct drgn_error *err);
 
 void drgn_notify_thread_stop(struct drgn_thread *thread, int sig, uint64_t pc,
 			     uint64_t reason_mask);

@@ -482,6 +482,7 @@ extern PyObject *ObjectAbsentError;
 extern PyObject *OutOfBoundsError;
 extern PyObject *UnsupportedOperation;
 extern PyObject *ProgramExitedError;
+extern PyObject *ProgramLostError;
 extern PyObject *NotAttachedError;
 extern PyObject *AlreadyAttachedError;
 extern PyObject *NotStoppedError;
@@ -489,6 +490,7 @@ extern PyObject *NoEventsError;
 
 #define EVENT_TYPES					\
 	X(ProgramExitEvent, DRGN_EVENT_PROGRAM_EXIT)	\
+	X(ProgramLostEvent, DRGN_EVENT_PROGRAM_LOST)	\
 	X(ThreadExitEvent, DRGN_EVENT_THREAD_EXIT)	\
 	X(ThreadStopEvent, DRGN_EVENT_THREAD_STOP)
 
@@ -520,6 +522,7 @@ int init_logging(void);
 struct drgn_error *drgn_error_from_given_exception(PyObject *exc);
 struct drgn_error *drgn_error_from_python(void);
 void *set_drgn_error(struct drgn_error *err);
+PyObject *drgn_error_to_python(struct drgn_error *err);
 void *set_error_type_name(const char *format,
 			  struct drgn_qualified_type qualified_type);
 

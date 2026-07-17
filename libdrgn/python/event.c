@@ -16,6 +16,11 @@ PyObject *Event_wrap(struct drgn_event *event)
 			return set_drgn_error(err);
 		return PyObject_CallFunction(ProgramExitEvent_class, "i",
 					     status);
+	case DRGN_EVENT_PROGRAM_LOST: {
+		_cleanup_pydecref_ PyObject *exc =
+			drgn_error_to_python(drgn_event_error(event));
+		return PyObject_CallOneArg(ProgramLostEvent_class, exc);
+	}
 	case DRGN_EVENT_THREAD_EXIT:
 		err = drgn_event_thread(event, &thread);
 		if (err)

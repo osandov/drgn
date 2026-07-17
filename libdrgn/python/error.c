@@ -98,6 +98,7 @@ PyTypeObject ObjectNotFoundError_type = {
 	X(DRGN_ERROR_RUNTIME, PyExc_RuntimeError)			\
 	X(DRGN_ERROR_BAD_DATA, BadDataError)				\
 	X(DRGN_ERROR_PROGRAM_EXITED, ProgramExitedError)		\
+	X(DRGN_ERROR_PROGRAM_LOST, ProgramLostError)		\
 	X(DRGN_ERROR_NOT_ATTACHED, NotAttachedError)			\
 	X(DRGN_ERROR_ALREADY_ATTACHED, AlreadyAttachedError)		\
 	X(DRGN_ERROR_NOT_STOPPED, NotStoppedError)			\
@@ -274,15 +275,8 @@ void drgn_error_python_exc_decref(void *python_exc)
 	}
 }
 
-void *set_drgn_error(struct drgn_error *err)
+static void set_drgn_error_impl(struct drgn_error *err)
 {
-	if (err->_python_exc) {
-		PyErr_SetRaisedException(err->_python_exc);
-		err->_python_exc = NULL;
-		drgn_error_destroy(err);
-		return NULL;
-	}
-
 	switch (err->_code) {
 #define X(code, type)					\
 	case code:					\
@@ -310,9 +304,28 @@ void *set_drgn_error(struct drgn_error *err)
 		PyErr_SetString(PyExc_Exception, err->_message);
 		break;
 	}
+}
 
+void *set_drgn_error(struct drgn_error *err)
+{
+	if (err->_python_exc) {
+		PyErr_SetRaisedException(err->_python_exc);
+		err->_python_exc = NULL;
+	} else {
+		set_drgn_error_impl(err);
+	}
 	drgn_error_destroy(err);
 	return NULL;
+}
+
+PyObject *drgn_error_to_python(struct drgn_error *err)
+{
+	if (err->_python_exc) {
+		Py_INCREF(err->_python_exc);
+		return err->_python_exc;
+	}
+	set_drgn_error_impl(err);
+	return PyErr_GetRaisedException();
 }
 
 void *set_error_type_name(const char *format,

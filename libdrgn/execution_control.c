@@ -138,6 +138,9 @@ static struct drgn_error *check_attached(struct drgn_program *prog)
 	case DRGN_ATTACH_STATE_EXITED:
 		return drgn_error_create(DRGN_ERROR_PROGRAM_EXITED,
 					 "program exited");
+	case DRGN_ATTACH_STATE_LOST:
+		return drgn_error_create(DRGN_ERROR_PROGRAM_LOST,
+					 "lost program");
 	default:
 		UNREACHABLE();
 	}
@@ -467,7 +470,9 @@ static void attach_success(void *arg, bool all_stop)
 		return;
 
 	struct drgn_program *prog = result->prog;
-	prog->attach_state = DRGN_ATTACH_STATE_ATTACHED;
+	// The state may have changed to EXITED or LOST while attaching.
+	if (prog->attach_state == DRGN_ATTACH_STATE_ATTACHING)
+		prog->attach_state = DRGN_ATTACH_STATE_ATTACHED;
 	prog->all_stop = all_stop;
 }
 
@@ -2336,29 +2341,47 @@ drgn_program_add_event_listener(struct drgn_program *prog,
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_notify_program_exit(struct drgn_program *prog, int status)
 {
-	SWITCH_ENUM(prog->attach_state) {
-	case DRGN_ATTACH_STATE_DETACHED:
-	case DRGN_ATTACH_STATE_ATTACHING:
-		return drgn_error_create(DRGN_ERROR_NOT_ATTACHED,
-					 "not attached to program");
-	case DRGN_ATTACH_STATE_ATTACHED:
-		prog->attach_state = DRGN_ATTACH_STATE_EXITED;
-		break;
-	case DRGN_ATTACH_STATE_DETACHING:
-		// A controller can discover that the program exited while
-		// detaching, so we allow this and still emit the event, but the
-		// DETACHING state takes precedence over EXITED.
-		break;
-	case DRGN_ATTACH_STATE_EXITED:
-		return drgn_error_create(DRGN_ERROR_PROGRAM_EXITED,
-					 "program exited");
-	default:
-		UNREACHABLE();
+	struct drgn_error *err;
+	// A controller can discover that the program exited while attaching or
+	// detaching, so we allow it and still emit the event.
+	if (prog->attach_state != DRGN_ATTACH_STATE_ATTACHING
+	    && prog->attach_state != DRGN_ATTACH_STATE_DETACHING) {
+		err = check_attached(prog);
+		if (err)
+			return err;
 	}
+	// The DETACHING state takes precedence over EXITED.
+	if (prog->attach_state != DRGN_ATTACH_STATE_DETACHING)
+		prog->attach_state = DRGN_ATTACH_STATE_EXITED;
 
 	struct drgn_event event = {
 		.type = DRGN_EVENT_PROGRAM_EXIT,
 		.exit_status = status,
+	};
+	emit_event(prog, &event);
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_notify_program_lost(struct drgn_program *prog, struct drgn_error *_err)
+{
+	struct drgn_error *err;
+	_cleanup_(drgn_error_destroyp) struct drgn_error *event_err = _err;
+
+	// Similar to drgn_notify_program_exit(), the program can be lost while
+	// attach or detaching.
+	if (prog->attach_state != DRGN_ATTACH_STATE_ATTACHING
+	    && prog->attach_state != DRGN_ATTACH_STATE_DETACHING) {
+		err = check_attached(prog);
+		if (err)
+			return err;
+	}
+	if (prog->attach_state != DRGN_ATTACH_STATE_DETACHING)
+		prog->attach_state = DRGN_ATTACH_STATE_LOST;
+
+	struct drgn_event event = {
+		.type = DRGN_EVENT_PROGRAM_LOST,
+		.err = event_err,
 	};
 	emit_event(prog, &event);
 	return NULL;

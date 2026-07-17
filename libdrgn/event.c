@@ -14,6 +14,8 @@ static const char *drgn_event_type_name(enum drgn_event_type type)
 	SWITCH_ENUM(type) {
 	case DRGN_EVENT_PROGRAM_EXIT:
 		return "program exit";
+	case DRGN_EVENT_PROGRAM_LOST:
+		return "program lost";
 	case DRGN_EVENT_THREAD_EXIT:
 		return "thread exit";
 	case DRGN_EVENT_THREAD_STOP:
@@ -38,6 +40,12 @@ struct drgn_error *drgn_event_exit_status(struct drgn_event *event, int *ret)
 	CHECK_EVENT_MEMBER(exit_status, "exit status");
 	*ret = event->exit_status;
 	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_event_error(struct drgn_event *event)
+{
+	CHECK_EVENT_MEMBER(error, "error");
+	return event->err;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

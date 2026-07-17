@@ -1184,6 +1184,10 @@ class Program:
         """TODO"""
         ...
 
+    def notify_program_lost(self, exception: BaseException) -> None:
+        """TODO"""
+        ...
+
     def notify_thread_stop(
         self,
         thread: Thread,
@@ -3235,6 +3239,13 @@ class ProgramExitEvent:
     If the program exited, the exit status, which is always non-negative. If
     the program was terminated by a signal, a negative signal number.
     """
+
+class ProgramLostEvent:
+    def __new__(cls, exception: BaseException) -> Self:
+        """TODO"""
+        ...
+    exception: Final[BaseException]
+    """TODO"""
 
 class ThreadExitEvent:
     def __new__(cls, thread: Thread, status: int) -> Self:
@@ -5293,6 +5304,11 @@ class ProgramExitedError(Exception):
     Error raised if attempting to control execution after the program has
     exited.
     """
+
+    ...
+
+class ProgramLostError(Exception):
+    """TODO"""
 
     ...
 

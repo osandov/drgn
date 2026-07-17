@@ -40,6 +40,7 @@ PyObject *ObjectAbsentError;
 PyObject *OutOfBoundsError;
 PyObject *UnsupportedOperation;
 PyObject *ProgramExitedError;
+PyObject *ProgramLostError;
 PyObject *NotAttachedError;
 PyObject *AlreadyAttachedError;
 PyObject *NotStoppedError;
@@ -422,6 +423,7 @@ static int add_stdlib_types(PyObject *m)
 	} while (0)
 
 	add_namedtuple_type(ProgramExitEvent, "status");
+	add_namedtuple_type(ProgramLostEvent, "exception");
 	add_namedtuple_type(ThreadExitEvent, "thread status");
 	add_namedtuple_type(ThreadStopEvent, "thread");
 
@@ -555,6 +557,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_new_exception(m, OutOfBoundsError, NULL) ||
 	    add_new_exception(m, UnsupportedOperation, PyExc_ValueError) ||
 	    add_new_exception(m, ProgramExitedError, NULL) ||
+	    add_new_exception(m, ProgramLostError, NULL) ||
 	    add_new_exception(m, NotAttachedError, NULL) ||
 	    add_new_exception(m, AlreadyAttachedError, NULL) ||
 	    add_new_exception(m, NotStoppedError, NULL) ||

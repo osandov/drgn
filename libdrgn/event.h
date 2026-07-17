@@ -9,7 +9,10 @@
 struct drgn_event {
 	enum drgn_event_type type;
 	int exit_status;
-	struct drgn_thread *thread;
+	union {
+		struct drgn_thread *thread;
+		struct drgn_error *err;
+	};
 };
 
 #endif /* DRGN_EVENT_H */

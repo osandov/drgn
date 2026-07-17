@@ -34,23 +34,33 @@ class SimpleThreadFinder(drgn.ThreadFinder):
         return f"thread-{thread.tid}"
 
 
+QUEUE_PROMISE = object()
+COMPLETE_PROMISE = object()
+
+
 class MockExecutionController(drgn.ExecutionController):
     def __init__(self) -> None:
         self._op_hooks = {
-            # Complete attaches and detaches by default.
-            "attach": lambda name, args, promise, result: True,
-            "detach": lambda name, args, promise, result: True,
+            # Queue attach and detach completions by default.
+            "attach": lambda name, args, promise, result: QUEUE_PROMISE,
+            "detach": lambda name, args, promise, result: QUEUE_PROMISE,
         }
 
     def _op(self, name, args, promise, result):
         hook = self._op_hooks.get(name)
         if hook is None:
             hook = self._op_hooks.get(None)
-            if hook is None:
-                promise.set_exception(Exception(f"unexpected {name} operation"))
+        if hook is not None:
+            ret = hook(name, args, promise, result)
+            if ret is QUEUE_PROMISE:
+                self._queue_call(lambda prog: promise.set_result(result))
                 return
-        if hook(name, args, promise, result):
-            self._queue_call(lambda prog: promise.set_result(result))
+            elif ret is COMPLETE_PROMISE:
+                promise.set_result(result)
+                return
+            elif ret:
+                return
+        promise.set_exception(Exception(f"unexpected {name} operation"))
 
     def _queue_call(self, fn):
         self._q.append(fn)
@@ -193,7 +203,7 @@ class ExecutionControlTestCase(TestCase):
 
         def complete_hook(name, args, promise, result):
             ops.append((name, *args))
-            return True
+            return QUEUE_PROMISE
 
         try:
             self._ctrl._op_hooks = {None: complete_hook}
@@ -215,7 +225,7 @@ class TestLifecycle(ExecutionControlTestCase):
 
         def attach_state_hook(name, args, promise, result):
             attach_state.append(self.prog.attach_state)
-            return True
+            return QUEUE_PROMISE
 
         with self.hook_ops({"attach": attach_state_hook}):
             self.prog.attach(drgn.AttachFlags.ALL_STOP)
@@ -233,7 +243,7 @@ class TestLifecycle(ExecutionControlTestCase):
     def test_attach_failure(self):
         def attach_hook(name, args, promise, result):
             promise.set_exception(Exception("foo"))
-            return False
+            return True
 
         with self.hook_ops({"attach": attach_hook}):
             self.assertRaisesRegex(
@@ -252,18 +262,16 @@ class TestLifecycle(ExecutionControlTestCase):
             self.assertEqual(ops, [("detach",)])
             self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
-    def test_attach_synchronously(self):
-        def complete_now(name, args, promise, result):
-            promise.set_result(result)
-            return False
-
+    def test_attach_and_detach_synchronously(self):
         with self.hook_ops(
-            {"attach": lambda name, args, promise, result: complete_now}
+            {"attach": lambda name, args, promise, result: COMPLETE_PROMISE}
         ):
             self.prog.attach(drgn.AttachFlags.ALL_STOP)
         self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
 
-        with self.complete_ops():
+        with self.hook_ops(
+            {"detach": lambda name, args, promise, result: COMPLETE_PROMISE}
+        ):
             self.prog.detach()
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
@@ -290,6 +298,27 @@ class TestLifecycle(ExecutionControlTestCase):
 
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
+    def test_program_exit_during_attach(self):
+        event_attach_state = []
+
+        def event_hook(event):
+            if not isinstance(event, drgn.ProgramExitEvent) or event.status != 0:
+                return False
+            event_attach_state.append(self.prog.attach_state)
+            return True
+
+        def exit_during_attach(name, args, promise, result):
+            self.queue_call(lambda prog: prog.notify_program_exit(0))
+            return QUEUE_PROMISE
+
+        with self.hook_events(event_hook), self.hook_ops(
+            {"attach": exit_during_attach}
+        ):
+            self.prog.attach()
+
+        self.assertEqual(event_attach_state, [drgn.AttachState.EXITED])
+        self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED)
+
     def test_program_exit_during_detach(self):
         with self.complete_ops():
             self.prog.attach(drgn.AttachFlags.ALL_STOP)
@@ -303,11 +332,100 @@ class TestLifecycle(ExecutionControlTestCase):
             return True
 
         def exit_during_detach(name, args, promise, result):
+            # TODO: depending on how we handle erroring out after the program
+            # exits/is lost, we may want to test that going back through the
+            # event loop to make sure it doesn't fail.
             self.queue_call(lambda prog: prog.notify_program_exit(0))
-            return True
+            return QUEUE_PROMISE
 
         with self.hook_events(event_hook), self.hook_ops(
             {"detach": exit_during_detach}
+        ):
+            self.prog.detach()
+
+        self.assertEqual(event_attach_state, [drgn.AttachState.DETACHING])
+        self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+
+    def test_program_lost(self):
+        with self.complete_ops():
+            self.prog.attach(drgn.AttachFlags.ALL_STOP)
+
+        event_attach_state = []
+
+        def event_hook(event):
+            if (
+                not isinstance(event, drgn.ProgramLostEvent)
+                or not isinstance(event.exception, BrokenPipeError)
+                or event.exception.args != ("bye",)
+            ):
+                return False
+            event_attach_state.append(self.prog.attach_state)
+            return True
+
+        with self.hook_events(event_hook):
+            self.queue_call(
+                lambda prog: prog.notify_program_lost(BrokenPipeError("bye"))
+            )
+
+        self.assertEqual(event_attach_state, [drgn.AttachState.LOST])
+        self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
+
+        with self.complete_ops():
+            self.prog.detach()
+
+        self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+
+    def test_program_lost_during_attach(self):
+        event_attach_state = []
+
+        def event_hook(event):
+            if (
+                not isinstance(event, drgn.ProgramLostEvent)
+                or not isinstance(event.exception, BrokenPipeError)
+                or event.exception.args != ("bye",)
+            ):
+                return False
+            event_attach_state.append(self.prog.attach_state)
+            return True
+
+        def lost_during_attach(name, args, promise, result):
+            self.queue_call(
+                lambda prog: prog.notify_program_lost(BrokenPipeError("bye"))
+            )
+            return QUEUE_PROMISE
+
+        with self.hook_events(event_hook), self.hook_ops(
+            {"attach": lost_during_attach}
+        ):
+            self.prog.attach()
+
+        self.assertEqual(event_attach_state, [drgn.AttachState.LOST])
+        self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
+
+    def test_program_lost_during_detach(self):
+        with self.complete_ops():
+            self.prog.attach(drgn.AttachFlags.ALL_STOP)
+
+        event_attach_state = []
+
+        def event_hook(event):
+            if (
+                not isinstance(event, drgn.ProgramLostEvent)
+                or not isinstance(event.exception, BrokenPipeError)
+                or event.exception.args != ("bye",)
+            ):
+                return False
+            event_attach_state.append(self.prog.attach_state)
+            return True
+
+        def lost_during_detach(name, args, promise, result):
+            self.queue_call(
+                lambda prog: prog.notify_program_lost(BrokenPipeError("bye"))
+            )
+            return QUEUE_PROMISE
+
+        with self.hook_events(event_hook), self.hook_ops(
+            {"detach": lost_during_detach}
         ):
             self.prog.detach()
 
