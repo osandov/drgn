@@ -129,6 +129,7 @@ static struct drgn_error *check_attached(struct drgn_program *prog)
 	SWITCH_ENUM(prog->attach_state) {
 	case DRGN_ATTACH_STATE_DETACHED:
 	case DRGN_ATTACH_STATE_ATTACHING:
+	// TODO: maybe we should allow DETACHING?
 	case DRGN_ATTACH_STATE_DETACHING:
 		return drgn_error_create(DRGN_ERROR_NOT_ATTACHED,
 					 "not attached to program");
@@ -861,6 +862,13 @@ next_event_listener(struct drgn_event_listener *listener,
 	     listener;								\
 	     listener = next_event_listener(listener, last_##listener))
 
+static void emit_event(struct drgn_program *prog, struct drgn_event *event)
+{
+	// TODO: probably don't need this macro craziness.
+	for_each_event_listener(listener, prog)
+		listener->callback(prog, event, listener->arg);
+}
+
 static void emit_thread_stop_event(struct drgn_thread *thread)
 {
 	struct drgn_program *prog = drgn_thread_program(thread);
@@ -868,8 +876,7 @@ static void emit_thread_stop_event(struct drgn_thread *thread)
 		.type = DRGN_EVENT_THREAD_STOP,
 		.thread = thread,
 	};
-	for_each_event_listener(listener, prog)
-		listener->callback(prog, &event, listener->arg);
+	emit_event(prog, &event);
 }
 
 struct resume_threads_result {
@@ -2323,6 +2330,37 @@ drgn_program_add_event_listener(struct drgn_program *prog,
 	list_add_tail(&listener->node, &prog->event_listeners);
 	if (ret)
 		*ret = listener;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_notify_program_exit(struct drgn_program *prog, int status)
+{
+	SWITCH_ENUM(prog->attach_state) {
+	case DRGN_ATTACH_STATE_DETACHED:
+	case DRGN_ATTACH_STATE_ATTACHING:
+		return drgn_error_create(DRGN_ERROR_NOT_ATTACHED,
+					 "not attached to program");
+	case DRGN_ATTACH_STATE_ATTACHED:
+		prog->attach_state = DRGN_ATTACH_STATE_EXITED;
+		break;
+	case DRGN_ATTACH_STATE_DETACHING:
+		// A controller can discover that the program exited while
+		// detaching, so we allow this and still emit the event, but the
+		// DETACHING state takes precedence over EXITED.
+		break;
+	case DRGN_ATTACH_STATE_EXITED:
+		return drgn_error_create(DRGN_ERROR_PROGRAM_EXITED,
+					 "program exited");
+	default:
+		UNREACHABLE();
+	}
+
+	struct drgn_event event = {
+		.type = DRGN_EVENT_PROGRAM_EXIT,
+		.exit_status = status,
+	};
+	emit_event(prog, &event);
 	return NULL;
 }
 

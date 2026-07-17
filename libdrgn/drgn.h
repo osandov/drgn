@@ -5493,6 +5493,9 @@ static inline bool drgn_event_type_has_thread(enum drgn_event_type type)
 struct drgn_error *drgn_event_thread(struct drgn_event *event,
 				     struct drgn_thread **ret);
 
+struct drgn_error *drgn_notify_program_exit(struct drgn_program *prog,
+					    int status);
+
 void drgn_notify_thread_stop(struct drgn_thread *thread, int sig, uint64_t pc,
 			     uint64_t reason_mask);
 

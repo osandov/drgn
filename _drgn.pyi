@@ -1180,6 +1180,10 @@ class Program:
         """TODO"""
         ...
 
+    def notify_program_exit(self, status: int) -> None:
+        """TODO"""
+        ...
+
     def notify_thread_stop(
         self,
         thread: Thread,
@@ -2949,12 +2953,10 @@ class SignalStopReason:
     sig: Final[int]
     """TODO"""
 
-
 class StepStopReason:
     def __new__(cls) -> Self:
         """TODO"""
         ...
-
 
 class BreakpointStopReason:
     def __new__(cls, site: BreakpointSite) -> Self:

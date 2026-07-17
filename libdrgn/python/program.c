@@ -2934,6 +2934,22 @@ static int stop_reasons_converter(PyObject *o, void *p)
 	return 1;
 }
 
+static PyObject *Program_notify_program_exit(Program *self, PyObject *args,
+					     PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = { "status" };
+	int status;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "i:notify_program_exit",
+					 keywords, &status))
+		return NULL;
+
+	err = drgn_notify_program_exit(&self->prog, status);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_notify_thread_stop(Program *self, PyObject *args,
 					    PyObject *kwds)
 {
@@ -3122,6 +3138,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_unregister_fd_DOC},
 	{"add_event_listener", (PyCFunction)Program_add_event_listener,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_event_listener_DOC},
+	{"notify_program_exit", (PyCFunction)Program_notify_program_exit,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_program_exit_DOC},
 	{"notify_thread_stop", (PyCFunction)Program_notify_thread_stop,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_thread_stop_DOC},
 	{"notify_thread_breakpoint",
