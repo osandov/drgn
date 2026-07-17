@@ -13,7 +13,7 @@ jobs:
         arch: [x86_64, aarch64, ppc64, s390x, arm, riscv64]
       fail-fast: false
       max-parallel: 6
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
