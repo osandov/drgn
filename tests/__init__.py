@@ -28,6 +28,7 @@ from drgn import (
     TypeMember,
     TypeParameter,
     TypeTemplateParameter,
+    _with_libbpf,
     get_default_prog,
     set_default_prog,
 )
@@ -474,3 +475,6 @@ def with_default_prog(prog):
         yield
     finally:
         set_default_prog(old_default_prog)
+
+
+skip_unless_have_libbpf = unittest.skipUnless(_with_libbpf, "test requires libbpf")
