@@ -818,60 +818,41 @@ resume_all_threads(struct drgn_program *prog,
 
 static struct drgn_event_listener sentinel_event_listener;
 
-static struct drgn_event_listener *
-start_for_each_event_listener(struct drgn_event_listener *listener)
-{
-	if (!listener || listener->prog->event_listeners_to_free)
-		return NULL;
-	listener->prog->event_listeners_to_free = &sentinel_event_listener;
-	return listener;
-}
-
-static void end_for_each_event_listener(struct drgn_event_listener **listenerp)
-{
-	if (!*listenerp)
-		return;
-	struct drgn_program *prog = (*listenerp)->prog;
-	struct drgn_event_listener *listener = prog->event_listeners_to_free;
-	while (listener != &sentinel_event_listener) {
-		struct drgn_event_listener *next = listener->next_to_free;
-		list_del(&listener->node);
-		free(listener);
-		listener = next;
-	}
-	prog->event_listeners_to_free = NULL;
-}
-
-static inline struct drgn_event_listener *
-next_event_listener(struct drgn_event_listener *listener,
-		    struct drgn_event_listener *last_listener)
-{
-	while (listener != last_listener) {
-		listener = list_next_entry(listener, node);
-		if (listener->callback)
-			return listener;
-		// Listener was removed.
-	}
-	return NULL;
-}
-
-#define for_each_event_listener(listener, prog)					\
-	for (struct drgn_event_listener *listener =				\
-	     list_first_entry_or_null(&(prog)->event_listeners,			\
-				      struct drgn_event_listener, node),	\
-	     *last_##listener =							\
-	     list_last_entry_or_null(&(prog)->event_listeners,			\
-				     struct drgn_event_listener, node),		\
-	     *cleanup_##listener _cleanup_(end_for_each_event_listener) =	\
-	     start_for_each_event_listener(listener);				\
-	     listener;								\
-	     listener = next_event_listener(listener, last_##listener))
-
 static void emit_event(struct drgn_program *prog, struct drgn_event *event)
 {
-	// TODO: probably don't need this macro craziness.
-	for_each_event_listener(listener, prog)
+	if (list_empty(&prog->event_listeners))
+		return;
+	bool free_listeners = !prog->event_listeners_to_free;
+	if (free_listeners)
+		prog->event_listeners_to_free = &sentinel_event_listener;
+
+	struct drgn_event_listener *listener =
+		list_first_entry(&prog->event_listeners,
+				 struct drgn_event_listener, node);
+	struct drgn_event_listener *last_listener =
+		list_last_entry(&prog->event_listeners,
+				struct drgn_event_listener, node);
+	for (;;) {
+		if (!listener->callback) {
+			// Listener was removed from another listener.
+			continue;
+		}
 		listener->callback(prog, event, listener->arg);
+		if (listener == last_listener)
+			break;
+		listener = list_next_entry(listener, node);
+	}
+
+	if (free_listeners) {
+		listener = prog->event_listeners_to_free;
+		while (listener != &sentinel_event_listener) {
+			struct drgn_event_listener *next = listener->next_to_free;
+			list_del(&listener->node);
+			free(listener);
+			listener = next;
+		}
+		prog->event_listeners_to_free = NULL;
+	}
 }
 
 static void emit_thread_stop_event(struct drgn_thread *thread)
