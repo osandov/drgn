@@ -254,6 +254,11 @@ static inline uint64_t uint_max(int n)
 void qsort_arg(void *base, size_t nmemb, size_t size,
 	       int (*compar)(const void *, const void *, void*), void *arg);
 
+// Long enough for "SIGRTMIN+%d" or "SIGRTMAX-%d" or a decimal int.
+#define SIGNAL_STR_BUF_LEN (sizeof("SIGRTMIN") + max_decimal_length(int))
+
+const char *signal_str(int sig, char buf[static SIGNAL_STR_BUF_LEN]);
+
 struct uint64_range {
 	uint64_t start, end;
 };

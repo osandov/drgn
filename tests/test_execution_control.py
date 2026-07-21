@@ -60,7 +60,7 @@ class MockExecutionController(drgn.ExecutionController):
                 return
             elif ret:
                 return
-        promise.set_exception(Exception(f"unexpected {name} operation"))
+        promise.set_exception(AssertionError(f"unexpected {name} operation"))
 
     def _queue_call(self, fn):
         self._q.append(fn)
@@ -535,18 +535,7 @@ class TestAllStop(ExecutionControlTestCase):
             with self.complete_ops() as ops:
                 self.prog.thread(1).cont(sig=0)
 
-            self.assertEqual(
-                ops,
-                [
-                    (
-                        "resume_threads",
-                        [
-                            drgn.ContinueResumeAction(self.prog.thread(1), 0),
-                            drgn.ContinueResumeAction(None, 0),
-                        ],
-                    )
-                ],
-            )
+            self.assertEqual(ops, [("resume_threads", [drgn.ContinueResumeAction(None, 0)])])
 
             self.assertIsNone(self.prog.thread(1).stop_reason)
             self.assertIsNone(self.prog.thread(2).stop_reason)
@@ -571,18 +560,7 @@ class TestAllStop(ExecutionControlTestCase):
                     with self.complete_ops() as ops:
                         self.prog.thread(continue_tid).cont()
 
-                    self.assertEqual(
-                        ops,
-                        [
-                            (
-                                "resume_threads",
-                                [
-                                    drgn.ContinueResumeAction(self.prog.thread(1), 0),
-                                    drgn.ContinueResumeAction(None, 0),
-                                ],
-                            )
-                        ],
-                    )
+                    self.assertEqual(ops, [("resume_threads", [drgn.ContinueResumeAction(None, 0)])])
 
                     self.assertIsNone(self.prog.thread(1).stop_reason)
                     self.assertIsNone(self.prog.thread(2).stop_reason)
@@ -631,22 +609,13 @@ class TestAllStop(ExecutionControlTestCase):
             with self.complete_ops() as ops:
                 self.prog.thread(2).cont(sig=signal.SIGUSR1)
 
-            self.assertEqual(
-                ops,
-                [
-                    (
-                        "resume_threads",
-                        [
-                            drgn.ContinueResumeAction(
-                                self.prog.thread(1), signal.SIGWINCH
-                            ),
-                            drgn.ContinueResumeAction(
-                                self.prog.thread(2), signal.SIGUSR1
-                            ),
-                            drgn.ContinueResumeAction(None, 0),
-                        ],
-                    )
-                ],
+            self.assertEqual(len(ops), 1)
+            self.assertEqual(ops[0][0], "resume_threads")
+            actions = ops[0][1]
+            self.assertEqual(actions[-1], drgn.ContinueResumeAction(None, 0))
+            self.assertCountEqual(
+                actions[:-1],
+                [drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH), drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGUSR1)]
             )
 
             self.assertIsNone(self.prog.thread(1).stop_reason)
@@ -690,7 +659,7 @@ class TestAllStop(ExecutionControlTestCase):
                             signals = [signal.SIGWINCH, signal.SIGCHLD]
                         elif event.thread == self.prog.thread(2):
                             threads.append(self.prog.thread(1))
-                            signals = [signal.SIGCHLD, signal.SIGCHLD]
+                            signals = [signal.SIGCHLD, signal.SIGWINCH]
                         else:
                             return False
                         threads.append(self.prog.thread(3))
@@ -698,7 +667,7 @@ class TestAllStop(ExecutionControlTestCase):
 
                     with self.hook_events(event_hook1):
                         self.queue_call(lambda prog: prog.notify_all_stop())
-                    self.assertIsNotNone(threads[0])
+                    self.assertIsNotNone(threads)
 
                     # It should look like only one thread stopped with a signal.
                     self.assertEqual(
@@ -754,6 +723,164 @@ class TestAllStop(ExecutionControlTestCase):
                     self.assertIsNone(self.prog.thread(1).stop_reason)
                     self.assertIsNone(self.prog.thread(2).stop_reason)
                     self.assertIsNone(self.prog.thread(3).stop_reason)
+
+    def test_simultaneous_stop_cont_different_signal(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(1), signal.SIGWINCH, 0x1337
+                )
+            )
+            self.queue_call(
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(2), signal.SIGCHLD, 0xDEAD
+                )
+            )
+
+            threads = None
+
+            def event_hook1(event):
+                nonlocal threads
+                if (
+                    not isinstance(event, drgn.ThreadStopEvent)
+                    or threads is not None
+                ):
+                    return False
+                # Index 0 is the thread we got the first event for, index 1 is
+                # the other stopped thread.
+                threads = [event.thread]
+                if event.thread == self.prog.thread(1):
+                    threads.append(self.prog.thread(2))
+                elif event.thread == self.prog.thread(2):
+                    threads.append(self.prog.thread(1))
+                else:
+                    return False
+                return True
+
+            with self.hook_events(event_hook1):
+                self.queue_call(lambda prog: prog.notify_all_stop())
+
+            with self.ignore_events():
+                threads[0].cont(sig=signal.SIGUSR1)
+
+            with self.complete_ops() as ops:
+                threads[1].cont(sig=signal.SIGUSR2)
+
+            self.assertEqual(len(ops), 1)
+            self.assertEqual(ops[0][0], "resume_threads")
+            actions = ops[0][1]
+            self.assertEqual(actions[-1], drgn.ContinueResumeAction(None, 0))
+            self.assertCountEqual(
+                actions[:-1],
+                [
+                    drgn.ContinueResumeAction(threads[0], signal.SIGUSR1),
+                    drgn.ContinueResumeAction(threads[1], signal.SIGUSR2),
+                ],
+            )
+
+            self.assertIsNone(self.prog.thread(1).stop_reason)
+            self.assertIsNone(self.prog.thread(2).stop_reason)
+            self.assertIsNone(self.prog.thread(3).stop_reason)
+
+    def test_simultaneous_stop_cont_pending_with_different_signal(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(1), signal.SIGWINCH, 0x1337
+                )
+            )
+            self.queue_call(
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(2), signal.SIGCHLD, 0xDEAD
+                )
+            )
+
+            threads = None
+
+            def event_hook1(event):
+                nonlocal threads
+                if (
+                    not isinstance(event, drgn.ThreadStopEvent)
+                    or threads is not None
+                ):
+                    return False
+                # Index 0 is the thread we got the first event for, index 1 is
+                # the other stopped thread.
+                threads = [event.thread]
+                if event.thread == self.prog.thread(1):
+                    threads.append(self.prog.thread(2))
+                elif event.thread == self.prog.thread(2):
+                    threads.append(self.prog.thread(1))
+                else:
+                    return False
+                return True
+
+            with self.hook_events(event_hook1):
+                self.queue_call(lambda prog: prog.notify_all_stop())
+
+            with self.ignore_events():
+                # SIGUSR1 is ignored because this still has a pending signal.
+                threads[1].cont(sig=signal.SIGUSR1)
+
+            with self.complete_ops() as ops:
+                threads[1].cont()
+
+            self.assertEqual(len(ops), 1)
+            self.assertEqual(ops[0][0], "resume_threads")
+            actions = ops[0][1]
+            self.assertEqual(actions[-1], drgn.ContinueResumeAction(None, 0))
+            self.assertCountEqual(
+                actions[:-1],
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
+                ],
+            )
+
+            self.assertIsNone(self.prog.thread(1).stop_reason)
+            self.assertIsNone(self.prog.thread(2).stop_reason)
+            self.assertIsNone(self.prog.thread(3).stop_reason)
+
+    def test_simultaneous_stop_cont_unrelated_threads_with_signal(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(1), signal.SIGWINCH, 0x1337
+                )
+            )
+            self.queue_call(
+                lambda prog: prog.notify_thread_stop(
+                    prog.thread(2), signal.SIGCHLD, 0xDEAD
+                )
+            )
+
+            with self.ignore_events():
+                self.queue_call(lambda prog: prog.notify_all_stop())
+
+            with self.ignore_events():
+                self.prog.thread(3).cont(sig=signal.SIGUSR1)
+
+            with self.complete_ops() as ops:
+                self.prog.thread(4).cont(sig=signal.SIGUSR2)
+
+            self.assertEqual(len(ops), 1)
+            self.assertEqual(ops[0][0], "resume_threads")
+            actions = ops[0][1]
+            self.assertEqual(actions[-1], drgn.ContinueResumeAction(None, 0))
+            self.assertCountEqual(
+                actions[:-1],
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
+                    drgn.ContinueResumeAction(self.prog.thread(3), signal.SIGUSR1),
+                    drgn.ContinueResumeAction(self.prog.thread(4), signal.SIGUSR2),
+                ],
+            )
+
+            self.assertIsNone(self.prog.thread(1).stop_reason)
+            self.assertIsNone(self.prog.thread(2).stop_reason)
+            self.assertIsNone(self.prog.thread(3).stop_reason)
+            self.assertIsNone(self.prog.thread(4).stop_reason)
 
     def test_breakpoint_stop(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):

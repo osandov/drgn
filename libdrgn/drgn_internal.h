@@ -367,8 +367,10 @@ struct drgn_thread {
 	struct drgn_object object;
 	uint32_t tid;
 	bool have_object;
-	// TODO: explain drgn_resume_mode or 0.
+	// TODO: there's a lot of stuff that we didn't end up needing in here.
+	// Clean it up.
 	int8_t resuming;
+	bool stop_event_emitted;
 	uint64_t generation;
 	struct drgn_thread_finder *finder;
 	void *finder_data;

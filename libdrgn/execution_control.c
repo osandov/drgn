@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <inttypes.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -651,13 +652,11 @@ drgn_program_interrupt_any_thread(struct drgn_program *prog)
 LIBDRGN_PUBLIC
 enum drgn_stop_reason drgn_thread_stop_reason(struct drgn_thread *thread)
 {
-	if (thread->stop_reason == DRGN_STOP_REASON_NONE) {
-		if (drgn_thread_program(thread)->in_all_stop)
-			return DRGN_STOP_REASON_SYNTHETIC;
-	} else if (thread->resume_signal >= 0) {
+	if (thread->stop_event_emitted)
+		return thread->stop_reason;
+	if (drgn_thread_program(thread)->in_all_stop)
 		return DRGN_STOP_REASON_SYNTHETIC;
-	}
-	return thread->stop_reason;
+	return DRGN_STOP_REASON_NONE;
 }
 
 LIBDRGN_PUBLIC int drgn_thread_stop_signal(struct drgn_thread *thread)
@@ -858,6 +857,7 @@ static void emit_event(struct drgn_program *prog, struct drgn_event *event)
 static void emit_thread_stop_event(struct drgn_thread *thread)
 {
 	struct drgn_program *prog = drgn_thread_program(thread);
+	thread->stop_event_emitted = true;
 	struct drgn_event event = {
 		.type = DRGN_EVENT_THREAD_STOP,
 		.thread = thread,
@@ -868,39 +868,29 @@ static void emit_thread_stop_event(struct drgn_thread *thread)
 struct resume_threads_result {
 	struct result_arg result;
 	struct drgn_resume_action *actions;
-	size_t num_actions;
 };
 
-static void resume_threads_success(void *arg)
+static void continue_all_threads_success(void *arg)
 {
 	struct resume_threads_result *result = arg;
 	struct drgn_program *prog = result->result.prog;
-	_cleanup_free_ struct drgn_resume_action *actions = result->actions;
-	size_t num_actions = result->num_actions;
+	free(result->actions);
 	if (!set_result(&result->result, NULL))
 		return;
 
-	assert(!actions[num_actions - 1].thread
-	       && actions[num_actions - 1].mode == DRGN_RESUME_MODE_CONTINUE
-	       && actions[num_actions - 1].sig == 0);
-
-	num_actions--;
-
-	for (size_t i = 0; i < num_actions; i++) {
-		struct drgn_thread *thread = actions[i].thread;
-
+	struct drgn_thread *thread, *tmp;
+	list_for_each_entry_safe(thread, tmp, &prog->resumed_threads, node) {
 		thread->stop_reason = DRGN_STOP_REASON_NONE;
 		thread->stop_signal = -1;
 		thread->resume_signal = -1;
 		drgn_clear_ref(thread->stop_site);
 		unleash_thread(thread);
 	}
-
 	/* clear_running_threads(prog); */
 	prog->in_all_stop = false;
 }
 
-static void resume_threads_error(void *arg, struct drgn_error *err)
+static void continue_all_threads_error(void *arg, struct drgn_error *err)
 {
 	struct resume_threads_result *result = arg;
 	free(result->actions);
@@ -910,17 +900,18 @@ static void resume_threads_error(void *arg, struct drgn_error *err)
 // TODO: pass inline_size?
 DEFINE_VECTOR(drgn_resume_action_vector, struct drgn_resume_action);
 
-static struct drgn_error *resume_all_threads(struct drgn_program *prog)
+static struct drgn_error *continue_all_threads(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 
 	VECTOR(drgn_resume_action_vector, actions);
 	struct drgn_thread *thread;
 	list_for_each_entry(thread, &prog->resumed_threads, node) {
-		// TODO: skip redundant actions?
+		if (thread->resume_signal == 0)
+			continue;
 		struct drgn_resume_action action = {
 			.thread = thread,
-			.mode = thread->resume_mode,
+			.mode = DRGN_RESUME_MODE_CONTINUE,
 			.sig = thread->resume_signal,
 		};
 		if (!drgn_resume_action_vector_append(&actions, &action))
@@ -939,12 +930,13 @@ static struct drgn_error *resume_all_threads(struct drgn_program *prog)
 	if (!result)
 		return &drgn_enomem;
 	result_arg_init(&result->result, prog);
+	size_t num_actions;
 	drgn_resume_action_vector_steal(&actions, &result->actions,
-					&result->num_actions);
-	ctrl->ops.resume_threads(ctrl->arg, prog, result->actions,
-				 result->num_actions, resume_threads_success,
-				 resume_threads_error, result);
-	return wait_for_result(&result->result, resume_threads_error);
+					&num_actions);
+	ctrl->ops.resume_threads(ctrl->arg, prog, result->actions, num_actions,
+				 continue_all_threads_success,
+				 continue_all_threads_error, result);
+	return wait_for_result(&result->result, continue_all_threads_error);
 }
 
 #if 0
@@ -983,9 +975,8 @@ static struct drgn_error *resume_only_thread(struct drgn_thread *thread)
 }
 #endif
 
-LIBDRGN_PUBLIC
-struct drgn_error *drgn_thread_continue(struct drgn_thread *thread, int sig,
-					bool only)
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 {
 	struct drgn_error *err;
 
@@ -1001,11 +992,45 @@ struct drgn_error *drgn_thread_continue(struct drgn_thread *thread, int sig,
 
 	struct drgn_program *prog = drgn_thread_program(thread);
 
+	// TODO: can the thread even be stopped if not attached?
 	err = check_attached(prog);
 	if (err)
 		return err;
 
+	if (!prog->in_all_stop || only) {
+		return drgn_error_format(DRGN_ERROR_OTHER, "TODO %d %d",
+					 prog->in_all_stop, only);
+	}
+
 	set_resume_signal(thread, sig);
+	if (!thread->stop_event_emitted) {
+		if (list_empty(&thread->node))
+			move_thread(thread, &prog->resumed_threads);
+		thread = list_first_entry(&prog->stopped_threads,
+					  struct drgn_thread, node);
+		assert(thread->stop_event_emitted);
+		set_resume_signal(thread, DRGN_RESUME_DEFAULT_SIGNAL);
+	}
+	move_thread(thread, &prog->resumed_threads);
+	thread->stop_event_emitted = false;
+
+	if (!list_empty(&prog->stopped_threads)) {
+		thread = list_first_entry(&prog->stopped_threads,
+					  struct drgn_thread, node);
+		if (thread->resume_signal > 0) {
+			char sig_buf[SIGNAL_STR_BUF_LEN];
+			drgn_log_warning(prog,
+					 "couldn't send %s to thread %" PRIu32,
+					 signal_str(thread->resume_signal, sig_buf),
+					 thread->tid);
+		}
+		thread->resume_signal = -1;
+		emit_thread_stop_event(thread);
+		return NULL;
+	}
+	return continue_all_threads(prog);
+
+#if 0
 	thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
 
 	if (prog->in_all_stop && !only) {
@@ -1034,6 +1059,7 @@ struct drgn_error *drgn_thread_continue(struct drgn_thread *thread, int sig,
 		return resume_only_thread(thread);
 #endif
 	}
+#endif
 }
 
 #if 0
@@ -2410,8 +2436,8 @@ LIBDRGN_PUBLIC void drgn_notify_thread_stop(struct drgn_thread *thread, int sig,
 	if (ignore_notify_thread_stop(thread))
 		return;
 
-	if (reason_mask & (1 << DRGN_STOP_REASON_BREAKPOINT)
-	    && sig == SIGTRAP) {
+	if (sig == SIGTRAP
+	    && reason_mask & (1 << DRGN_STOP_REASON_BREAKPOINT)) {
 		struct drgn_program *prog = drgn_thread_program(thread);
 		auto it = drgn_breakpoint_site_table_search(&prog->breakpoint_sites,
 							    &pc);
