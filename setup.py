@@ -457,6 +457,7 @@ setup(
         ],
     },
     python_requires=">=3.8",
+    extras_require={"disassembly": ["capstone"]},
     author="Omar Sandoval",
     author_email="osandov@osandov.com",
     description="Programmable debugger",
