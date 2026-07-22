@@ -60,7 +60,8 @@ class MockExecutionController(drgn.ExecutionController):
                 return
             elif ret:
                 return
-        promise.set_exception(AssertionError(f"unexpected {name} operation"))
+        args_str = ", ".join([repr(arg) for arg in args])
+        promise.set_exception(AssertionError(f"unexpected {name}({args_str}) operation"))
 
     def _queue_call(self, fn):
         self._q.append(fn)
@@ -111,12 +112,23 @@ class ExecutionControlTestCase(TestCase):
         self._ctrl = MockExecutionController()
         self.prog.register_execution_controller("test", self._ctrl, enable_index=0)
 
+    def _check_unexpected_events(self):
+        if self._unexpected_events:
+            try:
+                if len(self._unexpected_events) == 1:
+                    self.fail(f"unexpected event: {self._unexpected_events[0]!r}")
+                else:
+                    self.fail(f"unexpected events: {self._unexpected_events!r}")
+            finally:
+                self._unexpected_events.clear()
+
     # TODO: I think this is what we want self.prog.poll() to do by default.
     def poll_all(self, block=False):
         if block:
             self.prog.poll()
         while self.prog.poll(0):
             pass
+        self._check_unexpected_events()
 
     def poll_until(self, cond, *args):
         while not cond(args):
@@ -133,20 +145,9 @@ class ExecutionControlTestCase(TestCase):
         if not expected:
             self._unexpected_events.append(event)
 
-    def _check_unexpected_events(self):
-        if self._unexpected_events:
-            try:
-                if len(self._unexpected_events) == 1:
-                    self.fail(f"unexpected event: {self._unexpected_events[0]!r}")
-                else:
-                    self.fail(f"unexpected events: {self._unexpected_events!r}")
-            finally:
-                self._unexpected_events.clear()
-
     @contextlib.contextmanager
     def hook_events(self, hook):
         self.poll_all()
-        self._check_unexpected_events()
 
         self._event_hooks.append(hook)
         try:
@@ -158,22 +159,8 @@ class ExecutionControlTestCase(TestCase):
     def ignore_events(self):
         return self.hook_events(lambda event: True)
 
-    # @contextlib.contextmanager
-    # def capture_ops(self):
-    #     assert self._ctrl._ops is None
-    #     try:
-    #         self._ctrl._ops = []
-    #         self._ctrl._promises = []
-    #         yield self._ops
-    #     finally:
-    #         self._ctrl._promises = None
-    #         self._ctrl._ops = None
-
-    # def complete_op(self, i):
-    #     del self._ctrl._ops[i]
-    #     promise, result = self._ctrl._promises.pop(i)
-    #     self.queue_call(lambda prog: promise.set_result(result))
-
+    # TODO: use expect_ops as much as possible, and make it not be a per-name
+    # hook?
     @contextlib.contextmanager
     def hook_ops(self, hooks, replace=False):
         saved_hooks = self._ctrl._op_hooks
@@ -203,6 +190,56 @@ class ExecutionControlTestCase(TestCase):
         finally:
             self._ctrl._op_hooks = saved_hooks
 
+    @contextlib.contextmanager
+    def expect_ops(self, *ops):
+        i = 0
+        pending = False
+
+        def expect_hook(name, args, promise, result):
+            nonlocal i, pending
+            if pending or i >= len(ops):
+                return False
+
+            try:
+                if not ops[i](name, args):
+                    return False
+            except Exception as e:
+                promise.set_exception(e)
+                return False
+
+            i += 1
+            pending = True
+
+            def complete(prog):
+                nonlocal pending
+                pending = False
+                promise.set_result(result)
+
+            self.queue_call(complete)
+            return True
+
+        self.poll_all()  # TODO: explain
+        with self.hook_ops({None: expect_hook}, replace=True):
+            yield
+            while i < len(ops):
+                self.poll_all(block=True)
+
+    # @contextlib.contextmanager
+    # def capture_ops(self):
+    #     assert self._ctrl._ops is None
+    #     try:
+    #         self._ctrl._ops = []
+    #         self._ctrl._promises = []
+    #         yield self._ops
+    #     finally:
+    #         self._ctrl._promises = None
+    #         self._ctrl._ops = None
+
+    # def complete_op(self, i):
+    #     del self._ctrl._ops[i]
+    #     promise, result = self._ctrl._promises.pop(i)
+    #     self.queue_call(lambda prog: promise.set_result(result))
+
 
 class TestLifecycle(ExecutionControlTestCase):
     def setUp(self):
@@ -213,22 +250,25 @@ class TestLifecycle(ExecutionControlTestCase):
     def test_attach_and_detach(self):
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
-        attach_state = []
+        def expect_attach(name, args):
+            if name != "attach" or args != (drgn.AttachFlags.ALL_STOP,):
+                return False
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHING)
+            return True
 
-        def attach_state_hook(name, args, promise, result):
-            attach_state.append(self.prog.attach_state)
-            return QUEUE_PROMISE
-
-        with self.hook_ops({"attach": attach_state_hook}):
+        with self.expect_ops(expect_attach):
             self.prog.attach(drgn.AttachFlags.ALL_STOP)
-        self.assertEqual(attach_state, [drgn.AttachState.ATTACHING])
 
         self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
 
-        attach_state.clear()
-        with self.hook_ops({"detach": attach_state_hook}):
+        def expect_detach(name, args):
+            if name != "detach":
+                return False
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHING)
+            return True
+
+        with self.expect_ops(expect_detach):
             self.prog.detach()
-        self.assertEqual(attach_state, [drgn.AttachState.DETACHING])
 
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
@@ -245,14 +285,22 @@ class TestLifecycle(ExecutionControlTestCase):
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
     def test_context_manager(self):
-        with self.complete_ops() as ops:
-            with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-                self.assertEqual(ops, [("attach", drgn.AttachFlags.ALL_STOP)])
-                self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
-                ops.clear()
+        with self.expect_ops(lambda name, args: name == "attach"):
+            cm = self.prog.attach(drgn.AttachFlags.ALL_STOP)
+            cm.__enter__()
 
-            self.assertEqual(ops, [("detach",)])
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+        self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
+
+        with self.expect_ops(lambda name, args: name == "detach"):
+            cm.__exit__(None, None, None)
+        self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+
+    def test_context_manager_exception(self):
+        with self.assertRaisesRegex(Exception, "foo"), self.expect_ops(
+            lambda name, args: name == "attach",
+            lambda name, args: name == "detach",
+        ), self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            raise Exception("foo")
 
     def test_attach_and_detach_synchronously(self):
         with self.hook_ops(
@@ -299,13 +347,13 @@ class TestLifecycle(ExecutionControlTestCase):
             event_attach_state.append(self.prog.attach_state)
             return True
 
-        def exit_during_attach(name, args, promise, result):
+        def exit_during_attach(name, args):
+            if name != "attach":
+                return False
             self.queue_call(lambda prog: prog.notify_program_exit(0))
-            return QUEUE_PROMISE
+            return True
 
-        with self.hook_events(event_hook), self.hook_ops(
-            {"attach": exit_during_attach}
-        ):
+        with self.hook_events(event_hook), self.expect_ops(exit_during_attach):
             self.prog.attach()
 
         self.assertEqual(event_attach_state, [drgn.AttachState.EXITED])
@@ -323,16 +371,13 @@ class TestLifecycle(ExecutionControlTestCase):
             event_attach_state.append(self.prog.attach_state)
             return True
 
-        def exit_during_detach(name, args, promise, result):
-            # TODO: depending on how we handle erroring out after the program
-            # exits/is lost, we may want to test that going back through the
-            # event loop to make sure it doesn't fail.
+        def exit_during_detach(name, args):
+            if name != "detach":
+                return False
             self.queue_call(lambda prog: prog.notify_program_exit(0))
-            return QUEUE_PROMISE
+            return True
 
-        with self.hook_events(event_hook), self.hook_ops(
-            {"detach": exit_during_detach}
-        ):
+        with self.hook_events(event_hook), self.expect_ops(exit_during_detach):
             self.prog.detach()
 
         self.assertEqual(event_attach_state, [drgn.AttachState.DETACHING])
@@ -380,15 +425,15 @@ class TestLifecycle(ExecutionControlTestCase):
             event_attach_state.append(self.prog.attach_state)
             return True
 
-        def lost_during_attach(name, args, promise, result):
+        def lost_during_attach(name, args):
+            if name != "attach":
+                return False
             self.queue_call(
                 lambda prog: prog.notify_program_lost(BrokenPipeError("bye"))
             )
-            return QUEUE_PROMISE
+            return True
 
-        with self.hook_events(event_hook), self.hook_ops(
-            {"attach": lost_during_attach}
-        ):
+        with self.hook_events(event_hook), self.expect_ops(lost_during_attach):
             self.prog.attach()
 
         self.assertEqual(event_attach_state, [drgn.AttachState.LOST])
@@ -410,15 +455,15 @@ class TestLifecycle(ExecutionControlTestCase):
             event_attach_state.append(self.prog.attach_state)
             return True
 
-        def lost_during_detach(name, args, promise, result):
+        def lost_during_detach(name, args):
+            if name != "detach":
+                return False
             self.queue_call(
                 lambda prog: prog.notify_program_lost(BrokenPipeError("bye"))
             )
-            return QUEUE_PROMISE
+            return True
 
-        with self.hook_events(event_hook), self.hook_ops(
-            {"detach": lost_during_detach}
-        ):
+        with self.hook_events(event_hook), self.expect_ops(lost_during_detach):
             self.prog.detach()
 
         self.assertEqual(event_attach_state, [drgn.AttachState.DETACHING])
@@ -911,7 +956,6 @@ class TestAllStop(ExecutionControlTestCase):
             )
 
     def test_breakpoint_cont(self):
-        return  # TODO
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
             with self.complete_ops():
                 site = self.prog.set_breakpoint(0x1337).sites[0]
@@ -922,46 +966,27 @@ class TestAllStop(ExecutionControlTestCase):
             with self.ignore_events():
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            with self.capture_ops() as ops:
+            with self.expect_ops(
+                lambda name, args: name == "disable_breakpoint_sites" and args == [site],
+                lambda name, args: name == "resume_threads" and args == [drgn.StepiResumeAction(self.prog.thread(1), 0)],
+            ):
                 self.prog.thread(1).cont()
 
                 self.assertIsNone(prog.thread(1).stop_reason)
                 self.assertIsNone(prog.thread(2).stop_reason)
-
-                self.poll_until(bool, ops)
-                self.assertEqual(ops, [("disable_breakpoint_sites", [site])])
-                self.complete_op(0)
-
-                self.poll_until(bool, ops)
-                self.assertEqual(
-                    ops,
-                    [
-                        (
-                            "resume_threads",
-                            [drgn.StepiResumeAction(self.prog.thread(1), 0)],
-                        )
-                    ],
-                )
-                self.complete_op(0)
-
-            return  ###################################################
 
             self.queue_call(
                 lambda prog: prog.notify_thread_stop(
                     prog.thread(1), signal.SIGTRAP, 0x1338
                 )
             )
-            self.assertEqual(events(), [])
-            self.queue_call(lambda prog: prog.notify_all_stop())
+            self.poll_all()  # Make sure there are no unexpected events or ops.
 
-            self.assertEqual(events(), [])
-            self.assertEqual(
-                ctrl.ops(),
-                [
-                    ("enable_breakpoint_sites", [site]),
-                    ("resume_threads", [drgn.ContinueResumeAction(None, 0)]),
-                ],
-            )
+            with self.expect_ops(
+                lambda op: op == ("enable_breakpoint_sites", [site]),
+                lambda op: op == ("resume_threads", [drgn.ContinueResumeAction(None, 0)]),
+            ):
+                self.queue_call(lambda prog: prog.notify_all_stop())
 
             self.assertIsNone(prog.thread(1).stop_reason)
             self.assertIsNone(prog.thread(2).stop_reason)
