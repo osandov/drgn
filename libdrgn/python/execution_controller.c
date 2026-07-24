@@ -64,85 +64,44 @@ PyTypeObject ExecutionController_type = {
 	.tp_new = PyType_GenericNew,
 };
 
-static Promise *NonePromise_wrap(drgn_success_fn *set_result,
-				 drgn_error_fn *set_error, void *arg)
-{
-	NonePromise *promise = call_tp_alloc(NonePromise);
-	if (!promise) {
-		set_error(arg, &drgn_enomem);
-		return NULL;
-	}
-	promise->set_result = set_result;
-	promise->set_error = set_error;
-	promise->arg = arg;
-	return (Promise *)promise;
-}
-
-static Promise *BoolPromise_wrap(void (*set_result)(void *arg, bool all_stop),
-				 drgn_error_fn *set_error, void *arg)
-{
-	BoolPromise *promise = call_tp_alloc(BoolPromise);
-	if (!promise) {
-		set_error(arg, &drgn_enomem);
-		return NULL;
-	}
-	promise->set_result = set_result;
-	promise->set_error = set_error;
-	promise->arg = arg;
-	return (Promise *)promise;
-}
-
-static void promise_catch_exception(Promise *promise)
-{
-	if (promise->done) {
-		// Exception was raised after promise result was already set.
-		PyErr_WriteUnraisable(NULL);
-		return;
-	}
-	promise->done = true;
-	promise->set_error(promise->arg, drgn_error_from_python());
-}
-
 static void
 py_execution_controller_attach(void *arg, struct drgn_program *prog,
 			       enum drgn_attach_flags flags,
-			       void (*on_success)(void *result_arg, bool all_stop),
-			       drgn_error_fn *on_error, void *result_arg)
+			       struct drgn_bool_promise *promise)
 {
 	PyGILState_guard();
 
-	_cleanup_pydecref_ Promise *promise =
-		BoolPromise_wrap(on_success, on_error, result_arg);
-	if (!promise)
+	_cleanup_pydecref_ Promise *promise_obj = BoolPromise_wrap(promise);
+	if (!promise_obj)
 		return;
 
 	_cleanup_pydecref_ PyObject *res =
 		PyObject_CallMethod(arg, "attach", "ONO",
 				    container_of(prog, Program, prog),
-				    PyObject_CallFunction(AttachFlags_class, "k",
+				    PyObject_CallFunction(AttachFlags_class,
+							  "k",
 							  (unsigned long)flags),
-				    promise);
+				    promise_obj);
 	if (!res)
-		promise_catch_exception(promise);
+		Promise_catch_exception(promise_obj);
 }
 
 static void
 py_execution_controller_detach(void *arg, struct drgn_program *prog,
-			       drgn_success_fn *on_success,
-			       drgn_error_fn *on_error, void *result_arg)
+			       struct drgn_void_promise *promise)
 {
 	PyGILState_guard();
 
-	_cleanup_pydecref_ Promise *promise =
-		NonePromise_wrap(on_success, on_error, result_arg);
-	if (!promise)
+	_cleanup_pydecref_ Promise *promise_obj = NonePromise_wrap(promise);
+	if (!promise_obj)
 		return;
 
 	_cleanup_pydecref_ PyObject *res =
 		PyObject_CallMethod(arg, "detach", "OO",
-				    container_of(prog, Program, prog), promise);
+				    container_of(prog, Program, prog),
+				    promise_obj);
 	if (!res)
-		promise_catch_exception(promise);
+		Promise_catch_exception(promise_obj);
 }
 
 #if 0
@@ -179,37 +138,32 @@ py_execution_controller_interrupt_thread(void *arg,
 static void
 py_execution_controller_interrupt_any_thread(void *arg,
 					     struct drgn_program *prog,
-					     drgn_success_fn *on_success,
-					     drgn_error_fn *on_error,
-					     void *result_arg)
+					     struct drgn_void_promise *promise)
 {
 	PyGILState_guard();
 
-	_cleanup_pydecref_ Promise *promise =
-		NonePromise_wrap(on_success, on_error, result_arg);
-	if (!promise)
+	_cleanup_pydecref_ Promise *promise_obj = NonePromise_wrap(promise);
+	if (!promise_obj)
 		return;
 
 	_cleanup_pydecref_ PyObject *res =
 		PyObject_CallMethod(arg, "interrupt_any_thread", "OO",
-				    container_of(prog, Program, prog), promise);
+				    container_of(prog, Program, prog),
+				    promise_obj);
 	if (!res)
-		promise_catch_exception(promise);
+		Promise_catch_exception(promise_obj);
 }
 
 static void
 py_execution_controller_resume_threads(void *arg, struct drgn_program *prog,
 				       const struct drgn_resume_action *actions,
 				       size_t num_actions,
-				       drgn_success_fn *on_success,
-				       drgn_error_fn *on_error,
-				       void *result_arg)
+				       struct drgn_void_promise *promise)
 {
 	PyGILState_guard();
 
-	_cleanup_pydecref_ Promise *promise =
-		NonePromise_wrap(on_success, on_error, result_arg);
-	if (!promise)
+	_cleanup_pydecref_ Promise *promise_obj = NonePromise_wrap(promise);
+	if (!promise_obj)
 		return;
 
 	_cleanup_pydecref_ PyObject *actions_tuple = PyTuple_New(num_actions);
@@ -226,12 +180,12 @@ py_execution_controller_resume_threads(void *arg, struct drgn_program *prog,
 	_cleanup_pydecref_ PyObject *res =
 		PyObject_CallMethod(arg, "resume_threads", "OOO",
 				    container_of(prog, Program, prog),
-				    actions_tuple, promise);
+				    actions_tuple, promise_obj);
 	if (res)
 		return;
 
 err:
-	promise_catch_exception(promise);
+	Promise_catch_exception(promise_obj);
 }
 
 #if 0
@@ -296,15 +250,12 @@ static void
 py_execution_controller_breakpoint_sites_call(const char *method, void *arg,
 					      struct drgn_breakpoint_site * const *sites,
 					      size_t num_sites,
-					      drgn_success_fn *on_success,
-					      drgn_error_fn *on_error,
-					      void *result_arg)
+					      struct drgn_void_promise *promise)
 {
 	PyGILState_guard();
 
-	_cleanup_pydecref_ Promise *promise =
-		NonePromise_wrap(on_success, on_error, result_arg);
-	if (!promise)
+	_cleanup_pydecref_ Promise *promise_obj = NonePromise_wrap(promise);
+	if (!promise_obj)
 		return;
 
 	_cleanup_pydecref_ PyObject *sites_tuple = PyTuple_New(num_sites);
@@ -319,40 +270,35 @@ py_execution_controller_breakpoint_sites_call(const char *method, void *arg,
 	}
 
 	_cleanup_pydecref_ PyObject *res =
-		PyObject_CallMethod(arg, method, "OO", sites_tuple, promise);
+		PyObject_CallMethod(arg, method, "OO", sites_tuple,
+				    promise_obj);
 	if (res)
 		return;
 
 err:
-	promise_catch_exception(promise);
+	Promise_catch_exception(promise_obj);
 }
 
 static void
 py_execution_controller_enable_breakpoint_sites(void *arg,
 						struct drgn_breakpoint_site * const *sites,
 						size_t num_sites,
-						drgn_success_fn *on_success,
-						drgn_error_fn *on_error,
-						void *result_arg)
+						struct drgn_void_promise *promise)
 {
 	py_execution_controller_breakpoint_sites_call("enable_breakpoint_sites",
 						      arg, sites, num_sites,
-						      on_success, on_error,
-						      result_arg);
+						      promise);
 }
 
 static void
 py_execution_controller_disable_breakpoint_sites(void *arg,
 						 struct drgn_breakpoint_site * const *sites,
 						 size_t num_sites,
-						 drgn_success_fn *on_success,
-						 drgn_error_fn *on_error,
-						 void *result_arg)
+						 struct drgn_void_promise *promise)
 {
 	py_execution_controller_breakpoint_sites_call("disable_breakpoint_sites",
 						      arg, sites, num_sites,
-						      on_success, on_error,
-						      result_arg);
+						      promise);
 }
 
 #if 0

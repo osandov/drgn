@@ -112,6 +112,19 @@ static inline void *malloc_flexible_array_impl(size_t struct_size,
 	return malloc(bytes);
 }
 
+static inline void *realloc_flexible_array_impl(void *ptr, size_t struct_size,
+						size_t element_size,
+						size_t count)
+{
+	size_t bytes;
+	if (__builtin_mul_overflow(element_size, count, &bytes)
+	    || __builtin_add_overflow(bytes, struct_size, &bytes)) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	return realloc(ptr, bytes);
+}
+
 /**
  * Allocate a structure with a flexible array member.
  *
@@ -125,6 +138,10 @@ static inline void *malloc_flexible_array_impl(size_t struct_size,
 							    "not an array",			\
 							    sizeof(((type *)0)->member[0])),	\
 				   count)
+
+#define realloc_flexible_array(ptr, member, count)			\
+	realloc_flexible_array_impl((ptr), sizeof(*(ptr)),		\
+				    sizeof((ptr)->member[0]), count)
 
 static inline void *malloc64(uint64_t size)
 {

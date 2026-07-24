@@ -528,8 +528,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &Platform_type) ||
 	    add_type(m, &Program_type) ||
 	    PyType_Ready(&ProgramAttachContext_type) ||
-	    PyType_Ready(&BoolPromise_type) ||
-	    PyType_Ready(&NonePromise_type) ||
+	    PyType_Ready(&Promise_type) ||
 	    add_type(m, &RegisterState_type) ||
 	    add_type(m, &Register_type) ||
 	    add_type(m, &SourceLocationList_type) ||

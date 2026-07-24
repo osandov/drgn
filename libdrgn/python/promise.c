@@ -5,6 +5,30 @@
 
 // TODO: warn if promise is never completed.
 
+Promise *NonePromise_wrap(struct drgn_void_promise *promise)
+{
+	Promise *ret = call_tp_alloc(Promise);
+	if (!ret) {
+		drgn_promise_set_error(promise, &drgn_enomem);
+		return NULL;
+	}
+	ret->promise = (struct drgn_promise *)promise;
+	ret->type = DRGNPY_PROMISE_VOID;
+	return ret;
+}
+
+Promise *BoolPromise_wrap(struct drgn_bool_promise *promise)
+{
+	Promise *ret = call_tp_alloc(Promise);
+	if (!ret) {
+		drgn_promise_set_error(promise, &drgn_enomem);
+		return NULL;
+	}
+	ret->promise = (struct drgn_promise *)promise;
+	ret->type = DRGNPY_PROMISE_BOOL;
+	return ret;
+}
+
 static bool mark_done(Promise *self)
 {
 	if (self->done) {
@@ -16,7 +40,38 @@ static bool mark_done(Promise *self)
 	return true;
 }
 
-PyObject *Promise_set_exception(Promise *self, PyObject *arg)
+static PyObject *Promise_set_result(Promise *self, PyObject *arg)
+{
+	SWITCH_ENUM(self->type) {
+	case DRGNPY_PROMISE_VOID:
+		if (arg != Py_None) {
+			return PyErr_Format(PyExc_TypeError,
+					    "result must be None, not %.200s",
+					    Py_TYPE(arg)->tp_name);
+		}
+		if (!mark_done(self))
+			return NULL;
+		drgn_void_promise_set_result((struct drgn_void_promise *)
+					     self->promise);
+		break;
+	case DRGNPY_PROMISE_BOOL:
+		if (!PyBool_Check(arg)) {
+			return PyErr_Format(PyExc_TypeError,
+					    "result must be bool, not %.200s",
+					    Py_TYPE(arg)->tp_name);
+		}
+		if (!mark_done(self))
+			return NULL;
+		drgn_bool_promise_set_result((struct drgn_bool_promise *)
+					     self->promise, arg == Py_True);
+		break;
+	default:
+		UNREACHABLE();
+	}
+	Py_RETURN_NONE;
+}
+
+static PyObject *Promise_set_exception(Promise *self, PyObject *arg)
 {
 	if (!PyExceptionInstance_Check(arg)) {
 		PyErr_SetString(PyExc_TypeError, "not an exception");
@@ -25,59 +80,39 @@ PyObject *Promise_set_exception(Promise *self, PyObject *arg)
 	if (!mark_done(self))
 		return NULL;
 	Py_INCREF(arg);
-	self->set_error(self->arg, drgn_error_from_given_exception(arg));
+	drgn_promise_set_error(self->promise, drgn_error_from_given_exception(arg));
 	Py_RETURN_NONE;
 }
 
-static PyObject *NonePromise_set_result(NonePromise *self, PyObject *arg)
+static PyObject *Promise_cancelled(Promise *self, PyObject *Py_UNUSED(ignored))
 {
-	if (arg != Py_None) {
-		PyErr_SetString(PyExc_TypeError, "result must be None");
-		return NULL;
-	}
-	if (!mark_done((Promise *)self))
-		return NULL;
-	self->set_result(self->arg);
-	Py_RETURN_NONE;
+	if (self->done)
+		Py_RETURN_FALSE;
+	Py_RETURN_BOOL(drgn_promise_cancelled(self->promise));
 }
 
-static PyMethodDef NonePromise_methods[] = {
-	{"set_result", (PyCFunction)NonePromise_set_result, METH_O},
+static PyMethodDef Promise_methods[] = {
+	{"set_result", (PyCFunction)Promise_set_result, METH_O},
 	{"set_exception", (PyCFunction)Promise_set_exception, METH_O},
+	{"cancelled", (PyCFunction)Promise_cancelled, METH_NOARGS},
 	{},
 };
 
-PyTypeObject NonePromise_type = {
+PyTypeObject Promise_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	.tp_name = "_drgn._NonePromise",
-	.tp_basicsize = sizeof(NonePromise),
+	.tp_name = "_drgn._Promise",
+	.tp_basicsize = sizeof(Promise),
 	.tp_flags = Py_TPFLAGS_DEFAULT,
-	.tp_methods = NonePromise_methods,
+	.tp_methods = Promise_methods,
 };
 
-static PyObject *BoolPromise_set_result(BoolPromise *self, PyObject *arg)
+void Promise_catch_exception(Promise *promise)
 {
-	if (!PyBool_Check(arg)) {
-		return PyErr_Format(PyExc_TypeError,
-				    "result must be bool, not %.200s",
-				    Py_TYPE(arg)->tp_name);
+	if (promise->done) {
+		// Exception was raised after result was already set.
+		PyErr_WriteUnraisable(NULL);
+		return;
 	}
-	if (!mark_done((Promise *)self))
-		return NULL;
-	self->set_result(self->arg, arg == Py_True);
-	Py_RETURN_NONE;
+	promise->done = true;
+	drgn_promise_set_error(promise->promise, drgn_error_from_python());
 }
-
-static PyMethodDef BoolPromise_methods[] = {
-	{"set_result", (PyCFunction)BoolPromise_set_result, METH_O},
-	{"set_exception", (PyCFunction)Promise_set_exception, METH_O},
-	{},
-};
-
-PyTypeObject BoolPromise_type = {
-	PyVarObject_HEAD_INIT(NULL, 0)
-	.tp_name = "_drgn._BoolPromise",
-	.tp_basicsize = sizeof(BoolPromise),
-	.tp_flags = Py_TPFLAGS_DEFAULT,
-	.tp_methods = BoolPromise_methods,
-};

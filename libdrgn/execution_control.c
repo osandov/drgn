@@ -26,6 +26,137 @@
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wunused-function"
 
+static struct drgn_error promise_new =
+	DRGN_ERROR_INIT(DRGN_ERROR_RUNTIME, "new promise");
+static struct drgn_error promise_pending =
+	DRGN_ERROR_INIT(DRGN_ERROR_RUNTIME, "promise pending");
+static struct drgn_error promise_error =
+	DRGN_ERROR_INIT(DRGN_ERROR_RUNTIME, "promise error");
+static struct drgn_error promise_cancelled =
+	DRGN_ERROR_INIT(DRGN_ERROR_RUNTIME, "promise cancelled");
+
+struct drgn_promise {
+	struct drgn_error *err;
+	void (*free)(struct drgn_promise *);
+};
+
+struct drgn_void_promise {
+	struct drgn_promise promise;
+};
+
+struct drgn_bool_promise {
+	struct drgn_promise promise;
+	bool result;
+};
+
+static inline void drgn_promise_init(struct drgn_promise *promise,
+				     void (*free)(struct drgn_promise *))
+{
+	promise->err = &promise_new;
+	promise->free = free;
+}
+
+static void drgn_promise_default_free(struct drgn_promise *promise)
+{
+	drgn_error_destroy(promise->err);
+	free(promise);
+}
+
+static void drgn_promise_destroy(struct drgn_promise *promise)
+{
+	(promise->free ?: drgn_promise_default_free)(promise);
+}
+
+// Returns false and destroys promise and err if promise was already cancelled,
+// returns true and sets promise->err to err otherwise.
+static inline bool drgn_promise_set_common(struct drgn_promise *promise,
+					   struct drgn_error *err)
+{
+	if (promise->err == &promise_cancelled) {
+		drgn_error_destroy(err);
+		drgn_promise_destroy(promise);
+		return false;
+	}
+	// This catches forgotten drgn_promise_share() and some double
+	// completion bugs. Note that in the latter case, the promise may have
+	// already been freed.
+	assert(promise->err == &promise_pending);
+	promise->err = err;
+	return true;
+}
+
+// Parentheses around function names suppress expansion of wrapper macros.
+LIBDRGN_PUBLIC void (drgn_promise_set_error)(struct drgn_promise *promise,
+					     struct drgn_error *err)
+{
+	drgn_promise_set_common(promise, err);
+}
+
+LIBDRGN_PUBLIC bool (drgn_promise_cancelled)(struct drgn_promise *promise)
+{
+	return promise->err == &promise_cancelled;
+}
+
+static struct drgn_void_promise *drgn_void_promise_create(void)
+{
+	struct drgn_void_promise *promise = malloc(sizeof(*promise));
+	if (promise)
+		drgn_promise_init(&promise->promise, NULL);
+	return promise;
+}
+
+LIBDRGN_PUBLIC void
+drgn_void_promise_set_result(struct drgn_void_promise *promise)
+{
+	drgn_promise_set_common(&promise->promise, NULL);
+}
+
+static struct drgn_bool_promise *drgn_bool_promise_create(void)
+{
+	struct drgn_bool_promise *promise = malloc(sizeof(*promise));
+	if (promise)
+		drgn_promise_init(&promise->promise, NULL);
+	return promise;
+}
+
+LIBDRGN_PUBLIC void
+drgn_bool_promise_set_result(struct drgn_bool_promise *promise, bool result)
+{
+	if (!drgn_promise_set_common(&promise->promise, NULL))
+		return;
+	promise->result = result;
+}
+
+static inline struct drgn_promise *
+drgn_promise_share(struct drgn_promise *promise)
+{
+	assert(promise->err == &promise_new);
+	promise->err = &promise_pending;
+	return promise;
+}
+
+#define drgn_promise_share(promise) ({				\
+	auto _promise_ = (promise);				\
+	drgn_promise_share(drgn_cast_promise(_promise_));	\
+	_promise_;						\
+})
+
+static void drgn_promise_cancel(struct drgn_promise *promise)
+{
+	if (promise->err == &promise_pending)
+		promise->err = &promise_cancelled;
+	else
+		drgn_promise_destroy(promise);
+}
+
+static void drgn_promise_cleanup(void *p)
+{
+	if (*(struct drgn_promise **)p)
+		drgn_promise_cancel(*(struct drgn_promise **)p);
+}
+
+#define _cleanup_promise_ _cleanup_(drgn_promise_cleanup)
+
 struct drgn_event_listener {
 	struct drgn_program *prog;
 	struct list_head node;
@@ -353,10 +484,6 @@ struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms,
 		}
 	}
 
-	// NB: we guarantee that an abort callback won't be called after its
-	// corresponding success or error callback is called, so we can't return
-	// an error after calling any handlers.
-
 	bool free_handlers = !prog->fd_handlers_to_free;
 	if (free_handlers)
 		prog->fd_handlers_to_free = &sentinel_fd_handler;
@@ -391,102 +518,29 @@ struct drgn_error *drgn_program_poll(struct drgn_program *prog, int timeout_ms,
 	return NULL;
 }
 
-struct result_arg {
-	struct drgn_program *prog;
-	struct drgn_error *err;
-};
-
-static struct drgn_error result_pending =
-	DRGN_ERROR_INIT(DRGN_ERROR_RUNTIME, "result pending");
-
-static struct drgn_error result_aborted =
-	DRGN_ERROR_INIT(DRGN_ERROR_RUNTIME, "result aborted");
-
-static void result_arg_init(struct result_arg *result, struct drgn_program *prog)
-{
-	result->prog = prog;
-	result->err = &result_pending;
-}
-
-static struct result_arg *result_arg_alloc(struct drgn_program *prog)
-{
-	struct result_arg *result = malloc(sizeof(*result));
-	if (result)
-		result_arg_init(result, prog);
-	return result;
-}
-
-// Returns false if result was previously aborted and is now freed, false
-// otherwise.
-static bool set_result(struct result_arg *result, struct drgn_error *err)
-{
-	// pending -NULL------------> completed
-	//         -!NULL-----------> errored
-	//         -&result_aborted-> aborted -any-> freed
-	// TODO: document state transitions better
-	if (result->err != &result_pending) {
-		// Result must only be set once.
-		assert(result->err == &result_aborted);
-		// Result can only be aborted while it is pending.
-		assert(err != &result_aborted);
-		drgn_error_destroy(err);
-		free(result);
-		return false;
-	}
-	result->err = err;
-	return true;
-}
-
-static void noop_success(void *arg)
-{
-	set_result(arg, NULL);
-}
-
-static void noop_error(void *arg, struct drgn_error *err)
-{
-	set_result(arg, err);
-}
-
-static struct drgn_error *wait_for_result(struct result_arg *result,
-					  drgn_error_fn *on_abort)
+static struct drgn_error *wait_for_promise(struct drgn_program *prog,
+					   struct drgn_promise *promise)
 {
 	struct drgn_error *err;
-	struct drgn_program *prog = result->prog;
-	while (result->err == &result_pending) {
+	assert(promise->err != &promise_new);
+	while (promise->err == &promise_pending) {
 		err = drgn_program_poll(prog, -1, NULL);
-		if (err) {
-			on_abort(result, &result_aborted);
+		if (err)
 			return err;
-		}
 	}
-	err = result->err;
-	free(result);
-	return err;
-}
-
-static void attach_success(void *arg, bool all_stop)
-{
-	struct result_arg *result = arg;
-	if (!set_result(result, NULL))
-		return;
-
-	struct drgn_program *prog = result->prog;
-	// The state may have changed to EXITED or LOST while attaching.
-	if (prog->attach_state == DRGN_ATTACH_STATE_ATTACHING)
-		prog->attach_state = DRGN_ATTACH_STATE_ATTACHED;
-	prog->all_stop = all_stop;
-}
-
-static void attach_error(void *arg, struct drgn_error *err)
-{
-	struct result_arg *result = arg;
-	result->prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
-	set_result(result, err);
+	if (promise->err) {
+		err = promise->err;
+		promise->err = &promise_error;
+		return err;
+	}
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_attach(struct drgn_program *prog, enum drgn_attach_flags flags)
 {
+	struct drgn_error *err;
+
 	if (flags & ~(DRGN_ATTACH_NON_STOP | DRGN_ATTACH_ALL_STOP
 		      | DRGN_ATTACH_INTERRUPT)) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -508,44 +562,32 @@ drgn_program_attach(struct drgn_program *prog, enum drgn_attach_flags flags)
 					 "no execution controller is enabled");
 	}
 
-	struct result_arg *result = result_arg_alloc(prog);
-	if (!result)
+	_cleanup_promise_ struct drgn_bool_promise *promise =
+		drgn_bool_promise_create();
+	if (!promise)
 		return &drgn_enomem;
 
 	prog->attach_state = DRGN_ATTACH_STATE_ATTACHING;
 
-	ctrl->ops.attach(ctrl->arg, prog, flags, attach_success, attach_error,
-			 result);
-	return wait_for_result(result, attach_error);
-}
+	ctrl->ops.attach(ctrl->arg, prog, flags, drgn_promise_share(promise));
+	err = wait_for_promise(prog, &promise->promise);
+	if (err) {
+		prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
+		return err;
+	}
 
-struct detach_result {
-	struct result_arg result;
-	enum drgn_attach_state orig_attach_state;
-};
-
-static void detach_success(void *arg)
-{
-	struct detach_result *result = arg;
-	if (!set_result(&result->result, NULL))
-		return;
-
-	struct drgn_program *prog = result->result.prog;
-	drgn_program_clear_execution_control(prog);
-	prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
-	prog->in_all_stop = false;
-}
-
-static void detach_error(void *arg, struct drgn_error *err)
-{
-	struct detach_result *result = arg;
-	result->result.prog->attach_state = result->orig_attach_state;
-	set_result(&result->result, err);
+	// The state may have changed to EXITED or LOST while attaching.
+	if (prog->attach_state == DRGN_ATTACH_STATE_ATTACHING)
+		prog->attach_state = DRGN_ATTACH_STATE_ATTACHED;
+	prog->all_stop = promise->result;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_detach(struct drgn_program *prog)
 {
+	struct drgn_error *err;
+
 	// TODO: what about ATTACHING or DETACHING?
 	if (prog->attach_state == DRGN_ATTACH_STATE_DETACHED)
 		return NULL;
@@ -563,17 +605,25 @@ drgn_program_detach(struct drgn_program *prog)
 	}
 #endif
 
-	struct detach_result *result = malloc(sizeof(*result));
-	if (!result)
+	_cleanup_promise_ struct drgn_void_promise *promise =
+		drgn_void_promise_create();
+	if (!promise)
 		return &drgn_enomem;
-	result_arg_init(&result->result, prog);
-	result->orig_attach_state = prog->attach_state;
 
+	enum drgn_attach_state orig_attach_state = prog->attach_state;
 	prog->attach_state = DRGN_ATTACH_STATE_DETACHING;
 
 	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-	ctrl->ops.detach(ctrl->arg, prog, detach_success, detach_error, result);
-	return wait_for_result(&result->result, detach_error);
+	ctrl->ops.detach(ctrl->arg, prog, drgn_promise_share(promise));
+	err = wait_for_promise(prog, &promise->promise);
+	if (err) {
+		prog->attach_state = orig_attach_state;
+		return err;
+	}
+
+	prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
+	prog->in_all_stop = false;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC enum drgn_attach_state
@@ -641,12 +691,13 @@ drgn_program_interrupt_any_thread(struct drgn_program *prog)
 					 "interrupting any thread is not supported");
 	}
 
-	struct result_arg *result = result_arg_alloc(prog);
-	if (!result)
+	_cleanup_promise_ struct drgn_void_promise *promise =
+		drgn_void_promise_create();
+	if (!promise)
 		return &drgn_enomem;
-	ctrl->ops.interrupt_any_thread(ctrl->arg, prog, noop_success,
-				       noop_error, result);
-	return wait_for_result(result, noop_error);
+	ctrl->ops.interrupt_any_thread(ctrl->arg, prog,
+				       drgn_promise_share(promise));
+	return wait_for_promise(prog, &promise->promise);
 }
 
 LIBDRGN_PUBLIC
@@ -865,20 +916,164 @@ static void emit_thread_stop_event(struct drgn_thread *thread)
 	emit_event(prog, &event);
 }
 
-struct resume_threads_result {
-	struct result_arg result;
-	struct drgn_resume_action *actions;
+struct breakpoint_sites_promise {
+	struct drgn_void_promise promise;
+	size_t num_sites;
+	struct drgn_breakpoint_site *sites[];
 };
 
-static void continue_all_threads_success(void *arg)
+static void breakpoint_sites_promise_free(struct drgn_promise *p)
 {
-	struct resume_threads_result *result = arg;
-	struct drgn_program *prog = result->result.prog;
-	free(result->actions);
-	if (!set_result(&result->result, NULL))
-		return;
+	struct breakpoint_sites_promise *promise =
+		(struct breakpoint_sites_promise *)p;
+	for (size_t i = 0; i < promise->num_sites; i++)
+		drgn_breakpoint_site_decref(promise->sites[i]);
+	drgn_promise_default_free(p);
+}
+
+static struct breakpoint_sites_promise *
+breakpoint_sites_promise_create(size_t capacity)
+{
+	struct breakpoint_sites_promise *promise =
+		malloc_flexible_array(struct breakpoint_sites_promise, sites,
+				      capacity);
+	if (promise) {
+		drgn_promise_init(&promise->promise.promise,
+				  breakpoint_sites_promise_free);
+		promise->num_sites = 0;
+	}
+	return promise;
+}
+
+#if 0
+static struct drgn_error *
+drgn_breakpoint_site_disable(struct drgn_breakpoint_site *site)
+{
+	struct breakpoint_sites_result *result =
+		malloc_flexible_array(struct drgn_breakpoint_site_result, sites,
+				      1);
+	if (!result)
+		return &drgn_enomem;
+	result_arg_init(&result->result, prog);
+	result->sites[0] = site;
+	result->num_sites = 1;
+	ctrl->ops.enable_breakpoint_sites(ctrl->arg, result->sites, 1,
+					  breakpoint_sites_success,
+					  breakpoint_sites_error, result);
+	return wait_for_result(&result->result, breakpoint_sites_error);
+}
+
+static struct drgn_error *
+drgn_breakpoint_site_disable(struct drgn_breakpoint_site *site)
+{
+	struct breakpoint_sites_result *result =
+		malloc_flexible_array(struct drgn_breakpoint_site_result, sites,
+				      1);
+	if (!result)
+		return &drgn_enomem;
+	result_arg_init(&result->result, prog);
+	result->sites[0] = site;
+	result->num_sites = 1;
+	ctrl->ops.disable_breakpoint_sites(ctrl->arg, result->sites, 1,
+					   breakpoint_sites_success,
+					   breakpoint_sites_error, result);
+	return wait_for_result(&result->result, breakpoint_sites_error);
+}
+#endif
+
+struct resume_threads_promise {
+	struct drgn_void_promise promise;
+	size_t capacity;
+	size_t num_actions;
+	struct drgn_resume_action actions[];
+};
+
+static struct resume_threads_promise *
+resume_threads_promise_create(size_t capacity)
+{
+	struct resume_threads_promise *promise =
+		malloc_flexible_array(struct resume_threads_promise, actions,
+				      capacity);
+	if (promise) {
+		drgn_promise_init(&promise->promise.promise, NULL);
+		promise->capacity = capacity;
+		promise->num_actions = 0;
+	}
+	return promise;
+}
+
+static bool
+resume_threads_promise_append_action(struct resume_threads_promise **promisep,
+				     struct drgn_resume_action *action)
+{
+	struct resume_threads_promise *promise = *promisep;
+	if (promise->num_actions == promise->capacity) {
+		size_t new_capacity;
+		if (promise->capacity == 0)
+			new_capacity = 1;
+		else if (__builtin_mul_overflow(promise->capacity, 2U,
+						&new_capacity))
+			return false;
+		promise = realloc_flexible_array(promise, actions,
+						 new_capacity);
+		if (!promise)
+			return false;
+		promise->capacity = new_capacity;
+		*promisep = promise;
+	}
+	promise->actions[promise->num_actions++] = *action;
+	return true;
+}
+
+static struct drgn_error *continue_all_threads(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+#if 0
+	for (;;) {
+		err = drgn_breakpoint_site_disable(site);
+		if (err)
+			return err;
+
+		err = drgn_breakpoint_site_enable(site);
+		if (err)
+			return err;
+	}
+#endif
+
+	_cleanup_promise_ struct resume_threads_promise *promise =
+		resume_threads_promise_create(1);
+	if (!promise)
+		return &drgn_enomem;
 
 	struct drgn_thread *thread, *tmp;
+	list_for_each_entry(thread, &prog->resumed_threads, node) {
+		if (thread->resume_signal == 0)
+			continue;
+		struct drgn_resume_action action = {
+			.thread = thread,
+			.mode = DRGN_RESUME_MODE_CONTINUE,
+			.sig = thread->resume_signal,
+		};
+		if (!resume_threads_promise_append_action(&promise, &action))
+			return &drgn_enomem;
+	}
+
+	struct drgn_resume_action action = {
+		.mode = DRGN_RESUME_MODE_CONTINUE,
+	};
+	if (!resume_threads_promise_append_action(&promise, &action))
+		return &drgn_enomem;
+
+	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
+
+	ctrl->ops.resume_threads(ctrl->arg, prog, promise->actions,
+				 promise->num_actions,
+				 drgn_promise_share(&promise->promise));
+	err = wait_for_promise(prog, &promise->promise.promise);
+	if (err)
+		return err;
+
 	list_for_each_entry_safe(thread, tmp, &prog->resumed_threads, node) {
 		thread->stop_reason = DRGN_STOP_REASON_NONE;
 		thread->stop_signal = -1;
@@ -888,55 +1083,7 @@ static void continue_all_threads_success(void *arg)
 	}
 	/* clear_running_threads(prog); */
 	prog->in_all_stop = false;
-}
-
-static void continue_all_threads_error(void *arg, struct drgn_error *err)
-{
-	struct resume_threads_result *result = arg;
-	free(result->actions);
-	set_result(&result->result, err);
-}
-
-// TODO: pass inline_size?
-DEFINE_VECTOR(drgn_resume_action_vector, struct drgn_resume_action);
-
-static struct drgn_error *continue_all_threads(struct drgn_program *prog)
-{
-	struct drgn_error *err;
-
-	VECTOR(drgn_resume_action_vector, actions);
-	struct drgn_thread *thread;
-	list_for_each_entry(thread, &prog->resumed_threads, node) {
-		if (thread->resume_signal == 0)
-			continue;
-		struct drgn_resume_action action = {
-			.thread = thread,
-			.mode = DRGN_RESUME_MODE_CONTINUE,
-			.sig = thread->resume_signal,
-		};
-		if (!drgn_resume_action_vector_append(&actions, &action))
-			return &drgn_enomem;
-	}
-
-	struct drgn_resume_action action = {
-		.mode = DRGN_RESUME_MODE_CONTINUE,
-	};
-	if (!drgn_resume_action_vector_append(&actions, &action))
-		return &drgn_enomem;
-
-	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-
-	struct resume_threads_result *result = malloc(sizeof(*result));
-	if (!result)
-		return &drgn_enomem;
-	result_arg_init(&result->result, prog);
-	size_t num_actions;
-	drgn_resume_action_vector_steal(&actions, &result->actions,
-					&num_actions);
-	ctrl->ops.resume_threads(ctrl->arg, prog, result->actions, num_actions,
-				 continue_all_threads_success,
-				 continue_all_threads_error, result);
-	return wait_for_result(&result->result, continue_all_threads_error);
+	return NULL;
 }
 
 #if 0
@@ -1572,38 +1719,6 @@ static void rollback_set_breakpoint(struct drgn_breakpoint **bpp)
 	}
 }
 
-struct breakpoint_sites_result {
-	struct result_arg result;
-	struct drgn_breakpoint_site **sites;
-	size_t num_sites;
-};
-
-static void breakpoint_sites_abort(void *arg, struct drgn_error *err)
-{
-	struct breakpoint_sites_result *result = arg;
-	// The caller is going to return and destroy the new breakpoint, so we
-	// need to keep the sites alive for the controller.
-	for (size_t i = 0; i < result->num_sites; i++)
-		drgn_breakpoint_site_incref(result->sites[i]);
-	set_result(&result->result, err);
-}
-
-static void breakpoint_sites_error(void *arg, struct drgn_error *err)
-{
-	struct breakpoint_sites_result *result = arg;
-	if (result->result.err == &result_aborted) {
-		for (size_t i = 0; i < result->num_sites; i++)
-			drgn_breakpoint_site_decref(result->sites[i]);
-	}
-	free(result->sites);
-	set_result(&result->result, err);
-}
-
-static void breakpoint_sites_success(void *arg)
-{
-	breakpoint_sites_error(arg, NULL);
-}
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_breakpoint(struct drgn_program *prog,
 			    const uint64_t *addresses, size_t n, bool hardware,
@@ -1638,13 +1753,12 @@ drgn_program_set_breakpoint(struct drgn_program *prog,
 	if (!bp->site_nodes)
 		return &drgn_enomem;
 
-	_cleanup_free_ struct drgn_breakpoint_site **sites_to_enable = NULL;
+	_cleanup_promise_ struct breakpoint_sites_promise *promise = NULL;
 	if (enable) {
-		sites_to_enable = malloc_array(n, sizeof(sites_to_enable[0]));
-		if (!sites_to_enable)
+		promise = breakpoint_sites_promise_create(n);
+		if (!promise)
 			return &drgn_enomem;
 	}
-	size_t num_sites_to_enable = 0;
 
 	for (size_t i = 0; i < n; i++) {
 		struct hash_pair hp =
@@ -1693,8 +1807,10 @@ drgn_program_set_breakpoint(struct drgn_program *prog,
 		site_node->bp = bp;
 		list_add_tail(&site_node->node, &site->disabled_breakpoints);
 		site->lists_generation++;
-		if (enable && list_empty(&site->enabled_breakpoints))
-			sites_to_enable[num_sites_to_enable++] = site;
+		if (enable && list_empty(&site->enabled_breakpoints)) {
+			drgn_breakpoint_site_incref(site);
+			promise->sites[promise->num_sites++] = site;
+		}
 	}
 
 	// prog->breakpoints holds a reference.
@@ -1703,23 +1819,12 @@ drgn_program_set_breakpoint(struct drgn_program *prog,
 	prog->breakpoints_generation++;
 
 	if (enable) {
-		if (num_sites_to_enable) {
-			struct breakpoint_sites_result *result =
-				malloc(sizeof(*result));
-			if (!result)
-				return &drgn_enomem;
-			result_arg_init(&result->result, prog);
-			result->sites = sites_to_enable;
-			result->num_sites = num_sites_to_enable;
+		if (promise->num_sites) {
 			ctrl->ops.enable_breakpoint_sites(ctrl->arg,
-							  sites_to_enable,
-							  num_sites_to_enable,
-							  breakpoint_sites_success,
-							  breakpoint_sites_error,
-							  result);
-			sites_to_enable = NULL; // Owned by result now.
-			err = wait_for_result(&result->result,
-					      breakpoint_sites_abort);
+							  promise->sites,
+							  promise->num_sites,
+							  drgn_promise_share(&promise->promise));
+			err = wait_for_promise(prog, &promise->promise.promise);
 			if (err)
 				return err;
 		}
@@ -1743,40 +1848,31 @@ drgn_breakpoint_disable_impl(struct drgn_breakpoint *bp)
 	if (!bp->enabled)
 		return NULL;
 
-	_cleanup_free_ struct drgn_breakpoint_site **sites_to_disable =
-		malloc_array(bp->num_sites, sizeof(sites_to_disable[0]));
-	if (!sites_to_disable)
+	_cleanup_promise_ struct breakpoint_sites_promise *promise =
+		breakpoint_sites_promise_create(bp->num_sites);
+	if (!promise)
 		return &drgn_enomem;
-	size_t num_sites_to_disable = 0;
 
 	for (size_t i = 0; i < bp->num_sites; i++) {
 		struct drgn_breakpoint_site_node *site_node =
 			&bp->site_nodes[i];
 		struct drgn_breakpoint_site *site = site_node->site;
 		if (list_is_singular(&site->enabled_breakpoints)
-		    && site->enabled_breakpoints.next == &site_node->node)
-			sites_to_disable[num_sites_to_disable++] = site;
+		    && site->enabled_breakpoints.next == &site_node->node) {
+			drgn_breakpoint_site_incref(site);
+			promise->sites[promise->num_sites++] = site;
+		}
 	}
 
-	if (num_sites_to_disable) {
+	if (promise->num_sites) {
 		struct drgn_program *prog = drgn_breakpoint_program(bp);
 		struct drgn_execution_controller *ctrl =
 			get_enabled_controller(prog);
 
-		struct breakpoint_sites_result *result =
-			malloc(sizeof(*result));
-		if (!result)
-			return &drgn_enomem;
-		result_arg_init(&result->result, prog);
-		result->sites = sites_to_disable;
-		result->num_sites = num_sites_to_disable;
-		ctrl->ops.disable_breakpoint_sites(ctrl->arg, sites_to_disable,
-						   num_sites_to_disable,
-						   breakpoint_sites_success,
-						   breakpoint_sites_error,
-						   result);
-		sites_to_disable = NULL; // Owned by result now.
-		err = wait_for_result(&result->result, breakpoint_sites_abort);
+		ctrl->ops.disable_breakpoint_sites(ctrl->arg, promise->sites,
+						   promise->num_sites,
+						   drgn_promise_share(&promise->promise));
+		err = wait_for_promise(prog, &promise->promise.promise);
 		if (err)
 			return err;
 	}
@@ -1829,38 +1925,29 @@ struct drgn_error *drgn_breakpoint_enable(struct drgn_breakpoint *bp)
 
 	modifying_breakpoints_guard(prog, "enabling");
 
-	_cleanup_free_ struct drgn_breakpoint_site **sites_to_enable =
-		malloc_array(bp->num_sites, sizeof(sites_to_enable[0]));
-	if (!sites_to_enable)
+	_cleanup_promise_ struct breakpoint_sites_promise *promise =
+		breakpoint_sites_promise_create(bp->num_sites);
+	if (!promise)
 		return &drgn_enomem;
-	size_t num_sites_to_enable = 0;
 
 	for (size_t i = 0; i < bp->num_sites; i++) {
 		struct drgn_breakpoint_site_node *site_node =
 			&bp->site_nodes[i];
 		struct drgn_breakpoint_site *site = site_node->site;
-		if (list_empty(&site->enabled_breakpoints))
-			sites_to_enable[num_sites_to_enable++] = site;
+		if (list_empty(&site->enabled_breakpoints)) {
+			drgn_breakpoint_site_incref(site);
+			promise->sites[promise->num_sites++] = site;
+		}
 	}
 
-	if (num_sites_to_enable) {
+	if (promise->num_sites) {
 		struct drgn_execution_controller *ctrl =
 			get_enabled_controller(prog);
 
-		struct breakpoint_sites_result *result =
-			malloc(sizeof(*result));
-		if (!result)
-			return &drgn_enomem;
-		result_arg_init(&result->result, prog);
-		result->sites = sites_to_enable;
-		result->num_sites = num_sites_to_enable;
-		ctrl->ops.enable_breakpoint_sites(ctrl->arg, sites_to_enable,
-						  num_sites_to_enable,
-						  breakpoint_sites_success,
-						  breakpoint_sites_error,
-						  result);
-		sites_to_enable = NULL; // Owned by result now.
-		err = wait_for_result(&result->result, breakpoint_sites_abort);
+		ctrl->ops.enable_breakpoint_sites(ctrl->arg, promise->sites,
+						  promise->num_sites,
+						  drgn_promise_share(&promise->promise));
+		err = wait_for_promise(prog, &promise->promise.promise);
 		if (err)
 			return err;
 	}

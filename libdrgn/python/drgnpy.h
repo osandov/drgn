@@ -272,25 +272,17 @@ typedef struct {
 	struct list_head held_objects;
 } Program;
 
-#define Promise_HEAD						\
-	PyObject_HEAD						\
-	bool done;						\
-	void *arg;						\
-	void (*set_error)(void *arg, struct drgn_error *err);
+enum drgnpy_promise_type {
+	DRGNPY_PROMISE_VOID,
+	DRGNPY_PROMISE_BOOL,
+} __attribute__((__packed__));
 
 typedef struct {
-	Promise_HEAD
+	PyObject_HEAD
+	struct drgn_promise *promise;
+	enum drgnpy_promise_type type;
+	bool done;
 } Promise;
-
-typedef struct {
-	Promise_HEAD
-	void (*set_result)(void *arg);
-} NonePromise;
-
-typedef struct {
-	Promise_HEAD
-	void (*set_result)(void *arg, bool result);
-} BoolPromise;
 
 typedef struct {
 	PyObject_HEAD
@@ -453,8 +445,7 @@ extern PyTypeObject ObjectNotFoundError_type;
 extern PyTypeObject Platform_type;
 extern PyTypeObject Program_type;
 extern PyTypeObject ProgramAttachContext_type;
-extern PyTypeObject NonePromise_type;
-extern PyTypeObject BoolPromise_type;
+extern PyTypeObject Promise_type;
 extern PyTypeObject RegisterState_type;
 extern PyTypeObject Register_type;
 extern PyTypeObject RelocatableModule_type;
@@ -598,7 +589,9 @@ Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds);
 Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
 
-PyObject *Promise_set_exception(Promise *self, PyObject *arg);
+Promise *NonePromise_wrap(struct drgn_void_promise *promise);
+Promise *BoolPromise_wrap(struct drgn_bool_promise *promise);
+void Promise_catch_exception(Promise *promise);
 
 int add_SourceLocation(PyObject *m);
 PyObject *SourceLocationList_wrap(struct drgn_source_location_list *locs);

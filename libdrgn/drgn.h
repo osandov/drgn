@@ -5546,8 +5546,33 @@ enum drgn_fd_events
 drgn_program_registered_fd(struct drgn_program *prog, int fd,
 			   drgn_fd_handler_fn **callback_ret, void **arg_ret);
 
-typedef void drgn_success_fn(void *arg);
-typedef void drgn_error_fn(void *arg, struct drgn_error *err);
+struct drgn_promise;
+struct drgn_void_promise;
+struct drgn_bool_promise;
+
+// Promise must no longer be accessed after result or error is set.
+void drgn_promise_set_error(struct drgn_promise *promise,
+			    struct drgn_error *err);
+
+bool drgn_promise_cancelled(struct drgn_promise *promise);
+
+void drgn_void_promise_set_result(struct drgn_void_promise *promise);
+
+void drgn_bool_promise_set_result(struct drgn_bool_promise *promise,
+				  bool result);
+
+#define drgn_cast_promise(promise)			\
+	(_Generic(promise,				\
+		  struct drgn_promise *: 1,		\
+		  struct drgn_void_promise *: 1,	\
+		  struct drgn_bool_promise *: 1)	\
+	 ? (struct drgn_promise *)(promise) : 0)
+
+#define drgn_promise_set_error(promise, err)	\
+	drgn_promise_set_error(drgn_cast_promise(promise), err)
+
+#define drgn_promise_cancelled(promise)	\
+	drgn_promise_cancelled(drgn_cast_promise(promise))
 
 enum drgn_resume_mode {
 	// 0 is reserved. TODO: is this still necessary?
@@ -5566,41 +5591,29 @@ struct drgn_execution_controller_ops {
 	void (*destroy)(void *arg);
 	void (*attach)(void *arg, struct drgn_program *prog,
 		       enum drgn_attach_flags flags,
-		       void (*on_success)(void *result_arg, bool all_stop),
-		       drgn_error_fn *on_error, void *result_arg);
+		       struct drgn_bool_promise *promise);
 	void (*detach)(void *arg, struct drgn_program *prog,
-		       drgn_success_fn *on_success, drgn_error_fn *on_error,
-		       void *result_arg);
+		       struct drgn_void_promise *promise);
 	void (*set_all_stop)(void *arg, struct drgn_program *prog,
-			     bool all_stop, drgn_success_fn *on_success,
-			     drgn_error_fn *on_error, void *result_arg);
+			     bool all_stop, struct drgn_void_promise *promise);
 	void (*interrupt_thread)(void *arg, struct drgn_thread *thread,
-				 drgn_success_fn *on_success,
-				 drgn_error_fn *on_error, void *result_arg);
+				 struct drgn_void_promise *promise);
 	void (*interrupt_any_thread)(void *arg, struct drgn_program *prog,
-				     drgn_success_fn *on_success,
-				     drgn_error_fn *on_error, void *result_arg);
+				     struct drgn_void_promise *promise);
 	void (*pause_all_threads)(void *arg, struct drgn_program *prog,
-				  drgn_success_fn *on_success,
-				  drgn_error_fn *on_error, void *result_arg);
-	// TODO: should we guarantee that actions stays valid after this
-	// returns? I think no.
+				  struct drgn_void_promise *promise);
 	void (*resume_threads)(void *arg, struct drgn_program *prog,
 			       const struct drgn_resume_action *actions,
-			       size_t num_actions, drgn_success_fn *on_success,
-			       drgn_error_fn *on_error, void *result_arg);
+			       size_t num_actions,
+			       struct drgn_void_promise *promise);
 	void (*enable_breakpoint_sites)(void *arg,
 					struct drgn_breakpoint_site * const *sites,
 					size_t num_sites,
-					drgn_success_fn *on_success,
-					drgn_error_fn *on_error,
-					void *result_arg);
+					struct drgn_void_promise *promise);
 	void (*disable_breakpoint_sites)(void *arg,
 					 struct drgn_breakpoint_site * const *sites,
 					 size_t num_sites,
-					 drgn_success_fn *on_success,
-					 drgn_error_fn *on_error,
-					 void *result_arg);
+					 struct drgn_void_promise *promise);
 };
 
 /**
