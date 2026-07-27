@@ -5,6 +5,7 @@ import collections
 import contextlib
 import os
 import signal
+import functools
 
 import drgn
 from tests import TestCase
@@ -64,7 +65,7 @@ class MockExecutionController(drgn.ExecutionController):
         self._q.append(fn)
         os.write(self._pipe_w, b"\1")
 
-    def _queue_stop(self):
+    def _queue_break(self):
         os.write(self._pipe_w, b"\0")
 
     def _read_pipe(self, prog, fd, events):
@@ -107,35 +108,67 @@ class QueueCall:
         self._fn = fn
 
 
-class _ExpectOps:
-    def __init__(self, ctrl, ops):
+QueueBreak = object()
+
+
+class ExpectOp:
+    def __init__(self, pred):
+        self._pred = pred
+
+
+class ExpectEvent:
+    def __init__(self, pred):
+        self._pred = pred
+
+
+class _Expect:
+    def __init__(self, ctrl, l):
         self._ctrl = ctrl
-        self._ops = ops
+        self._l = l
         self._i = 0
-        self._pending = False
+        self._pending = 0
+        self.exception = None
 
     def done(self):
-        return self._i >= len(self._ops) and not self._pending
+        return self._i >= len(self._l) and not self._pending
 
-    def hook(self, name, args, promise, result):
-        if self._pending or self._i >= len(self._ops):
-            return False
+    def event_hook(self, event):
+        try:
+            if (
+                self._i >= len(self._l)
+                or not isinstance(self._l[self._i], ExpectEvent)
+                or not self._l[self._i]._pred(event)
+            ):
+                raise AssertionError(f"unexpected {event} at step {self._i}")
+        except Exception as e:
+            self.exception = e
+        self._i += 1
+        return True
 
-        assert self._ops[self._i] is not Barrier
-        assert not isinstance(self._ops[self._i], QueueCall)
+    def op_hook(self, name, args, promise, result):
+        if self.exception is not None:
+            e = self.exception
+            promise.set_exception(self.exception)
+            self.exception = None
+            return True
 
         try:
-            ret = self._ops[self._i](name, args)
+            if (
+                self._i >= len(self._l)
+                or not isinstance(self._l[self._i], ExpectOp)
+                or not (ret := self._l[self._i]._pred(name, args))
+            ):
+                args_str = ", ".join([repr(arg) for arg in args])
+                raise AssertionError(
+                    f"unexpected {name}({args_str}) operation at step {self._i}"
+                )
         except Exception as e:
             self._i += 1
             promise.set_exception(e)
             return True
 
-        if not ret:
-            return False
-
         self._i += 1
-        self._pending = True
+        self._pending += 1
         if ret == COMPLETE_PROMISE:
             self._complete_op(promise, result)
         else:
@@ -143,32 +176,39 @@ class _ExpectOps:
         return True
 
     def _complete_op(self, promise, result):
-        self._pending = False
+        self._complete_pending()
         promise.set_result(result)
         self._queue_next()
 
-    def _complete_barrier(self):
-        self._pending = False
-        self._queue_next()
-
-    def _complete_call(self, prog, fn):
-        self._pending = False
+    def _do_call(self, fn, prog):
+        self._complete_pending()
         fn(prog)
         self._queue_next()
 
+    def _complete_stop(self, prog):
+        self._complete_pending()
+        self._queue_next()
+
+    def _complete_pending(self):
+        self._pending -= 1
+        if self._pending == 0:
+            while self._i < len(self._l) and self._l[self._i] is Barrier:
+                self._i += 1
+
     def _queue_next(self):
-        if self._i >= len(self._ops):
-            return
-        op = self._ops[self._i]
-        if op is Barrier:
-            self._i += 1
-            self._pending = True
-            self._ctrl._queue_stop()
-            self._ctrl._queue_call(lambda prog: self._complete_barrier())
-        elif isinstance(op, QueueCall):
-            self._i += 1
-            self._pending = True
-            self._ctrl._queue_call(lambda prog: self._complete_call(prog, op._fn))
+        while self._i < len(self._l):
+            if isinstance(self._l[self._i], QueueCall):
+                fn = self._l[self._i]._fn
+                self._i += 1
+                self._pending += 1
+                self._ctrl._queue_call(functools.partial(self._do_call, fn))
+            elif self._l[self._i] is QueueBreak:
+                self._i += 1
+                self._pending += 1
+                self._ctrl._queue_break()
+                self._ctrl._queue_call(self._complete_stop)
+            else:
+                break
 
 
 class ExecutionControlTestCase(TestCase):
@@ -218,6 +258,7 @@ class ExecutionControlTestCase(TestCase):
         if not expected:
             self._unexpected_events.append(event)
 
+    # TODO: get rid of hook_events and hook_ops?
     @contextlib.contextmanager
     def hook_events(self, hook):
         self.poll_all()
@@ -232,7 +273,7 @@ class ExecutionControlTestCase(TestCase):
     def ignore_events(self):
         return self.hook_events(lambda event: True)
 
-    # TODO: use expect_ops as much as possible, and make it not be a per-name
+    # TODO: use expect as much as possible, and make it not be a per-name
     # hook?
     @contextlib.contextmanager
     def hook_ops(self, hook):
@@ -249,12 +290,16 @@ class ExecutionControlTestCase(TestCase):
         return self.hook_ops(lambda name, args, promise, result: QUEUE_PROMISE)
 
     @contextlib.contextmanager
-    def expect_ops(self, *ops):
-        expect_ops = _ExpectOps(self._ctrl, ops)
-        with self.hook_ops(expect_ops.hook):
+    def expect(self, *ops):
+        expect = _Expect(self._ctrl, ops)
+        with self.hook_events(expect.event_hook), self.hook_ops(expect.op_hook):
             yield
-            while not expect_ops.done():
+            while not expect.done():
+                if expect.exception is not None:
+                    raise expect.exception
                 self.poll_all(block=True)
+        if expect.exception is not None:
+            raise expect.exception
 
 
 class TestLifecycle(ExecutionControlTestCase):
@@ -272,7 +317,7 @@ class TestLifecycle(ExecutionControlTestCase):
             self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHING)
             return True
 
-        with self.expect_ops(expect_attach):
+        with self.expect(ExpectOp(expect_attach)):
             self.prog.attach(drgn.AttachFlags.ALL_STOP)
             self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
 
@@ -282,7 +327,7 @@ class TestLifecycle(ExecutionControlTestCase):
             self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHING)
             return True
 
-        with self.expect_ops(expect_detach):
+        with self.expect(ExpectOp(expect_detach)):
             self.prog.detach()
             self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
@@ -292,7 +337,7 @@ class TestLifecycle(ExecutionControlTestCase):
                 return False
             raise Exception("foo")
 
-        with self.expect_ops(attach_failure):
+        with self.expect(ExpectOp(attach_failure)):
             self.assertRaisesRegex(
                 Exception, "foo", self.prog.attach, drgn.AttachFlags.ALL_STOP
             )
@@ -300,32 +345,33 @@ class TestLifecycle(ExecutionControlTestCase):
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
     def test_context_manager(self):
-        with self.expect_ops(lambda name, args: name == "attach"):
+        with self.expect(ExpectOp(lambda name, args: name == "attach")):
             cm = self.prog.attach(drgn.AttachFlags.ALL_STOP)
             cm.__enter__()
 
         self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
 
-        with self.expect_ops(lambda name, args: name == "detach"):
+        with self.expect(ExpectOp(lambda name, args: name == "detach")):
             cm.__exit__(None, None, None)
             self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
     def test_context_manager_exception(self):
-        with self.assertRaisesRegex(Exception, "foo"), self.expect_ops(
-            lambda name, args: name == "attach",
-            lambda name, args: name == "detach",
+        with self.assertRaisesRegex(Exception, "foo"), self.expect(
+            ExpectOp(lambda name, args: name == "attach"),
+            Barrier,
+            ExpectOp(lambda name, args: name == "detach"),
         ), self.prog.attach(drgn.AttachFlags.ALL_STOP):
             raise Exception("foo")
 
     def test_attach_and_detach_synchronously(self):
-        with self.expect_ops(
-            lambda name, args: COMPLETE_PROMISE if name == "attach" else False
+        with self.expect(
+            ExpectOp(lambda name, args: COMPLETE_PROMISE if name == "attach" else False)
         ):
             self.prog.attach(drgn.AttachFlags.ALL_STOP)
             self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
 
-        with self.expect_ops(
-            lambda name, args: COMPLETE_PROMISE if name == "detach" else False
+        with self.expect(
+            ExpectOp(lambda name, args: COMPLETE_PROMISE if name == "detach" else False)
         ):
             self.prog.detach()
             self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
@@ -334,56 +380,41 @@ class TestLifecycle(ExecutionControlTestCase):
         with self.complete_ops():
             self.prog.attach(drgn.AttachFlags.ALL_STOP)
 
-        event_attach_state = []
-
-        def event_hook(event):
+        def exit_event(event):
             if not isinstance(event, drgn.ProgramExitEvent) or event.status != 0:
                 return False
-            event_attach_state.append(self.prog.attach_state)
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED)
             return True
 
-        with self.hook_events(event_hook):
+        with self.expect(ExpectEvent(exit_event)):
             self.queue_call(lambda prog: prog.notify_program_exit(0))
 
-        self.assertEqual(event_attach_state, [drgn.AttachState.EXITED])
         self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED)
 
         with self.complete_ops():
             self.prog.detach()
-
-        self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
     def test_program_exit_during_attach(self):
-        event_attach_state = []
-
-        def event_hook(event):
-            if not isinstance(event, drgn.ProgramExitEvent) or event.status != 0:
-                return False
-            event_attach_state.append(self.prog.attach_state)
-            return True
-
         def exit_during_attach(name, args):
             if name != "attach":
                 return False
             self.queue_call(lambda prog: prog.notify_program_exit(0))
             return True
 
-        with self.hook_events(event_hook), self.expect_ops(exit_during_attach):
+        def exit_event(event):
+            if not isinstance(event, drgn.ProgramExitEvent) or event.status != 0:
+                return False
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED)
+            return True
+
+        with self.expect(ExpectOp(exit_during_attach), ExpectEvent(exit_event)):
             self.prog.attach()
-            self.assertEqual(event_attach_state, [drgn.AttachState.EXITED])
             self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED)
 
     def test_program_exit_during_detach(self):
         with self.complete_ops():
             self.prog.attach(drgn.AttachFlags.ALL_STOP)
-
-        event_attach_state = []
-
-        def event_hook(event):
-            if not isinstance(event, drgn.ProgramExitEvent) or event.status != 0:
-                return False
-            event_attach_state.append(self.prog.attach_state)
-            return True
 
         def exit_during_detach(name, args):
             if name != "detach":
@@ -391,33 +422,35 @@ class TestLifecycle(ExecutionControlTestCase):
             self.queue_call(lambda prog: prog.notify_program_exit(0))
             return True
 
-        with self.hook_events(event_hook), self.expect_ops(exit_during_detach):
+        def exit_event(event):
+            if not isinstance(event, drgn.ProgramExitEvent) or event.status != 0:
+                return False
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHING)
+            return True
+
+        with self.expect(ExpectOp(exit_during_detach), ExpectEvent(exit_event)):
             self.prog.detach()
-            self.assertEqual(event_attach_state, [drgn.AttachState.DETACHING])
             self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
     def test_program_lost(self):
         with self.complete_ops():
             self.prog.attach(drgn.AttachFlags.ALL_STOP)
 
-        event_attach_state = []
-
-        def event_hook(event):
+        def lost_event(event):
             if (
                 not isinstance(event, drgn.ProgramLostEvent)
                 or not isinstance(event.exception, BrokenPipeError)
                 or event.exception.args != ("bye",)
             ):
                 return False
-            event_attach_state.append(self.prog.attach_state)
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
             return True
 
-        with self.hook_events(event_hook):
+        with self.expect(ExpectEvent(lost_event)):
             self.queue_call(
                 lambda prog: prog.notify_program_lost(BrokenPipeError("bye"))
             )
 
-        self.assertEqual(event_attach_state, [drgn.AttachState.LOST])
         self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
 
         with self.complete_ops():
@@ -426,18 +459,6 @@ class TestLifecycle(ExecutionControlTestCase):
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
     def test_program_lost_during_attach(self):
-        event_attach_state = []
-
-        def event_hook(event):
-            if (
-                not isinstance(event, drgn.ProgramLostEvent)
-                or not isinstance(event.exception, BrokenPipeError)
-                or event.exception.args != ("bye",)
-            ):
-                return False
-            event_attach_state.append(self.prog.attach_state)
-            return True
-
         def lost_during_attach(name, args):
             if name != "attach":
                 return False
@@ -446,26 +467,23 @@ class TestLifecycle(ExecutionControlTestCase):
             )
             return True
 
-        with self.hook_events(event_hook), self.expect_ops(lost_during_attach):
-            self.prog.attach()
-            self.assertEqual(event_attach_state, [drgn.AttachState.LOST])
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
-
-    def test_program_lost_during_detach(self):
-        with self.complete_ops():
-            self.prog.attach(drgn.AttachFlags.ALL_STOP)
-
-        event_attach_state = []
-
-        def event_hook(event):
+        def lost_event(event):
             if (
                 not isinstance(event, drgn.ProgramLostEvent)
                 or not isinstance(event.exception, BrokenPipeError)
                 or event.exception.args != ("bye",)
             ):
                 return False
-            event_attach_state.append(self.prog.attach_state)
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
             return True
+
+        with self.expect(ExpectOp(lost_during_attach), ExpectEvent(lost_event)):
+            self.prog.attach()
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
+
+    def test_program_lost_during_detach(self):
+        with self.complete_ops():
+            self.prog.attach(drgn.AttachFlags.ALL_STOP)
 
         def lost_during_detach(name, args):
             if name != "detach":
@@ -475,9 +493,18 @@ class TestLifecycle(ExecutionControlTestCase):
             )
             return True
 
-        with self.hook_events(event_hook), self.expect_ops(lost_during_detach):
+        def lost_event(event):
+            if (
+                not isinstance(event, drgn.ProgramLostEvent)
+                or not isinstance(event.exception, BrokenPipeError)
+                or event.exception.args != ("bye",)
+            ):
+                return False
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHING)
+            return True
+
+        with self.expect(ExpectOp(lost_during_detach), ExpectEvent(lost_event)):
             self.prog.detach()
-            self.assertEqual(event_attach_state, [drgn.AttachState.DETACHING])
             self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
 
@@ -492,20 +519,17 @@ class TestAllStop(ExecutionControlTestCase):
                 )
             )
 
-            event_stop_reason = []
-
-            def event_hook(event):
+            def stop_event(event):
                 if event != drgn.ThreadStopEvent(self.prog.thread(1)):
                     return False
-                event_stop_reason.append(event.thread.stop_reason)
+                self.assertEqual(
+                    event.thread.stop_reason, drgn.SignalStopReason(signal.SIGWINCH)
+                )
                 return True
 
-            with self.hook_events(event_hook):
+            with self.expect(ExpectEvent(stop_event)):
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            self.assertEqual(
-                event_stop_reason, [drgn.SignalStopReason(signal.SIGWINCH)]
-            )
             self.assertEqual(
                 self.prog.thread(1).stop_reason, drgn.SignalStopReason(signal.SIGWINCH)
             )
@@ -521,20 +545,17 @@ class TestAllStop(ExecutionControlTestCase):
                 )
             )
 
-            event_stop_reason = []
-
-            def event_hook(event):
+            def stop_event(event):
                 if event != drgn.ThreadStopEvent(self.prog.thread(1)):
                     return False
-                event_stop_reason.append(event.thread.stop_reason)
+                self.assertEqual(
+                    event.thread.stop_reason, drgn.SignalStopReason(signal.SIGWINCH)
+                )
                 return True
 
-            with self.hook_events(event_hook):
+            with self.expect(ExpectEvent(stop_event)):
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            self.assertEqual(
-                event_stop_reason, [drgn.SignalStopReason(signal.SIGWINCH)]
-            )
             self.assertEqual(
                 self.prog.thread(1).stop_reason, drgn.SignalStopReason(signal.SIGWINCH)
             )
@@ -557,16 +578,18 @@ class TestAllStop(ExecutionControlTestCase):
                     with self.ignore_events():
                         self.queue_call(lambda prog: prog.notify_all_stop())
 
-                    with self.expect_ops(
-                        lambda name, args: name == "resume_threads"
-                        and args
-                        == (
-                            [
-                                drgn.ContinueResumeAction(
-                                    self.prog.thread(1), signal.SIGWINCH
-                                ),
-                                drgn.ContinueResumeAction(None, 0),
-                            ],
+                    with self.expect(
+                        ExpectOp(
+                            lambda name, args: name == "resume_threads"
+                            and args
+                            == (
+                                [
+                                    drgn.ContinueResumeAction(
+                                        self.prog.thread(1), signal.SIGWINCH
+                                    ),
+                                    drgn.ContinueResumeAction(None, 0),
+                                ],
+                            )
                         )
                     ):
                         self.prog.thread(continue_tid).cont()
@@ -584,9 +607,11 @@ class TestAllStop(ExecutionControlTestCase):
             with self.ignore_events():
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            with self.expect_ops(
-                lambda name, args: name == "resume_threads"
-                and args == ([drgn.ContinueResumeAction(None, 0)],)
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and args == ([drgn.ContinueResumeAction(None, 0)],)
+                )
             ):
                 self.prog.thread(1).cont(sig=0)
 
@@ -610,9 +635,11 @@ class TestAllStop(ExecutionControlTestCase):
                     with self.ignore_events():
                         self.queue_call(lambda prog: prog.notify_all_stop())
 
-                    with self.expect_ops(
-                        lambda name, args: name == "resume_threads"
-                        and args == ([drgn.ContinueResumeAction(None, 0)],)
+                    with self.expect(
+                        ExpectOp(
+                            lambda name, args: name == "resume_threads"
+                            and args == ([drgn.ContinueResumeAction(None, 0)],)
+                        )
                     ):
                         self.prog.thread(continue_tid).cont()
 
@@ -629,14 +656,18 @@ class TestAllStop(ExecutionControlTestCase):
             with self.ignore_events():
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            with self.expect_ops(
-                lambda name, args: name == "resume_threads"
-                and args
-                == (
-                    [
-                        drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGUSR1),
-                        drgn.ContinueResumeAction(None, 0),
-                    ],
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and args
+                    == (
+                        [
+                            drgn.ContinueResumeAction(
+                                self.prog.thread(1), signal.SIGUSR1
+                            ),
+                            drgn.ContinueResumeAction(None, 0),
+                        ],
+                    )
                 )
             ):
                 self.prog.thread(1).cont(sig=signal.SIGUSR1)
@@ -654,16 +685,22 @@ class TestAllStop(ExecutionControlTestCase):
             with self.ignore_events():
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            with self.expect_ops(
-                lambda name, args: name == "resume_threads"
-                and len(args) == 1
-                and args[0][-1] == drgn.ContinueResumeAction(None, 0)
-                and collections.Counter(args[0][:-1])
-                == collections.Counter(
-                    [
-                        drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
-                        drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGUSR1),
-                    ]
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and len(args) == 1
+                    and args[0][-1] == drgn.ContinueResumeAction(None, 0)
+                    and collections.Counter(args[0][:-1])
+                    == collections.Counter(
+                        [
+                            drgn.ContinueResumeAction(
+                                self.prog.thread(1), signal.SIGWINCH
+                            ),
+                            drgn.ContinueResumeAction(
+                                self.prog.thread(2), signal.SIGUSR1
+                            ),
+                        ]
+                    )
                 )
             ):
                 self.prog.thread(2).cont(sig=signal.SIGUSR1)
@@ -693,12 +730,9 @@ class TestAllStop(ExecutionControlTestCase):
                     threads = None
                     signals = None
 
-                    def event_hook1(event):
+                    def event1(event):
                         nonlocal threads, signals
-                        if (
-                            not isinstance(event, drgn.ThreadStopEvent)
-                            or threads is not None
-                        ):
+                        if not isinstance(event, drgn.ThreadStopEvent):
                             return False
                         # Index 0 is the thread we got the first event for,
                         # index 1 is the other stopped thread, and index 2 is
@@ -715,9 +749,8 @@ class TestAllStop(ExecutionControlTestCase):
                         threads.append(self.prog.thread(3))
                         return True
 
-                    with self.hook_events(event_hook1):
+                    with self.expect(ExpectEvent(event1)):
                         self.queue_call(lambda prog: prog.notify_all_stop())
-                    self.assertIsNotNone(threads)
 
                     # It should look like only one thread stopped with a signal.
                     self.assertEqual(
@@ -726,21 +759,15 @@ class TestAllStop(ExecutionControlTestCase):
                     self.assertEqual(threads[1].stop_reason, drgn.SyntheticStopReason())
                     self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
 
-                    got_event2 = False
-
-                    def event_hook2(event):
-                        nonlocal got_event2
-                        if event != drgn.ThreadStopEvent(threads[1]) or got_event2:
-                            return False
-                        got_event2 = True
-                        return True
-
                     # This shouldn't call any operations, but it should emit
                     # the other thread stop event regardless of which thread we
                     # continue.
-                    with self.hook_events(event_hook2):
+                    with self.expect(
+                        ExpectEvent(
+                            lambda event: event == drgn.ThreadStopEvent(threads[1])
+                        )
+                    ):
                         threads[first_continue_idx].cont()
-                    self.assertTrue(got_event2)
 
                     # Now it should look like only the other thread stopped with a
                     # signal.
@@ -751,20 +778,22 @@ class TestAllStop(ExecutionControlTestCase):
                     self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
 
                     # This should resume all threads with the pending signals.
-                    with self.expect_ops(
-                        lambda name, args: name == "resume_threads"
-                        and len(args) == 1
-                        and args[0][-1] == drgn.ContinueResumeAction(None, 0)
-                        and collections.Counter(args[0][:-1])
-                        == collections.Counter(
-                            [
-                                drgn.ContinueResumeAction(
-                                    self.prog.thread(1), signal.SIGWINCH
-                                ),
-                                drgn.ContinueResumeAction(
-                                    self.prog.thread(2), signal.SIGCHLD
-                                ),
-                            ]
+                    with self.expect(
+                        ExpectOp(
+                            lambda name, args: name == "resume_threads"
+                            and len(args) == 1
+                            and args[0][-1] == drgn.ContinueResumeAction(None, 0)
+                            and collections.Counter(args[0][:-1])
+                            == collections.Counter(
+                                [
+                                    drgn.ContinueResumeAction(
+                                        self.prog.thread(1), signal.SIGWINCH
+                                    ),
+                                    drgn.ContinueResumeAction(
+                                        self.prog.thread(2), signal.SIGCHLD
+                                    ),
+                                ]
+                            )
                         )
                     ):
                         threads[second_continue_idx].cont()
@@ -788,9 +817,9 @@ class TestAllStop(ExecutionControlTestCase):
 
             threads = None
 
-            def event_hook1(event):
+            def event1(event):
                 nonlocal threads
-                if not isinstance(event, drgn.ThreadStopEvent) or threads is not None:
+                if not isinstance(event, drgn.ThreadStopEvent):
                     return False
                 # Index 0 is the thread we got the first event for, index 1 is
                 # the other stopped thread.
@@ -803,22 +832,24 @@ class TestAllStop(ExecutionControlTestCase):
                     return False
                 return True
 
-            with self.hook_events(event_hook1):
+            with self.expect(ExpectEvent(event1)):
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
             with self.ignore_events():
                 threads[0].cont(sig=signal.SIGUSR1)
 
-            with self.expect_ops(
-                lambda name, args: name == "resume_threads"
-                and len(args) == 1
-                and args[0][-1] == drgn.ContinueResumeAction(None, 0)
-                and collections.Counter(args[0][:-1])
-                == collections.Counter(
-                    [
-                        drgn.ContinueResumeAction(threads[0], signal.SIGUSR1),
-                        drgn.ContinueResumeAction(threads[1], signal.SIGUSR2),
-                    ]
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and len(args) == 1
+                    and args[0][-1] == drgn.ContinueResumeAction(None, 0)
+                    and collections.Counter(args[0][:-1])
+                    == collections.Counter(
+                        [
+                            drgn.ContinueResumeAction(threads[0], signal.SIGUSR1),
+                            drgn.ContinueResumeAction(threads[1], signal.SIGUSR2),
+                        ]
+                    )
                 )
             ):
                 threads[1].cont(sig=signal.SIGUSR2)
@@ -842,9 +873,9 @@ class TestAllStop(ExecutionControlTestCase):
 
             threads = None
 
-            def event_hook1(event):
+            def event1(event):
                 nonlocal threads
-                if not isinstance(event, drgn.ThreadStopEvent) or threads is not None:
+                if not isinstance(event, drgn.ThreadStopEvent):
                     return False
                 # Index 0 is the thread we got the first event for, index 1 is
                 # the other stopped thread.
@@ -857,23 +888,29 @@ class TestAllStop(ExecutionControlTestCase):
                     return False
                 return True
 
-            with self.hook_events(event_hook1):
+            with self.expect(ExpectEvent(event1)):
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
             with self.ignore_events():
                 # SIGUSR1 is ignored because this still has a pending signal.
                 threads[1].cont(sig=signal.SIGUSR1)
 
-            with self.expect_ops(
-                lambda name, args: name == "resume_threads"
-                and len(args) == 1
-                and args[0][-1] == drgn.ContinueResumeAction(None, 0)
-                and collections.Counter(args[0][:-1])
-                == collections.Counter(
-                    [
-                        drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
-                        drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
-                    ]
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and len(args) == 1
+                    and args[0][-1] == drgn.ContinueResumeAction(None, 0)
+                    and collections.Counter(args[0][:-1])
+                    == collections.Counter(
+                        [
+                            drgn.ContinueResumeAction(
+                                self.prog.thread(1), signal.SIGWINCH
+                            ),
+                            drgn.ContinueResumeAction(
+                                self.prog.thread(2), signal.SIGCHLD
+                            ),
+                        ]
+                    )
                 )
             ):
                 threads[1].cont()
@@ -901,18 +938,28 @@ class TestAllStop(ExecutionControlTestCase):
             with self.ignore_events():
                 self.prog.thread(3).cont(sig=signal.SIGUSR1)
 
-            with self.expect_ops(
-                lambda name, args: name == "resume_threads"
-                and len(args) == 1
-                and args[0][-1] == drgn.ContinueResumeAction(None, 0)
-                and collections.Counter(args[0][:-1])
-                == collections.Counter(
-                    [
-                        drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
-                        drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
-                        drgn.ContinueResumeAction(self.prog.thread(3), signal.SIGUSR1),
-                        drgn.ContinueResumeAction(self.prog.thread(4), signal.SIGUSR2),
-                    ]
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and len(args) == 1
+                    and args[0][-1] == drgn.ContinueResumeAction(None, 0)
+                    and collections.Counter(args[0][:-1])
+                    == collections.Counter(
+                        [
+                            drgn.ContinueResumeAction(
+                                self.prog.thread(1), signal.SIGWINCH
+                            ),
+                            drgn.ContinueResumeAction(
+                                self.prog.thread(2), signal.SIGCHLD
+                            ),
+                            drgn.ContinueResumeAction(
+                                self.prog.thread(3), signal.SIGUSR1
+                            ),
+                            drgn.ContinueResumeAction(
+                                self.prog.thread(4), signal.SIGUSR2
+                            ),
+                        ]
+                    )
                 )
             ):
                 self.prog.thread(4).cont(sig=signal.SIGUSR2)
@@ -931,18 +978,17 @@ class TestAllStop(ExecutionControlTestCase):
                 lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
             )
 
-            event_stop_reason = []
-
-            def event_hook(event):
+            def stop_event(event):
                 if event != drgn.ThreadStopEvent(self.prog.thread(1)):
                     return False
-                event_stop_reason.append(event.thread.stop_reason)
+                self.assertEqual(
+                    event.thread.stop_reason, drgn.BreakpointStopReason(site)
+                )
                 return True
 
-            with self.hook_events(event_hook):
+            with self.expect(ExpectEvent(stop_event)):
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            self.assertEqual(event_stop_reason, [drgn.BreakpointStopReason(site)])
             self.assertEqual(
                 self.prog.thread(1).stop_reason, drgn.BreakpointStopReason(site)
             )
@@ -951,103 +997,57 @@ class TestAllStop(ExecutionControlTestCase):
             )
 
     def test_breakpoint_cont(self):
-        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            with self.complete_ops():
-                site = self.prog.set_breakpoint(0x1337).sites[0]
+        for queue_break, msg in (
+            ([], "completing step immediately"),
+            ([QueueBreak], "completing step after break"),
+        ):
+            with self.subTest(msg=msg), self.prog.attach(drgn.AttachFlags.ALL_STOP):
+                with self.complete_ops():
+                    site = self.prog.set_breakpoint(0x1337).sites[0]
 
-            self.queue_call(
-                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
-            )
-            with self.ignore_events():
-                self.queue_call(lambda prog: prog.notify_all_stop())
+                self.queue_call(
+                    lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
+                )
+                with self.ignore_events():
+                    self.queue_call(lambda prog: prog.notify_all_stop())
 
-            with self.expect_ops(
-                lambda name, args: name == "disable_breakpoint_sites"
-                and args == ([site],),
-                lambda name, args: name == "resume_threads"
-                and args == ([drgn.StepiResumeAction(self.prog.thread(1), 0)],),
-                Barrier,
-                QueueCall(
-                    lambda prog: prog.notify_thread_stop(
-                        prog.thread(1), signal.SIGTRAP, 0x1338
-                    )
-                ),
-                Barrier,
-                QueueCall(lambda prog: prog.notify_all_stop()),
-                lambda name, args: name == "enable_breakpoint_sites"
-                and args == ([site],),
-                lambda name, args: name == "resume_threads"
-                and args == ([drgn.ContinueResumeAction(None, 0)],),
-            ):
-                self.prog.thread(1).cont()
+                with self.expect(
+                    ExpectOp(
+                        lambda name, args: name == "disable_breakpoint_sites"
+                        and args == ([site],)
+                    ),
+                    Barrier,
+                    ExpectOp(
+                        lambda name, args: name == "resume_threads"
+                        and args == ([drgn.StepiResumeAction(self.prog.thread(1), 0)],)
+                    ),
+                    Barrier,
+                    *queue_break,
+                    QueueCall(
+                        lambda prog: prog.notify_thread_stop(
+                            prog.thread(1), signal.SIGTRAP, 0x1338
+                        )
+                    ),
+                    *queue_break,
+                    QueueCall(lambda prog: prog.notify_all_stop()),
+                    Barrier,
+                    ExpectOp(
+                        lambda name, args: name == "enable_breakpoint_sites"
+                        and args == ([site],)
+                    ),
+                    Barrier,
+                    ExpectOp(
+                        lambda name, args: name == "resume_threads"
+                        and args == ([drgn.ContinueResumeAction(None, 0)],)
+                    ),
+                ):
+                    self.prog.thread(1).cont()
 
-                self.assertIsNone(self.prog.thread(1).stop_reason)
-                self.assertIsNone(self.prog.thread(2).stop_reason)
-
-    def test_breakpoint_cont_immediate_step(self):
-        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            with self.complete_ops():
-                site = self.prog.set_breakpoint(0x1337).sites[0]
-
-            self.queue_call(
-                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
-            )
-            with self.ignore_events():
-                self.queue_call(lambda prog: prog.notify_all_stop())
-
-            with self.expect_ops(
-                lambda name, args: name == "disable_breakpoint_sites"
-                and args == ([site],),
-                lambda name, args: name == "resume_threads"
-                and args == ([drgn.StepiResumeAction(self.prog.thread(1), 0)],),
-                QueueCall(
-                    lambda prog: prog.notify_thread_stop(
-                        prog.thread(1), signal.SIGTRAP, 0x1338
-                    )
-                ),
-                QueueCall(lambda prog: prog.notify_all_stop()),
-                lambda name, args: name == "enable_breakpoint_sites"
-                and args == ([site],),
-                lambda name, args: name == "resume_threads"
-                and args == ([drgn.ContinueResumeAction(None, 0)],),
-            ):
-                self.prog.thread(1).cont()
-
-                self.assertIsNone(self.prog.thread(1).stop_reason)
-                self.assertIsNone(self.prog.thread(2).stop_reason)
+                    self.assertIsNone(self.prog.thread(1).stop_reason)
+                    self.assertIsNone(self.prog.thread(2).stop_reason)
 
     def test_breakpoint_cont_signaled(self):
-        return  # TODO
-        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            with self.complete_ops():
-                site = self.prog.set_breakpoint(0x1337).sites[0]
-
-            self.queue_call(
-                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
-            )
-            with self.ignore_events():
-                self.queue_call(lambda prog: prog.notify_all_stop())
-
-            with self.expect_ops(
-                lambda name, args: name == "disable_breakpoint_sites"
-                and args == ([site],),
-                lambda name, args: name == "resume_threads"
-                and args == ([drgn.StepiResumeAction(self.prog.thread(1), 0)],),
-                Barrier,
-                QueueCall(
-                    lambda prog: prog.notify_thread_stop(
-                        prog.thread(1), signal.SIGUSR1, 0x1337
-                    )
-                ),
-                Barrier,
-                QueueCall(lambda prog: prog.notify_all_stop()),
-                lambda name, args: name == "enable_breakpoint_sites"
-                and args == ([site],),
-            ):
-                self.prog.thread(1).cont()
-
-                self.assertIsNone(self.prog.thread(1).stop_reason)
-                self.assertIsNone(self.prog.thread(2).stop_reason)
+        assert False
 
 
 class TestBreakpoints(ExecutionControlTestCase):
@@ -1066,7 +1066,7 @@ class TestBreakpoints(ExecutionControlTestCase):
                 enabled_site = args[0][0]
                 return True
 
-            with self.expect_ops(expect_enable):
+            with self.expect(ExpectOp(expect_enable)):
                 site = self.prog.set_breakpoint(0x1337).sites[0]
                 self.assertTrue(site.enabled)
             self.assertEqual(enabled_site, site)
@@ -1082,9 +1082,11 @@ class TestBreakpoints(ExecutionControlTestCase):
                 bp = self.prog.set_breakpoint(0x1337)
             site = bp.sites[0]
 
-            with self.expect_ops(
-                lambda name, args: name == "disable_breakpoint_sites"
-                and args == ([site],)
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "disable_breakpoint_sites"
+                    and args == ([site],)
+                )
             ):
                 bp.disable()
                 self.assertFalse(site.enabled)
