@@ -62,14 +62,18 @@ class MockExecutionController(drgn.ExecutionController):
 
     def _queue_call(self, fn):
         self._q.append(fn)
+        os.write(self._pipe_w, b"\1")
+
+    def _queue_stop(self):
         os.write(self._pipe_w, b"\0")
 
     def _read_pipe(self, prog, fd, events):
         while True:
             try:
-                os.read(fd, 1)
+                if not os.read(fd, 1)[0]:
+                    return
             except BlockingIOError:
-                break
+                return
             self._q.popleft()(prog)
 
     def attach(self, prog, flags, promise):
@@ -93,6 +97,78 @@ class MockExecutionController(drgn.ExecutionController):
 
     def disable_breakpoint_sites(self, sites, promise):
         self._op("disable_breakpoint_sites", (list(sites),), promise, None)
+
+
+Barrier = object()
+
+
+class QueueCall:
+    def __init__(self, fn):
+        self._fn = fn
+
+
+class _ExpectOps:
+    def __init__(self, ctrl, ops):
+        self._ctrl = ctrl
+        self._ops = ops
+        self._i = 0
+        self._pending = False
+
+    def done(self):
+        return self._i >= len(self._ops) and not self._pending
+
+    def hook(self, name, args, promise, result):
+        if self._pending or self._i >= len(self._ops):
+            return False
+
+        assert self._ops[self._i] is not Barrier
+        assert not isinstance(self._ops[self._i], QueueCall)
+
+        try:
+            ret = self._ops[self._i](name, args)
+        except Exception as e:
+            self._i += 1
+            promise.set_exception(e)
+            return True
+
+        if not ret:
+            return False
+
+        self._i += 1
+        self._pending = True
+        if ret == COMPLETE_PROMISE:
+            self._complete_op(promise, result)
+        else:
+            self._ctrl._queue_call(lambda prog: self._complete_op(promise, result))
+        return True
+
+    def _complete_op(self, promise, result):
+        self._pending = False
+        promise.set_result(result)
+        self._queue_next()
+
+    def _complete_barrier(self):
+        self._pending = False
+        self._queue_next()
+
+    def _complete_call(self, prog, fn):
+        self._pending = False
+        fn(prog)
+        self._queue_next()
+
+    def _queue_next(self):
+        if self._i >= len(self._ops):
+            return
+        op = self._ops[self._i]
+        if op is Barrier:
+            self._i += 1
+            self._pending = True
+            self._ctrl._queue_stop()
+            self._ctrl._queue_call(lambda prog: self._complete_barrier())
+        elif isinstance(op, QueueCall):
+            self._i += 1
+            self._pending = True
+            self._ctrl._queue_call(lambda prog: self._complete_call(prog, op._fn))
 
 
 class ExecutionControlTestCase(TestCase):
@@ -174,41 +250,10 @@ class ExecutionControlTestCase(TestCase):
 
     @contextlib.contextmanager
     def expect_ops(self, *ops):
-        i = 0
-        pending = False
-
-        def expect_hook(name, args, promise, result):
-            nonlocal i, pending
-            if pending or i >= len(ops):
-                return False
-
-            try:
-                ret = ops[i](name, args)
-            except Exception as e:
-                i += 1
-                promise.set_exception(e)
-                return True
-
-            if not ret:
-                return False
-
-            i += 1
-            if ret == COMPLETE_PROMISE:
-                return ret
-            else:
-                pending = True
-
-                def complete(prog):
-                    nonlocal pending
-                    pending = False
-                    promise.set_result(result)
-
-                self.queue_call(complete)
-                return True
-
-        with self.hook_ops(expect_hook):
+        expect_ops = _ExpectOps(self._ctrl, ops)
+        with self.hook_ops(expect_ops.hook):
             yield
-            while i < len(ops):
+            while not expect_ops.done():
                 self.poll_all(block=True)
 
 
@@ -921,28 +966,88 @@ class TestAllStop(ExecutionControlTestCase):
                 and args == ([site],),
                 lambda name, args: name == "resume_threads"
                 and args == ([drgn.StepiResumeAction(self.prog.thread(1), 0)],),
-            ):
-                self.prog.thread(1).cont()
-
-                self.assertIsNone(prog.thread(1).stop_reason)
-                self.assertIsNone(prog.thread(2).stop_reason)
-
-            self.queue_call(
-                lambda prog: prog.notify_thread_stop(
-                    prog.thread(1), signal.SIGTRAP, 0x1338
-                )
-            )
-
-            with self.expect_ops(
+                Barrier,
+                QueueCall(
+                    lambda prog: prog.notify_thread_stop(
+                        prog.thread(1), signal.SIGTRAP, 0x1338
+                    )
+                ),
+                Barrier,
+                QueueCall(lambda prog: prog.notify_all_stop()),
                 lambda name, args: name == "enable_breakpoint_sites"
                 and args == ([site],),
                 lambda name, args: name == "resume_threads"
                 and args == ([drgn.ContinueResumeAction(None, 0)],),
             ):
+                self.prog.thread(1).cont()
+
+                self.assertIsNone(self.prog.thread(1).stop_reason)
+                self.assertIsNone(self.prog.thread(2).stop_reason)
+
+    def test_breakpoint_cont_immediate_step(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            with self.complete_ops():
+                site = self.prog.set_breakpoint(0x1337).sites[0]
+
+            self.queue_call(
+                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
+            )
+            with self.ignore_events():
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            self.assertIsNone(prog.thread(1).stop_reason)
-            self.assertIsNone(prog.thread(2).stop_reason)
+            with self.expect_ops(
+                lambda name, args: name == "disable_breakpoint_sites"
+                and args == ([site],),
+                lambda name, args: name == "resume_threads"
+                and args == ([drgn.StepiResumeAction(self.prog.thread(1), 0)],),
+                QueueCall(
+                    lambda prog: prog.notify_thread_stop(
+                        prog.thread(1), signal.SIGTRAP, 0x1338
+                    )
+                ),
+                QueueCall(lambda prog: prog.notify_all_stop()),
+                lambda name, args: name == "enable_breakpoint_sites"
+                and args == ([site],),
+                lambda name, args: name == "resume_threads"
+                and args == ([drgn.ContinueResumeAction(None, 0)],),
+            ):
+                self.prog.thread(1).cont()
+
+                self.assertIsNone(self.prog.thread(1).stop_reason)
+                self.assertIsNone(self.prog.thread(2).stop_reason)
+
+    def test_breakpoint_cont_signaled(self):
+        return  # TODO
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            with self.complete_ops():
+                site = self.prog.set_breakpoint(0x1337).sites[0]
+
+            self.queue_call(
+                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
+            )
+            with self.ignore_events():
+                self.queue_call(lambda prog: prog.notify_all_stop())
+
+            with self.expect_ops(
+                lambda name, args: name == "disable_breakpoint_sites"
+                and args == ([site],),
+                lambda name, args: name == "resume_threads"
+                and args == ([drgn.StepiResumeAction(self.prog.thread(1), 0)],),
+                Barrier,
+                QueueCall(
+                    lambda prog: prog.notify_thread_stop(
+                        prog.thread(1), signal.SIGUSR1, 0x1337
+                    )
+                ),
+                Barrier,
+                QueueCall(lambda prog: prog.notify_all_stop()),
+                lambda name, args: name == "enable_breakpoint_sites"
+                and args == ([site],),
+            ):
+                self.prog.thread(1).cont()
+
+                self.assertIsNone(self.prog.thread(1).stop_reason)
+                self.assertIsNone(self.prog.thread(2).stop_reason)
 
 
 class TestBreakpoints(ExecutionControlTestCase):

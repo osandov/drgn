@@ -163,6 +163,8 @@ struct drgn_program {
 	struct list_head stopped_threads;
 	struct list_head resumed_threads;
 	struct list_head running_threads;
+	// TODO: explain lifetime of this
+	struct drgn_thread *bypassing_breakpoint;
 	const char *modifying_breakpoints;
 	uint64_t breakpoint_sites_generation;
 	uint64_t breakpoints_generation;

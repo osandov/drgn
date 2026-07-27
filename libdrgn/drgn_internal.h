@@ -371,6 +371,7 @@ struct drgn_thread {
 	// Clean it up.
 	int8_t resuming;
 	bool stop_event_emitted;
+	bool stepping;
 	uint64_t generation;
 	struct drgn_thread_finder *finder;
 	void *finder_data;

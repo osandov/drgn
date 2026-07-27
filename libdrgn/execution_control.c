@@ -38,6 +38,7 @@ static struct drgn_error promise_cancelled =
 struct drgn_promise {
 	struct drgn_error *err;
 	void (*free)(struct drgn_promise *);
+	void (*then)(struct drgn_promise *);
 };
 
 struct drgn_void_promise {
@@ -54,6 +55,7 @@ static inline void drgn_promise_init(struct drgn_promise *promise,
 {
 	promise->err = &promise_new;
 	promise->free = free;
+	promise->then = NULL;
 }
 
 static void drgn_promise_default_free(struct drgn_promise *promise)
@@ -85,11 +87,12 @@ static inline bool drgn_promise_set_common(struct drgn_promise *promise,
 	return true;
 }
 
-// Parentheses around function names suppress expansion of wrapper macros.
+// Parentheses around function names to suppress expansion of wrapper macros.
 LIBDRGN_PUBLIC void (drgn_promise_set_error)(struct drgn_promise *promise,
 					     struct drgn_error *err)
 {
-	drgn_promise_set_common(promise, err);
+	if (drgn_promise_set_common(promise, err) && promise->then)
+		promise->then(promise);
 }
 
 LIBDRGN_PUBLIC bool (drgn_promise_cancelled)(struct drgn_promise *promise)
@@ -108,7 +111,9 @@ static struct drgn_void_promise *drgn_void_promise_create(void)
 LIBDRGN_PUBLIC void
 drgn_void_promise_set_result(struct drgn_void_promise *promise)
 {
-	drgn_promise_set_common(&promise->promise, NULL);
+	if (drgn_promise_set_common(&promise->promise, NULL)
+	    && promise->promise.then)
+		promise->promise.then(&promise->promise);
 }
 
 static struct drgn_bool_promise *drgn_bool_promise_create(void)
@@ -125,6 +130,8 @@ drgn_bool_promise_set_result(struct drgn_bool_promise *promise, bool result)
 	if (!drgn_promise_set_common(&promise->promise, NULL))
 		return;
 	promise->result = result;
+	if (promise->promise.then)
+		promise->promise.then(&promise->promise);
 }
 
 static inline struct drgn_promise *
@@ -1025,21 +1032,81 @@ resume_threads_promise_append_action(struct resume_threads_promise **promisep,
 	return true;
 }
 
-static struct drgn_error *continue_all_threads(struct drgn_program *prog)
+static void bypass_breakpoint_resume_done(struct drgn_promise *p)
+{
+	if (p->err)
+		return;
+
+	struct resume_threads_promise *promise =
+		container_of(p, struct resume_threads_promise, promise.promise);
+	struct drgn_thread *thread = promise->actions[0].thread;
+	struct drgn_program *prog = drgn_thread_program(thread);
+
+	thread->stop_reason = DRGN_STOP_REASON_NONE;
+	thread->stop_signal = -1;
+	thread->resume_signal = 0;
+	drgn_clear_ref(thread->stop_site);
+	thread->stepping = true;
+
+	prog->bypassing_breakpoint = thread;
+}
+
+static struct drgn_error *bypass_breakpoint(struct drgn_thread *thread)
 {
 	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_program(thread);
+	struct drgn_breakpoint_site *site = thread->stop_site;
 
-#if 0
-	for (;;) {
-		err = drgn_breakpoint_site_disable(site);
-		if (err)
-			return err;
+	_cleanup_promise_ struct breakpoint_sites_promise *site_promise =
+		breakpoint_sites_promise_create(1);
+	if (!site_promise)
+		return &drgn_enomem;
+	drgn_breakpoint_site_incref(site);
+	site_promise->sites[0] = site;
+	site_promise->num_sites = 1;
 
-		err = drgn_breakpoint_site_enable(site);
+	_cleanup_promise_ struct resume_threads_promise *step_promise =
+		resume_threads_promise_create(1);
+	if (!step_promise)
+		return &drgn_enomem;
+	struct drgn_resume_action action = {
+		.thread = thread,
+		.mode = DRGN_RESUME_MODE_STEPI,
+		.sig = thread->resume_signal,
+	};
+	resume_threads_promise_append_action(&step_promise, &action);
+	step_promise->promise.promise.then = bypass_breakpoint_resume_done;
+
+	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
+	ctrl->ops.disable_breakpoint_sites(ctrl->arg, site_promise->sites, 1,
+					   drgn_promise_share(&site_promise->promise));
+	err = wait_for_promise(prog, &site_promise->promise.promise);
+	if (err)
+		return err;
+
+	ctrl->ops.resume_threads(ctrl->arg, prog, step_promise->actions,
+				 step_promise->num_actions,
+				 drgn_promise_share(&step_promise->promise));
+	err = wait_for_promise(prog, &step_promise->promise.promise);
+	if (err)
+		return err;
+
+	while (prog->bypassing_breakpoint) {
+		err = drgn_program_poll(prog, -1, NULL);
 		if (err)
 			return err;
 	}
-#endif
+
+	// TODO: add a real way to do this?
+	site_promise->promise.promise.err = &promise_new;
+	ctrl->ops.enable_breakpoint_sites(ctrl->arg, site_promise->sites, 1,
+					  drgn_promise_share(&site_promise->promise));
+	return wait_for_promise(prog, &site_promise->promise.promise);
+}
+
+static struct drgn_error *continue_all_threads(struct drgn_program *prog)
+{
+	struct drgn_error *err;
 
 	_cleanup_promise_ struct resume_threads_promise *promise =
 		resume_threads_promise_create(1);
@@ -1066,7 +1133,6 @@ static struct drgn_error *continue_all_threads(struct drgn_program *prog)
 		return &drgn_enomem;
 
 	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-
 	ctrl->ops.resume_threads(ctrl->arg, prog, promise->actions,
 				 promise->num_actions,
 				 drgn_promise_share(&promise->promise));
@@ -1160,6 +1226,14 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 	}
 	move_thread(thread, &prog->resumed_threads);
 	thread->stop_event_emitted = false;
+
+	// Not drgn_thread_stop_reason() because we just cleared
+	// stop_event_emitted.
+	if (thread->stop_reason == DRGN_STOP_REASON_BREAKPOINT) {
+		err = bypass_breakpoint(thread);
+		if (err)
+			return err;
+	}
 
 	if (!list_empty(&prog->stopped_threads)) {
 		thread = list_first_entry(&prog->stopped_threads,
@@ -2484,7 +2558,7 @@ drgn_notify_program_lost(struct drgn_program *prog, struct drgn_error *_err)
 static bool ignore_notify_thread_stop(struct drgn_thread *thread)
 {
 	struct drgn_program *prog = drgn_thread_program(thread);
-	if (prog->in_all_stop) {
+	if (prog->in_all_stop && !prog->bypassing_breakpoint) {
 		drgn_log_warning(prog,
 				 "ignored thread stop notification while in all-stop");
 		return true;
@@ -2520,22 +2594,32 @@ drgn_notify_thread_breakpoint_impl(struct drgn_thread *thread,
 LIBDRGN_PUBLIC void drgn_notify_thread_stop(struct drgn_thread *thread, int sig,
 					    uint64_t pc, uint64_t reason_mask)
 {
+	// TODO: validate sig
 	if (ignore_notify_thread_stop(thread))
 		return;
 
-	if (sig == SIGTRAP
-	    && reason_mask & (1 << DRGN_STOP_REASON_BREAKPOINT)) {
+	enum drgn_stop_reason stop_reason = DRGN_STOP_REASON_SIGNAL;
+	if (sig == SIGTRAP) {
 		struct drgn_program *prog = drgn_thread_program(thread);
-		auto it = drgn_breakpoint_site_table_search(&prog->breakpoint_sites,
-							    &pc);
-		if (it.entry && drgn_breakpoint_site_enabled(*it.entry)) {
-			drgn_notify_thread_breakpoint_impl(thread, *it.entry);
-			return;
+		if (reason_mask & (1 << DRGN_STOP_REASON_BREAKPOINT)) {
+			auto it = drgn_breakpoint_site_table_search(&prog->breakpoint_sites,
+								    &pc);
+			if (it.entry && drgn_breakpoint_site_enabled(*it.entry)) {
+				drgn_notify_thread_breakpoint_impl(thread,
+								   *it.entry);
+				return;
+			}
+		}
+		if (reason_mask & (1 << DRGN_STOP_REASON_STEP)
+		    && thread->stepping) {
+			thread->stepping = false;
+			if (thread == prog->bypassing_breakpoint)
+				return;
+			stop_reason = DRGN_STOP_REASON_STEP;
 		}
 	}
 
-	thread->stop_reason = DRGN_STOP_REASON_SIGNAL;
-	// TODO: we don't check sig now
+	thread->stop_reason = stop_reason;
 	thread->stop_signal = sig;
 
 	drgn_notify_thread_stop_common(thread);
@@ -2551,6 +2635,11 @@ void drgn_notify_thread_breakpoint(struct drgn_thread *thread,
 
 LIBDRGN_PUBLIC void drgn_notify_all_stop(struct drgn_program *prog)
 {
+	if (prog->bypassing_breakpoint) {
+		prog->bypassing_breakpoint = NULL;
+		return;
+	}
+
 	if (!prog->all_stop) {
 		drgn_log_warning(prog,
 				 "ignored all-stop notification in non-stop mode");
