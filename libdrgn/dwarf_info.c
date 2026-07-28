@@ -662,10 +662,6 @@ drgn_dwarf_index_read_file(struct drgn_elf_file *file,
 static struct drgn_error *read_strx(struct drgn_dwarf_index_cu_buffer *buffer,
 				    uint64_t strx, const char **ret)
 {
-	if (!buffer->cu->str_offsets) {
-		return binary_buffer_error(&buffer->bb,
-					   "string index without .debug_str_offsets section");
-	}
 	Elf_Data *debug_str_offsets =
 		buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
 	size_t offset_size = buffer->cu->is_64_bit ? 8 : 4;
@@ -848,19 +844,36 @@ static struct drgn_error *dw_at_name_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	case DW_FORM_strx:
 	case DW_FORM_GNU_str_index:
-		*insn_ret = INSN_NAME_STRX;
-		return NULL;
 	case DW_FORM_strx1:
-		*insn_ret = INSN_NAME_STRX1;
-		return NULL;
 	case DW_FORM_strx2:
-		*insn_ret = INSN_NAME_STRX2;
-		return NULL;
 	case DW_FORM_strx3:
-		*insn_ret = INSN_NAME_STRX3;
-		return NULL;
 	case DW_FORM_strx4:
-		*insn_ret = INSN_NAME_STRX4;
+		if (!cu->str_offsets) {
+			return binary_buffer_error(bb,
+						   "string index without .debug_str_offsets section");
+		}
+		if (!cu->file->scn_data[DRGN_SCN_DEBUG_STR]) {
+			return binary_buffer_error(bb,
+						   "string index without .debug_str section");
+		}
+		switch (form) {
+		case DW_FORM_strx:
+		case DW_FORM_GNU_str_index:
+			*insn_ret = INSN_NAME_STRX;
+			break;
+		case DW_FORM_strx1:
+			*insn_ret = INSN_NAME_STRX1;
+			break;
+		case DW_FORM_strx2:
+			*insn_ret = INSN_NAME_STRX2;
+			break;
+		case DW_FORM_strx3:
+			*insn_ret = INSN_NAME_STRX3;
+			break;
+		case DW_FORM_strx4:
+			*insn_ret = INSN_NAME_STRX4;
+			break;
+		}
 		return NULL;
 	case DW_FORM_GNU_strp_alt:
 		if (!cu->file->alt_debug_str_data) {
