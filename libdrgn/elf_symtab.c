@@ -96,6 +96,13 @@ load_gnu_debugdata_file(struct drgn_module *module, Elf_Scn *gnu_debugdata_scn,
 	if (err)
 		return err;
 
+	if (gnu_debugdata_data->d_size == 0) {
+		drgn_log_debug(module->prog,
+			       "%s: .gnu_debugdata is empty; ignoring",
+			       module->loaded_file->path);
+		return NULL;
+	}
+
 	_cleanup_(lzma_end) lzma_stream stream = LZMA_STREAM_INIT;
 	lzma_ret ret = lzma_stream_decoder(&stream, UINT64_MAX, 0);
 	if (ret != LZMA_OK)
@@ -122,6 +129,12 @@ load_gnu_debugdata_file(struct drgn_module *module, Elf_Scn *gnu_debugdata_scn,
 
 		bytes_decoded = (char *)stream.next_out - (char *)data;
 		if (ret == LZMA_STREAM_END) {
+			if (bytes_decoded == 0) {
+				drgn_log_debug(module->prog,
+					       "%s: .gnu_debugdata decompressed to empty; ignoring",
+					       module->loaded_file->path);
+				return NULL;
+			}
 			void *tmp = realloc(data, bytes_decoded);
 			if (tmp)
 				data = tmp;

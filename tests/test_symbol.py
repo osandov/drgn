@@ -25,6 +25,7 @@ def create_elf_symbol_file(
     symbols=(),
     dynamic_symbols=(),
     gnu_debugdata_symbols=(),
+    gnu_debugdata_contents=None,
     dwarf=False,
     loadable=True,
 ):
@@ -35,6 +36,7 @@ def create_elf_symbol_file(
         return max(symbol.value + max(symbol.size, 1) for symbol in symbols)
 
     assert symbols or dynamic_symbols or gnu_debugdata_symbols
+    assert not gnu_debugdata_symbols or gnu_debugdata_contents is None
     start = float("inf")
     end = float("-inf")
     if symbols:
@@ -93,6 +95,15 @@ def create_elf_symbol_file(
                 sh_type=SHT.PROGBITS,
                 memsz=len(gds_compressed),
                 data=gds_compressed,
+            )
+        )
+
+    if gnu_debugdata_contents is not None:
+        sections.append(
+            ElfSection(
+                name=".gnu_debugdata",
+                sh_type=SHT.PROGBITS,
+                data=gnu_debugdata_contents,
             )
         )
 
@@ -762,6 +773,22 @@ class TestGnuDebugdata(TestCase):
                 if action != "combine":
                     self.assert_all_symbols_found_by_address(prog, expected)
                 self.assert_all_symbols_returned_by_lookup(prog, expected)
+
+    def _test_malformed(self, contents):
+        prog = Program()
+        program_add_elf_symbol_file(
+            prog,
+            "module0",
+            dynamic_symbols=[ElfSymbol("sym", 0xFFFF0000, 0x8, STT.FUNC, STB.LOCAL)],
+            gnu_debugdata_contents=contents,
+        )
+        self.assertIn("sym", [symbol.name for symbol in prog.symbols()])
+
+    def test_empty_section(self):
+        self._test_malformed(b"")
+
+    def test_decompresses_to_empty(self):
+        self._test_malformed(lzma.compress(b""))
 
 
 class TestSymbolFinder(TestCase):
