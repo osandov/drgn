@@ -160,7 +160,7 @@ get_initial_registers_from_struct_ppc64(struct drgn_program *prog,
 						  (uint64_t *)buf + 14);
 
 	uint64_t ccr;
-	memcpy(&ccr, (uint64_t *)regs + 38, sizeof(ccr));
+	memcpy(&ccr, (uint64_t *)buf + 38, sizeof(ccr));
 	uint64_t cr[8];
 	if (bswap) {
 		for (int i = 0; i < 8; i += 2) {
