@@ -5181,9 +5181,8 @@ static struct drgn_error *add_dwarf_enumerators(Dwarf_Die *enumeration_type,
 	while (r == 0) {
 		if (dwarf_tag(&child) == DW_TAG_enumerator) {
 			const char *die_name = dwarf_diename(&child);
-			if (!die_name)
-				continue;
-			if (!const_char_p_vector_append(vec, &die_name))
+			if (die_name
+			    && !const_char_p_vector_append(vec, &die_name))
 				return &drgn_enomem;
 		}
 		r = dwarf_siblingof(&child, &child);
