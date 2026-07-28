@@ -16,6 +16,7 @@
 
 #include "cleanup.h"
 #include "drgn_internal.h"
+#include "elf_file.h"
 #include "elf_notes.h"
 #include "error.h"
 #include "hexlify.h"
@@ -678,12 +679,6 @@ qmp_setup_process_mem(struct drgn_program *prog, pid_t pid,
 		       "QEMU process memory reading enabled: PID %d, %zu segments",
 		       (int)pid, num_succeeded);
 	return NULL;
-}
-
-#define _cleanup_elf_end_ _cleanup_(elf_endp)
-static inline void elf_endp(Elf **elfp)
-{
-	elf_end(*elfp);
 }
 
 static struct drgn_error *parse_vmcoreinfo_from_dump(struct drgn_program *prog,

@@ -45,12 +45,6 @@
 #include "serialize.h"
 #include "util.h"
 
-#define _cleanup_elf_end_ _cleanup_(elf_endp)
-static inline void elf_endp(Elf **elfp)
-{
-	elf_end(*elfp);
-}
-
 #if !_ELFUTILS_PREREQ(0, 175)
 // If we don't have dwelf_elf_begin(), this is equivalent except that it doesn't
 // handle compressed files.

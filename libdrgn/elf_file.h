@@ -35,6 +35,12 @@ struct drgn_module;
  * @{
  */
 
+#define _cleanup_elf_end_ __attribute__((__cleanup__(elf_endp)))
+static inline void elf_endp(Elf **elfp)
+{
+	elf_end(*elfp);
+}
+
 /**
  * Read the raw data from an ELF section, decompressing it first if it is
  * compressed.
