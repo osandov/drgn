@@ -156,16 +156,30 @@ load_gnu_debugdata_file(struct drgn_module *module, Elf_Scn *gnu_debugdata_scn,
 	    || !string_builder_null_terminate(&path))
 		return &drgn_enomem;
 
-	Elf *elf = elf_memory(data, bytes_decoded);
+	_cleanup_elf_end_ Elf *elf = elf_memory(data, bytes_decoded);
 	if (!elf)
 		return drgn_error_libelf();
 
+	// Relocatable files must have their section addresses set. We could do
+	// that here, but it doesn't really make sense for a .gnu_debugdata file
+	// to be relocatable. Reject it early instead.
+	GElf_Ehdr ehdr_mem, *ehdr = gelf_getehdr(elf, &ehdr_mem);
+	if (!ehdr)
+		return drgn_error_libelf();
+	if (ehdr->e_type == ET_REL) {
+		drgn_log_debug(module->prog,
+			       "%s: .gnu_debugdata is relocatable; ignoring",
+			       module->loaded_file->path);
+		return NULL;
+	}
+
 	err = drgn_elf_file_create(module, path.str, -1, data, elf, file_ret);
 	if (err)
-		elf_end(elf);
-	else
-		data = NULL;
-	return err;
+		return err;
+	// Owned by *file_ret now.
+	data = NULL;
+	elf = NULL;
+	return NULL;
 }
 #else
 static struct drgn_error *

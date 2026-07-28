@@ -790,6 +790,21 @@ class TestGnuDebugdata(TestCase):
     def test_decompresses_to_empty(self):
         self._test_malformed(lzma.compress(b""))
 
+    def test_relocatable(self):
+        reloc = create_elf_file(
+            ET.REL,
+            sections=[
+                ElfSection(
+                    name=".text",
+                    sh_type=SHT.PROGBITS,
+                    sh_flags=SHF.ALLOC,
+                    data=bytes(8),
+                ),
+            ],
+            symbols=[ElfSymbol("gds_sym", 0x0, 0x8, STT.FUNC, STB.GLOBAL, shindex=1)],
+        )
+        self._test_malformed(lzma.compress(reloc))
+
 
 class TestSymbolFinder(TestCase):
     TEST_SYMS = [
