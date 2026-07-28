@@ -445,7 +445,8 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 						       sizeof(uint64_t));
 						if (little_endian !=
 						    HOST_LITTLE_ENDIAN)
-							bswap_64(prog->aarch64_insn_pac_mask);
+							prog->aarch64_insn_pac_mask =
+								bswap_64(prog->aarch64_insn_pac_mask);
 					}
 				} else if (nhdr.n_namesz == sizeof("VMCOREINFO") &&
 					   memcmp(name, "VMCOREINFO",
