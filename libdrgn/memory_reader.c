@@ -1213,7 +1213,7 @@ drgn_program_search_memory_regex(struct drgn_program *prog, const void *pattern,
 		return &drgn_enomem;
 
 	struct drgn_memory_search_iterator *it =
-		drgn_memory_search_iterator_create_common(prog, min_length, 1);
+		drgn_memory_search_iterator_create_common(prog, min_length, 0);
 	if (!it)
 		return &drgn_enomem;
 

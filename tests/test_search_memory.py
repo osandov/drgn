@@ -904,6 +904,13 @@ class TestSearchMemoryRegex(TestCase):
             [(0x3FFFFFFE, b"foo")],
         )
 
+    def test_buffer_capacity_at_boundary(self):
+        prog = mock_search_memory_program(MockMemorySegment(b"ab", 0x7FFFFFFF))
+        self.assertEqual(
+            list(prog.search_memory_regex(rb"ab")),
+            [(0x7FFFFFFF, b"ab")],
+        )
+
     @unittest.skipUnless(drgn._with_pcre2_utf, "PCRE2 does not support UTF-8")
     def test_str_valid_utf8(self):
         # 'ñ' is \xc3\xb1 in UTF-8. '±' is \xc2\xb1 in UTF-8. A Unicode search
