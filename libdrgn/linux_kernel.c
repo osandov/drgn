@@ -2661,7 +2661,7 @@ linux_cpu_present_mask(struct drgn_program *prog, uint64_t **bitmap_ret,
 	} else {
 		size_t nr_words = nr_cpu_ids / 32 + ((nr_cpu_ids % 32) ? 1 : 0);
 		_cleanup_free_ uint32_t *orig = malloc_array(nr_words, sizeof(*orig));
-		if (!bitmap)
+		if (!orig)
 			return &drgn_enomem;
 
 		err = drgn_program_read_memory(prog, orig, bitmap_addr, nr_words * 4, false);
