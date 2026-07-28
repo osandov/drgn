@@ -14,6 +14,7 @@
 
 #include <libelf.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #ifdef WITH_LIBKDUMPFILE
 #include <libkdumpfile/kdumpfile.h>
@@ -173,6 +174,8 @@ struct drgn_program {
 	struct fd_handler_table fd_handlers;
 	struct fd_handler *fd_handlers_to_free;
 	int epoll_fd;
+	struct random_data random_data;
+	char random_buf[128];
 
 	// Cached `NT_PRPSINFO` note.
 	struct drgn_prpsinfo prpsinfo;

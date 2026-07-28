@@ -367,9 +367,8 @@ struct drgn_thread {
 	struct drgn_object object;
 	uint32_t tid;
 	bool have_object;
-	// TODO: there's a lot of stuff that we didn't end up needing in here.
-	// Clean it up.
-	int8_t resuming;
+	// TODO: there might still be stuff that we didn't end up needing in
+	// here. Clean it up.
 	bool stop_event_emitted;
 	bool stepping;
 	uint64_t generation;
@@ -381,10 +380,7 @@ struct drgn_thread {
 	enum drgn_stop_reason stop_reason;
 	int stop_signal;
 	struct drgn_breakpoint_site *stop_site;
-	int last_signal; // TODO: remove?
-	enum drgn_resume_mode resume_mode;
 	int resume_signal;
-	size_t resume_index;
 };
 
 DRGN_ACCESSOR_LINKAGE

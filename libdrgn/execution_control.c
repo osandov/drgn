@@ -295,6 +295,8 @@ void drgn_program_init_execution_control(struct drgn_program *prog)
 	INIT_LIST_HEAD(&prog->event_listeners);
 	fd_handler_table_init(&prog->fd_handlers);
 	prog->epoll_fd = -1;
+	initstate_r(time(NULL) ^ getpid(), prog->random_buf,
+		    sizeof(prog->random_buf), &prog->random_data);
 }
 
 static void clear_running_threads(struct drgn_program *prog)
@@ -312,12 +314,10 @@ static void clear_controlled_threads(struct drgn_program *prog)
 	// Detach implicitly resumes all threads. At deinit, we don't care
 	// anymore.
 	list_for_each_entry_safe(thread, tmp, &prog->stopped_threads, node) {
-		thread->last_signal = -1;
 		list_del_init(&thread->node);
 		drgn_thread_decref(thread);
 	}
 	list_for_each_entry_safe(thread, tmp, &prog->resumed_threads, node) {
-		thread->last_signal = -1;
 		thread->resume_signal = -1;
 		list_del_init(&thread->node);
 		drgn_thread_decref(thread);
@@ -786,8 +786,6 @@ static inline void unleash_thread(struct drgn_thread *thread)
 static void set_resume_signal(struct drgn_thread *thread, int sig)
 {
 	if (sig == DRGN_RESUME_DEFAULT_SIGNAL) {
-		if (thread->resume_signal >= 0)
-			return;
 		sig = drgn_thread_stop_signal(thread);
 		if (sig == SIGINT || sig == SIGTRAP)
 			sig = 0;
@@ -921,6 +919,35 @@ static void emit_thread_stop_event(struct drgn_thread *thread)
 		.thread = thread,
 	};
 	emit_event(prog, &event);
+}
+
+static void emit_random_thread_stop_event(struct drgn_program *prog)
+{
+	struct drgn_thread *thread;
+	if (list_is_singular(&prog->stopped_threads)) {
+		// Common case: only one thread stopped.
+		thread = list_first_entry(&prog->stopped_threads,
+					  struct drgn_thread, node);
+	} else {
+		// Multiple threads stopped simultaneously.
+		size_t n = list_count_nodes(&prog->stopped_threads);
+		if (n == 0)
+			return; // TODO: no stopped threads?
+#ifdef TODO
+		int32_t i;
+		random_r(&prog->random_data, &i);
+		i %= n;
+#else
+		int32_t i = n - 1;
+#endif
+		list_for_each_entry(thread, &prog->stopped_threads, node) {
+			if (i == 0)
+				break;
+			i--;
+		}
+		list_move(&thread->node, &prog->stopped_threads);
+	}
+	emit_thread_stop_event(thread);
 }
 
 struct breakpoint_sites_promise {
@@ -1147,46 +1174,12 @@ static struct drgn_error *continue_all_threads(struct drgn_program *prog)
 		drgn_clear_ref(thread->stop_site);
 		unleash_thread(thread);
 	}
-	/* clear_running_threads(prog); */
+#if 0
+	clear_running_threads(prog);
+#endif
 	prog->in_all_stop = false;
 	return NULL;
 }
-
-#if 0
-static void resume_only_thread_success(void *arg)
-{
-	if (!set_result(result, NULL))
-		return;
-
-	if (thread->resume_signal < 0) {
-		// The thread stopped again while resuming.
-		continue;
-	}
-	thread->stop_reason = DRGN_STOP_REASON_NONE;
-	thread->resume_signal = -1;
-	unleash_thread(thread);
-}
-
-static struct drgn_error *resume_only_thread(struct drgn_thread *thread)
-{
-	struct drgn_program *prog = drgn_thread_program(thread);
-	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-
-	struct drgn_thread_resume_action action = {
-		.thread = thread,
-		.mode = thread->resume_mode,
-		.sig = thread->resume_signal,
-	};
-
-	struct result_arg *result = result_arg_alloc(prog);
-	if (!result)
-		return &drgn_enomem;
-	ctrl->ops.resume_threads(ctrl->arg, prog, &action, 1, false,
-				 resume_only_thread_success, noop_error,
-				 result);
-	return wait_for_result(result);
-}
-#endif
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
@@ -1246,490 +1239,11 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 					 thread->tid);
 		}
 		thread->resume_signal = -1;
-		emit_thread_stop_event(thread);
+		emit_random_thread_stop_event(prog);
 		return NULL;
 	}
 	return continue_all_threads(prog);
-
-#if 0
-	thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
-
-	if (prog->in_all_stop && !only) {
-		bool was_first_stopped =
-			list_is_first(&thread->node, &prog->stopped_threads);
-
-		move_thread(thread, &prog->resumed_threads);
-
-		if (!list_empty(&prog->stopped_threads)) {
-			if (was_first_stopped) {
-				struct drgn_thread *next_stopped =
-					list_first_entry(&prog->stopped_threads,
-							 struct drgn_thread,
-							 node);
-				emit_thread_stop_event(next_stopped);
-			}
-			return NULL;
-		}
-
-		return resume_all_threads(prog);
-	} else {
-		return drgn_error_format(DRGN_ERROR_OTHER, "TODO %d %d",
-					 prog->in_all_stop, only);
-#if 0
-		move_thread(thread, &prog->resumed_threads);
-		return resume_only_thread(thread);
-#endif
-	}
-#endif
 }
-
-#if 0
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_thread_resume(struct drgn_thread *thread, int sig, bool only,
-		   bool sync_events)
-{
-	struct drgn_error *err;
-
-	if (sig < 0 && sig != DRGN_RESUME_DEFAULT_SIGNAL) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "resume signal must be non-negative");
-	}
-
-	struct drgn_program *prog = drgn_thread_program(thread);
-	err = sync_events_and_check_attached(prog, sync_events);
-	if (err)
-		return err;
-
-	int stopped;
-	err = drgn_thread_stopped(thread, false, &stopped);
-	if (err)
-		return err;
-	if (!stopped) {
-		return drgn_error_create(DRGN_ERROR_NOT_STOPPED,
-					 "thread is not stopped");
-	}
-
-	resuming_threads_guard(prog);
-
-	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-	if (prog->in_all_stop && !only) {
-		if (!ctrl->ops.resume_all_threads) {
-			return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
-						 "resuming all threads is not supported");
-		}
-	} else {
-		if (!ctrl->ops.resume_only_threads) {
-			return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
-						 "resuming specific threads is not supported");
-		}
-	}
-
-	set_resume_signal(thread, sig);
-
-	move_thread(thread, &prog->resumed_threads);
-
-	if (prog->in_all_stop && !only) {
-		if (!list_empty(&prog->stopped_threads))
-			return NULL;
-		return resume_all_threads(prog, ctrl);
-	}
-
-	err = ctrl->ops.resume_only_threads(ctrl->arg, prog, &thread,
-					    &thread->resume_signal, 1);
-	if (err)
-		return err;
-	add_running_threads(prog, &thread, 1);
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_resume_all_threads(struct drgn_program *prog,
-				struct drgn_thread * const *threads,
-				const int *sigs, size_t num_threads,
-				bool sync_events)
-{
-	struct drgn_error *err;
-
-	err = sync_events_and_check_attached(prog, sync_events);
-	if (err)
-		return err;
-
-	for (size_t i = 0; i < num_threads; i++) {
-		struct drgn_thread *thread = threads[i];
-
-		if (sigs && sigs[i] < 0
-		    && sigs[i] != DRGN_RESUME_DEFAULT_SIGNAL) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "resume signal must be non-negative");
-		}
-
-		if (drgn_thread_program(thread) != prog) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "thread from wrong program");
-		}
-		int stopped;
-		err = drgn_thread_stopped(thread, false, &stopped);
-		if (err)
-			return err;
-		if (!stopped) {
-			return drgn_error_create(DRGN_ERROR_NOT_STOPPED,
-						 "thread is not stopped");
-		}
-	}
-
-	resuming_threads_guard(prog);
-
-	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-	if (prog->in_all_stop) {
-		if (!ctrl->ops.resume_all_threads) {
-			return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
-						 "resuming all threads is not supported");
-		}
-	} else {
-		if (!ctrl->ops.resume_only_threads) {
-			return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
-						 "resuming specific threads is not supported");
-		}
-	}
-
-	for (size_t i = 0; i < num_threads; i++) {
-		struct drgn_thread *thread = threads[i];
-		set_resume_signal(thread,
-				  sigs ? sigs[i] : DRGN_RESUME_DEFAULT_SIGNAL);
-		move_thread(thread, &prog->resumed_threads);
-	}
-
-	struct drgn_thread *thread;
-	list_for_each_entry(thread, &prog->stopped_threads, node)
-		set_resume_signal(thread, DRGN_RESUME_DEFAULT_SIGNAL);
-	list_splice_tail_init(&prog->stopped_threads, &prog->resumed_threads);
-
-	if (list_empty(&prog->resumed_threads) && !prog->in_all_stop)
-		return NULL;
-
-	return resume_all_threads(prog, ctrl);
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_resume_only_threads(struct drgn_program *prog,
-				 struct drgn_thread * const *threads,
-				 const int *sigs, size_t num_threads,
-				 bool sync_events)
-{
-	struct drgn_error *err;
-	if (!num_threads)
-		return NULL;
-
-	err = sync_events_and_check_attached(prog, sync_events);
-	if (err)
-		return err;
-
-	for (size_t i = 0; i < num_threads; i++) {
-		struct drgn_thread *thread = threads[i];
-
-		if (sigs && sigs[i] < 0
-		    && sigs[i] != DRGN_RESUME_DEFAULT_SIGNAL) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "resume signal must be non-negative");
-		}
-
-		if (drgn_thread_program(thread) != prog) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "thread from wrong program");
-		}
-		int stopped;
-		err = drgn_thread_stopped(thread, false, &stopped);
-		if (err)
-			return err;
-		if (!stopped) {
-			return drgn_error_create(DRGN_ERROR_NOT_STOPPED,
-						 "thread is not stopped");
-		}
-
-		thread->resume_index = SIZE_MAX;
-	}
-
-	resuming_threads_guard(prog);
-
-	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-	if (!ctrl->ops.resume_only_threads) {
-		return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
-					 "resuming specific threads is not supported");
-	}
-
-	VECTOR(drgn_thread_vector, unique_threads);
-	VECTOR(signal_vector, unique_sigs);
-	if (!drgn_thread_vector_reserve(&unique_threads, num_threads)
-	    || !signal_vector_reserve(&unique_sigs, num_threads))
-		return &drgn_enomem;
-	for (size_t i = 0; i < num_threads; i++) {
-		struct drgn_thread *thread = threads[i];
-		set_resume_signal(thread,
-				  sigs ? sigs[i] : DRGN_RESUME_DEFAULT_SIGNAL);
-		if (thread->resume_index == SIZE_MAX) {
-			thread->resume_index =
-				drgn_thread_vector_size(&unique_threads);
-			// Reserved above, so these can't fail.
-			drgn_thread_vector_append(&unique_threads, &thread);
-			signal_vector_append(&unique_sigs,
-					     &thread->resume_signal);
-			move_thread(thread, &prog->resumed_threads);
-		} else {
-			// Duplicate thread. Overwrite its corresponding signal.
-			*signal_vector_at(&unique_sigs, thread->resume_index) =
-				thread->resume_signal;
-		}
-	}
-
-	err = ctrl->ops.resume_only_threads(ctrl->arg, prog,
-					    drgn_thread_vector_begin(&unique_threads),
-					    signal_vector_begin(&unique_sigs),
-					    drgn_thread_vector_size(&unique_threads));
-	if (err)
-		return err;
-	add_running_threads(prog, drgn_thread_vector_begin(&unique_threads),
-			    drgn_thread_vector_size(&unique_threads));
-	return NULL;
-}
-
-DEFINE_VECTOR(drgn_thread_resume_action_vector,
-	      struct drgn_thread_resume_action);
-
-DEFINE_HASH_MAP(breakpoint_step_map, struct drgn_breakpoint_site *,
-		struct drgn_thread_vector threads, ptr_key_hash_pair,
-		scalar_key_eq);
-
-// TODO: name
-static bool add_action(struct drgn_thread_resume_action_vector *controller_actions,
-		       struct breakpoint_step_map *breakpoints,
-		       const struct drgn_thread_resume_action *action)
-{
-	struct drgn_thread *thread = action->thread;
-
-	if (thread->resume_generation == prog->resume_generation)
-		return true; // Duplicate thread. Skip it.
-	thread->resume_generation = prog->resume_generation;
-
-	// TODO: should we resolve DRGN_RESUME_DEFAULT_SIGNAL here?
-	thread->resuming = action->mode;
-	if (thread->breakpoint_site
-	    && !thread->breakpoint_site->hardware
-	    && drgn_breakpoint_site_enabled(thread->breakpoint_site)) {
-		struct drgn_thread_resume_action tmp_action = {
-			.thread = thread,
-			.mode = DRGN_RESUME_MODE_STEP,
-			.sig = action->sig,
-		};
-		// TODO: add to breakpoints
-	} else {
-		return drgn_thread_resume_action_vector_append(controller_actions,
-							       action);
-	}
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_resume_threads(struct drgn_program *prog,
-			    const struct drgn_thread_resume_action *actions,
-			    size_t num_actions, bool sync_events)
-{
-	struct drgn_error *err;
-	if (!num_actions) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "at least one thread must be given to resume");
-	}
-
-	err = sync_events_and_check_attached(prog, sync_events);
-	if (err)
-		return err;
-
-	resuming_threads_guard(prog);
-
-	prog->resume_generation++;
-
-	VECTOR(drgn_thread_resume_action_vector, controller_actions);
-	HASH_TABLE(breakpoint_step_map, breakpoints);
-	size_t new_num_actions = num_actions;
-	for (size_t i = 0; i < num_actions; i++) {
-		const struct drgn_thread_resume_action *action = &actions[i];
-		struct drgn_thread *thread = action->thread;
-
-		SWITCH_ENUM(action->mode) {
-		case DRGN_RESUME_MODE_CONTINUE:
-		case DRGN_RESUME_MODE_STEP:
-			if (action->sig < 0
-			    && action->sig != DRGN_RESUME_DEFAULT_SIGNAL) {
-				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-							 "resume signal must be non-negative");
-			}
-			break;
-		default:
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "invalid thread resume mode");
-		}
-
-		if (action->_reserved[0] || action->_reserved[1]) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "reserved fields must be 0");
-		}
-
-		if (thread) {
-			if (drgn_thread_program(thread) != prog) {
-				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-							 "thread from wrong program");
-			}
-			if (new_num_actions < num_actions)
-				continue; // TODO: explain
-
-			if (!add_action(&controller_actions, &breakpoints, action))
-				return &drgn_enomem;
-		} else {
-			if (new_num_actions < num_actions)
-				continue;
-			new_num_actions = i + 1;
-
-			prog->resuming = action->mode;
-			struct drgn_thread_resume_action tmp_action = *action;
-			list_for_each_entry(thread, &prog->stopped_threads,
-					    node) {
-				tmp_action.thread = thread;
-				if (!add_action(&controller_actions,
-						&breakpoints, &tmp_action))
-					return &drgn_enomem;
-			}
-			list_for_each_entry(thread, &prog->resumed_threads,
-					    node) {
-				tmp_action.thread = thread;
-				if (!add_action(&controller_actions,
-						&breakpoints, &tmp_action))
-					return &drgn_enomem;
-			}
-		}
-	}
-
-	num_actions = new_num_actions;
-
-	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-	// TODO: check that resume_threads/pause_all_threads are defined.
-
-	// TODO: this condition could be more specific: only if there could be
-	// something still running (i.e., in non-stop mode or something in
-	// running_threads in all-stop mode).
-	if (!breakpoint_step_map_empty(&breakpoints)) {
-		err = ctrl->ops.pause_all_threads(ctrl->arg, prog);
-		if (err)
-			return err;
-		// TODO: how should we update state for this? Pretend we're in
-		// all-stop, or add a specific paused flag?
-		// TODO: could the controller queue things that mess up the
-		// states of the threads we're about to work on?
-	}
-
-	hash_table_for_each(breakpoint_step_map, it, &breakpoints) {
-		err = ctrl->ops.disable_breakpoint_sites(ctrl->arg,
-							 &it->entry.key, 1);
-		if (err)
-			return err;
-
-		err = ctrl->ops.resume_threads(ctrl->arg, prog,
-					       drgn_thread_resume_action_vector_begin(&it->entry.value),
-					       drgn_thread_resume_action_vector_size(&it->entry.value),
-					       false);
-		if (err)
-			return err;
-
-		vector_for_each(drgn_thread_resume_action_vector, action,
-				&it->entry.value) {
-			struct drgn_thread *thread = action->thread;
-			if (!thread->resuming) {
-				// Thread stopped while stepping.
-				continue;
-			}
-
-			if (thread->resuming == DRGN_RESUME_MODE_CONTINUE) {
-				struct drgn_thread_resume_action tmp_action = {
-					.thread = thread,
-					.mode = DRGN_RESUME_MODE_CONTINUE,
-				};
-				// TODO: reserve so this can't fail.
-				drgn_thread_resume_action_vector_append(&controller_actions,
-									&tmp_action);
-			}
-
-			thread->last_signal = -1;
-			thread->resume_signal = -1;
-			move_thread(thread, &prog->stopped_threads);
-		}
-
-		err = ctrl->ops.enable_breakpoint_sites(ctrl->arg,
-							&it->entry.key, 1);
-		if (err)
-			return err;
-	}
-
-	if (!actions[new_num_actions - 1].thread) {
-		// TODO: reserve so this can't fail.
-		drgn_thread_resume_action_vector_append(&controller_actions,
-							&actions[new_num_actions - 1]);
-	}
-
-	err = ctrl->ops.resume_threads(ctrl->arg, prog,
-				       drgn_thread_resume_action_vector_begin(&controller_actions),
-				       drgn_thread_resume_action_vector_size(&controller_actions),
-				       !breakpoint_step_map_empty(&breakpoints));
-	if (err)
-		return err;
-
-	if (!drgn_thread_resume_action_vector_last(&controller_actions)->thread) {
-		struct drgn_thread_resume_action *action =
-			drgn_thread_resume_action_vector_pop(&controller_actions);
-		SWITCH_ENUM(action->mode) {
-		case DRGN_RESUME_MODE_CONTINUE:
-			// As long as no other threads stopped, we're no longer
-			// in all-stop.
-			if (prog->in_all_stop && prog->resuming) {
-				prog->in_all_stop = false;
-				clear_running_threads(prog);
-			}
-			break;
-		case DRGN_RESUME_MODE_STEP:
-			if (prog->all_stop) {
-				prog->in_all_stop = true;
-				clear_running_threads(prog);
-			}
-			break;
-		default:
-			UNREACHABLE();
-		}
-	}
-
-	vector_for_each(drgn_thread_resume_action_vector, action,
-			&controller_actions) {
-		struct drgn_thread *thread = action->thread;
-		if (!thread->resuming) {
-			// Thread stopped while resuming.
-			continue;
-		}
-
-		thread->last_signal = -1;
-		thread->resume_signal = -1;
-		SWITCH_ENUM(action->mode) {
-		case DRGN_RESUME_MODE_CONTINUE:
-			if (prog->in_all_stop)
-				move_thread(thread, &prog->running_threads);
-			else
-				unleash_thread(thread);
-			break;
-		case DRGN_RESUME_MODE_STEP:
-			move_thread(thread, &prog->stopped_threads);
-			break;
-		default:
-			UNREACHABLE();
-		}
-	}
-
-	return NULL;
-}
-#endif
 
 void drgn_breakpoint_deinit(struct drgn_breakpoint *bp)
 {
@@ -2652,29 +2166,7 @@ LIBDRGN_PUBLIC void drgn_notify_all_stop(struct drgn_program *prog)
 	}
 
 	prog->in_all_stop = true;
-
-	struct drgn_thread *thread;
-	if (list_is_singular(&prog->stopped_threads)) {
-		// Common case: only one thread stopped.
-		thread = list_first_entry(&prog->stopped_threads,
-					  struct drgn_thread, node);
-	} else {
-		// Multiple threads stopped simultaneously. Pick the first
-		// thread to emit a stop event for randomly using reservoir
-		// sampling. TODO: explain why
-		thread = NULL;
-		struct drgn_thread *thread2;
-		long i = 0;
-		list_for_each_entry(thread2, &prog->stopped_threads, node) {
-			i++;
-			if (random() % i == 0)
-				thread = thread2;
-		}
-		if (!thread)
-			return; // TODO: no stopped threads?
-		list_rotate_to_front(&thread->node, &prog->stopped_threads);
-	}
-	emit_thread_stop_event(thread);
+	emit_random_thread_stop_event(prog);
 }
 
 static inline uint32_t drgn_fd_events_to_epoll(enum drgn_fd_events events)

@@ -3,9 +3,9 @@
 
 import collections
 import contextlib
+import functools
 import os
 import signal
-import functools
 
 import drgn
 from tests import TestCase
@@ -103,12 +103,12 @@ class MockExecutionController(drgn.ExecutionController):
 Barrier = object()
 
 
-class QueueCall:
+class Call:
     def __init__(self, fn):
         self._fn = fn
 
 
-QueueBreak = object()
+Break = object()
 
 
 class ExpectOp:
@@ -147,7 +147,6 @@ class _Expect:
 
     def op_hook(self, name, args, promise, result):
         if self.exception is not None:
-            e = self.exception
             promise.set_exception(self.exception)
             self.exception = None
             return True
@@ -176,39 +175,32 @@ class _Expect:
         return True
 
     def _complete_op(self, promise, result):
-        self._complete_pending()
-        promise.set_result(result)
-        self._queue_next()
-
-    def _do_call(self, fn, prog):
-        self._complete_pending()
-        fn(prog)
-        self._queue_next()
-
-    def _complete_stop(self, prog):
-        self._complete_pending()
-        self._queue_next()
-
-    def _complete_pending(self):
         self._pending -= 1
         if self._pending == 0:
             while self._i < len(self._l) and self._l[self._i] is Barrier:
                 self._i += 1
+        promise.set_result(result)
+        self._queue_next()
+
+    def _complete_call(self, fn, prog):
+        self._i += 1
+        fn(prog)
+        self._queue_next()
+
+    def _complete_break(self, prog):
+        self._i += 1
+        self._queue_next()
 
     def _queue_next(self):
-        while self._i < len(self._l):
-            if isinstance(self._l[self._i], QueueCall):
-                fn = self._l[self._i]._fn
-                self._i += 1
-                self._pending += 1
-                self._ctrl._queue_call(functools.partial(self._do_call, fn))
-            elif self._l[self._i] is QueueBreak:
-                self._i += 1
-                self._pending += 1
-                self._ctrl._queue_break()
-                self._ctrl._queue_call(self._complete_stop)
-            else:
-                break
+        if self._i >= len(self._l):
+            return
+        if isinstance(self._l[self._i], Call):
+            self._ctrl._queue_call(
+                functools.partial(self._complete_call, self._l[self._i]._fn)
+            )
+        elif self._l[self._i] is Break:
+            self._ctrl._queue_break()
+            self._ctrl._queue_call(self._complete_break)
 
 
 class ExecutionControlTestCase(TestCase):
@@ -519,23 +511,25 @@ class TestAllStop(ExecutionControlTestCase):
                 )
             )
 
-            def stop_event(event):
-                if event != drgn.ThreadStopEvent(self.prog.thread(1)):
-                    return False
+            def check_stop_reasons():
                 self.assertEqual(
-                    event.thread.stop_reason, drgn.SignalStopReason(signal.SIGWINCH)
+                    self.prog.thread(1).stop_reason,
+                    drgn.SignalStopReason(signal.SIGWINCH),
+                )
+                self.assertEqual(
+                    self.prog.thread(2).stop_reason, drgn.SyntheticStopReason()
                 )
                 return True
 
-            with self.expect(ExpectEvent(stop_event)):
+            with self.expect(
+                ExpectEvent(
+                    lambda event: event == drgn.ThreadStopEvent(self.prog.thread(1))
+                    and check_stop_reasons()
+                )
+            ):
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            self.assertEqual(
-                self.prog.thread(1).stop_reason, drgn.SignalStopReason(signal.SIGWINCH)
-            )
-            self.assertEqual(
-                self.prog.thread(2).stop_reason, drgn.SyntheticStopReason()
-            )
+            check_stop_reasons()
 
     def test_signal_stop_explicit(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
@@ -545,23 +539,25 @@ class TestAllStop(ExecutionControlTestCase):
                 )
             )
 
-            def stop_event(event):
-                if event != drgn.ThreadStopEvent(self.prog.thread(1)):
-                    return False
+            def check_stop_reasons():
                 self.assertEqual(
-                    event.thread.stop_reason, drgn.SignalStopReason(signal.SIGWINCH)
+                    self.prog.thread(1).stop_reason,
+                    drgn.SignalStopReason(signal.SIGWINCH),
+                )
+                self.assertEqual(
+                    self.prog.thread(2).stop_reason, drgn.SyntheticStopReason()
                 )
                 return True
 
-            with self.expect(ExpectEvent(stop_event)):
+            with self.expect(
+                ExpectEvent(
+                    lambda event: event == drgn.ThreadStopEvent(self.prog.thread(1))
+                    and check_stop_reasons()
+                )
+            ):
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            self.assertEqual(
-                self.prog.thread(1).stop_reason, drgn.SignalStopReason(signal.SIGWINCH)
-            )
-            self.assertEqual(
-                self.prog.thread(2).stop_reason, drgn.SyntheticStopReason()
-            )
+            check_stop_reasons()
 
     def test_signal_cont(self):
         for continue_tid, msg in (
@@ -730,6 +726,20 @@ class TestAllStop(ExecutionControlTestCase):
                     threads = None
                     signals = None
 
+                    def check_stop_reasons1():
+                        # It should look like only one thread stopped with a
+                        # signal.
+                        self.assertEqual(
+                            threads[0].stop_reason, drgn.SignalStopReason(signals[0])
+                        )
+                        self.assertEqual(
+                            threads[1].stop_reason, drgn.SyntheticStopReason()
+                        )
+                        self.assertEqual(
+                            threads[2].stop_reason, drgn.SyntheticStopReason()
+                        )
+                        return True
+
                     def event1(event):
                         nonlocal threads, signals
                         if not isinstance(event, drgn.ThreadStopEvent):
@@ -747,17 +757,26 @@ class TestAllStop(ExecutionControlTestCase):
                         else:
                             return False
                         threads.append(self.prog.thread(3))
-                        return True
+                        return check_stop_reasons1()
 
                     with self.expect(ExpectEvent(event1)):
                         self.queue_call(lambda prog: prog.notify_all_stop())
 
-                    # It should look like only one thread stopped with a signal.
-                    self.assertEqual(
-                        threads[0].stop_reason, drgn.SignalStopReason(signals[0])
-                    )
-                    self.assertEqual(threads[1].stop_reason, drgn.SyntheticStopReason())
-                    self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
+                    check_stop_reasons1()
+
+                    def check_stop_reasons2():
+                        # Now it should look like only the other thread stopped
+                        # with a signal.
+                        self.assertEqual(
+                            threads[0].stop_reason, drgn.SyntheticStopReason()
+                        )
+                        self.assertEqual(
+                            threads[1].stop_reason, drgn.SignalStopReason(signals[1])
+                        )
+                        self.assertEqual(
+                            threads[2].stop_reason, drgn.SyntheticStopReason()
+                        )
+                        return True
 
                     # This shouldn't call any operations, but it should emit
                     # the other thread stop event regardless of which thread we
@@ -765,17 +784,12 @@ class TestAllStop(ExecutionControlTestCase):
                     with self.expect(
                         ExpectEvent(
                             lambda event: event == drgn.ThreadStopEvent(threads[1])
+                            and check_stop_reasons2()
                         )
                     ):
                         threads[first_continue_idx].cont()
 
-                    # Now it should look like only the other thread stopped with a
-                    # signal.
-                    self.assertEqual(threads[0].stop_reason, drgn.SyntheticStopReason())
-                    self.assertEqual(
-                        threads[1].stop_reason, drgn.SignalStopReason(signals[1])
-                    )
-                    self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
+                        check_stop_reasons2()
 
                     # This should resume all threads with the pending signals.
                     with self.expect(
@@ -978,28 +992,29 @@ class TestAllStop(ExecutionControlTestCase):
                 lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
             )
 
-            def stop_event(event):
-                if event != drgn.ThreadStopEvent(self.prog.thread(1)):
-                    return False
+            def check_stop_reasons():
                 self.assertEqual(
-                    event.thread.stop_reason, drgn.BreakpointStopReason(site)
+                    self.prog.thread(1).stop_reason, drgn.BreakpointStopReason(site)
+                )
+                self.assertEqual(
+                    self.prog.thread(2).stop_reason, drgn.SyntheticStopReason()
                 )
                 return True
 
-            with self.expect(ExpectEvent(stop_event)):
+            with self.expect(
+                ExpectEvent(
+                    lambda event: event == drgn.ThreadStopEvent(self.prog.thread(1))
+                    and check_stop_reasons()
+                )
+            ):
                 self.queue_call(lambda prog: prog.notify_all_stop())
 
-            self.assertEqual(
-                self.prog.thread(1).stop_reason, drgn.BreakpointStopReason(site)
-            )
-            self.assertEqual(
-                self.prog.thread(2).stop_reason, drgn.SyntheticStopReason()
-            )
+            check_stop_reasons()
 
     def test_breakpoint_cont(self):
         for queue_break, msg in (
             ([], "completing step immediately"),
-            ([QueueBreak], "completing step after break"),
+            ([Break], "completing step after break"),
         ):
             with self.subTest(msg=msg), self.prog.attach(drgn.AttachFlags.ALL_STOP):
                 with self.complete_ops():
@@ -1023,14 +1038,13 @@ class TestAllStop(ExecutionControlTestCase):
                     ),
                     Barrier,
                     *queue_break,
-                    QueueCall(
+                    Call(
                         lambda prog: prog.notify_thread_stop(
                             prog.thread(1), signal.SIGTRAP, 0x1338
                         )
                     ),
                     *queue_break,
-                    QueueCall(lambda prog: prog.notify_all_stop()),
-                    Barrier,
+                    Call(lambda prog: prog.notify_all_stop()),
                     ExpectOp(
                         lambda name, args: name == "enable_breakpoint_sites"
                         and args == ([site],)
@@ -1047,7 +1061,423 @@ class TestAllStop(ExecutionControlTestCase):
                     self.assertIsNone(self.prog.thread(2).stop_reason)
 
     def test_breakpoint_cont_signaled(self):
-        assert False
+        def check_stop_reasons():
+            self.assertEqual(
+                self.prog.thread(1).stop_reason, drgn.SignalStopReason(signal.SIGSEGV)
+            )
+            self.assertEqual(
+                self.prog.thread(2).stop_reason, drgn.SyntheticStopReason()
+            )
+            return True
+
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            with self.complete_ops():
+                site = self.prog.set_breakpoint(0x1337).sites[0]
+
+            self.queue_call(
+                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
+            )
+            with self.ignore_events():
+                self.queue_call(lambda prog: prog.notify_all_stop())
+
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "disable_breakpoint_sites"
+                    and args == ([site],)
+                ),
+                Barrier,
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and args == ([drgn.StepiResumeAction(self.prog.thread(1), 0)],)
+                ),
+                Barrier,
+                Call(
+                    lambda prog: prog.notify_thread_stop(
+                        prog.thread(1), signal.SIGSEGV, 0x1337
+                    )
+                ),
+                Call(lambda prog: prog.notify_all_stop()),
+                ExpectOp(
+                    lambda name, args: name == "enable_breakpoint_sites"
+                    and args == ([site],)
+                ),
+                ExpectEvent(
+                    lambda event: event == drgn.ThreadStopEvent(self.prog.thread(1))
+                    and check_stop_reasons()
+                ),
+            ):
+                self.prog.thread(1).cont()
+
+                check_stop_reasons()
+
+    def test_simultaneous_breakpoint(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            with self.complete_ops():
+                site1 = self.prog.set_breakpoint(0x1337).sites[0]
+                site2 = self.prog.set_breakpoint(0xDEAD).sites[0]
+
+            self.queue_call(
+                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site1)
+            )
+            self.queue_call(
+                lambda prog: prog.notify_thread_breakpoint(prog.thread(2), site2)
+            )
+
+            threads = []
+            sites = []
+
+            def check_stop_reasons1():
+                self.assertEqual(
+                    threads[0].stop_reason, drgn.BreakpointStopReason(sites[0])
+                )
+                self.assertEqual(threads[1].stop_reason, drgn.SyntheticStopReason())
+                self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
+                return True
+
+            def stop_event1(event):
+                if not isinstance(event, drgn.ThreadStopEvent):
+                    return False
+                threads.append(event.thread)
+                if event.thread == self.prog.thread(1):
+                    threads.append(self.prog.thread(2))
+                    sites[:] = [site1, site2]
+                elif event.thread == self.prog.thread(2):
+                    threads.append(self.prog.thread(1))
+                    sites[:] = [site2, site1]
+                else:
+                    return False
+                threads.append(self.prog.thread(3))
+                return check_stop_reasons1()
+
+            with self.expect(ExpectEvent(stop_event1)):
+                self.queue_call(lambda prog: prog.notify_all_stop())
+
+            check_stop_reasons1()
+
+            def check_stop_reasons2():
+                self.assertEqual(threads[0].stop_reason, drgn.SyntheticStopReason())
+                self.assertEqual(
+                    threads[1].stop_reason, drgn.BreakpointStopReason(sites[1])
+                )
+                self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
+                return True
+
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "disable_breakpoint_sites"
+                    and args == ([sites[0]],)
+                ),
+                Barrier,
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and args == ([drgn.StepiResumeAction(threads[0], 0)],)
+                ),
+                Barrier,
+                Call(
+                    lambda prog: prog.notify_thread_stop(
+                        threads[0], signal.SIGTRAP, 0x1338
+                    )
+                ),
+                Call(lambda prog: prog.notify_all_stop()),
+                ExpectOp(
+                    lambda name, args: name == "enable_breakpoint_sites"
+                    and args == ([sites[0]],)
+                ),
+                ExpectEvent(
+                    lambda event: event == drgn.ThreadStopEvent(threads[1])
+                    and check_stop_reasons2()
+                ),
+            ):
+                threads[0].cont()
+
+                check_stop_reasons2()
+
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "disable_breakpoint_sites"
+                    and args == ([sites[1]],)
+                ),
+                Barrier,
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and args == ([drgn.StepiResumeAction(threads[1], 0)],)
+                ),
+                Barrier,
+                Call(
+                    lambda prog: prog.notify_thread_stop(
+                        threads[1], signal.SIGTRAP, 0x1338
+                    )
+                ),
+                Call(lambda prog: prog.notify_all_stop()),
+                ExpectOp(
+                    lambda name, args: name == "enable_breakpoint_sites"
+                    and args == ([sites[1]],)
+                ),
+                Barrier,
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and args == ([drgn.ContinueResumeAction(None, 0)],)
+                ),
+            ):
+                threads[1].cont()
+
+                self.assertIsNone(threads[0].stop_reason)
+                self.assertIsNone(threads[1].stop_reason)
+                self.assertIsNone(threads[2].stop_reason)
+
+    def test_simultaneous_breakpoint_cont_signaled(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            with self.complete_ops():
+                site1 = self.prog.set_breakpoint(0x1337).sites[0]
+                site2 = self.prog.set_breakpoint(0xF00D).sites[0]
+
+            self.queue_call(
+                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site1)
+            )
+            self.queue_call(
+                lambda prog: prog.notify_thread_breakpoint(prog.thread(2), site2)
+            )
+
+            threads = []
+            sites = []
+
+            def check_stop_reasons1():
+                self.assertEqual(
+                    threads[0].stop_reason, drgn.BreakpointStopReason(sites[0])
+                )
+                self.assertEqual(threads[1].stop_reason, drgn.SyntheticStopReason())
+                self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
+                return True
+
+            def stop_event1(event):
+                if not isinstance(event, drgn.ThreadStopEvent):
+                    return False
+                threads.append(event.thread)
+                if event.thread == self.prog.thread(1):
+                    threads.append(self.prog.thread(2))
+                    sites[:] = [site1, site2]
+                elif event.thread == self.prog.thread(2):
+                    threads.append(self.prog.thread(1))
+                    sites[:] = [site2, site1]
+                else:
+                    return False
+                threads.append(self.prog.thread(3))
+                return check_stop_reasons1()
+
+            with self.expect(ExpectEvent(stop_event1)):
+                self.queue_call(lambda prog: prog.notify_all_stop())
+
+            check_stop_reasons1()
+
+            threads2 = []
+            reasons2 = []
+
+            def check_stop_reasons2():
+                self.assertEqual(threads2[0].stop_reason, reasons2[0])
+                self.assertEqual(threads2[1].stop_reason, drgn.SyntheticStopReason())
+                self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
+                return True
+
+            def stop_event2(event):
+                if not isinstance(event, drgn.ThreadStopEvent):
+                    return False
+                threads2.append(event.thread)
+                if event.thread == threads[0]:
+                    threads2.append(threads[1])
+                    reasons2[:] = [
+                        drgn.SignalStopReason(signal.SIGSEGV),
+                        drgn.BreakpointStopReason(sites[1]),
+                    ]
+                elif event.thread == threads[1]:
+                    threads2.append(threads[0])
+                    reasons2[:] = [
+                        drgn.BreakpointStopReason(sites[1]),
+                        drgn.SignalStopReason(signal.SIGSEGV),
+                    ]
+                else:
+                    return False
+                return check_stop_reasons2()
+
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "disable_breakpoint_sites"
+                    and args == ([sites[0]],)
+                ),
+                Barrier,
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and args == ([drgn.StepiResumeAction(threads[0], 0)],)
+                ),
+                Barrier,
+                Call(
+                    lambda prog: prog.notify_thread_stop(
+                        threads[0], signal.SIGSEGV, 0xDEAD
+                    )
+                ),
+                Call(lambda prog: prog.notify_all_stop()),
+                ExpectOp(
+                    lambda name, args: name == "enable_breakpoint_sites"
+                    and args == ([sites[0]],)
+                ),
+                ExpectEvent(stop_event2),
+            ):
+                threads[0].cont()
+
+                check_stop_reasons2()
+
+            def check_stop_reasons3():
+                self.assertEqual(threads2[0].stop_reason, drgn.SyntheticStopReason())
+                self.assertEqual(threads2[1].stop_reason, reasons2[1])
+                self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
+                return True
+
+            if threads2[0] is threads[0]:
+                msg = "signal first"
+                expected = (
+                    (
+                        ExpectEvent(
+                            lambda event: event == drgn.ThreadStopEvent(threads2[1])
+                            and check_stop_reasons3()
+                        ),
+                    ),
+                    (
+                        ExpectOp(
+                            lambda name, args: name == "disable_breakpoint_sites"
+                            and args == ([sites[1]],)
+                        ),
+                        Barrier,
+                        ExpectOp(
+                            lambda name, args: name == "resume_threads"
+                            and args == ([drgn.StepiResumeAction(threads[1], 0)],)
+                        ),
+                        Barrier,
+                        Call(
+                            lambda prog: prog.notify_thread_stop(
+                                threads2[1], signal.SIGTRAP, 0xF000
+                            )
+                        ),
+                        Call(lambda prog: prog.notify_all_stop()),
+                        ExpectOp(
+                            lambda name, args: name == "enable_breakpoint_sites"
+                            and args == ([sites[1]],)
+                        ),
+                        Barrier,
+                        ExpectOp(
+                            lambda name, args: name == "resume_threads"
+                            and args
+                            == (
+                                [
+                                    drgn.ContinueResumeAction(
+                                        threads2[0], signal.SIGSEGV
+                                    ),
+                                    drgn.ContinueResumeAction(None, 0),
+                                ],
+                            )
+                        ),
+                    ),
+                )
+            else:
+                msg = "breakpoint first"
+                expected = (
+                    (
+                        ExpectOp(
+                            lambda name, args: name == "disable_breakpoint_sites"
+                            and args == ([sites[1]],)
+                        ),
+                        Barrier,
+                        ExpectOp(
+                            lambda name, args: name == "resume_threads"
+                            and args == ([drgn.StepiResumeAction(threads[1], 0)],)
+                        ),
+                        Barrier,
+                        Call(
+                            lambda prog: prog.notify_thread_stop(
+                                threads2[0], signal.SIGTRAP, 0xF000
+                            )
+                        ),
+                        Call(lambda prog: prog.notify_all_stop()),
+                        ExpectOp(
+                            lambda name, args: name == "enable_breakpoint_sites"
+                            and args == ([sites[1]],)
+                        ),
+                        Barrier,
+                        ExpectEvent(
+                            lambda event: event == drgn.ThreadStopEvent(threads2[1])
+                            and check_stop_reasons3()
+                        ),
+                    ),
+                    (
+                        ExpectOp(
+                            lambda name, args: name == "resume_threads"
+                            and args
+                            == (
+                                [
+                                    drgn.ContinueResumeAction(
+                                        threads2[1], signal.SIGSEGV
+                                    ),
+                                    drgn.ContinueResumeAction(None, 0),
+                                ],
+                            )
+                        ),
+                    ),
+                )
+
+            with self.subTest(msg):
+                with self.expect(*expected[0]):
+                    threads2[0].cont()
+
+                    check_stop_reasons3()
+
+                with self.expect(*expected[1]):
+                    threads2[1].cont()
+
+                    self.assertIsNone(threads[0].stop_reason)
+                    self.assertIsNone(threads[1].stop_reason)
+                    self.assertIsNone(threads[2].stop_reason)
+
+    def test_breakpoint_cont_with_signal(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            with self.complete_ops():
+                site = self.prog.set_breakpoint(0x1337).sites[0]
+
+            self.queue_call(
+                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
+            )
+            with self.ignore_events():
+                self.queue_call(lambda prog: prog.notify_all_stop())
+
+            with self.expect(
+                ExpectOp(
+                    lambda name, args: name == "disable_breakpoint_sites"
+                    and args == ([site],)
+                ),
+                Barrier,
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and args
+                    == ([drgn.StepiResumeAction(self.prog.thread(1), signal.SIGUSR1)],)
+                ),
+                Barrier,
+                Call(
+                    lambda prog: prog.notify_thread_stop(
+                        prog.thread(1), signal.SIGTRAP, 0x1338
+                    )
+                ),
+                Call(lambda prog: prog.notify_all_stop()),
+                ExpectOp(
+                    lambda name, args: name == "enable_breakpoint_sites"
+                    and args == ([site],)
+                ),
+                Barrier,
+                ExpectOp(
+                    lambda name, args: name == "resume_threads"
+                    and args == ([drgn.ContinueResumeAction(None, 0)],)
+                ),
+            ):
+                self.prog.thread(1).cont(sig=signal.SIGUSR1)
+
+                self.assertIsNone(self.prog.thread(1).stop_reason)
+                self.assertIsNone(self.prog.thread(2).stop_reason)
 
 
 class TestBreakpoints(ExecutionControlTestCase):
