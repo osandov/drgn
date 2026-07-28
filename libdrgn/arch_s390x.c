@@ -415,7 +415,7 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 	while(level-- > 0) {
 		int index = get_index(it_arch, level, va);
 
-		if (index < offset || index - offset > length) {
+		if (index < offset || index - offset >= length) {
 			uint64_t mask = get_level_mask(level);
 			*phys_addr_ret = UINT64_MAX;
 			it->virt_addr = (va | ~mask) + 1;
