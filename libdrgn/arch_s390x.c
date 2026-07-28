@@ -170,7 +170,7 @@ prstatus_get_initial_registers_s390x(struct drgn_program *prog,
 				      const void *prstatus, size_t size,
 				      struct drgn_register_state **ret)
 {
-	if (size < 208) {
+	if (size < 320) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "registers are truncated");
 	}
