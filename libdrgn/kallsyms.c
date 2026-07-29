@@ -286,17 +286,17 @@ kallsyms_expand_symbol(struct kallsyms_reader *kr,
 
 /**
  * Used to find _stext in the kallsyms before we've moved everything into
- * the drgn_symbol_index. Finds the index matching the given name, or -1.
+ * the drgn_symbol_index. Finds the index matching the given name.
  */
 static struct drgn_error *
-search_for_string(struct kallsyms_reader *kr, const char *name, ssize_t *ret)
+search_for_string(struct kallsyms_reader *kr, const char *name, size_t *ret)
 {
 	STRING_BUILDER(sb);
 	size_t len = strlen(name);
 	struct binary_buffer names_bb;
 	binary_buffer_init(&names_bb, kr->names, kr->names_len, false,
 			   kallsyms_binary_buffer_error);
-	for (ssize_t i = 0; i < kr->num_syms; i++) {
+	for (size_t i = 0; i < kr->num_syms; i++) {
 		char kind;
 		sb.len = 0;
 		struct drgn_error *err =
@@ -452,7 +452,7 @@ kallsyms_load_addresses(struct drgn_program *prog, struct kallsyms_reader *kr,
 			if (err)
 				return err;
 			if (bswap)
-				for (int i = 0; i < kr->num_syms; i++)
+				for (size_t i = 0; i < kr->num_syms; i++)
 					addresses[i] = bswap_64(addresses[i]);
 		} else {
 			addr32 = malloc_array(kr->num_syms, sizeof(addr32[0]));
@@ -465,7 +465,7 @@ kallsyms_load_addresses(struct drgn_program *prog, struct kallsyms_reader *kr,
 						false);
 			if (err)
 				return err;
-			for (int i = 0; i < kr->num_syms; i++) {
+			for (size_t i = 0; i < kr->num_syms; i++) {
 				if (bswap)
 					addresses[i] = bswap_32(addr32[i]);
 				else
@@ -505,7 +505,7 @@ kallsyms_load_addresses(struct drgn_program *prog, struct kallsyms_reader *kr,
 		if (err)
 			return err;
 		if (bswap)
-			for (int i = 0; i < kr->num_syms; i++)
+			for (size_t i = 0; i < kr->num_syms; i++)
 				addr32[i] = bswap_32(addr32[i]);
 
 		/*
@@ -514,7 +514,7 @@ kallsyms_load_addresses(struct drgn_program *prog, struct kallsyms_reader *kr,
 		 * have the correct value from vmcoreinfo. Compute it both ways
 		 * and pick the correct interpretation.
 		 */
-		ssize_t stext_idx;
+		size_t stext_idx;
 		err = search_for_string(kr, "_stext", &stext_idx);
 		if (err)
 			return err;
@@ -527,13 +527,13 @@ kallsyms_load_addresses(struct drgn_program *prog, struct kallsyms_reader *kr,
 		/* Place relative */
 		uint64_t prel = loc->kallsyms_offsets + 4 * stext_idx + (int32_t)addr32[stext_idx];
 		if (relbase == loc->_stext) {
-			for (int i = 0; i < kr->num_syms; i++)
+			for (size_t i = 0; i < kr->num_syms; i++)
 				addresses[i] = relative_base + addr32[i];
 		} else if (loc->kallsyms_relative_base && abs_pcpu == loc->_stext) {
-			for (int i = 0; i < kr->num_syms; i++)
+			for (size_t i = 0; i < kr->num_syms; i++)
 				addresses[i] = absolute_percpu(relative_base, (int32_t)addr32[i]);
 		} else if (prel == loc->_stext) {
-			for (int i = 0; i < kr->num_syms; i++)
+			for (size_t i = 0; i < kr->num_syms; i++)
 				addresses[i] = loc->kallsyms_offsets + 4 * i + (int32_t)addr32[i];
 		} else {
 			err = drgn_error_create(
@@ -588,7 +588,7 @@ drgn_load_builtin_kallsyms(struct drgn_program *prog,
 	struct binary_buffer names_bb;
 	binary_buffer_init(&names_bb, kr.names, kr.names_len, false,
 			   kallsyms_binary_buffer_error);
-	for (int i = 0; i < kr.num_syms; i++) {
+	for (size_t i = 0; i < kr.num_syms; i++) {
 		struct drgn_symbol symbol;
 		char kind;
 		uint64_t size = 0;
