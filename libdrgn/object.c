@@ -137,7 +137,10 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 		break;
 	}
 	case DRGN_TYPE_POINTER:
-		ret->encoding = DRGN_OBJECT_ENCODING_UNSIGNED;
+		if (ret->bit_size <= 64)
+			ret->encoding = DRGN_OBJECT_ENCODING_UNSIGNED;
+		else
+			ret->encoding = DRGN_OBJECT_ENCODING_UNSIGNED_BIG;
 		break;
 	case DRGN_TYPE_FLOAT:
 		if (ret->bit_size < 1 || ret->bit_size > 256) {

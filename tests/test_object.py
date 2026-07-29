@@ -347,6 +347,17 @@ class TestReference(MockProgramTestCase):
             ),
         )
 
+    def test_big_pointer(self):
+        value = 0x0123456789ABCDEFFEDCBA9876543210
+        self.add_memory_segment(value.to_bytes(16, "little"), virt_addr=0xFFFF0000)
+        obj = Object(
+            self.prog,
+            self.prog.pointer_type(self.prog.void_type(), size=16),
+            address=0xFFFF0000,
+        )
+        self.assertEqual(obj.value_(), value)
+        self.assertEqual(repr(obj), "Object(prog, 'void *', address=0xffff0000)")
+
     def test_int_bits(self):
         buffer = bytearray(17)
         self.add_memory_segment(buffer, virt_addr=0xFFFF0000)
@@ -861,6 +872,16 @@ class TestValue(MockProgramTestCase):
         )
 
         self._test_big_int_operators(type)
+
+    def test_big_pointer(self):
+        value = 0x0123456789ABCDEFFEDCBA9876543210
+        obj = Object(
+            self.prog, self.prog.pointer_type(self.prog.void_type(), size=16), value
+        )
+        self.assertEqual(obj.value_(), value)
+        self.assertEqual(
+            repr(obj), "Object(prog, 'void *', value=0x123456789abcdeffedcba9876543210)"
+        )
 
     def test_int_bits(self):
         for (
@@ -1800,6 +1821,15 @@ class TestGenericOperators(MockProgramTestCase):
         obj = arr.read_()
         self.assertRaisesRegex(OutOfBoundsError, "out of bounds", obj.__getitem__, -1)
 
+    def test_big_pointer_subscript(self):
+        obj = Object(
+            self.prog,
+            self.prog.pointer_type(self.prog.int_type("int", 4, True), size=16),
+            0x0123456789ABCDEFFEDCBA9876543210,
+        )
+        with self.assertRaises(OverflowError):
+            obj[0]
+
     def test_slice(self):
         arr = Object(self.prog, "int [4]", address=0xFFFF0000)
         incomplete_arr = Object(self.prog, "int []", address=0xFFFF0000)
@@ -1914,6 +1944,15 @@ class TestGenericOperators(MockProgramTestCase):
             )
 
         self.assertIdentical(arr.read_()[:-2], Object(self.prog, "int [0]", []))
+
+    def test_big_pointer_slice(self):
+        obj = Object(
+            self.prog,
+            self.prog.pointer_type(self.prog.int_type("int", 4, True), size=16),
+            0x0123456789ABCDEFFEDCBA9876543210,
+        )
+        with self.assertRaises(OverflowError):
+            obj[0:2]
 
     def test_cast_primitive_value(self):
         obj = Object(self.prog, "long", value=2**32 + 1)

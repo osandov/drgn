@@ -3420,6 +3420,16 @@ class TestPrettyPrintObject(MockProgramTestCase):
 }""",
         )
 
+    def test_big_pointer(self):
+        self.assertEqual(
+            Object(
+                self.prog,
+                self.prog.pointer_type(self.prog.void_type(), size=16),
+                0x0123456789ABCDEFFEDCBA9876543210,
+            ).format_(),
+            "(void *)0x123456789abcdeffedcba9876543210",
+        )
+
     def test_integer_base_array(self):
         self.assertEqual(
             Object(self.prog, "int [2]", [0, 13]).format_(integer_base=16),
