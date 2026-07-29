@@ -262,6 +262,11 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 		return 0;
 	}
 	case DRGN_OBJECT_ENCODING_FLOAT: {
+		if (type->bit_size != 32 && type->bit_size != 64) {
+			PyErr_SetString(PyExc_NotImplementedError,
+					"float values which are not 32 or 64 bits are not yet supported");
+			return -1;
+		}
 		if (!PyNumber_Check(value_obj)) {
 			set_error_type_name("'%s' value must be number",
 					    drgn_object_type_qualified(type));

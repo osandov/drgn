@@ -1122,6 +1122,21 @@ class TestValue(MockProgramTestCase):
                     self.assertEqual(obj.a.value_(), 1234.0)
                     self.assertEqual(obj.b.value_(), -3.125)
 
+    def test_compound_float_unsupported_size(self):
+        for size in (10, 16):
+            with self.subTest(size=size):
+                self.assertRaises(
+                    NotImplementedError,
+                    Object,
+                    self.prog,
+                    self.prog.struct_type(
+                        None,
+                        size,
+                        (TypeMember(self.prog.float_type("BIGF", size), "f"),),
+                    ),
+                    value={"f": 1.0},
+                )
+
     def test_compound_bit_fields(self):
         a = 0xF8935CF44C45202748DE66B49BA0CBAC
         b = -0xC256D5AAFFDC3179A6AC84E7154A215D
