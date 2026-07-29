@@ -2174,20 +2174,3 @@ drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 		*ret = drgn_symbol_result_builder_single(&builder);
 	return err;
 }
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_element_info(struct drgn_program *prog, struct drgn_type *type,
-			  struct drgn_element_info *ret)
-{
-	struct drgn_type *underlying_type;
-	bool is_pointer, is_array;
-
-	underlying_type = drgn_underlying_type(type);
-	is_pointer = drgn_type_kind(underlying_type) == DRGN_TYPE_POINTER;
-	is_array = drgn_type_kind(underlying_type) == DRGN_TYPE_ARRAY;
-	if (!is_pointer && !is_array)
-		return drgn_type_error("'%s' is not an array or pointer", type);
-
-	ret->qualified_type = drgn_type_type(underlying_type);
-	return drgn_type_bit_size(ret->qualified_type.type, &ret->bit_size);
-}

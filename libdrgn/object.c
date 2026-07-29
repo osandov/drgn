@@ -1595,26 +1595,27 @@ drgn_object_subscript(struct drgn_object *res, const struct drgn_object *obj,
 		      int64_t index)
 {
 	struct drgn_error *err;
-	struct drgn_element_info element;
 
 	if (drgn_object_program(res) != drgn_object_program(obj)) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "objects are from different programs");
 	}
 
-	err = drgn_program_element_info(drgn_object_program(obj), obj->type,
-					&element);
+	bool is_pointer;
+	struct drgn_qualified_type element_type;
+	uint64_t element_bit_size;
+	err = drgn_type_element_info(obj->type, &is_pointer, &element_type,
+				     &element_bit_size);
 	if (err)
 		return err;
 
-	if (obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
-		return drgn_object_dereference_offset(res, obj,
-						      element.qualified_type,
-						      index * element.bit_size,
+	if (is_pointer) {
+		return drgn_object_dereference_offset(res, obj, element_type,
+						      index * element_bit_size,
 						      0);
 	} else {
-		return drgn_object_fragment(res, obj, element.qualified_type,
-					    index * element.bit_size, 0);
+		return drgn_object_fragment(res, obj, element_type, index *
+					    element_bit_size, 0);
 	}
 }
 
@@ -1631,28 +1632,30 @@ struct drgn_error *drgn_object_slice(struct drgn_object *res,
 					 "objects are from different programs");
 	}
 
-	struct drgn_element_info element;
-	err = drgn_program_element_info(drgn_object_program(obj), obj->type,
-					&element);
+	bool is_pointer;
+	struct drgn_qualified_type element_type;
+	uint64_t element_bit_size;
+	err = drgn_type_element_info(obj->type, &is_pointer, &element_type,
+				     &element_bit_size);
 	if (err)
 		return err;
 
 	struct drgn_qualified_type array_type;
-	err = drgn_array_type_create(prog, element.qualified_type,
+	err = drgn_array_type_create(prog, element_type,
 				     end > start ? end - start : 0,
-				     drgn_type_language(element.qualified_type.type),
+				     drgn_type_language(element_type.type),
 				     &array_type.type);
 	if (err)
 		return err;
 	array_type.qualifiers = 0;
 
-	if (obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
+	if (is_pointer) {
 		return drgn_object_dereference_offset(res, obj, array_type,
-						      start * element.bit_size,
+						      start * element_bit_size,
 						      0);
 	} else {
 		return drgn_object_fragment(res, obj, array_type,
-					    start * element.bit_size, 0);
+					    start * element_bit_size, 0);
 	}
 }
 

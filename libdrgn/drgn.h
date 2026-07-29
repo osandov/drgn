@@ -1430,31 +1430,6 @@ struct drgn_error *
 drgn_program_enabled_symbol_finders(struct drgn_program *prog,
 				    const char ***names_ret, size_t *count_ret);
 
-/** Element type and size. */
-struct drgn_element_info {
-	/** Type of the element. */
-	struct drgn_qualified_type qualified_type;
-	/**
-	 * Size in bits of one element.
-	 *
-	 * Element @c i is at bit offset <tt>i * bit_size</tt>.
-	 */
-	uint64_t bit_size;
-};
-
-/**
- * Get the element type and size of an array or pointer @ref drgn_type.
- *
- * @param[in] prog Program.
- * @param[in] type Array or pointer. After this function is called, this type
- * must remain valid until the program is destroyed.
- * @param[out] ret Returned element information.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_program_element_info(struct drgn_program *prog,
-					     struct drgn_type *type,
-					     struct drgn_element_info *ret);
-
 /** @} */
 
 /**
@@ -2866,9 +2841,9 @@ struct drgn_error *drgn_object_copy(struct drgn_object *res,
  * functions are usually more convenient.
  *
  * If multiple elements of an array are accessed (e.g., when iterating through
- * it), it can be more efficient to call @ref drgn_program_element_info() once
- * to get the required information and this function with the computed bit
- * offset for each element.
+ * it), it can be more efficient to call @ref drgn_type_element_info() once to
+ * get the required information and this function with the computed bit offset
+ * for each element.
  *
  * If the same member of a type is accessed repeatedly (e.g., in a loop), it can
  * be more efficient to call @ref drgn_type_find_member() once to get the
@@ -4045,6 +4020,21 @@ static inline struct drgn_error *drgn_type_has_member(struct drgn_type *type,
 	return drgn_type_has_member_len(type, member_name, strlen(member_name),
 					ret);
 }
+
+/**
+ * Get the element type and size of an array or pointer @ref drgn_type.
+ *
+ * @param[in] type Array or pointer type.
+ * @param[out] is_pointer_ret Whether @p type is a pointer type.
+ * @param[out] element_type_ret Returned element type.
+ * @param[out] element_bit_size_ret Returned size in bits of one element.
+ * Element `i` is at bit offset `i * bit_size`.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_type_element_info(struct drgn_type *type, bool *is_pointer_ret,
+		       struct drgn_qualified_type *element_type_ret,
+		       uint64_t *element_bit_size_ret);
 
 /**
  * Format the name of a type as a string.

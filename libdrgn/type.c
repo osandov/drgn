@@ -1773,3 +1773,27 @@ drgn_type_has_member_len(struct drgn_type *type, const char *member_name,
 	*ret = member != NULL;
 	return NULL;
 }
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_type_element_info(struct drgn_type *type, bool *is_pointer_ret,
+		       struct drgn_qualified_type *element_type_ret,
+		       uint64_t *element_bit_size_ret)
+{
+	struct drgn_error *err;
+
+	struct drgn_type *underlying_type = drgn_underlying_type(type);
+	bool is_pointer = drgn_type_kind(underlying_type) == DRGN_TYPE_POINTER;
+	bool is_array = drgn_type_kind(underlying_type) == DRGN_TYPE_ARRAY;
+	if (!is_pointer && !is_array)
+		return drgn_type_error("'%s' is not an array or pointer", type);
+
+	struct drgn_qualified_type element_type =
+		drgn_type_type(underlying_type);
+	err = drgn_type_bit_size(element_type.type, element_bit_size_ret);
+	if (err)
+		return err;
+
+	*is_pointer_ret = is_pointer;
+	*element_type_ret = element_type;
+	return NULL;
+}
