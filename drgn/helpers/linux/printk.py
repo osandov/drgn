@@ -136,7 +136,7 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
             return
         if lpos_begin > lpos_next:
             # Data wrapped.
-            lpos_begin = 0
+            lpos_begin = ulong_size
         info = infos[idx].read_()
         text_len = info.text_len.value_()
         if lpos_next - lpos_begin < text_len:
