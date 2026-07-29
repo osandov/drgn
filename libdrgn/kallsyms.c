@@ -146,7 +146,7 @@ kallsyms_copy_tables(struct drgn_program *prog, struct kallsyms_reader *kr,
 	if (err)
 		return err;
 	if (bswap)
-		for (size_t i = 0; i < kr->num_syms; i++)
+		for (size_t i = 0; i <= UINT8_MAX; i++)
 			kr->token_index[i] = bswap_16(kr->token_index[i]);
 
 	// Find the end of the last token, so we get the overall length of
