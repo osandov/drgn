@@ -3569,20 +3569,20 @@ userspace_loaded_module_iterator_read_ehdr(struct userspace_loaded_module_iterat
 
 static struct drgn_error *
 userspace_loaded_module_iterator_read_phdrs(struct userspace_loaded_module_iterator *it,
-					    uint64_t address, uint16_t phnum)
+					    uint64_t address, uint64_t phnum)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = it->it.prog;
-	uint32_t phentsize =
+	size_t phentsize =
 		(drgn_platform_is_64_bit(&prog->platform)
 		 ? sizeof(Elf64_Phdr) : sizeof(Elf32_Phdr));
-	uint32_t phdrs_size = (uint32_t)phnum * phentsize;
-	if (phdrs_size > MAX_MEMORY_READ_FOR_DEBUG_INFO) {
+	if (phnum > MAX_MEMORY_READ_FOR_DEBUG_INFO / phentsize) {
 		drgn_log_debug(prog,
-			       "program header table is unreasonably large (%" PRIu32 " bytes); ignoring",
-			       phdrs_size);
+			       "too many program headers (%" PRIu64 "); ignoring",
+			       phnum);
 		return &drgn_not_found;
 	}
+	size_t phdrs_size = phnum * phentsize;
 	if (!alloc_or_reuse(&it->phdrs_buf, &it->phdrs_buf_capacity,
 			    phdrs_size))
 		return &drgn_enomem;
@@ -3712,7 +3712,7 @@ userspace_loaded_module_iterator_read_main_phdrs(struct userspace_loaded_module_
 	// dyn_memsz last seen with GCC 9.
 	uint64_t phdr_vaddr, dyn_vaddr = 0, dyn_memsz = 0;
 	bool have_phdr_vaddr = false, have_dyn = false;
-	for (uint16_t i = 0; i < prog->auxv.at_phnum; i++) {
+	for (size_t i = 0; i < prog->auxv.at_phnum; i++) {
 		GElf_Phdr phdr;
 		userspace_loaded_module_iterator_phdr(it, i, &phdr);
 		if (phdr.p_type == PT_LOAD && phdr.p_offset <= it->main_phoff
