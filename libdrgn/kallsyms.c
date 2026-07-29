@@ -48,7 +48,6 @@ struct kallsyms_reader {
 	uint8_t *names;
 	size_t names_len;
 	char *token_table;
-	size_t token_table_len;
 	uint16_t *token_index;
 	bool long_names;
 };
@@ -118,7 +117,6 @@ kallsyms_copy_tables(struct drgn_program *prog, struct kallsyms_reader *kr,
 {
 	struct drgn_error *err;
 	const size_t token_index_size = (UINT8_MAX + 1) * sizeof(uint16_t);
-	uint64_t last_token;
 	size_t names_idx;
 	char data;
 	uint8_t len_u8;
@@ -149,34 +147,34 @@ kallsyms_copy_tables(struct drgn_program *prog, struct kallsyms_reader *kr,
 		for (size_t i = 0; i <= UINT8_MAX; i++)
 			kr->token_index[i] = bswap_16(kr->token_index[i]);
 
-	// Find the end of the last token, so we get the overall length of
-	// token_table. Then copy the token_table into host memory.
-	last_token = loc->kallsyms_token_table + kr->token_index[UINT8_MAX];
+	// Find the length of the token table. First, find the maximum token
+	// index. As of Linux 7.2, that's always the last one, but let's not
+	// assume that.
+	size_t token_table_len = kr->token_index[UINT8_MAX];
+	for (size_t i = 0; i < UINT8_MAX; i++) {
+		if (kr->token_index[i] > token_table_len)
+			token_table_len = kr->token_index[i];
+	}
+
+	// Then, find the first null terminator after that index.
 	do {
 		err = drgn_program_read_memory(prog, &data,
-					       last_token, 1, false);
+					       loc->kallsyms_token_table + token_table_len,
+					       1, false);
 		if (err)
 			return err;
 
-		last_token++;
+		token_table_len++;
 	} while (data);
-	kr->token_table_len = last_token - loc->kallsyms_token_table + 1;
-	kr->token_table = malloc(kr->token_table_len);
+
+	kr->token_table = malloc(token_table_len);
 	if (!kr->token_table)
 		return &drgn_enomem;
 	err = drgn_program_read_memory(prog, kr->token_table,
 				       loc->kallsyms_token_table,
-				       kr->token_table_len, false);
+				       token_table_len, false);
 	if (err)
 		return err;
-
-	// Ensure that all members of token_index are in-bounds for indexing
-	// into token_table.
-	for (size_t i = 0; i <= UINT8_MAX; i++)
-		if (kr->token_index[i] >= kr->token_table_len)
-			return drgn_error_format(DRGN_ERROR_BAD_DATA,
-						 "kallsyms: token_index out of bounds (token_index[%zu] = %u >= %zu)",
-						 i, kr->token_index[i], kr->token_table_len);
 
 	// Now find the end of the names array by skipping through it, then copy
 	// that into host memory.
