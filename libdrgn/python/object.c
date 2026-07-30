@@ -686,11 +686,14 @@ static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
 		err = drgn_object_read_value(obj, &value_mem, &value);
 		if (err)
 			return set_drgn_error(err);
-		return _PyLong_FromByteArray((void *)value->bufp,
-					     drgn_object_size(obj),
-					     obj->little_endian,
-					     obj->encoding
-					     == DRGN_OBJECT_ENCODING_SIGNED_BIG);
+		PyObject *ret =
+			_PyLong_FromByteArray((void *)value->bufp,
+					      drgn_object_size(obj),
+					      obj->little_endian,
+					      obj->encoding
+					      == DRGN_OBJECT_ENCODING_SIGNED_BIG);
+		drgn_object_deinit_value(obj, value);
+		return ret;
 	}
 	case DRGN_OBJECT_ENCODING_FLOAT: {
 		double fvalue;
