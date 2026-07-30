@@ -1375,6 +1375,8 @@ drgn_program_stack_trace_from_pcs(struct drgn_program *prog, const uint64_t *pcs
 	for (size_t i = 0; i != pcs_size; ++i) {
 		struct drgn_register_state *regs =
 			drgn_register_state_create_impl(0, 0, false);
+		if (!regs)
+			return &drgn_enomem;
 		drgn_register_state_set_pc(prog, regs, pcs[i]);
 
 		err = drgn_stack_trace_add_frames(&trace, &trace_capacity, regs);
@@ -1519,6 +1521,8 @@ drgn_program_source_location(struct drgn_program *prog, uint64_t address,
 
 	struct drgn_register_state *regs =
 		drgn_register_state_create_impl(0, 0, true);
+	if (!regs)
+		return &drgn_enomem;
 	drgn_register_state_set_pc(prog, regs, address);
 	err = drgn_stack_trace_add_frames(&trace, &trace_capacity, regs);
 	if (err)
