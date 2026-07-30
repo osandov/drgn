@@ -391,7 +391,7 @@ drgn_symbol_index_find(const char *name, uint64_t address,
 				break;
 		}
 	} else {
-		for (int i = 0; i < index->num_syms; i++) {
+		for (size_t i = 0; i < index->num_syms; i++) {
 			struct drgn_symbol *s = &index->symbols[i];
 			if (!drgn_symbol_result_builder_add(builder, s))
 				return &drgn_enomem;
