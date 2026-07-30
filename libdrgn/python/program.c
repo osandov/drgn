@@ -670,7 +670,7 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 
 	_cleanup_pydecref_ PyObject *address_obj = NULL;
 	if (flags & DRGN_FIND_SYMBOL_ADDR) {
-		address_obj = PyLong_FromUnsignedLong(addr);
+		address_obj = PyLong_FromUInt64(addr);
 		if (!address_obj)
 			return drgn_error_from_python();
 	} else {
