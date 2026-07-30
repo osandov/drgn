@@ -2251,6 +2251,10 @@ struct drgn_error *drgn_op_div_impl(struct drgn_object *res,
 			return err;
 		if (!rhs_svalue)
 			return &drgn_zero_division;
+		if (lhs_svalue == INT64_MIN && rhs_svalue == -1) {
+			return drgn_object_set_signed_internal(res, &type,
+							       INT64_MIN);
+		}
 		return drgn_object_set_signed_internal(res, &type,
 						       lhs_svalue / rhs_svalue);
 	}
@@ -2302,6 +2306,8 @@ struct drgn_error *drgn_op_mod_impl(struct drgn_object *res,
 			return err;
 		if (!rhs_svalue)
 			return &drgn_zero_division;
+		if (lhs_svalue == INT64_MIN && rhs_svalue == -1)
+			return drgn_object_set_signed_internal(res, &type, 0);
 		return drgn_object_set_signed_internal(res, &type,
 						       lhs_svalue % rhs_svalue);
 	}

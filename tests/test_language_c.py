@@ -1505,6 +1505,11 @@ class TestOperators(MockProgramTestCase):
             ZeroDivisionError, operator.truediv, self.double(1), self.double(0)
         )
 
+        # INT{,64}_MIN / -1 is undefined behavior and traps on some platforms.
+        # We should wrap.
+        self.assertIdentical(self.long(-(2**63)) / self.long(-1), self.long(-(2**63)))
+        self.assertIdentical(self.int(-(2**31)) / self.int(-1), self.int(-(2**31)))
+
         self._test_pointer_type_errors(operator.truediv)
 
     def test_mod(self):
@@ -1521,6 +1526,11 @@ class TestOperators(MockProgramTestCase):
         self.assertRaises(
             ZeroDivisionError, operator.mod, self.unsigned_int(1), self.unsigned_int(0)
         )
+
+        # INT{,64}_MIN % -1 is undefined behavior and traps on some platforms.
+        # We should handle it.
+        self.assertIdentical(self.long(-(2**63)) % self.long(-1), self.long(0))
+        self.assertIdentical(self.int(-(2**31)) % self.int(-1), self.int(0))
 
         self._test_pointer_type_errors(operator.mod)
         self._test_floating_type_errors(operator.mod)
