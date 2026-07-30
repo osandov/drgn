@@ -33,6 +33,12 @@
 #include "type.h"
 #include "util.h"
 
+#define _cleanup_stack_trace_ _cleanup_(drgn_stack_trace_destroyp)
+static inline void drgn_stack_trace_destroyp(struct drgn_stack_trace **tracep)
+{
+	drgn_stack_trace_destroy(*tracep);
+}
+
 static struct drgn_error *
 drgn_stack_trace_append_frame(struct drgn_stack_trace **trace, size_t *capacity,
 			      struct drgn_register_state *regs,
@@ -1293,7 +1299,7 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	}
 
 	size_t trace_capacity = 1;
-	struct drgn_stack_trace *trace =
+	_cleanup_stack_trace_ struct drgn_stack_trace *trace =
 		malloc(offsetof(struct drgn_stack_trace,
 				frames[trace_capacity]));
 	if (!trace)
@@ -1311,14 +1317,14 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 		err = drgn_get_initial_registers(prog, tid, obj, &regs);
 	}
 	if (err)
-		goto out;
+		return err;
 
 	/* Limit iterations so we don't get caught in a loop. */
 	for (int i = 0; i < 1024; i++) {
 		err = drgn_stack_trace_add_frames(&trace, &trace_capacity,
 						  regs);
 		if (err)
-			goto out;
+			return err;
 
 		err = drgn_unwind_with_cfi(prog, &row, regs, &regs);
 		if (err == &drgn_not_found) {
@@ -1336,18 +1342,12 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 		if (err == &drgn_stop)
 			break;
 		else if (err)
-			goto out;
+			return err;
 	}
 
-	err = NULL;
-out:
-	if (err) {
-		drgn_stack_trace_destroy(trace);
-	} else {
-		drgn_stack_trace_shrink_to_fit(&trace, trace_capacity);
-		*ret = trace;
-	}
-	return err;
+	drgn_stack_trace_shrink_to_fit(&trace, trace_capacity);
+	*ret = no_cleanup_ptr(trace);
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1361,8 +1361,9 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_stack_trace_from_pcs(struct drgn_program *prog, const uint64_t *pcs,
 				  size_t pcs_size, struct drgn_stack_trace **ret)
 {
-	struct drgn_stack_trace *trace = malloc_flexible_array(
-		struct drgn_stack_trace, frames, pcs_size);
+	_cleanup_stack_trace_ struct drgn_stack_trace *trace =
+		malloc_flexible_array(struct drgn_stack_trace, frames,
+				      pcs_size);
 	struct drgn_error *err;
 	size_t trace_capacity = pcs_size;
 
@@ -1377,14 +1378,12 @@ drgn_program_stack_trace_from_pcs(struct drgn_program *prog, const uint64_t *pcs
 		drgn_register_state_set_pc(prog, regs, pcs[i]);
 
 		err = drgn_stack_trace_add_frames(&trace, &trace_capacity, regs);
-		if (err) {
-			drgn_stack_trace_destroy(trace);
+		if (err)
 			return err;
-		}
 	}
 
 	drgn_stack_trace_shrink_to_fit(&trace, trace_capacity);
-	*ret = trace;
+	*ret = no_cleanup_ptr(trace);
 	return NULL;
 }
 
@@ -1509,7 +1508,7 @@ drgn_program_source_location(struct drgn_program *prog, uint64_t address,
 {
 	struct drgn_error *err;
 	size_t trace_capacity = 1;
-	struct drgn_stack_trace *trace =
+	_cleanup_stack_trace_ struct drgn_stack_trace *trace =
 		malloc_flexible_array(struct drgn_stack_trace, frames,
 				      trace_capacity);
 	if (!trace)
@@ -1522,19 +1521,16 @@ drgn_program_source_location(struct drgn_program *prog, uint64_t address,
 		drgn_register_state_create_impl(0, 0, true);
 	drgn_register_state_set_pc(prog, regs, address);
 	err = drgn_stack_trace_add_frames(&trace, &trace_capacity, regs);
-	if (err) {
-		drgn_stack_trace_destroy(trace);
+	if (err)
 		return err;
-	}
 
 	if (!trace->frames[0].num_scopes) {
-		drgn_stack_trace_destroy(trace);
 		return drgn_error_create(DRGN_ERROR_LOOKUP,
 					 "source code location not found");
 	}
 
 	drgn_stack_trace_shrink_to_fit(&trace, trace_capacity);
-	*ret = (struct drgn_source_location_list *)trace;
+	*ret = (struct drgn_source_location_list *)no_cleanup_ptr(trace);
 	return NULL;
 }
 
