@@ -1650,7 +1650,8 @@ struct drgn_error *drgn_object_slice(struct drgn_object *res,
 
 	struct drgn_qualified_type array_type;
 	err = drgn_array_type_create(prog, element_type,
-				     end > start ? end - start : 0,
+				     end > start
+				     ? (uint64_t)end - (uint64_t)start : 0,
 				     drgn_type_language(element_type.type),
 				     &array_type.type);
 	if (err)
