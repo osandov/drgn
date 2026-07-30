@@ -4158,17 +4158,21 @@ deref:
 		case DW_OP_and:
 			BINOP(&);
 			break;
-		case DW_OP_div:
+		case DW_OP_div: {
 			CHECK(2);
 			if (ELEM(0) == 0) {
 				return binary_buffer_error(&ctx->bb,
 							   "division by zero in DWARF expression");
 			}
-			ELEM(1) = ((truncate_signed(ELEM(1), address_bits)
-				    / truncate_signed(ELEM(0), address_bits))
-				   & address_mask);
+			int64_t dividend = truncate_signed(ELEM(1), address_bits);
+			int64_t divisor = truncate_signed(ELEM(0), address_bits);
+			if (dividend == INT64_MIN && divisor == -1)
+				ELEM(1) = INT64_MIN & address_mask;
+			else
+				ELEM(1) = (dividend / divisor) & address_mask;
 			uint64_vector_pop(stack);
 			break;
+		}
 		case DW_OP_minus:
 			BINOP_MASK(-);
 			break;

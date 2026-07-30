@@ -6163,6 +6163,31 @@ class TestObjects(TestCase):
                 ]
             )
 
+    def test_variable_expr_op_div_overflow(self):
+        # INT{,64}_MIN / -1 is undefined behavior and traps on some platforms.
+        # We should wrap.
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.const8s),
+                assembler.S64(-(2**63)),
+                assembler.U8(DW_OP.const1s),
+                assembler.S8(-1),
+                assembler.U8(DW_OP.div),
+            ],
+            2**63,
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.const4s),
+                assembler.S32(-(2**31)),
+                assembler.U8(DW_OP.const1s),
+                assembler.S8(-1),
+                assembler.U8(DW_OP.div),
+            ],
+            2**31,
+            bits=32,
+        )
+
     def test_variable_expr_op_minus(self):
         for bits in (64, 32):
             with self.subTest(bits=bits):
@@ -6227,6 +6252,30 @@ class TestObjects(TestCase):
                     assembler.U8(DW_OP.mod),
                 ]
             )
+
+    def test_variable_expr_op_mod_not_overflow(self):
+        # DW_OP_mod is always unsigned, so these aren't INT{,64}_MIN % -1.
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.const8s),
+                assembler.S64(-(2**63)),
+                assembler.U8(DW_OP.const1s),
+                assembler.S8(-1),
+                assembler.U8(DW_OP.mod),
+            ],
+            2**63,
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.const4s),
+                assembler.S32(-(2**31)),
+                assembler.U8(DW_OP.const1s),
+                assembler.S8(-1),
+                assembler.U8(DW_OP.mod),
+            ],
+            2**31,
+            bits=32,
+        )
 
     def test_variable_expr_op_mul(self):
         for bits in (64, 32):
