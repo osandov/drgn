@@ -386,8 +386,10 @@ static int Module_set_object(Module *self, PyObject *value, void *arg)
 	DrgnObject *object = (DrgnObject *)value;
 
 	struct drgn_error *err = drgn_module_set_object(self->module, &object->obj);
-	if (err)
+	if (err) {
 		set_drgn_error(err);
+		return -1;
+	}
 	return 0;
 }
 
