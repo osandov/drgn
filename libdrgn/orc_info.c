@@ -528,6 +528,10 @@ static struct drgn_error *drgn_read_builtin_orc(struct drgn_module *module)
 	err = drgn_object_read_unsigned(&tmp, &num_entries);
 	if (err)
 		return err;
+	if (num_entries > UINT_MAX) {
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "module num_orcs is too large");
+	}
 
 	// We'll still use the section addresses for everything else, because
 	// the orc_header is only present there, and it should be a bit faster
