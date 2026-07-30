@@ -79,6 +79,12 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 		      enum drgn_qualifiers qualifiers, uint64_t bit_field_size,
 		      struct drgn_object_type *ret)
 {
+	// The maximum bit size we can represent is UINT64_MAX. However, pick an
+	// arbitrary smaller limit for integers to keep things from getting out
+	// of hand: 2^24 is the maximum bit width that Clang 13 allows for
+	// _ExtInt() (limited by the LLVM IR representation; technically it's
+	// 2^24-1, but it gets rounded up to a DW_AT_byte_size of 2^24/8).
+	static const uint64_t max_int_bit_size = 16777216;
 	struct drgn_error *err;
 
 	ret->type = type;
@@ -112,13 +118,7 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 			}
 			ret->bit_size = bit_field_size;
 		}
-		// The maximum bit size we can represent is UINT64_MAX. However,
-		// pick an arbitrary smaller limit to keep things from getting
-		// out of hand: 2^24 is the maximum bit width that Clang 13
-		// allows for _ExtInt() (limited by the LLVM IR representation;
-		// technically it's 2^24-1, but it gets rounded up to a
-		// DW_AT_byte_size of 2^24/8).
-		if (ret->bit_size < 1 || ret->bit_size > 16777216) {
+		if (ret->bit_size < 1 || ret->bit_size > max_int_bit_size) {
 			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 						 "unsupported integer bit size (%" PRIu64 ")",
 						 ret->bit_size);
@@ -137,6 +137,11 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 		break;
 	}
 	case DRGN_TYPE_POINTER:
+		if (ret->bit_size < 1 || ret->bit_size > max_int_bit_size) {
+			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						 "unsupported pointer bit size (%" PRIu64 ")",
+						 ret->bit_size);
+		}
 		if (ret->bit_size <= 64)
 			ret->encoding = DRGN_OBJECT_ENCODING_UNSIGNED;
 		else

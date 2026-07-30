@@ -172,6 +172,22 @@ class TestInit(MockProgramTestCase):
             self.prog.float_type("BIGGEST", 32 + 1),
         )
 
+    def test_pointer_size(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "unsupported pointer bit size",
+            Object,
+            self.prog,
+            self.prog.pointer_type(self.prog.int_type("int", 4, True), size=0),
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "unsupported pointer bit size",
+            Object,
+            self.prog,
+            self.prog.pointer_type(self.prog.int_type("int", 4, True), size=1024**3),
+        )
+
 
 def _int_bits_cases(prog):
     for signed in (True, False):
