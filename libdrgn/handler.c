@@ -44,6 +44,11 @@ struct drgn_error *drgn_handler_list_registered(struct drgn_handler_list *list,
 	size_t n = 0;
 	drgn_handler_list_for_each_registered(handler, list)
 		n++;
+	if (n == 0) {
+		*names_ret = NULL;
+		*count_ret = 0;
+		return NULL;
+	}
 	const char **names = malloc_array(n, sizeof(names[0]));
 	if (!names)
 		return &drgn_enomem;
@@ -122,6 +127,11 @@ struct drgn_error *drgn_handler_list_enabled(struct drgn_handler_list *list,
 	size_t n = 0;
 	drgn_handler_list_for_each_enabled(struct drgn_handler, handler, list)
 		n++;
+	if (n == 0) {
+		*names_ret = NULL;
+		*count_ret = 0;
+		return NULL;
+	}
 	const char **names = malloc_array(n, sizeof(names[0]));
 	if (!names)
 		return &drgn_enomem;

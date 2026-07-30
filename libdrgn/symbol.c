@@ -274,6 +274,8 @@ drgn_symbol_index_init(struct drgn_symbol *symbols, uint32_t count,
 	ret->name_sort = NULL;
 	ret->max_addrs = NULL;
 	drgn_symbol_name_table_init(&ret->htab);
+	if (count == 0)
+		return NULL;
 	ret->name_sort = malloc_array(count, sizeof(ret->name_sort[0]));
 	if (!ret->name_sort)
 		goto enomem;
