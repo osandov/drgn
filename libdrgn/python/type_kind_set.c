@@ -154,7 +154,8 @@ static TypeKindSet *TypeKindSet_new(PyTypeObject *subtype, PyObject *args,
 		}
 	}
 	TypeKindSet *res = (TypeKindSet *)subtype->tp_alloc(subtype, 0);
-	res->kinds = kinds;
+	if (res)
+		res->kinds = kinds;
 	return res;
 }
 
