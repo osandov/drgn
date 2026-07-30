@@ -2114,10 +2114,9 @@ drgn_op_add_to_pointer(struct drgn_object *res,
 		err = drgn_object_value_signed(index, &svalue);
 		if (err)
 			return err;
-		if (svalue >= 0) {
-			index_value = svalue;
-		} else {
-			index_value = -svalue;
+		index_value = svalue;
+		if (svalue < 0) {
+			index_value = -index_value;
 			negate = !negate;
 		}
 		break;
@@ -2200,20 +2199,19 @@ struct drgn_error *drgn_op_mul_impl(struct drgn_object *res,
 		if (err)
 			return err;
 
-		/*
-		 * Convert to sign and magnitude to avoid signed integer
-		 * overflow.
-		 */
-		bool lhs_negative = lhs_svalue < 0;
-		uint64_t lhs_uvalue = lhs_negative ? -lhs_svalue : lhs_svalue;
-		bool rhs_negative = rhs_svalue < 0;
-		uint64_t rhs_uvalue = rhs_negative ? -rhs_svalue : rhs_svalue;
+		// Calculate in sign and magnitude to avoid signed integer
+		// overflow.
+		uint64_t lhs_uvalue = lhs_svalue, rhs_uvalue = rhs_svalue;
+		if (lhs_svalue < 0)
+			lhs_uvalue = -lhs_uvalue;
+		if (rhs_svalue < 0)
+			rhs_uvalue = -rhs_uvalue;
 		union {
 			int64_t svalue;
 			uint64_t uvalue;
 		} tmp;
 		tmp.uvalue = lhs_uvalue * rhs_uvalue;
-		if (lhs_negative != rhs_negative)
+		if ((lhs_svalue < 0) != (rhs_svalue < 0))
 			tmp.uvalue = -tmp.uvalue;
 		return drgn_object_set_signed_internal(res, &type, tmp.svalue);
 	}

@@ -1433,6 +1433,12 @@ class TestOperators(MockProgramTestCase):
         self.assertIdentical(void_ptr + 1, void_ptr1)
         self.assertIdentical(1 + void_ptr, void_ptr1)
 
+        void_ptr3 = Object(self.prog, "void *", 0x80000000FFFF0000)
+        self.assertIdentical(void_ptr + self.long(2**63), void_ptr3)
+        self.assertIdentical(void_ptr - self.long(2**63), void_ptr3)
+        self.assertIdentical(void_ptr + self.long(-(2**63)), void_ptr3)
+        self.assertIdentical(void_ptr - self.long(-(2**63)), void_ptr3)
+
     def test_sub(self):
         self._test_arithmetic(operator.sub, 4, 2, 2, floating_point=True)
 
@@ -1469,6 +1475,7 @@ class TestOperators(MockProgramTestCase):
 
         # Integer overflow.
         self.assertIdentical(self.int(0x8000) * self.int(0x10000), self.int(-(2**31)))
+        self.assertIdentical(self.long(-(2**63)) * self.long(-(2**63)), self.long(0))
 
         self.assertIdentical(
             self.unsigned_int(0x8000) * self.int(0x10000), self.unsigned_int(2**31)
