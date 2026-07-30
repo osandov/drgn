@@ -147,6 +147,8 @@ static PyObject *Register_get_names(Register *self, void *arg)
 	size_t num_names;
 	const char * const *names = drgn_register_names(self->reg, &num_names);
 	_cleanup_pydecref_ PyObject *ret = PyTuple_New(num_names);
+	if (!ret)
+		return NULL;
 	for (size_t i = 0; i < num_names; i++) {
 		PyObject *item = PyUnicode_FromString(names[i]);
 		if (!item)
