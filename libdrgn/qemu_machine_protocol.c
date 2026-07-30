@@ -60,7 +60,7 @@ static struct drgn_error *qmp_recv_msg(struct drgn_qmp_conn *conn,
 	struct string_builder *buf = &conn->read_buf;
 	for (;;) {
 		// Check if we already have a complete line in the buffer.
-		char *newline = memchr(buf->str, '\n', buf->len);
+		char *newline = buf->len ? memchr(buf->str, '\n', buf->len) : NULL;
 		if (newline) {
 			struct json_object *obj =
 				json_tokener_parse_ex(conn->json_tok, buf->str,
