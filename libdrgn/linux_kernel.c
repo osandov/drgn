@@ -552,7 +552,8 @@ linux_kernel_get_sections_per_root_impl(struct drgn_program *prog, uint64_t *ret
 			       &sizeof_mem_section);
 	if (err)
 		return err;
-	if (!is_power_of_two(sizeof_mem_section)) {
+	if (!is_power_of_two(sizeof_mem_section)
+	    || sizeof_mem_section > prog->vmcoreinfo.page_size) {
 		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "struct mem_section has invalid size");
 	}
