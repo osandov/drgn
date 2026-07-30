@@ -59,6 +59,32 @@ drgn_symbol_create(const char *name, uint64_t address, uint64_t size,
 		   enum drgn_symbol_binding binding, enum drgn_symbol_kind kind,
 		   enum drgn_lifetime name_lifetime, struct drgn_symbol **ret)
 {
+	SWITCH_ENUM(binding) {
+	case DRGN_SYMBOL_BINDING_UNKNOWN:
+	case DRGN_SYMBOL_BINDING_LOCAL:
+	case DRGN_SYMBOL_BINDING_GLOBAL:
+	case DRGN_SYMBOL_BINDING_WEAK:
+	case DRGN_SYMBOL_BINDING_UNIQUE:
+		break;
+	default:
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "invalid symbol binding");
+	}
+	SWITCH_ENUM(kind) {
+	case DRGN_SYMBOL_KIND_UNKNOWN:
+	case DRGN_SYMBOL_KIND_OBJECT:
+	case DRGN_SYMBOL_KIND_FUNC:
+	case DRGN_SYMBOL_KIND_SECTION:
+	case DRGN_SYMBOL_KIND_FILE:
+	case DRGN_SYMBOL_KIND_COMMON:
+	case DRGN_SYMBOL_KIND_TLS:
+	case DRGN_SYMBOL_KIND_IFUNC:
+		break;
+	default:
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "invalid symbol kind");
+	}
+
 	struct drgn_symbol *sym = malloc(sizeof(*sym));
 	if (!sym)
 		return &drgn_enomem;
