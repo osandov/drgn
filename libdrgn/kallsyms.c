@@ -251,7 +251,12 @@ kallsyms_expand_symbol(struct kallsyms_reader *kr,
 		       struct string_builder *sb, char *kind_ret)
 {
 	uint64_t len;
-	struct drgn_error *err = binary_buffer_next_uleb128(names_bb, &len);
+	struct drgn_error *err;
+
+	if (kr->long_names)
+		err = binary_buffer_next_uleb128(names_bb, &len);
+	else
+		err = binary_buffer_next_u8_into_u64(names_bb, &len);
 	if (err)
 		return err;
 
