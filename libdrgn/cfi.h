@@ -182,6 +182,12 @@ static inline void drgn_cfi_row_destroy(struct drgn_cfi_row *row)
 		free(row);
 }
 
+#define _cleanup_cfi_row_ __attribute__((__cleanup__(drgn_cfi_row_destroyp)))
+static inline void drgn_cfi_row_destroyp(struct drgn_cfi_row **rowp)
+{
+	drgn_cfi_row_destroy(*rowp);
+}
+
 /** Copy the rules from one @ref drgn_cfi_row to another. */
 bool drgn_cfi_row_copy(struct drgn_cfi_row **dst,
 		       const struct drgn_cfi_row *src);

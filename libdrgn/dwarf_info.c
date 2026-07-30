@@ -7683,23 +7683,18 @@ drgn_find_cfi_row_in_dwarf_fde(struct drgn_dwarf_cfi *cfi,
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_cie *cie = &cfi->cies[fde->cie];
-	struct drgn_cfi_row *initial_row =
+	_cleanup_cfi_row_ struct drgn_cfi_row *initial_row =
 		(struct drgn_cfi_row *)file->platform.arch->default_dwarf_cfi_row;
 	err = drgn_eval_dwarf_cfi(file, scn, cie, fde, NULL, unbiased_pc,
 				  cie->initial_instructions,
 				  cie->initial_instructions_size, &initial_row);
 	if (err)
-		goto out;
-	if (!drgn_cfi_row_copy(ret, initial_row)) {
-		err = &drgn_enomem;
-		goto out;
-	}
-	err = drgn_eval_dwarf_cfi(file, scn, cie, fde, initial_row, unbiased_pc,
-				  fde->instructions, fde->instructions_size,
-				  ret);
-out:
-	drgn_cfi_row_destroy(initial_row);
-	return err;
+		return err;
+	if (!drgn_cfi_row_copy(ret, initial_row))
+		return &drgn_enomem;
+	return drgn_eval_dwarf_cfi(file, scn, cie, fde, initial_row,
+				   unbiased_pc, fde->instructions,
+				   fde->instructions_size, ret);
 }
 
 static struct drgn_error *

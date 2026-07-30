@@ -1301,7 +1301,7 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	trace->prog = prog;
 	trace->num_frames = 0;
 
-	struct drgn_cfi_row *row = drgn_empty_cfi_row;
+	_cleanup_cfi_row_ struct drgn_cfi_row *row = drgn_empty_cfi_row;
 
 	struct drgn_register_state *regs;
 	if (prstatus) {
@@ -1341,7 +1341,6 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 
 	err = NULL;
 out:
-	drgn_cfi_row_destroy(row);
 	if (err) {
 		drgn_stack_trace_destroy(trace);
 	} else {
