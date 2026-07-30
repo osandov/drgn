@@ -101,13 +101,21 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 		return -1;
 	}
 
-	_cleanup_pydecref_ PyObject *items = PyMapping_Items(value_obj);
+	_cleanup_pydecref_ PyObject *items =
+		PyObject_CallMethod(value_obj, "items", NULL);
 	if (!items)
 		return -1;
+	_cleanup_pydecref_ PyObject *it = PyObject_GetIter(items);
+	if (!it)
+		return -1;
 
-	Py_ssize_t num_items = PyList_GET_SIZE(items);
-	for (Py_ssize_t i = 0; i < num_items; i++) {
-		PyObject *item = PyList_GET_ITEM(items, i);
+	for (;;) {
+		_cleanup_pydecref_ PyObject *item = PyIter_Next(it);
+		if (!item) {
+			if (PyErr_Occurred())
+				return -1;
+			break;
+		}
 		if (!PyTuple_Check(item) || PyTuple_GET_SIZE(item) != 2) {
 			PyErr_SetString(PyExc_TypeError, "invalid item");
 			return -1;
