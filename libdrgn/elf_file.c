@@ -41,6 +41,8 @@ struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
 
 void truncate_elf_string_data(Elf_Data *data)
 {
+	if (!data->d_buf)
+		return;
 	const char *buf = data->d_buf;
 	const char *nul = memrchr(buf, '\0', data->d_size);
 	if (nul)
