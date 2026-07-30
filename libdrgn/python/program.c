@@ -1983,6 +1983,8 @@ static PyObject *Program_stack_trace_from_pcs(Program *self, PyObject *args,
 
 	size_t size = PySequence_Fast_GET_SIZE(pypcseq);
 	_cleanup_free_ uint64_t *pcs = malloc_array(size, sizeof(uint64_t));
+	if (!pcs && size > 0)
+		return PyErr_NoMemory();
 	for (uint64_t i = 0; i != size; ++i) {
 		struct index_arg pc = {};
 
