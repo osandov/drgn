@@ -1720,7 +1720,7 @@ struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
 	const char *p = lexer->p;
 	bool cpp = ((struct drgn_c_family_lexer *)lexer)->cpp;
 
-	while (isspace(*p))
+	while (isspace((unsigned char)*p))
 		p++;
 
 	token->value = p;
@@ -1790,10 +1790,10 @@ struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
 		}
 		fallthrough;
 	default:
-		if (isalpha(*p) || *p == '_') {
+		if (isalpha((unsigned char)*p) || *p == '_') {
 			do {
 				p++;
-			} while (isalnum(*p) || *p == '_');
+			} while (isalnum((unsigned char)*p) || *p == '_');
 			token->kind = identifier_token_kind(token->value,
 							    p - token->value,
 							    cpp);
@@ -1814,7 +1814,7 @@ struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
 				while ('0' <= *p && *p <= '9')
 					p++;
 			}
-			if (isalpha(*p) || *p == '_') {
+			if (isalpha((unsigned char)*p) || *p == '_') {
 				return drgn_error_create(DRGN_ERROR_SYNTAX,
 							 "invalid number");
 			}

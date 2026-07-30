@@ -708,10 +708,10 @@ static bool is_fedora_kernel(const char *osrelease)
 	const char *p = osrelease;
 	while ((p = strstr(p, ".fc"))) {
 		p += sizeof(".fc") - 1;
-		if (isdigit(*p)) {
+		if (isdigit((unsigned char)*p)) {
 			do {
 				p++;
-			} while (isdigit(*p));
+			} while (isdigit((unsigned char)*p));
 			if (*p == '.' || *p == '\0')
 				return true;
 		}

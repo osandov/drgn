@@ -1544,7 +1544,7 @@ struct drgn_error *drgn_parse_addr2line(const char *address_str,
 					unsigned long long *offset_ret)
 {
 	const char *p = address_str;
-	while (isspace(*p))
+	while (isspace((unsigned char)*p))
 		p++;
 
 	if (!*p) {
@@ -1553,7 +1553,7 @@ struct drgn_error *drgn_parse_addr2line(const char *address_str,
 	}
 
 	const char *sym_name = p;
-	while (*p && !isspace(*p) && *p != '+')
+	while (*p && !isspace((unsigned char)*p) && *p != '+')
 		p++;
 	size_t sym_name_len = p - sym_name;
 	if (sym_name_len == 0) {
@@ -1561,26 +1561,26 @@ struct drgn_error *drgn_parse_addr2line(const char *address_str,
 					 "expected symbol name");
 	}
 
-	while (isspace(*p))
+	while (isspace((unsigned char)*p))
 		p++;
 
 	unsigned long long offset = 0;
 	char *end;
 	if (*p == '+') {
 		p++;
-		while (isspace(*p))
+		while (isspace((unsigned char)*p))
 			p++;
 
 		if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
 			p += 2;
-			if (!isxdigit(*p)) {
+			if (!isxdigit((unsigned char)*p)) {
 				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 							 "expected symbol offset");
 			}
 			errno = 0;
 			offset = strtoull(p, &end, 16);
 		} else {
-			if (!isdigit(*p)) {
+			if (!isdigit((unsigned char)*p)) {
 				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 							 "expected symbol offset");
 			}
@@ -1599,7 +1599,7 @@ struct drgn_error *drgn_parse_addr2line(const char *address_str,
 		}
 		p = end;
 
-		while (isspace(*p))
+		while (isspace((unsigned char)*p))
 			p++;
 
 		if (*p) {
@@ -1612,7 +1612,7 @@ struct drgn_error *drgn_parse_addr2line(const char *address_str,
 	}
 
 	if (sym_name[0] == '0' && (sym_name[1] == 'x' || sym_name[1] == 'X')
-	    && isxdigit(sym_name[2])) {
+	    && isxdigit((unsigned char)sym_name[2])) {
 		errno = 0;
 		unsigned long long address = strtoull(sym_name + 2, &end, 16);
 		if (end == sym_name + sym_name_len) {

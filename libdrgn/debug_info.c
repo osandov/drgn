@@ -2222,7 +2222,7 @@ static const char *find_dollar_origin(const char *s, const char **end_ret)
 		if (strstartswith(dollar + 1, "ORIGIN")) {
 			s = dollar + (sizeof("$ORIGIN") - 1);
 			// Skip it if it doesn't end at a word boundary.
-			if (*s == '_' || isalnum(*s))
+			if (*s == '_' || isalnum((unsigned char)*s))
 				continue;
 			*end_ret = s;
 			break;

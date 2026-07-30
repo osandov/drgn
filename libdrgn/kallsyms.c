@@ -315,7 +315,7 @@ search_for_string(struct kallsyms_reader *kr, const char *name, size_t *ret)
 static void symbol_from_kallsyms(uint64_t address, char *name, char kind,
 				      uint64_t size, struct drgn_symbol *ret)
 {
-	char kind_lower = tolower(kind);
+	char kind_lower = tolower((unsigned char)kind);
 	ret->name = name;
 	ret->address = address;
 	ret->size = size;
@@ -326,7 +326,7 @@ static void symbol_from_kallsyms(uint64_t address, char *name, char kind,
 		ret->binding = DRGN_SYMBOL_BINDING_UNIQUE;
 	else if (kind_lower == 'v' || kind_lower == 'w')
 		ret->binding = DRGN_SYMBOL_BINDING_WEAK;
-	else if (isupper(kind))
+	else if (isupper((unsigned char)kind))
 		ret->binding = DRGN_SYMBOL_BINDING_GLOBAL;
 	else
 		// If lowercase, the symbol is usually local, but it's
