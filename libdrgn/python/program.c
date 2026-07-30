@@ -1979,11 +1979,17 @@ static PyObject *Program_stack_trace_from_pcs(Program *self, PyObject *args,
 	if (!pypcseq)
 		return NULL;
 
-	size_t size = PySequence_Fast_GET_SIZE(pypcseq);
+	Py_ssize_t size = PySequence_Fast_GET_SIZE(pypcseq);
 	_cleanup_free_ uint64_t *pcs = malloc_array(size, sizeof(uint64_t));
 	if (!pcs && size > 0)
 		return PyErr_NoMemory();
-	for (uint64_t i = 0; i != size; ++i) {
+	for (Py_ssize_t i = 0; i < size; i++) {
+		// PyLong_AsUInt64() calls __index__(), which could
+		// theoretically modify the list.
+		if (i >= PySequence_Fast_GET_SIZE(pypcseq)) {
+			size = i;
+			break;
+		}
 		if (PyLong_AsUInt64(PySequence_Fast_GET_ITEM(pypcseq, i),
 				    &pcs[i]))
 			return NULL;
