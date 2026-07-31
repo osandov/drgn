@@ -132,3 +132,20 @@ once per element, so N reads stay N crossings — merely rerouted. Moving the
 *loop* into the kernel is what collapses N crossings into one, and that only
 happens when the whole traversal is handed to a walker. Hence: one walker per
 structure, addresses out, types stay in drgn.
+
+## Measured
+
+`for_each_task` on a live 5.15 kernel, **993 tasks**. Timing only the
+enumeration loop over 1000 passes — drgn's DWARF load and a warmup pass happen
+before the clock starts, so this is purely `for_each_task` — bpfwalk vs the
+userspace fallback (`BPFWALK_DISABLE=1`) on the same target:
+
+```
+mode=fallback tasks=993 reps=1000  enumeration_total=3.223 s  per_pass=3.223 ms
+mode=bpfwalk  tasks=993 reps=1000  enumeration_total=0.838 s  per_pass=0.838 ms
+```
+
+~3.8x faster (0.84 ms vs 3.22 ms per full task-list walk). The enumeration's
+`/proc/kcore` reads drop from ~4540 to ~77 `pread64` per pass — one
+`read()`-to-EOF on the iterator fd instead of one read per task. Only
+enumeration is offloaded, so reading many members per task narrows the gap.
