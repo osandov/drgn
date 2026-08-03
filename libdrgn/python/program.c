@@ -832,7 +832,7 @@ static PyObject *Program_set_enabled_##which##_finders(Program *self,		\
 	_cleanup_free_ const char **names =					\
 		malloc_array(count, sizeof(names[0]));				\
 	if (!names)								\
-		return NULL;							\
+		return PyErr_NoMemory();					\
 	for (size_t i = 0; i < count; i++) {					\
 		names[i] = PyUnicode_AsUTF8(PySequence_Fast_GET_ITEM(names_seq, i));\
 		if (!names[i])							\
