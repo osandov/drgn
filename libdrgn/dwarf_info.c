@@ -4701,7 +4701,12 @@ drgn_object_from_dwarf_enumerator(struct drgn_debug_info *dbinfo,
 							0);
 		}
 	}
-	UNREACHABLE();
+	// This can happen if the DWARF index and drgn_type_from_dwarf()
+	// disagree. In particular, the DWARF index doesn't check for
+	// DW_AT_declaration on DW_TAG_enumeration_type DIEs, so if such a DIE
+	// has DW_TAG_enumerator children (which is malformed), the DWARF index
+	// will include them but drgn_type_from_dwarf() won't.
+	return &drgn_not_found;
 }
 
 static struct drgn_error *
@@ -6779,9 +6784,11 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 		if (!die_matches_filename(&die, filename))
 			continue;
 		if (dwarf_tag(&die) == DW_TAG_enumeration_type) {
-			return drgn_object_from_dwarf_enumerator(dbinfo, file,
-								 &die, name,
-								 ret);
+			err = drgn_object_from_dwarf_enumerator(dbinfo, file,
+								&die, name,
+								ret);
+			if (err != &drgn_not_found)
+				return err;
 		} else {
 			return drgn_object_from_dwarf(dbinfo, file, &die, NULL,
 						      NULL, NULL, ret);

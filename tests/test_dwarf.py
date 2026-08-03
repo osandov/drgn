@@ -4551,6 +4551,31 @@ class TestObjects(TestCase):
             ),
         )
 
+    def test_constant_declaration_enum(self):
+        # enumerator children on a declaration enumeration_type should be
+        # ignored.
+        prog = dwarf_program(
+            (
+                DwarfDie(
+                    DW_TAG.enumeration_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "color"),
+                        DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.enumerator,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "RED"),
+                                DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 0),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertRaises(ObjectNotFoundError, prog.constant, "RED")
+
     def test_function(self):
         prog = dwarf_program(
             wrap_test_type_dies(
