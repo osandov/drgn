@@ -214,8 +214,10 @@ static int Program_init_logging(Program *prog)
 		return -1;
 
 	PyObject *obj = (PyObject *)prog;
-	if (pyobjectp_set_insert(&programs, &obj, NULL) < 0)
+	if (pyobjectp_set_insert(&programs, &obj, NULL) < 0) {
+		PyErr_NoMemory();
 		return -1;
+	}
 	drgn_program_set_log_callback(&prog->prog, drgnpy_log_fn, NULL);
 	drgn_program_set_log_level(&prog->prog, cached_log_level);
 	drgn_program_set_progress_file(&prog->prog,
