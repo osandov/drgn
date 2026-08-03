@@ -35,25 +35,6 @@ LIBDRGN_PUBLIC void drgn_symbols_destroy(struct drgn_symbol **syms,
 	free(syms);
 }
 
-struct drgn_error *
-drgn_symbol_copy(struct drgn_symbol *dst, struct drgn_symbol *src)
-{
-	if (src->name_lifetime == DRGN_LIFETIME_STATIC) {
-		dst->name = src->name;
-		dst->name_lifetime = DRGN_LIFETIME_STATIC;
-	} else {
-		dst->name = strdup(src->name);
-		if (!dst->name)
-			return &drgn_enomem;
-		dst->name_lifetime = DRGN_LIFETIME_OWNED;
-	}
-	dst->address = src->address;
-	dst->size = src->size;
-	dst->kind = src->kind;
-	dst->binding = src->binding;
-	return NULL;
-}
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_symbol_create(const char *name, uint64_t address, uint64_t size,
 		   enum drgn_symbol_binding binding, enum drgn_symbol_kind kind,
@@ -97,6 +78,30 @@ drgn_symbol_create(const char *name, uint64_t address, uint64_t size,
 	sym->lifetime = DRGN_LIFETIME_OWNED;
 	*ret = sym;
 	return NULL;
+}
+
+struct drgn_symbol *drgn_symbol_dup(struct drgn_symbol *sym)
+{
+	struct drgn_symbol *ret = malloc(sizeof(*ret));
+	if (!ret)
+		return NULL;
+	ret->lifetime = DRGN_LIFETIME_OWNED;
+	if (sym->name_lifetime == DRGN_LIFETIME_STATIC) {
+		ret->name = sym->name;
+		ret->name_lifetime = DRGN_LIFETIME_STATIC;
+	} else {
+		ret->name = strdup(sym->name);
+		if (!ret->name) {
+			free(ret);
+			return NULL;
+		}
+		ret->name_lifetime = DRGN_LIFETIME_OWNED;
+	}
+	ret->address = sym->address;
+	ret->size = sym->size;
+	ret->kind = sym->kind;
+	ret->binding = sym->binding;
+	return ret;
 }
 
 LIBDRGN_PUBLIC const char *drgn_symbol_name(struct drgn_symbol *sym)
