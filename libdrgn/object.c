@@ -1058,7 +1058,7 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 	underlying_type = drgn_underlying_type(obj->type);
 	switch (drgn_type_kind(underlying_type)) {
 	case DRGN_TYPE_POINTER:
-		err = drgn_object_value_unsigned(obj, &address);
+		err = drgn_object_read_unsigned(obj, &address);
 		if (err)
 			return err;
 		max_size = SIZE_MAX;
@@ -1804,7 +1804,7 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 		return err;
 
 	uint64_t address;
-	err = drgn_object_value_unsigned(obj, &address);
+	err = drgn_object_read_unsigned(obj, &address);
 	if (err)
 		return err;
 

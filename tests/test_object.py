@@ -15,6 +15,7 @@ from drgn import (
     Qualifiers,
     TypeMember,
     cast,
+    container_of,
     reinterpret,
     sizeof,
 )
@@ -1852,14 +1853,27 @@ class TestGenericOperators(MockProgramTestCase):
         obj = arr.read_()
         self.assertRaisesRegex(OutOfBoundsError, "out of bounds", obj.__getitem__, -1)
 
-    def test_big_pointer_subscript(self):
+    def test_big_pointer(self):
+        big_pointer_type = self.prog.pointer_type(
+            self.prog.int_type("int", 4, True), size=16
+        )
         obj = Object(
             self.prog,
-            self.prog.pointer_type(self.prog.int_type("int", 4, True), size=16),
+            big_pointer_type,
             0x0123456789ABCDEFFEDCBA9876543210,
         )
         with self.assertRaises(OverflowError):
             obj[0]
+        with self.assertRaises(OverflowError):
+            obj.string_()
+        with self.assertRaises(OverflowError):
+            container_of(
+                obj,
+                self.prog.struct_type(
+                    "foo", 16, (TypeMember(big_pointer_type, "ptr"),)
+                ),
+                "ptr",
+            )
 
     def test_slice(self):
         arr = Object(self.prog, "int [4]", address=0xFFFF0000)
