@@ -5533,7 +5533,7 @@ drgn_load_module_debug_info(struct drgn_module **modules, size_t *num_modulesp)
 		if (drgn_module_wants_file(modules[i])) {
 			modules[num_wanted_modules++] = modules[i];
 		} else if (modules[i]->loaded_file_status == DRGN_MODULE_FILE_DONT_WANT
-			   || modules[i]->loaded_file_status == DRGN_MODULE_FILE_DONT_WANT) {
+			   || modules[i]->debug_file_status == DRGN_MODULE_FILE_DONT_WANT) {
 			drgn_log_debug(prog,
 				       "debugging symbols not wanted for %s",
 				       modules[i]->name);
