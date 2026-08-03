@@ -1180,30 +1180,31 @@ drgn_object_convert_signed(const struct drgn_object *obj, uint64_t bit_size,
 			   int64_t *ret)
 {
 	struct drgn_error *err;
-	union drgn_value value_mem;
-	const union drgn_value *value;
 
-	err = drgn_object_read_value(obj, &value_mem, &value);
-	if (err)
-		return err;
 	switch (obj->encoding) {
 	case DRGN_OBJECT_ENCODING_SIGNED:
 	case DRGN_OBJECT_ENCODING_UNSIGNED:
-		*ret = truncate_signed(value->svalue, bit_size);
-		break;
 	case DRGN_OBJECT_ENCODING_FLOAT:
-		*ret = double_to_signed(value->fvalue, bit_size);
 		break;
 	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
 	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
 		return &drgn_integer_too_big;
 	default:
-		err = drgn_error_create(DRGN_ERROR_TYPE,
-					"object cannot be converted to integer");
-		break;
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "object cannot be converted to integer");
 	}
+
+	union drgn_value value_mem;
+	const union drgn_value *value;
+	err = drgn_object_read_value(obj, &value_mem, &value);
+	if (err)
+		return err;
+	if (obj->encoding == DRGN_OBJECT_ENCODING_FLOAT)
+		*ret = double_to_signed(value->fvalue, bit_size);
+	else
+		*ret = truncate_signed(value->svalue, bit_size);
 	drgn_object_deinit_value(obj, value);
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -1211,39 +1212,53 @@ drgn_object_convert_unsigned(const struct drgn_object *obj, uint64_t bit_size,
 			     uint64_t *ret)
 {
 	struct drgn_error *err;
-	union drgn_value value_mem;
-	const union drgn_value *value;
 
-	err = drgn_object_read_value(obj, &value_mem, &value);
-	if (err)
-		return err;
 	switch (obj->encoding) {
 	case DRGN_OBJECT_ENCODING_SIGNED:
 	case DRGN_OBJECT_ENCODING_UNSIGNED:
-		*ret = truncate_unsigned(value->uvalue, bit_size);
-		break;
 	case DRGN_OBJECT_ENCODING_FLOAT:
-		*ret = double_to_unsigned(value->fvalue, bit_size);
 		break;
 	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
 	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
 		return &drgn_integer_too_big;
 	default:
-		err = drgn_error_create(DRGN_ERROR_TYPE,
-					"object cannot be converted to integer");
-		break;
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "object cannot be converted to integer");
 	}
+
+	union drgn_value value_mem;
+	const union drgn_value *value;
+	err = drgn_object_read_value(obj, &value_mem, &value);
+	if (err)
+		return err;
+	if (obj->encoding == DRGN_OBJECT_ENCODING_FLOAT)
+		*ret = double_to_unsigned(value->fvalue, bit_size);
+	else
+		*ret = truncate_unsigned(value->uvalue, bit_size);
 	drgn_object_deinit_value(obj, value);
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *
 drgn_object_convert_float(const struct drgn_object *obj, double *fvalue)
 {
 	struct drgn_error *err;
+
+	switch (obj->encoding) {
+	case DRGN_OBJECT_ENCODING_SIGNED:
+	case DRGN_OBJECT_ENCODING_UNSIGNED:
+	case DRGN_OBJECT_ENCODING_FLOAT:
+		break;
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
+		return &drgn_integer_too_big;
+	default:
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "object cannot be converted to floating-point");
+	}
+
 	union drgn_value value_mem;
 	const union drgn_value *value;
-
 	err = drgn_object_read_value(obj, &value_mem, &value);
 	if (err)
 		return err;
@@ -1257,16 +1272,11 @@ drgn_object_convert_float(const struct drgn_object *obj, double *fvalue)
 	case DRGN_OBJECT_ENCODING_FLOAT:
 		*fvalue = value->fvalue;
 		break;
-	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
-	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
-		return &drgn_integer_too_big;
 	default:
-		err = drgn_error_create(DRGN_ERROR_TYPE,
-					"object cannot be converted to floating-point");
-		break;
+		UNREACHABLE();
 	}
 	drgn_object_deinit_value(obj, value);
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *
