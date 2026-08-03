@@ -758,7 +758,7 @@ drgn_program_set_linux_kernel_custom(struct drgn_program *prog,
 		err = drgn_program_parse_vmcoreinfo(prog, vmcoreinfo,
 						    vmcoreinfo_size);
 		if (err)
-			return err;
+			goto out_vmcoreinfo;
 	}
 
 	/*
