@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1142,6 +1143,38 @@ drgn_format_object(const struct drgn_object *obj,
 	return lang->format_object(obj, options, ret);
 }
 
+// Converting a floating-point value to an integer is undefined in C if the
+// value is NaN or its integral part is out of range of the integer type. We
+// define it as: NaN is converted to zero and out-of-range values saturate to
+// the minimum or maximum value.
+static int64_t double_to_signed(double fvalue, uint64_t bit_size)
+{
+	if (isnan(fvalue))
+		return 0;
+	// 2^(bit_size - 1), which is exactly representable as a double.
+	uint64_t magnitude = UINT64_C(1) << (bit_size - 1);
+	double bound = magnitude;
+	int64_t max = magnitude - 1;
+	if (fvalue >= bound)
+		return max;
+	if (fvalue <= -bound)
+		return -max - 1;
+	return fvalue;
+}
+
+static uint64_t double_to_unsigned(double fvalue, uint64_t bit_size)
+{
+	if (isnan(fvalue))
+		return 0;
+	// 2^bit_size, which is exactly representable as a double.
+	double bound = 2.0 * (UINT64_C(1) << (bit_size - 1));
+	if (fvalue >= bound)
+		return UINT64_MAX >> (64 - bit_size);
+	if (fvalue < 0)
+		return 0;
+	return fvalue;
+}
+
 static struct drgn_error *
 drgn_object_convert_signed(const struct drgn_object *obj, uint64_t bit_size,
 			   int64_t *ret)
@@ -1159,7 +1192,7 @@ drgn_object_convert_signed(const struct drgn_object *obj, uint64_t bit_size,
 		*ret = truncate_signed(value->svalue, bit_size);
 		break;
 	case DRGN_OBJECT_ENCODING_FLOAT:
-		*ret = truncate_signed(value->fvalue, bit_size);
+		*ret = double_to_signed(value->fvalue, bit_size);
 		break;
 	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
 	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
@@ -1190,7 +1223,7 @@ drgn_object_convert_unsigned(const struct drgn_object *obj, uint64_t bit_size,
 		*ret = truncate_unsigned(value->uvalue, bit_size);
 		break;
 	case DRGN_OBJECT_ENCODING_FLOAT:
-		*ret = truncate_unsigned(value->fvalue, bit_size);
+		*ret = double_to_unsigned(value->fvalue, bit_size);
 		break;
 	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
 	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:

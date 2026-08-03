@@ -1260,6 +1260,61 @@ class TestOperators(MockProgramTestCase):
             Object(self.prog, "_Bool", True),
         )
 
+    def test_cast_floating_point_to_integer(self):
+        # Truncation towards zero.
+        for value, expected in ((1.9, 1), (-1.9, -1), (0.5, 0), (-0.5, 0), (-5.0, -5)):
+            with self.subTest(value=value):
+                self.assertIdentical(
+                    cast("int", self.double(value)), self.int(expected)
+                )
+
+        # NaN and saturation.
+        nan = float("nan")
+        inf = float("inf")
+        for type_name, min_, max_ in (
+            ("int", -(2**31), 2**31 - 1),
+            ("unsigned int", 0, 2**32 - 1),
+            ("long", -(2**63), 2**63 - 1),
+            ("unsigned long", 0, 2**64 - 1),
+        ):
+            for value, expected in (
+                (nan, 0),
+                (inf, max_),
+                (-inf, min_),
+                (1e300, max_),
+                (-1e300, min_),
+                # Just out of range.
+                (float(max_ + 1), max_),
+                (float(min_ - 1), min_),
+            ):
+                with self.subTest(type=type_name, value=value):
+                    self.assertIdentical(
+                        cast(type_name, self.double(value)),
+                        Object(self.prog, type_name, expected),
+                    )
+
+        # Saturation is to the range of the destination type.
+        self.assertIdentical(cast("int", self.double(1e10)), self.int(2**31 - 1))
+        self.assertIdentical(cast("int", self.double(-1e10)), self.int(-(2**31)))
+        self.assertIdentical(
+            cast("unsigned int", self.double(5e9)),
+            self.unsigned_int(2**32 - 1),
+        )
+
+        # Values in range are not affected.
+        self.assertIdentical(
+            cast("int", self.double(2147483647.0)), self.int(2**31 - 1)
+        )
+        self.assertIdentical(
+            cast("int", self.double(-2147483648.0)), self.int(-(2**31))
+        )
+        self.assertIdentical(
+            cast("unsigned int", self.double(3e9)), self.unsigned_int(3000000000)
+        )
+        self.assertIdentical(
+            cast("long", self.double(-9223372036854775808.0)), self.long(-(2**63))
+        )
+
     def _test_arithmetic(
         self, op, lhs, rhs, result, integral=True, floating_point=False
     ):
