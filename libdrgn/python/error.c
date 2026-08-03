@@ -64,7 +64,7 @@ static int ObjectNotFoundError_init(PyObject *self, PyObject *args,
 	_cleanup_pydecref_ PyObject *empty_tuple = PyTuple_New(0);
 	if (!empty_tuple)
 		return -1;
-	PyObject *name;
+	PyObject *name = Py_None;
 	if (!PyArg_ParseTupleAndKeywords(empty_tuple, kwds,
 					 "|$O:ObjectNotFoundError", keywords,
 					 &name))
