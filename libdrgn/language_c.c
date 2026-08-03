@@ -931,7 +931,8 @@ c_format_initializer(struct drgn_program *prog, struct initializer_iter *iter,
 				return err;
 			if (__builtin_sub_overflow(remaining_columns,
 						   sb->len - designation_start,
-						   &remaining_columns)) {
+						   &remaining_columns)
+			    || remaining_columns < 2) {
 				err = &drgn_line_wrap;
 				break;
 			}
