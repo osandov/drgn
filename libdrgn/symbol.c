@@ -302,8 +302,7 @@ drgn_symbol_index_init(struct drgn_symbol *symbols, uint32_t count,
 	// that's a rare case. In order to do this strategy, we need an array
 	// that contains the maximum address spanned by any symbol at or before
 	// that index.
-	if (ret->num_syms > 0) // in case num_syms == 0
-		ret->max_addrs[0] = ret->symbols[0].address + ret->symbols[0].size;
+	ret->max_addrs[0] = ret->symbols[0].address + ret->symbols[0].size;
 	for (uint32_t i = 1; i < ret->num_syms; i++) {
 		uint64_t max_addr = ret->symbols[i].address + ret->symbols[i].size;
 		ret->max_addrs[i] = max(ret->max_addrs[i - 1], max_addr);
