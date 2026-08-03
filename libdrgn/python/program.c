@@ -705,7 +705,7 @@ py_symbol_find_fn(const char *name, uint64_t addr,
 		if (!PyObject_TypeCheck(item, &Symbol_type))
 			return drgn_error_create(DRGN_ERROR_TYPE,
 						 "symbol finder results must be of type Symbol");
-		_cleanup_free_ struct drgn_symbol *sym =
+		_cleanup_symbol_ struct drgn_symbol *sym =
 			drgn_symbol_dup(((Symbol *)item)->sym);
 		if (!sym)
 			return &drgn_enomem;
