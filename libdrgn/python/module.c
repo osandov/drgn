@@ -11,6 +11,8 @@ int add_WantedSupplementaryFile(PyObject *m)
 {
 	_cleanup_pydecref_ PyObject *collections =
 		PyImport_ImportModule("collections");
+	if (!collections)
+		return -1;
 	_cleanup_pydecref_ PyObject *namedtuple =
 		PyObject_GetAttrString(collections, "namedtuple");
 	if (!namedtuple)
