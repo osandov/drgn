@@ -1545,14 +1545,19 @@ drgn_module_maybe_use_elf_file(struct drgn_module *module,
 			       module->name, module->build_id_str);
 	}
 	if (elf_start < elf_end) {
-		drgn_log_debug(prog,
-			       "%s: set address range 0x%" PRIx64
-			       "-0x%" PRIx64 " from file", module->name,
-			       elf_start, elf_end);
 		err = drgn_module_set_address_range(module, elf_start, elf_end);
-		// This can only fail if the address range is invalid, which we
-		// just checked for.
-		assert(!err);
+		if (err) {
+			drgn_error_log_debug(prog, err,
+					     "%s: couldn't set address range: ",
+					     module->name);
+			drgn_error_destroy(err);
+			err = NULL;
+		} else {
+			drgn_log_debug(prog,
+				       "%s: set address range 0x%" PRIx64
+				       "-0x%" PRIx64 " from file", module->name,
+				       elf_start, elf_end);
+		}
 	}
 
 	if (use_loaded) {
