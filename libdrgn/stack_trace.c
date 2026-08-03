@@ -1326,12 +1326,15 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	if (err)
 		return err;
 
-	/* Limit iterations so we don't get caught in a loop. */
-	for (int i = 0; i < 1024; i++) {
+	for (int i = 0; ; i++) {
 		err = drgn_stack_trace_add_frames(&trace, &trace_capacity,
 						  regs);
 		if (err)
 			return err;
+
+		// Limit iterations so we don't get caught in a loop.
+		if (i == 1023)
+			break;
 
 		err = drgn_unwind_with_cfi(prog, &row, regs, &regs);
 		if (err == &drgn_not_found) {
