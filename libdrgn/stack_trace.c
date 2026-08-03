@@ -956,6 +956,8 @@ drgn_stack_trace_add_frames(struct drgn_stack_trace **trace,
 {
 	struct drgn_error *err;
 
+	size_t orig_num_frames = (*trace)->num_frames;
+
 	if (!regs->module) {
 		err = drgn_stack_trace_append_frame(trace, trace_capacity, regs,
 						    NULL, 0, 0);
@@ -972,7 +974,6 @@ drgn_stack_trace_add_frames(struct drgn_stack_trace **trace,
 		goto out;
 	pc -= bias;
 
-	size_t orig_num_frames = (*trace)->num_frames;
 	/*
 	 * Walk backwards through scopes, splitting into frames. Stop at index 1
 	 * because 0 must be a unit DIE.
@@ -1084,8 +1085,14 @@ drgn_stack_trace_add_frames(struct drgn_stack_trace **trace,
 out_scopes:
 	free(scopes);
 out:
-	if (err)
+	if (err) {
+		// We may have already appended frames referring to regs, so get
+		// rid of them before destroying it.
+		for (size_t i = orig_num_frames; i < (*trace)->num_frames; i++)
+			free((*trace)->frames[i].scopes);
+		(*trace)->num_frames = orig_num_frames;
 		drgn_register_state_destroy(regs);
+	}
 	return err;
 }
 
