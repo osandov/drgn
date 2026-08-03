@@ -150,8 +150,10 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 		struct drgn_object_type member_type;
 		err = drgn_object_type(member_qualified_type,
 				       member_bit_field_size, &member_type);
-		if (err)
+		if (err) {
+			set_drgn_error(err);
 			return -1;
+		}
 		if (serialize_py_object(prog, buf, buf_bit_size,
 					bit_offset + member_bit_offset,
 					PyTuple_GET_ITEM(item, 1),
