@@ -52,11 +52,17 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	prog->vmcoreinfo.raw_size = descsz;
-	prog->vmcoreinfo.raw = memdup(desc, descsz);
+	if (descsz == SIZE_MAX)
+		return &drgn_enomem;
+	prog->vmcoreinfo.raw = malloc(descsz + 1);
 	if (!prog->vmcoreinfo.raw)
 		return &drgn_enomem;
-	for (const char *line = desc, *end = &desc[descsz], *newline;
+	memcpy(prog->vmcoreinfo.raw, desc, descsz);
+	prog->vmcoreinfo.raw[descsz] = '\0';
+	prog->vmcoreinfo.raw_size = descsz;
+
+	for (const char *line = prog->vmcoreinfo.raw,
+	     *end = &prog->vmcoreinfo.raw[descsz], *newline;
 	     (newline = memchr(line, '\n', end - line));
 	     line = newline + 1) {
 		const char *equals = memchr(line, '=', newline - line);
