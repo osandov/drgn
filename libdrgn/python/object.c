@@ -225,7 +225,7 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 		return -1;
 	}
 
-	switch (type->encoding) {
+	SWITCH_ENUM(type->encoding) {
 	case DRGN_OBJECT_ENCODING_SIGNED:
 	case DRGN_OBJECT_ENCODING_UNSIGNED: {
 		if (!PyNumber_Check(value_obj)) {
@@ -317,6 +317,12 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 			break;
 		}
 		break;
+	case DRGN_OBJECT_ENCODING_NONE:
+	case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
+	case DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER:
+		set_drgn_error(drgn_error_incomplete_type("cannot create member with %s type",
+							  type->type));
+		return -1;
 	default:
 		break;
 	}

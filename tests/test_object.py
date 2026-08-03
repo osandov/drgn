@@ -1205,6 +1205,16 @@ class TestValue(MockProgramTestCase):
                         self.assertEqual(obj.a.value_(), truncate(a, bit_size))
                         self.assertEqual(obj.b.value_(), truncate(b, 128 - bit_size))
 
+    def test_compound_incomplete_member(self):
+        self.assertRaisesRegex(
+            TypeError,
+            "cannot create member with void type",
+            Object,
+            self.prog,
+            self.prog.struct_type("foo", 8, (TypeMember(self.prog.void_type(), "m"),)),
+            value={"m": 0},
+        )
+
     def test_pointer(self):
         obj = Object(self.prog, "int *", value=0xFFFF0000)
         self.assertFalse(obj.absent_)
