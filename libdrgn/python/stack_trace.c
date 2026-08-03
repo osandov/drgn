@@ -191,12 +191,14 @@ static int StackFrame_contains(StackFrame *self, PyObject *key)
 	DRGN_OBJECT(tmp, self->trace->trace->prog);
 	err = drgn_stack_frame_find_object(self->trace->trace, self->i, name,
 					   &tmp);
-	if (!err)
+	if (!err) {
 		return 1;
-	else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		return 0;
-	else
+	} else {
+		set_drgn_error(err);
 		return -1;
+	}
 }
 
 static PyObject *StackFrame_source_name(StackFrame *self)
