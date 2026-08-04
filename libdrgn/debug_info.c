@@ -1989,6 +1989,41 @@ struct drgn_map_files_segment {
 
 DEFINE_VECTOR(drgn_map_files_segment_vector, struct drgn_map_files_segment);
 
+struct drgn_map_files_segments {
+	struct drgn_map_files_segment_vector vector;
+	// Whether the segments are already sorted by start address. The Linux
+	// kernel always returns these entries in order, but we check and sort
+	// afterwards if not just in case.
+	bool sorted;
+};
+
+static void
+drgn_map_files_segments_deinit(struct drgn_map_files_segments *segments)
+{
+	drgn_map_files_segment_vector_deinit(&segments->vector);
+}
+
+#define DRGN_MAP_FILES_SEGMENTS(name)					\
+	_cleanup_(drgn_map_files_segments_deinit)			\
+	struct drgn_map_files_segments name = { VECTOR_INIT, true }
+
+static struct drgn_error *
+drgn_add_map_files_segment(struct drgn_map_files_segments *segments,
+			   uint64_t start, uint64_t end)
+{
+	if (!drgn_map_files_segment_vector_empty(&segments->vector)
+	    && start
+	       < drgn_map_files_segment_vector_last(&segments->vector)->start)
+		segments->sorted = false;
+	struct drgn_map_files_segment *entry =
+		drgn_map_files_segment_vector_append_entry(&segments->vector);
+	if (!entry)
+		return &drgn_enomem;
+	entry->start = start;
+	entry->end = end;
+	return NULL;
+}
+
 static inline int drgn_map_files_segment_compare(const void *_a, const void *_b)
 {
 	const struct drgn_map_files_segment *a = _a;
@@ -1998,17 +2033,14 @@ static inline int drgn_map_files_segment_compare(const void *_a, const void *_b)
 
 static void
 drgn_debug_info_set_map_files_segments(struct drgn_debug_info *dbinfo,
-				       struct drgn_map_files_segment_vector *segments,
-				       bool sorted)
+				       struct drgn_map_files_segments *segments)
 {
 	free(dbinfo->map_files_segments);
-	drgn_map_files_segment_vector_shrink_to_fit(segments);
-	drgn_map_files_segment_vector_steal(segments,
+	drgn_map_files_segment_vector_shrink_to_fit(&segments->vector);
+	drgn_map_files_segment_vector_steal(&segments->vector,
 					    &dbinfo->map_files_segments,
 					    &dbinfo->num_map_files_segments);
-	// The Linux kernel always returns these entries in order, but sort it
-	// just in case.
-	if (!sorted) {
+	if (!segments->sorted) {
 		qsort(dbinfo->map_files_segments,
 		      dbinfo->num_map_files_segments,
 		      sizeof(dbinfo->map_files_segments[0]),
@@ -2078,24 +2110,21 @@ drgn_module_try_proc_files_for_shared_library(struct drgn_module *module,
 		drgn_log_debug(prog, "%s: %m", path);
 		return NULL;
 	}
-	VECTOR(drgn_map_files_segment_vector, segments);
-	bool sorted = true;
+	DRGN_MAP_FILES_SEGMENTS(segments);
 	bool found = false;
 	struct dirent *ent;
 	while ((errno = 0, ent = readdir(dir))) {
-		struct drgn_map_files_segment segment;
-		if (sscanf(ent->d_name, "%" SCNx64 "-%" SCNx64, &segment.start,
-			   &segment.end) != 2)
+		uint64_t segment_start, segment_end;
+		if (sscanf(ent->d_name, "%" SCNx64 "-%" SCNx64, &segment_start,
+			   &segment_end) != 2)
 			continue;
 
-		if (!drgn_map_files_segment_vector_empty(&segments)
-		    && segment.start
-		       < drgn_map_files_segment_vector_last(&segments)->start)
-			sorted = false;
-		if (!drgn_map_files_segment_vector_append(&segments, &segment))
-			return &drgn_enomem;
+		err = drgn_add_map_files_segment(&segments, segment_start,
+						 segment_end);
+		if (err)
+			return err;
 
-		if (segment.start <= address && address < segment.end
+		if (segment_start <= address && address < segment_end
 		    && !found
 		    && strlen(ent->d_name) + 1 < sizeof(path) - dir_len) {
 			found = true;
@@ -2124,8 +2153,7 @@ drgn_module_try_proc_files_for_shared_library(struct drgn_module *module,
 	if (errno)
 		return drgn_error_create_os("readdir", errno, path);
 
-	drgn_debug_info_set_map_files_segments(&prog->dbinfo, &segments,
-					       sorted);
+	drgn_debug_info_set_map_files_segments(&prog->dbinfo, &segments);
 
 	if (!found) {
 		drgn_log_debug(prog,
@@ -4478,20 +4506,20 @@ process_add_mapping(struct process_loaded_module_iterator *it,
 		    const char *maps_path, const char *map_files_path,
 		    int map_files_fd, bool *logged_readlink_eperm,
 		    bool *logged_stat_eperm,
-		    struct drgn_map_files_segment_vector *map_files_segments,
+		    struct drgn_map_files_segments *map_files_segments,
 		    struct drgn_mapped_file_segments *segments,
 		    char *line, size_t line_len)
 {
+	struct drgn_error *err;
 	struct drgn_program *prog = it->u.it.prog;
 
-	struct drgn_map_files_segment segment;
-	uint64_t segment_file_offset;
+	uint64_t segment_start, segment_end, segment_file_offset;
 	unsigned int dev_major, dev_minor;
 	uint64_t ino;
 	int map_name_len, path_index;
 	if (sscanf(line,
 		   "%" SCNx64 "-%" SCNx64 "%n %*s %" SCNx64 " %x:%x %" SCNu64 " %n",
-		   &segment.start, &segment.end, &map_name_len,
+		   &segment_start, &segment_end, &map_name_len,
 		   &segment_file_offset, &dev_major, &dev_minor, &ino,
 		   &path_index) != 6) {
 		return drgn_error_format(DRGN_ERROR_BAD_DATA, "couldn't parse %s",
@@ -4501,8 +4529,10 @@ process_add_mapping(struct process_loaded_module_iterator *it,
 	if (ino == 0)
 		return NULL;
 
-	if (!drgn_map_files_segment_vector_append(map_files_segments, &segment))
-		return &drgn_enomem;
+	err = drgn_add_map_files_segment(map_files_segments, segment_start,
+					 segment_end);
+	if (err)
+		return err;
 
 	struct process_mapped_file_key key = {
 		.dev = makedev(dev_major, dev_minor),
@@ -4526,7 +4556,7 @@ process_add_mapping(struct process_loaded_module_iterator *it,
 	if (map_files_fd >= 0) {
 		char map_files_name[34];
 		snprintf(map_files_name, sizeof(map_files_name),
-			 "%" PRIx64 "-%" PRIx64, segment.start, segment.end);
+			 "%" PRIx64 "-%" PRIx64, segment_start, segment_end);
 
 		// The escaped path must be at least as long as the original
 		// path, so use that as the readlink buffer size.
@@ -4635,8 +4665,8 @@ process_add_mapping(struct process_loaded_module_iterator *it,
 		// real_path is owned by the iterator now.
 		real_path = NULL;
 	}
-	return drgn_add_mapped_file_segment(segments, segment.start, segment.end,
-					    segment_file_offset,
+	return drgn_add_mapped_file_segment(segments, segment_start,
+					    segment_end, segment_file_offset,
 					    files_it.entry->file);
 }
 
@@ -4688,7 +4718,7 @@ process_get_mapped_files(struct process_loaded_module_iterator *it)
 	bool logged_readlink_eperm = false, logged_stat_eperm = false;
 	// While we're reading /proc/$pid/maps, we might as well cache the
 	// segments for drgn_module_try_proc_files_for_shared_library().
-	VECTOR(drgn_map_files_segment_vector, map_files_segments);
+	DRGN_MAP_FILES_SEGMENTS(map_files_segments);
 	struct drgn_mapped_file_segments segments = DRGN_MAPPED_FILE_SEGMENTS_INIT;
 	for (;;) {
 		errno = 0;
@@ -4719,8 +4749,7 @@ process_get_mapped_files(struct process_loaded_module_iterator *it)
 		drgn_mapped_file_segments_abort(&segments);
 	} else {
 		drgn_debug_info_set_map_files_segments(&prog->dbinfo,
-						       &map_files_segments,
-						       segments.sorted);
+						       &map_files_segments);
 		userspace_loaded_module_iterator_set_file_segments(&it->u,
 								   &segments);
 	}
