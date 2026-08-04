@@ -192,7 +192,6 @@ void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo)
 	dbinfo->dwarf.global.parent = NULL;
 	drgn_dwarf_base_type_map_init(&dbinfo->dwarf.base_types);
 	drgn_dwarf_specification_map_init(&dbinfo->dwarf.specifications);
-	free(dbinfo->dwarf.index_cu_lookup);
 	drgn_dwarf_index_cu_vector_init(&dbinfo->dwarf.index_cus);
 	drgn_dwarf_type_map_init(&dbinfo->dwarf.types);
 	drgn_dwarf_type_map_init(&dbinfo->dwarf.cant_be_incomplete_array_types);
@@ -208,6 +207,7 @@ void drgn_dwarf_info_deinit(struct drgn_debug_info *dbinfo)
 {
 	drgn_dwarf_type_map_deinit(&dbinfo->dwarf.cant_be_incomplete_array_types);
 	drgn_dwarf_type_map_deinit(&dbinfo->dwarf.types);
+	free(dbinfo->dwarf.index_cu_lookup);
 	vector_for_each(drgn_dwarf_index_cu_vector, cu,
 			&dbinfo->dwarf.index_cus)
 		drgn_dwarf_index_cu_deinit(cu);
