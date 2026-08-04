@@ -1,6 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import weakref
+
 from drgn import (
     Architecture,
     Language,
@@ -1203,6 +1205,41 @@ class TestTypeMember(MockProgramTestCase):
 
         m = TypeMember(lambda: None)
         self.assertRaises(TypeError, getattr, m, "type")
+
+    def test_callable_reentrant(self):
+        # Test a callable that reenters the object evaluation.
+        class Callable:
+            def __init__(self2):
+                self2.first = True
+
+            def __call__(self2):
+                if self2.first:
+                    self2.first = False
+                    return member.object
+                return Object(self.prog, self.prog.int_type("int", 4, True))
+
+        member = TypeMember(Callable())
+        self.assertIdentical(
+            member.object, Object(self.prog, self.prog.int_type("int", 4, True))
+        )
+
+    def test_callable_reentrant_finalizer(self):
+        # Test a callable that reenters the object evaluation while it is being
+        # finalized.
+        class Callable:
+            def __call__(self2):
+                return Object(self.prog, self.prog.int_type("int", 4, True))
+
+        obj = Callable()
+        member = TypeMember(obj)
+        # The weakref callback reenters the object evaluation when the callable
+        # is finalized.
+        ref = weakref.ref(obj, lambda _: member.object)  # noqa: F841
+        del obj
+
+        self.assertIdentical(
+            member.object, Object(self.prog, self.prog.int_type("int", 4, True))
+        )
 
     def test_repr(self):
         m = TypeMember(self.prog.void_type, name="foo")

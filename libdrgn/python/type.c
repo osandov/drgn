@@ -933,9 +933,10 @@ static DrgnObject *LazyObject_get_borrowed(LazyObject *self)
 				return set_drgn_error(err);
 			}
 		}
-		Py_DECREF(self->obj);
-		self->obj = (PyObject *)obj;
+		// lazy_obj must be updated before obj to guard against
+		// reentrant calls.
 		self->lazy_obj = DRGNPY_LAZY_OBJECT_EVALUATED;
+		Py_SETREF(self->obj, (PyObject *)obj);
 	}
 	return (DrgnObject *)self->obj;
 }
