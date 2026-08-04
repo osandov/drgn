@@ -612,6 +612,24 @@ class TestReference(MockProgramTestCase):
             TypeError, "cannot read object with incomplete array type", obj.read_
         )
 
+    def test_compound_flexible_array_member(self):
+        self.add_memory_segment((1).to_bytes(4, "little"), virt_addr=0xFFFF0000)
+        type_ = self.prog.struct_type(
+            "foo",
+            4,
+            (
+                TypeMember(self.prog.int_type("int", 4, True), "n", 0),
+                TypeMember(
+                    self.prog.array_type(self.prog.int_type("int", 4, True)),
+                    "a",
+                    32,
+                ),
+            ),
+        )
+        obj = Object(self.prog, type_, address=0xFFFF0000)
+        self.assertIdentical(obj.read_(), Object(self.prog, type_, {"n": 1}))
+        self.assertEqual(obj.value_(), {"n": 1})
+
     def test_non_scalar_bit_offset(self):
         obj = Object(
             self.prog,
@@ -1214,6 +1232,26 @@ class TestValue(MockProgramTestCase):
             self.prog.struct_type("foo", 8, (TypeMember(self.prog.void_type(), "m"),)),
             value={"m": 0},
         )
+
+    def test_compound_flexible_array_member(self):
+        obj = Object(
+            self.prog,
+            self.prog.struct_type(
+                "foo",
+                4,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True), "n", 0),
+                    TypeMember(
+                        self.prog.array_type(self.prog.int_type("int", 4, True)),
+                        "a",
+                        32,
+                    ),
+                ),
+            ),
+            value={"n": 1},
+        )
+        self.assertEqual(obj.value_(), {"n": 1})
+        self.assertEqual(repr(obj), "Object(prog, 'struct foo', value={'n': 1})")
 
     def test_pointer(self):
         obj = Object(self.prog, "int *", value=0xFFFF0000)

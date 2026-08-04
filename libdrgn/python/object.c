@@ -603,6 +603,9 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 		if (err)
 			return set_drgn_error(err);
 
+		if (!drgn_object_encoding_is_complete(member.encoding))
+			continue;
+
 		_cleanup_pydecref_ PyObject *member_value =
 			DrgnObject_value_impl(&member);
 		if (!member_value)
