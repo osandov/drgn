@@ -158,15 +158,18 @@ remove_fdes_from_orc(struct drgn_module *module, unsigned int *indices,
 	// always store the biased/actual address at orc.pc_base. Since we are
 	// comparing to the unbiased addresses in the debug_frame FDEs, we need
 	// to subtract the bias from the ORC PC.
-	uint64_t start_pc = drgn_raw_orc_pc(module, 0) - module->debug_file_bias;
+	uint64_t start_pc =
+		drgn_raw_orc_pc(module, indices[0]) - module->debug_file_bias;
 	uint64_t end_pc;
 	for (unsigned int i = 0; i < num_entries; i++, start_pc = end_pc) {
-		if (i < num_entries - 1)
-			end_pc = drgn_raw_orc_pc(module, i + 1) - module->debug_file_bias;
-		else
+		if (i < num_entries - 1) {
+			end_pc = drgn_raw_orc_pc(module, indices[i + 1])
+				 - module->debug_file_bias;
+		} else {
 			end_pc = UINT64_MAX;
+		}
 
-		if (drgn_raw_orc_entry_is_preferred(module, i)) {
+		if (drgn_raw_orc_entry_is_preferred(module, indices[i])) {
 			struct uint64_range *range =
 				uint64_range_vector_append_entry(preferred);
 			if (!range)
