@@ -69,6 +69,13 @@ static inline bool drgn_value_zalloc(uint64_t size, union drgn_value *value_ret,
 struct drgn_error *drgn_object_is_zero(const struct drgn_object *obj,
 				       bool *ret);
 
+/**
+ * Like @ref drgn_object_is_zero(), but also returns true for incomplete
+ * objects.
+ */
+struct drgn_error *
+drgn_object_is_zero_or_incomplete(const struct drgn_object *obj, bool *ret);
+
 /** Type-related fields from @ref drgn_object. */
 struct drgn_object_type {
 	struct drgn_type *type;

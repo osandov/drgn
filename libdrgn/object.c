@@ -1431,6 +1431,16 @@ struct drgn_error *drgn_object_is_zero(const struct drgn_object *obj, bool *ret)
 	return drgn_object_is_zero_impl(obj, ret);
 }
 
+struct drgn_error *
+drgn_object_is_zero_or_incomplete(const struct drgn_object *obj, bool *ret)
+{
+	if (!drgn_object_encoding_is_complete(obj->encoding)) {
+		*ret = true;
+		return NULL;
+	}
+	return drgn_object_is_zero(obj, ret);
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_cast(struct drgn_object *res,
 		 struct drgn_qualified_type qualified_type,

@@ -1125,8 +1125,7 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 					    DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS)) ==
 			     DRGN_FORMAT_OBJECT_MEMBER_NAMES) {
 				bool zero;
-
-				err = drgn_object_is_zero(ret, &zero);
+				err = drgn_object_is_zero_or_incomplete(ret, &zero);
 				if (err)
 					return err;
 				if (zero)
@@ -1247,7 +1246,7 @@ c_format_compound_object(const struct drgn_object *obj,
 				goto out;
 
 			bool zero;
-			err = drgn_object_is_zero(&member, &zero);
+			err = drgn_object_is_zero_or_incomplete(&member, &zero);
 			if (err)
 				goto out;
 			if (zero)
@@ -1454,8 +1453,6 @@ array_initializer_iter_next(struct initializer_iter *iter_,
 		container_of(iter_, struct array_initializer_iter, iter);
 
 	for (;;) {
-		bool zero;
-
 		if (iter->i >= iter->length)
 			return &drgn_stop;
 		err = drgn_object_fragment(ret, iter->obj, iter->element_type,
@@ -1470,6 +1467,7 @@ array_initializer_iter_next(struct initializer_iter *iter_,
 		    DRGN_FORMAT_OBJECT_ELEMENT_INDICES)
 			break;
 
+		bool zero;
 		err = drgn_object_is_zero(ret, &zero);
 		if (err)
 			return err;
@@ -1568,8 +1566,6 @@ c_format_array_object(const struct drgn_object *obj,
 	    && iter.length) {
 		DRGN_OBJECT(element, drgn_object_program(obj));
 		do {
-			bool zero;
-
 			err = drgn_object_fragment(&element, obj,
 						   iter.element_type,
 						   (iter.length - 1)
@@ -1578,6 +1574,7 @@ c_format_array_object(const struct drgn_object *obj,
 			if (err)
 				return err;
 
+			bool zero;
 			err = drgn_object_is_zero(&element, &zero);
 			if (err)
 				return err;

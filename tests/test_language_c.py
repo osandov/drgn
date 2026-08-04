@@ -3274,6 +3274,48 @@ class TestPrettyPrintObject(MockProgramTestCase):
         self.assertEqual(str(Object(self.prog, "int []", address=0)), "(int []){}")
         self.assertEqual(str(Object(self.prog, "int [0]", address=0)), "(int [0]){}")
 
+    def test_flexible_array_member(self):
+        self.add_memory_segment((99).to_bytes(4, "little"), virt_addr=0xFFFF0000)
+        obj = Object(
+            self.prog,
+            self.prog.struct_type(
+                "foo",
+                4,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True), "n", 0),
+                    TypeMember(
+                        self.prog.array_type(self.prog.int_type("int", 4, True)),
+                        "a",
+                        32,
+                    ),
+                ),
+            ),
+            address=0xFFFF0000,
+        )
+        self.assertEqual(
+            str(obj),
+            """\
+(struct foo){
+	.n = (int)99,
+	.a = (int []){},
+}""",
+        )
+        self.assertEqual(
+            str(obj.read_()),
+            """\
+(struct foo){
+	.n = (int)99,
+	.a = (int [])<absent>,
+}""",
+        )
+
+        expected = """\
+(struct foo){
+	.n = (int)99,
+}"""
+        self.assertEqual(obj.format_(implicit_members=False), expected)
+        self.assertEqual(obj.read_().format_(implicit_members=False), expected)
+
     def test_array_zeroes(self):
         segment = bytearray(16)
         self.add_memory_segment(segment, virt_addr=0xFFFF0000)
