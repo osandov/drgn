@@ -419,6 +419,15 @@ struct drgn_error *drgn_module_find_or_create_extra(struct drgn_program *prog,
 					  ret, new_ret);
 }
 
+static void drgn_split_dwarf_elf_file_destroy(struct drgn_elf_file *file)
+{
+	// The Elf and Dwarf handles in a split DWARF file are borrowed from the
+	// parent Dwarf handle.
+	file->elf = NULL;
+	file->_dwarf = NULL;
+	drgn_elf_file_destroy(file);
+}
+
 static void
 drgn_module_clear_wanted_supplementary_debug_file(struct drgn_module *module)
 {
@@ -5742,7 +5751,7 @@ drgn_module_create_split_dwarf_file(struct drgn_module *module,
 	int r = drgn_elf_file_dwarf_table_insert(&module->split_dwarf_files,
 						 ret, NULL);
 	if (r < 0) {
-		drgn_elf_file_destroy(*ret);
+		drgn_split_dwarf_elf_file_destroy(*ret);
 		return &drgn_enomem;
 	}
 	assert(r > 0);
