@@ -451,6 +451,10 @@ static void drgn_module_destroy(struct drgn_module *module)
 	drgn_module_orc_info_deinit(module);
 	drgn_module_dwarf_info_deinit(module);
 	drgn_module_clear_wanted_supplementary_debug_file(module);
+	hash_table_for_each(drgn_elf_file_dwarf_table, it,
+			    &module->split_dwarf_files)
+		drgn_split_dwarf_elf_file_destroy(*it.entry);
+	drgn_elf_file_dwarf_table_deinit(&module->split_dwarf_files);
 	drgn_elf_file_destroy(module->gnu_debugdata_file);
 	drgn_elf_file_destroy(module->supplementary_debug_file);
 	if (module->debug_file != module->loaded_file)
