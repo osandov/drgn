@@ -2375,6 +2375,37 @@ class TestGenericOperators(MockProgramTestCase):
             ),
         )
 
+    def test_incomplete_member(self):
+        self.add_memory_segment((99).to_bytes(4, "little"), virt_addr=0xFFFF0000)
+        obj = Object(
+            self.prog,
+            self.prog.struct_type(
+                "foo",
+                4,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True), "n", 0),
+                    TypeMember(
+                        self.prog.array_type(self.prog.int_type("int", 4, True)),
+                        "a",
+                        32,
+                    ),
+                ),
+            ),
+            address=0xFFFF0000,
+        )
+        self.assertIdentical(
+            obj.a,
+            Object(
+                self.prog,
+                self.prog.array_type(self.prog.int_type("int", 4, True)),
+                address=0xFFFF0004,
+            ),
+        )
+        self.assertIdentical(
+            obj.read_().a,
+            Object(self.prog, self.prog.array_type(self.prog.int_type("int", 4, True))),
+        )
+
     def test_member_out_of_bounds(self):
         obj = Object(
             self.prog,

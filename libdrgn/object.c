@@ -586,6 +586,11 @@ drgn_object_fragment_internal(struct drgn_object *res,
 
 	SWITCH_ENUM(obj->kind) {
 	case DRGN_OBJECT_VALUE: {
+		if (!drgn_object_encoding_is_complete(type->encoding)) {
+			drgn_object_set_absent_internal(res, type,
+							DRGN_ABSENCE_REASON_OTHER);
+			return NULL;
+		}
 		uint64_t bit_end;
 		if (bit_offset < 0
 		    || __builtin_add_overflow(bit_offset, type->bit_size,
