@@ -262,3 +262,11 @@ static void assert_path_iterator_impl(const struct nstring *in_components,
 {
 	assert_not_path_ends_with(("ab/cd", "/ef"), ("cd/ef"));
 }
+
+#tcase filename_matches
+
+#test filename_matches_null_needle
+{
+	ck_assert(drgn_filename_matches("", NULL));
+	ck_assert(drgn_filename_matches("ab", NULL));
+}

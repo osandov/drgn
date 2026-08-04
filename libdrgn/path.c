@@ -143,6 +143,8 @@ LIBDRGN_PUBLIC bool drgn_filename_matches(const char *haystack,
 		},
 		.num_components = 1,
 	};
+	if (!needle)
+		needle = "";
 	struct path_iterator needle_path = {
 		.components = (struct nstring []){
 			{ needle, strlen(needle) }
