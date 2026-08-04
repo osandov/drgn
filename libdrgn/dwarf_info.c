@@ -1064,7 +1064,8 @@ read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 		if (insn != 0) {
 			if (insn <= INSN_MAX_SKIP) {
 				if (last_insn + insn <= INSN_MAX_SKIP) {
-					*uint8_vector_last(insns) += insn;
+					last_insn += insn;
+					*uint8_vector_last(insns) = last_insn;
 					continue;
 				} else if (last_insn < INSN_MAX_SKIP) {
 					insn = last_insn + insn - INSN_MAX_SKIP;

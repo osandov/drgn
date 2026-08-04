@@ -4451,6 +4451,24 @@ class TestTypes(TestCase):
         )
         self.assertEqual(alignof(prog.type("TEST")), 64)
 
+    def test_many_skipped_attribs(self):
+        prog = dwarf_program(
+            (
+                DwarfDie(
+                    DW_TAG.typedef,
+                    [
+                        # Test a mix of large and small attribute sizes.
+                        *([DwarfAttrib(DW_AT.hi_user, DW_FORM.data8, 0)] * 32),
+                        *([DwarfAttrib(DW_AT.hi_user, DW_FORM.data1, 0)] * 64),
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                    ],
+                ),
+                *labeled_int_die,
+            )
+        )
+        self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
 
 class TestObjects(TestCase):
     def test_constant_signed_enum(self):
