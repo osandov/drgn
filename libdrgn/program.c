@@ -306,6 +306,17 @@ drgn_program_check_initialized(struct drgn_program *prog)
 }
 
 static struct drgn_error *
+drgn_program_check_initialized_virtual(struct drgn_program *prog)
+{
+	if (prog->core_fd != -1
+	    || !drgn_memory_reader_empty_virtual(&prog->reader)) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program memory was already initialized");
+	}
+	return NULL;
+}
+
+static struct drgn_error *
 has_kdump_signature(struct drgn_program *prog, const char *path, bool *ret)
 {
 	char signature[max_iconst(KDUMP_SIG_LEN, FLATTENED_SIG_LEN)];
@@ -743,6 +754,10 @@ drgn_program_set_linux_kernel_custom(struct drgn_program *prog,
 				     size_t vmcoreinfo_size, bool is_live)
 {
 	struct drgn_error *err;
+
+	err = drgn_program_check_initialized_virtual(prog);
+	if (err)
+		return err;
 
 	if (!prog->has_platform) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,

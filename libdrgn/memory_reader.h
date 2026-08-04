@@ -66,6 +66,9 @@ void drgn_memory_reader_clear_virtual(struct drgn_memory_reader *reader);
 /** Return whether a @ref drgn_memory_reader has no segments. */
 bool drgn_memory_reader_empty(struct drgn_memory_reader *reader);
 
+/** Return whether a @ref drgn_memory_reader has no virtual memory segments. */
+bool drgn_memory_reader_empty_virtual(struct drgn_memory_reader *reader);
+
 /**
  * Add a segment to a @ref drgn_memory_reader.
  *

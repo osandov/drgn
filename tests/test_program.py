@@ -1221,13 +1221,6 @@ class TestSetLinuxKernelCustom(TestCase):
         prog.set_linux_kernel_custom(make_vmcoreinfo(), False)
         self.assertFalse(prog.flags & ProgramFlags.IS_LIVE)
 
-    def test_idempotent(self):
-        prog = Program(MOCK_PLATFORM)
-        prog.set_linux_kernel_custom(make_vmcoreinfo(), False)
-        self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
-        prog.set_linux_kernel_custom(make_vmcoreinfo(), False)
-        self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
-
     def test_with_vmcoreinfo_in_constructor(self):
         vmcoreinfo1 = make_vmcoreinfo(osrelease="5.0.0-first")
         vmcoreinfo2 = make_vmcoreinfo(osrelease="6.0.0-second")
@@ -1247,6 +1240,18 @@ class TestSetLinuxKernelCustom(TestCase):
         prog.set_linux_kernel_custom(make_vmcoreinfo(), False)
         self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
         self.assertEqual(prog.read(0x1000, len(data), physical=True), data)
+
+    def test_with_virtual_memory_segment(self):
+        prog = Program(MOCK_PLATFORM)
+        data = b"test data"
+        prog.add_memory_segment(
+            0xFFFF0000,
+            len(data),
+            lambda addr, count, off, phys: data[off : off + count],
+        )
+        self.assertRaises(
+            ValueError, prog.set_linux_kernel_custom, make_vmcoreinfo(), False
+        )
 
 
 def dummy_symbol_finder(prog, name, address, one):
