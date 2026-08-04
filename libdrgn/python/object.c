@@ -288,15 +288,20 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 			double fvalue64;
 			struct {
 #if !HOST_LITTLE_ENDIAN
-				float pad;
+				uint32_t pad;
 #endif
 				float fvalue32;
+#if HOST_LITTLE_ENDIAN
+				uint32_t pad;
+#endif
 			};
 		} tmp;
-		if (type->bit_size == 64)
+		if (type->bit_size == 64) {
 			tmp.fvalue64 = fvalue;
-		else
+		} else {
 			tmp.fvalue32 = fvalue;
+			tmp.pad = 0;
+		}
 		serialize_bits(buf, bit_offset, tmp.uvalue, type->bit_size,
 			       type->little_endian);
 		return 0;
