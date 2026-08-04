@@ -878,16 +878,16 @@ drgn_program_set_qemu_qmp_fd(struct drgn_program *prog, int fd)
 	bool had_platform = prog->has_platform;
 	bool had_vmcoreinfo = prog->vmcoreinfo.raw;
 
+	err = drgn_program_check_initialized(prog);
+	if (err)
+		return err;
+
 	prog->qmp_conn.fd = fd;
 	prog->qmp_conn.json_tok = json_tokener_new();
 	if (!prog->qmp_conn.json_tok) {
 		err = &drgn_enomem;
 		goto err;
 	}
-
-	err = drgn_program_check_initialized(prog);
-	if (err)
-		goto err;
 
 	err = qmp_negotiate(&prog->qmp_conn);
 	if (err)
