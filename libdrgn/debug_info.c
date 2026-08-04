@@ -3402,12 +3402,15 @@ struct drgn_mapped_file_segments {
 	bool sorted;
 };
 
-#define DRGN_MAPPED_FILE_SEGMENTS_INIT { VECTOR_INIT, true }
-
-static void drgn_mapped_file_segments_abort(struct drgn_mapped_file_segments *segments)
+static void
+drgn_mapped_file_segments_deinit(struct drgn_mapped_file_segments *segments)
 {
 	drgn_mapped_file_segment_vector_deinit(&segments->vector);
 }
+
+#define DRGN_MAPPED_FILE_SEGMENTS(name)					\
+	_cleanup_(drgn_mapped_file_segments_deinit)			\
+	struct drgn_mapped_file_segments name = { VECTOR_INIT, true }
 
 static struct drgn_error *
 drgn_add_mapped_file_segment(struct drgn_mapped_file_segments *segments,
@@ -4719,16 +4722,14 @@ process_get_mapped_files(struct process_loaded_module_iterator *it)
 	// While we're reading /proc/$pid/maps, we might as well cache the
 	// segments for drgn_module_try_proc_files_for_shared_library().
 	DRGN_MAP_FILES_SEGMENTS(map_files_segments);
-	struct drgn_mapped_file_segments segments = DRGN_MAPPED_FILE_SEGMENTS_INIT;
+	DRGN_MAPPED_FILE_SEGMENTS(segments);
 	for (;;) {
 		errno = 0;
 		ssize_t len;
 		if ((len = getline(&line, &n, maps_file)) == -1) {
 			if (errno) {
-				err = drgn_error_create_os("getline", errno,
-							   maps_path);
-			} else {
-				err = NULL;
+				return drgn_error_create_os("getline", errno,
+							    maps_path);
 			}
 			break;
 		}
@@ -4743,17 +4744,12 @@ process_get_mapped_files(struct process_loaded_module_iterator *it)
 					  &map_files_segments, &segments, line,
 					  len);
 		if (err)
-			break;
+			return err;
 	}
-	if (err) {
-		drgn_mapped_file_segments_abort(&segments);
-	} else {
-		drgn_debug_info_set_map_files_segments(&prog->dbinfo,
-						       &map_files_segments);
-		userspace_loaded_module_iterator_set_file_segments(&it->u,
-								   &segments);
-	}
-	return err;
+	drgn_debug_info_set_map_files_segments(&prog->dbinfo,
+					       &map_files_segments);
+	userspace_loaded_module_iterator_set_file_segments(&it->u, &segments);
+	return NULL;
 }
 
 static void
@@ -4878,8 +4874,7 @@ core_get_mapped_files(struct core_loaded_module_iterator *it)
 			return err;
 	}
 
-	struct drgn_mapped_file_segments segments =
-		DRGN_MAPPED_FILE_SEGMENTS_INIT;
+	DRGN_MAPPED_FILE_SEGMENTS(segments);
 	for (uint64_t i = 0; i < count; i++) {
 		struct nt_file_segment64 segment;
 #define visit_nt_file_segment_members(visit_scalar_member, visit_raw_member) do {	\
@@ -4898,7 +4893,7 @@ core_get_mapped_files(struct core_loaded_module_iterator *it)
 		segment.file_offset *= page_size;
 		const char *path = bb.pos;
 		if ((err = binary_buffer_skip_string(&bb)))
-			goto err;
+			return err;
 		drgn_log_debug(prog,
 			       "found 0x%" PRIx64 "-0x%" PRIx64 " 0x%" PRIx64 " %s",
 			       segment.start, segment.end, segment.file_offset,
@@ -4914,29 +4909,22 @@ core_get_mapped_files(struct core_loaded_module_iterator *it)
 			file = *files_it.entry;
 		} else {
 			file = drgn_mapped_file_create(path);
-			if (!file) {
-				err = &drgn_enomem;
-				goto err;
-			}
+			if (!file)
+				return &drgn_enomem;
 			if (core_mapped_files_insert_searched(&it->files, &file,
 							      hp, NULL) < 0) {
 				drgn_mapped_file_destroy(file);
-				err = &drgn_enomem;
-				goto err;
+				return &drgn_enomem;
 			}
 		}
 		err = drgn_add_mapped_file_segment(&segments, segment.start,
 						   segment.end,
 						   segment.file_offset, file);
 		if (err)
-			goto err;
+			return err;
 	}
 	userspace_loaded_module_iterator_set_file_segments(&it->u, &segments);
 	return NULL;
-
-err:
-	drgn_mapped_file_segments_abort(&segments);
-	return err;
 }
 
 static void
