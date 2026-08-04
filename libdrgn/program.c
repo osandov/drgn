@@ -1120,7 +1120,6 @@ drgn_program_cache_core_dump_threads(struct drgn_program *prog)
 	size_t phnum, i;
 	bool found_prstatus = false;
 	uint32_t first_prstatus_tid;
-	bool found_prpsinfo = false;
 	uint32_t prpsinfo_pid;
 	_cleanup_free_ char *prpsinfo_fname = NULL;
 
@@ -1178,7 +1177,7 @@ drgn_program_cache_core_dump_threads(struct drgn_program *prog)
 			if (strncmp(name, "CORE", nhdr.n_namesz) != 0)
 				continue;
 
-			if (nhdr.n_type == NT_PRPSINFO) {
+			if (nhdr.n_type == NT_PRPSINFO && !prpsinfo_fname) {
 				err = get_prpsinfo_pid(prog,
 						       (char *)data->d_buf + desc_offset,
 						       nhdr.n_descsz,
@@ -1191,7 +1190,6 @@ drgn_program_cache_core_dump_threads(struct drgn_program *prog)
 						       &prpsinfo_fname);
 				if (err)
 					goto err;
-				found_prpsinfo = true;
 			} else if (nhdr.n_type == NT_PRSTATUS) {
 				uint32_t tid;
 				err = drgn_program_cache_prstatus_entry(prog,
@@ -1216,7 +1214,7 @@ drgn_program_cache_core_dump_threads(struct drgn_program *prog)
 out:
 	prog->core_dump_threads_cached = true;
 	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-		if (found_prpsinfo) {
+		if (prpsinfo_fname) {
 			struct drgn_thread_set_iterator it =
 				drgn_thread_set_search(&prog->thread_set,
 						       &prpsinfo_pid);
