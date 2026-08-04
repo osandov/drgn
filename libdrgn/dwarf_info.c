@@ -7267,9 +7267,11 @@ static struct drgn_error *drgn_parse_dwarf_cfi(struct drgn_dwarf_cfi *cfi,
 
 	drgn_dwarf_cie_vector_shrink_to_fit(&cies);
 	drgn_dwarf_fde_vector_shrink_to_fit(&fdes);
-	qsort(drgn_dwarf_fde_vector_begin(&fdes),
-	      drgn_dwarf_fde_vector_size(&fdes), sizeof(struct drgn_dwarf_fde),
-	      drgn_dwarf_fde_compar);
+	if (!drgn_dwarf_fde_vector_empty(&fdes)) {
+		qsort(drgn_dwarf_fde_vector_begin(&fdes),
+		      drgn_dwarf_fde_vector_size(&fdes),
+		      sizeof(struct drgn_dwarf_fde), drgn_dwarf_fde_compar);
+	}
 	drgn_dwarf_cie_vector_steal(&cies, &cfi->cies, NULL);
 	drgn_dwarf_fde_vector_steal(&fdes, &cfi->fdes, &cfi->num_fdes);
 	return NULL;
