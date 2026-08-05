@@ -1150,6 +1150,12 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 			break;
 		}
 
+		// This is iterative, so it won't overflow the call stack, but a
+		// type cycle could still loop until memory is exhausted.
+		if (compound_initializer_stack_size(&iter->stack) >= 1000) {
+			return drgn_error_create(DRGN_ERROR_RECURSION,
+						 "maximum anonymous member depth exceeded");
+		}
 		struct compound_initializer_state *new =
 			compound_initializer_stack_append_entry(&iter->stack);
 		if (!new)
