@@ -194,7 +194,7 @@ drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret
 		if (!string_builder_appendf(&str, "%#" PRIx64, pc.value))
 			return &drgn_enomem;
 
-		_cleanup_symbol_ struct drgn_symbol *sym;
+		_cleanup_symbol_ struct drgn_symbol *sym = NULL;
 		err = drgn_program_find_symbol_by_address_internal(trace->prog,
 								   pc.value - !regs->interrupted,
 								   &sym);
