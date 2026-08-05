@@ -1608,6 +1608,8 @@ static struct drgn_error *
 drgn_type_cache_members(struct drgn_type *outer_type,
 			struct drgn_type *type, uint64_t bit_offset)
 {
+	drgn_recursion_guard(1000, "maximum anonymous member depth exceeded");
+
 	struct drgn_program *prog = drgn_type_program(outer_type);
 
 	if (!drgn_type_has_members(type))

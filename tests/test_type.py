@@ -582,6 +582,11 @@ class TestType(MockProgramTestCase):
 
         self.assertRaises(TypeError, self.prog.int_type("int", 4, True).member, "foo")
 
+    def test_anonymous_member_cycle(self):
+        type = self.prog.struct_type(None, 8, (TypeMember(lambda: type),))
+        self.assertRaises(RecursionError, type.member, "foo")
+        self.assertRaises(RecursionError, type.has_member, "foo")
+
     def test_offsetof(self):
         self.assertEqual(offsetof(self.line_segment_type, "b"), 8)
         self.assertEqual(offsetof(self.line_segment_type, "a.y"), 4)
