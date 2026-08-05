@@ -1174,7 +1174,8 @@ drgn_program_cache_core_dump_threads(struct drgn_program *prog)
 			const char *name;
 
 			name = (char *)data->d_buf + name_offset;
-			if (strncmp(name, "CORE", nhdr.n_namesz) != 0)
+			if (nhdr.n_namesz != sizeof("CORE")
+			    || memcmp(name, "CORE", sizeof("CORE")) != 0)
 				continue;
 
 			if (nhdr.n_type == NT_PRPSINFO && !prpsinfo_fname) {
