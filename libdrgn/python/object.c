@@ -667,6 +667,8 @@ static PyObject *DrgnObject_array_value(struct drgn_object *obj,
 
 static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
 {
+	drgnpy_recursion_guard(" while getting the value of an Object", NULL);
+
 	struct drgn_error *err;
 	struct drgn_type *underlying_type;
 

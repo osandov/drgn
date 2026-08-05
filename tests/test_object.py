@@ -1346,6 +1346,11 @@ class TestValue(MockProgramTestCase):
                 (0).to_bytes(size, "little"),
             )
 
+    def test_member_cycle(self):
+        type = self.prog.struct_type("foo", 8, (TypeMember(lambda: type, "a"),))
+        obj = Object.from_bytes_(self.prog, type, bytes(8))
+        self.assertRaises(RecursionError, obj.value_)
+
 
 class TestAbsent(MockProgramTestCase):
     def test_basic(self):

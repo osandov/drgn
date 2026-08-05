@@ -155,6 +155,20 @@ static inline void PyGILState_Releasep(PyGILState_STATE *gstatep)
 /** Call @c Py_XDECREF() when the variable goes out of scope. */
 #define _cleanup_pydecref_ _cleanup_(pydecrefp)
 
+/**
+ * Scope guard that wraps @c Py_EnterRecursiveCall() and @c
+ * Py_LeaveRecursiveCall(), returning @p ret if the limit is reached.
+ */
+#define drgnpy_recursion_guard(where, ret)				\
+	if (Py_EnterRecursiveCall(where))				\
+		return (ret);						\
+	__attribute__((__cleanup__(Py_LeaveRecursiveCallp), __unused__))\
+	int PP_UNIQUE(recursive_call) = 0
+static inline void Py_LeaveRecursiveCallp(int *unused)
+{
+	Py_LeaveRecursiveCall();
+}
+
 typedef struct {
 	PyObject_HEAD
 	struct drgn_object obj;
