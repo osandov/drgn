@@ -550,9 +550,11 @@ static struct drgn_error *
 drgn_check_module_address_range_overlap(struct drgn_module *module,
 					uint64_t start, uint64_t end)
 {
-	for (auto it = drgn_module_address_tree_search_le(&module->prog->dbinfo.modules_by_address,
-							  &start);
-	     it.entry && it.entry->start < end;
+	auto it = drgn_module_address_tree_search_le(&module->prog->dbinfo.modules_by_address,
+						     &start);
+	if (!it.entry)
+		it = drgn_module_address_tree_first(&module->prog->dbinfo.modules_by_address);
+	for (; it.entry && it.entry->start < end;
 	     it = drgn_module_address_tree_next(it)) {
 		if (start < it.entry->end && it.entry->module != module) {
 			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,

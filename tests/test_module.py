@@ -415,6 +415,11 @@ class TestModule(TestCase):
         )
         with self.assertRaisesRegex(ValueError, "overlaps /foo/bar"):
             prog.extra_module("/foo/baz", create=True).address_range = (
+                0x1000000,
+                0x10010000,
+            )
+        with self.assertRaisesRegex(ValueError, "overlaps /foo/bar"):
+            prog.extra_module("/foo/baz").address_range = (
                 0x10001000,
                 0x10010000,
             )
@@ -427,6 +432,11 @@ class TestModule(TestCase):
         )
         with self.assertRaisesRegex(ValueError, "overlaps /foo/bar"):
             prog.extra_module("/foo/baz", create=True).address_ranges = (
+                (0x1000000, 0x10010000),
+                (0x20000000, 0x20001000),
+            )
+        with self.assertRaisesRegex(ValueError, "overlaps /foo/bar"):
+            prog.extra_module("/foo/baz").address_ranges = (
                 (0x1000000, 0x10000000),
                 (0x10001000, 0x10010000),
             )
