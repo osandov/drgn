@@ -281,33 +281,23 @@ c_declare_array(struct drgn_qualified_type qualified_type,
 	return c_declare_variable(element_type, &array_name, indent, false, sb);
 }
 
-static struct drgn_error *
-c_declare_function(struct drgn_qualified_type qualified_type,
-		   struct string_callback *name, size_t indent,
-		   struct string_builder *sb)
+static struct drgn_error *c_function_name(struct string_callback *name,
+					  void *arg, struct string_builder *sb)
 {
 	struct drgn_error *err;
-	struct drgn_type_parameter *parameters;
-	size_t num_parameters, i;
-	struct drgn_qualified_type return_type;
+	struct drgn_qualified_type *qualified_type = arg;
 
-	if (!name) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "function must have name");
-	}
-
-	parameters = drgn_type_parameters(qualified_type.type);
-	num_parameters = drgn_type_num_parameters(qualified_type.type);
-
-	return_type = drgn_type_type(qualified_type.type);
-	err = c_declare_variable(return_type, name, indent, false, sb);
+	err = string_callback_call(name, sb);
 	if (err)
 		return err;
 
 	if (!string_builder_appendc(sb, '('))
 		return &drgn_enomem;
 
-	for (i = 0; i < num_parameters; i++) {
+	struct drgn_type_parameter *parameters =
+		drgn_type_parameters(qualified_type->type);
+	size_t num_parameters = drgn_type_num_parameters(qualified_type->type);
+	for (size_t i = 0; i < num_parameters; i++) {
 		const char *parameter_name = parameters[i].name;
 		struct drgn_qualified_type parameter_type;
 		struct string_callback name_cb = {
@@ -329,11 +319,11 @@ c_declare_function(struct drgn_qualified_type qualified_type,
 		if (err)
 			return err;
 	}
-	if (num_parameters && drgn_type_is_variadic(qualified_type.type)) {
+	if (num_parameters && drgn_type_is_variadic(qualified_type->type)) {
 		if (!string_builder_append(sb, ", ..."))
 			return &drgn_enomem;
 	} else if (!num_parameters &&
-		   !drgn_type_is_variadic(qualified_type.type)) {
+		   !drgn_type_is_variadic(qualified_type->type)) {
 		if (!string_builder_append(sb, "void"))
 			return &drgn_enomem;
 	}
@@ -341,6 +331,27 @@ c_declare_function(struct drgn_qualified_type qualified_type,
 	if (!string_builder_appendc(sb, ')'))
 		return &drgn_enomem;
 	return NULL;
+}
+
+static struct drgn_error *
+c_declare_function(struct drgn_qualified_type qualified_type,
+		   struct string_callback *name, size_t indent,
+		   struct string_builder *sb)
+{
+	if (!name) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "function must have name");
+	}
+
+	struct string_callback function_name = {
+		.fn = c_function_name,
+		.str = name,
+		.arg = &qualified_type,
+	};
+	struct drgn_qualified_type return_type =
+		drgn_type_type(qualified_type.type);
+	return c_declare_variable(return_type, &function_name, indent, false,
+				  sb);
 }
 
 static struct drgn_error *

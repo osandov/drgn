@@ -236,6 +236,23 @@ class TestPrettyPrintTypeName(MockProgramTestCase):
             True,
         )
 
+    def test_pointer_to_function_returning_pointer_to_function(self):
+        self.assertTypeName(
+            self.prog.pointer_type(
+                self.prog.function_type(
+                    self.prog.pointer_type(
+                        self.prog.function_type(
+                            self.prog.int_type("int", 4, True), (), False
+                        )
+                    ),
+                    (),
+                    False,
+                )
+            ),
+            "int (*(*)(void))(void)",
+            True,
+        )
+
     def test_pointer_to_function_returning_pointer_to_const(self):
         i = self.prog.int_type("int", 4, True)
         self.assertTypeName(
@@ -337,6 +354,32 @@ class TestPrettyPrintTypeName(MockProgramTestCase):
         self.assertTypeName(
             self.prog.function_type(self.prog.int_type("int", 4, True), (), False),
             "int (void)",
+        )
+
+    def test_function_returning_pointer_to_function(self):
+        self.assertTypeName(
+            self.prog.function_type(
+                self.prog.pointer_type(
+                    self.prog.function_type(
+                        self.prog.int_type("int", 4, True), (), False
+                    )
+                ),
+                (),
+                False,
+            ),
+            "int (*(void))(void)",
+        )
+
+    def test_function_returning_pointer_to_array(self):
+        self.assertTypeName(
+            self.prog.function_type(
+                self.prog.pointer_type(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 4)
+                ),
+                (),
+                False,
+            ),
+            "int (*(void))[4]",
         )
 
     def test_pointer_to_anonymous_struct(self):
@@ -458,6 +501,18 @@ struct {
                 (TypeParameter(self.prog.int_type("int", 4, True), "j"),),
             ),
             "unsigned int foo(int j)",
+        )
+
+    def test_function_returning_pointer_to_function(self):
+        i = self.prog.int_type("int", 4, True)
+        handler = self.prog.pointer_type(
+            self.prog.function_type(self.prog.void_type(), (TypeParameter(i),), False)
+        )
+        self.assert_variable_declaration(
+            self.prog.function_type(
+                handler, (TypeParameter(i), TypeParameter(handler)), False
+            ),
+            "void (*foo(int, void (*)(int)))(int)",
         )
 
 
