@@ -1351,6 +1351,12 @@ class TestValue(MockProgramTestCase):
         obj = Object.from_bytes_(self.prog, type, bytes(8))
         self.assertRaises(RecursionError, obj.value_)
 
+    def test_cyclic_value(self):
+        type = self.prog.struct_type("foo", 8, (TypeMember(lambda: type, "a"),))
+        value = {}
+        value["a"] = value
+        self.assertRaises(RecursionError, Object, self.prog, type, value)
+
 
 class TestAbsent(MockProgramTestCase):
     def test_basic(self):

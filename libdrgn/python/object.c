@@ -214,6 +214,8 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 			       PyObject *value_obj,
 			       const struct drgn_object_type *type)
 {
+	drgnpy_recursion_guard(" while creating an Object", -1);
+
 	struct drgn_error *err;
 
 	uint64_t bit_end;
