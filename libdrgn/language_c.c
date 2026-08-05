@@ -359,6 +359,11 @@ c_declare_variable(struct drgn_qualified_type qualified_type,
 		   struct string_callback *name, size_t indent,
 		   bool define_anonymous_type, struct string_builder *sb)
 {
+	// The other c_declare_*() and c_define_*() functions are all mutually
+	// recursive through this one, so this is the only one that needs a
+	// guard.
+	drgn_recursion_guard(1000, "maximum type depth exceeded");
+
 	SWITCH_ENUM(drgn_type_kind(qualified_type.type)) {
 	case DRGN_TYPE_VOID:
 	case DRGN_TYPE_INT:
@@ -1635,6 +1640,10 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 		     const struct drgn_format_object_options *options,
 		     struct string_builder *sb)
 {
+	// The other c_format_*() functions are all mutually recursive through
+	// this one, so this is the only one that needs a guard.
+	drgn_recursion_guard(1000, "maximum object depth exceeded");
+
 	struct drgn_error *err;
 	struct drgn_type *underlying_type = drgn_underlying_type(obj->type);
 

@@ -831,6 +831,16 @@ typedef struct {
             "int (void)",
         )
 
+    def test_anonymous_type_cycle(self):
+        type = self.prog.struct_type(None, 8, (TypeMember(lambda: type, "a"),))
+        self.assertRaises(RecursionError, str, type)
+
+    def test_parameter_cycle(self):
+        type = self.prog.function_type(
+            self.prog.void_type(), (TypeParameter(lambda: type, "p"),)
+        )
+        self.assertRaises(RecursionError, str, type)
+
 
 class TestLiteral(MockProgramTestCase):
     def test_int(self):
@@ -3609,3 +3619,10 @@ class TestPrettyPrintObject(MockProgramTestCase):
         self.add_memory_segment((13).to_bytes(4, "little"), virt_addr=0xFFFF0000)
         obj = Object(self.prog, "int *", value=0xFFFF0000)
         self.assertEqual(obj.format_(integer_base=8), "*(int *)0xffff0000 = 015")
+
+    def test_member_cycle(self):
+        self.add_memory_segment(bytes(8), virt_addr=0xFFFF0000)
+        type = self.prog.struct_type("foo", 8, (TypeMember(lambda: type, "a"),))
+        obj = Object(self.prog, type, address=0xFFFF0000)
+        self.assertRaises(RecursionError, str, obj)
+        self.assertRaises(RecursionError, obj.format_)
