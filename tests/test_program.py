@@ -924,7 +924,7 @@ class TestTypes(MockProgramTestCase):
             self.prog.array_type(self.prog.int_type("int", 4, True), 10),
         )
         self.assertIdentical(
-            self.prog.type("int [0xff]"),
+            self.prog.type("int [0Xff]"),
             self.prog.array_type(self.prog.int_type("int", 4, True), 255),
         )
         self.assertIdentical(

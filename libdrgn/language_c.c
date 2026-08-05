@@ -1808,7 +1808,7 @@ struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
 							    cpp);
 		} else if ('0' <= *p && *p <= '9') {
 			token->kind = C_TOKEN_NUMBER;
-			if (*p++ == '0' && *p == 'x') {
+			if (*p++ == '0' && (*p == 'x' || *p == 'X')) {
 				p++;
 				while (('0' <= *p && *p <= '9') ||
 				       ('a' <= *p && *p <= 'f') ||
@@ -1847,7 +1847,7 @@ static struct drgn_error *c_token_to_u64(const struct drgn_token *token,
 
 	assert(token->kind == C_TOKEN_NUMBER);
 	if (token->len > 2 && token->value[0] == '0' &&
-	    token->value[1] == 'x') {
+	    (token->value[1] == 'x' || token->value[1] == 'X')) {
 		for (i = 2; i < token->len; i++) {
 			char c = token->value[i];
 			int digit;
