@@ -343,6 +343,7 @@ struct drgn_kmod_walk_state {
 	struct drgn_kmod_walk_inode_set visited_dirs;
 	const char * const *next_kernel_dir;
 	const char * const *next_debug_dir;
+	bool duplicate_names;
 };
 
 // State kept by standard debug info finder for all modules it's working on.
