@@ -2235,9 +2235,9 @@ kernel_module_set_section_addresses(struct drgn_module *module,
 			// Before that, the section address is in struct
 			// module_sect_attr::address.
 			err = drgn_object_member(&tmp, &attr, "address");
-			if (err)
-				return err;
 		}
+		if (err)
+			return err;
 		uint64_t address;
 		err = drgn_object_read_unsigned(&tmp, &address);
 		if (err)
