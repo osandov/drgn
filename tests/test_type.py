@@ -629,6 +629,21 @@ class TestType(MockProgramTestCase):
             "[1]",
         )
 
+        array_type = self.prog.struct_type(
+            "array",
+            1024,
+            (
+                TypeMember(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 256),
+                    "a",
+                    0,
+                ),
+            ),
+        )
+        self.assertEqual(offsetof(array_type, "a[10]"), 40)
+        self.assertEqual(offsetof(array_type, "a[0x10]"), 64)
+        self.assertEqual(offsetof(array_type, "a[0xff]"), 1020)
+
     def test_enum(self):
         t = self.prog.enum_type(
             "color",

@@ -1855,9 +1855,9 @@ static struct drgn_error *c_token_to_u64(const struct drgn_token *token,
 			if ('0' <= c && c <= '9')
 				digit = c - '0';
 			else if ('a' <= c && c <= 'f')
-				digit = c - 'a';
+				digit = c - 'a' + 10;
 			else /* ('A' <= c && c <= 'F') */
-				digit = c - 'A';
+				digit = c - 'A' + 10;
 			if (x > UINT64_MAX / 16)
 				goto overflow;
 			x *= 16;

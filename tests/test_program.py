@@ -919,6 +919,18 @@ class TestTypes(MockProgramTestCase):
             self.prog.type("int [0x20]"),
             self.prog.array_type(self.prog.int_type("int", 4, True), 32),
         )
+        self.assertIdentical(
+            self.prog.type("int [0xa]"),
+            self.prog.array_type(self.prog.int_type("int", 4, True), 10),
+        )
+        self.assertIdentical(
+            self.prog.type("int [0xff]"),
+            self.prog.array_type(self.prog.int_type("int", 4, True), 255),
+        )
+        self.assertIdentical(
+            self.prog.type("int [0xAB]"),
+            self.prog.array_type(self.prog.int_type("int", 4, True), 171),
+        )
 
     def test_array_octal(self):
         self.assertIdentical(
