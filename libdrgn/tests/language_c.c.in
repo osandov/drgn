@@ -225,11 +225,12 @@ static const char c_keywords[] =
 
 #test lexer_numbers
 {
-	static const char s[] = "0 1234 0xdeadbeef";
+	static const char s[] = "0 1234 0xdeadbeef 07";
 	static const struct test_token tokens[] = {
 		{ C_TOKEN_NUMBER, "0" },
 		{ C_TOKEN_NUMBER, "1234" },
 		{ C_TOKEN_NUMBER, "0xdeadbeef" },
+		{ C_TOKEN_NUMBER, "07" },
 		{ C_TOKEN_EOF, "" },
 	};
 	assert_lexes_c(s, tokens);
@@ -237,7 +238,7 @@ static const char c_keywords[] =
 
 #test lexer_invalid_numbers
 {
-	static const char * const s[] = { "0x", "1234y" };
+	static const char * const s[] = { "0x", "1234y", "08" };
 	for (size_t i = 0; i < array_size(s); i++) {
 		DRGN_C_FAMILY_LEXER(lexer, s[i], false);
 		struct drgn_token token;

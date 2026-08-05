@@ -1808,16 +1808,25 @@ struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
 							    cpp);
 		} else if ('0' <= *p && *p <= '9') {
 			token->kind = C_TOKEN_NUMBER;
-			if (*p++ == '0' && (*p == 'x' || *p == 'X')) {
-				p++;
-				while (('0' <= *p && *p <= '9') ||
-				       ('a' <= *p && *p <= 'f') ||
-				       ('A' <= *p && *p <= 'F')) {
+			if (*p++ == '0') {
+				if (*p == 'x' || *p == 'X') {
 					p++;
-				}
-				if (p - token->value <= 2) {
-					return drgn_error_create(DRGN_ERROR_SYNTAX,
-								 "invalid number");
+					while (('0' <= *p && *p <= '9')
+					       || ('a' <= *p && *p <= 'f')
+					       || ('A' <= *p && *p <= 'F'))
+						p++;
+					if (p - token->value <= 2) {
+						return drgn_error_create(DRGN_ERROR_SYNTAX,
+									 "invalid number");
+					}
+				} else {
+					while ('0' <= *p && *p <= '7')
+						p++;
+					// 8 and 9 aren't valid octal digits.
+					if (*p == '8' || *p == '9') {
+						return drgn_error_create(DRGN_ERROR_SYNTAX,
+									 "invalid number");
+					}
 				}
 			} else {
 				while ('0' <= *p && *p <= '9')
