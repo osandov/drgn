@@ -2079,6 +2079,7 @@ kernel_module_set_section_addresses_live(struct drgn_module *module)
 		_cleanup_fclose_ FILE *file = fdopen(fd, "r");
 		if (!file)
 			return drgn_error_create_os("fdopen", errno, NULL);
+		fd = -1; // Owned by file now.
 		uint64_t address;
 		if (fscanf(file, "%" SCNx64, &address) != 1) {
 			return drgn_error_format(DRGN_ERROR_BAD_DATA,
