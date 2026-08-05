@@ -1198,9 +1198,10 @@ drgn_module_set_wanted_gnu_debugaltlink(struct drgn_module *module,
 		return err;
 	}
 
-	const char *debugaltlink = data->d_buf;
-	const char *nul = memchr(debugaltlink, 0, data->d_size);
-	if (!nul || nul + 1 == debugaltlink + data->d_size) {
+	const char *debugaltlink = data->d_buf, *nul;
+	if (data->d_size == 0
+	    || !(nul = memchr(debugaltlink, 0, data->d_size))
+	    || nul + 1 == debugaltlink + data->d_size) {
 		drgn_log_debug(prog,
 			       "%s: couldn't parse .gnu_debugaltlink; ignoring debug info",
 			       file->path);
