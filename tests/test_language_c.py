@@ -3626,3 +3626,9 @@ class TestPrettyPrintObject(MockProgramTestCase):
         obj = Object(self.prog, type, address=0xFFFF0000)
         self.assertRaises(RecursionError, str, obj)
         self.assertRaises(RecursionError, obj.format_)
+
+    def test_member_cycle_implicit_members(self):
+        self.add_memory_segment(bytes(8), virt_addr=0xFFFF0000)
+        type = self.prog.struct_type("foo", 8, (TypeMember(lambda: type, "a"),))
+        obj = Object(self.prog, type, address=0xFFFF0000)
+        self.assertRaises(RecursionError, obj.format_, implicit_members=False)

@@ -1350,6 +1350,8 @@ drgn_array_object_is_zero(const struct drgn_object *obj,
 static struct drgn_error *
 drgn_object_is_zero_impl(const struct drgn_object *obj, bool *ret)
 {
+	drgn_recursion_guard(1000, "maximum object depth exceeded");
+
 	struct drgn_error *err;
 
 	switch (obj->encoding) {
