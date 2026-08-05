@@ -58,7 +58,11 @@ int add_SourceLocation(PyObject *m)
 	if (!res)
 		return -1;
 
-	SourceLocation_type = PyDict_GetItemString(globals, "SourceLocation");
+	_cleanup_pydecref_ PyObject *key =
+		PyUnicode_FromString("SourceLocation");
+	if (!key)
+		return -1;
+	SourceLocation_type = PyObject_GetItem(globals, key);
 	return PyModule_AddObjectRef(m, "SourceLocation", SourceLocation_type);
 }
 
