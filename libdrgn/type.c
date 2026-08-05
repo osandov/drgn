@@ -1112,46 +1112,45 @@ bool drgn_type_is_scalar(struct drgn_type *type)
 LIBDRGN_PUBLIC struct drgn_error *drgn_type_sizeof(struct drgn_type *type,
 						   uint64_t *ret)
 {
-	struct drgn_error *err;
-	enum drgn_type_kind kind = drgn_type_kind(type);
-
-	if (!drgn_type_is_complete(type)) {
-		return drgn_error_format(DRGN_ERROR_TYPE,
-					 "cannot get size of incomplete %s type",
-					 drgn_type_kind_spelling[kind]);
-	}
-	SWITCH_ENUM(kind) {
-	case DRGN_TYPE_INT:
-	case DRGN_TYPE_BOOL:
-	case DRGN_TYPE_FLOAT:
-	case DRGN_TYPE_POINTER:
-		*ret = drgn_type_size(type);
-		return NULL;
-	case DRGN_TYPE_STRUCT:
-	case DRGN_TYPE_UNION:
-	case DRGN_TYPE_CLASS:
-		*ret = drgn_type_size(type);
-		return NULL;
-	case DRGN_TYPE_ENUM:
-	case DRGN_TYPE_TYPEDEF:
-		return drgn_type_sizeof(drgn_type_type(type).type, ret);
-	case DRGN_TYPE_ARRAY:
-		err = drgn_type_sizeof(drgn_type_type(type).type, ret);
-		if (err)
-			return err;
-		if (__builtin_mul_overflow(*ret, drgn_type_length(type), ret)) {
-			return drgn_error_create(DRGN_ERROR_OVERFLOW,
-						 "type size is too large");
+	uint64_t size = 1;
+	for (;;) {
+		if (!drgn_type_is_complete(type)) {
+			return drgn_error_incomplete_type("cannot get size of %s type",
+							  type);
 		}
-		return NULL;
-	case DRGN_TYPE_VOID:
-		return drgn_error_create(DRGN_ERROR_TYPE,
-					 "cannot get size of void type");
-	case DRGN_TYPE_FUNCTION:
-		return drgn_error_create(DRGN_ERROR_TYPE,
-					 "cannot get size of function type");
-	default:
-		UNREACHABLE();
+		SWITCH_ENUM(drgn_type_kind(type)) {
+		case DRGN_TYPE_INT:
+		case DRGN_TYPE_BOOL:
+		case DRGN_TYPE_FLOAT:
+		case DRGN_TYPE_POINTER:
+		case DRGN_TYPE_STRUCT:
+		case DRGN_TYPE_UNION:
+		case DRGN_TYPE_CLASS:
+			if (__builtin_mul_overflow(size, drgn_type_size(type),
+						   &size)) {
+				return drgn_error_create(DRGN_ERROR_OVERFLOW,
+							 "type size is too large");
+			}
+			*ret = size;
+			return NULL;
+		case DRGN_TYPE_ARRAY:
+			if (__builtin_mul_overflow(size, drgn_type_length(type),
+						   &size)) {
+				return drgn_error_create(DRGN_ERROR_OVERFLOW,
+							 "type size is too large");
+			}
+			fallthrough;
+		case DRGN_TYPE_ENUM:
+		case DRGN_TYPE_TYPEDEF:
+			type = drgn_type_type(type).type;
+			break;
+		case DRGN_TYPE_FUNCTION:
+			return drgn_error_create(DRGN_ERROR_TYPE,
+						 "cannot get size of function type");
+		case DRGN_TYPE_VOID: // Handled by drgn_type_is_complete() check.
+		default:
+			UNREACHABLE();
+		}
 	}
 }
 
