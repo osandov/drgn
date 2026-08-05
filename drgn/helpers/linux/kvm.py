@@ -11,7 +11,7 @@ virtual machines and their components.
 
 from typing import Callable, Iterator, Optional, Union
 
-from drgn import FaultError, Object, Program, cast
+from drgn import FaultError, Object, Program, ProgramFlags, cast
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.mm import access_remote_vm, for_each_vma
 from drgn.helpers.linux.pid import for_each_task
@@ -102,19 +102,42 @@ def _make_read_user_memory(
 
     def read_user_memory(addr: int, count: int, _offset: int, physical: bool) -> bytes:
         host_addr = addr - start_addr + userspace_base
-        return access_remote_vm(mm, host_addr, count)
+        out_buf = bytearray()
+        while count > 0:
+            try:
+                out_buf += access_remote_vm(mm, host_addr, count)
+                count = 0
+            except FaultError as fe:
+                if fe.address > host_addr:
+                    valid_size = fe.address - host_addr
+                    out_buf += access_remote_vm(mm, host_addr, valid_size)
+                    count -= valid_size
+                # Guess that we've run into a read-to-allocate zero page.
+                out_buf += b"\0" * min(count, page_size)
+                host_addr = fe.address + page_size
+                count -= page_size
+        return out_buf
 
     return read_user_memory
 
 
-def prog_from_kvm(kvm: Object) -> Program:
+def prog_from_kvm(kvm: Object, search_for_vmcoreinfo=False) -> Program:
     """
     Create a Program for debugging a KVM guest's memory.
 
     This function creates a new :class:`~drgn.Program` that can be used to
     inspect the guest physical memory of a KVM virtual machine.
 
+    When the search_for_vmcoreinfo flag is present, the Program's physical
+    memory is searched for the vmcoreinfo note, which is required to treat the guest
+    as a linux kernel. This may lead to false positives if the semi-unique VMCOREINFO
+    elf note header, comprised of the type, name ("VMCOREINFO" string) and name length,
+    are all present in the correct structure somewhere else in memory. Further, this
+    memory scan may be slow, as it reads through all of guest physical memory, doing
+    address translation for each page.
+
     :param kvm: ``struct kvm *``
+    :param search_for_vmcoreinfo: When true, search the guest memory for the vmcoreinfo note.
     :return: :class:`~drgn.Program` configured to access the guest's memory.
     """
     prog = Program(kvm.prog_.platform)
@@ -126,4 +149,22 @@ def prog_from_kvm(kvm: Object) -> Program:
         prog.add_memory_segment(
             start_addr, size, _make_read_user_memory(slot, kvm.mm), True
         )
+    if search_for_vmcoreinfo:
+        for vmcoreinfo_addr in prog.search_memory(b"VMCOREINFO").set_address_range(
+            physical=True
+        ):
+            vmcoreinfo_name_len = prog.read_u32(vmcoreinfo_addr - 0xC, physical=True)
+            vmcoreinfo_desc_len = prog.read_u32(vmcoreinfo_addr - 0x8, physical=True)
+            vmcoreinfo_type = prog.read_u32(vmcoreinfo_addr - 0x4, physical=True)
+            if vmcoreinfo_type != 0 or vmcoreinfo_name_len != 11:
+                continue
+            vmcoreinfo_desc_addr = (vmcoreinfo_addr + vmcoreinfo_name_len + 0x3) & ~0x3
+            vmcoreinfo_text = prog.read(
+                vmcoreinfo_desc_addr, vmcoreinfo_desc_len, physical=True
+            )
+            is_live = (
+                kvm.prog_.flags & ProgramFlags.IS_LIVE and not kvm.vm_dead.value_()
+            )
+            prog.set_linux_kernel_custom(vmcoreinfo_text, is_live=is_live)
+            break
     return prog
