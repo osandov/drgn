@@ -4534,6 +4534,20 @@ static int dwarf_flag_integrate(Dwarf_Die *die, unsigned int name, bool *ret)
 	return dwarf_formflag(attr, ret);
 }
 
+static int dwarf_bytesize64(Dwarf_Die *die, uint64_t *ret)
+{
+	Dwarf_Attribute attr_mem, *attr;
+
+	if (!(attr = dwarf_attr_integrate(die, DW_AT_byte_size, &attr_mem)))
+		return 1;
+
+	Dwarf_Word tmp;
+	if (dwarf_formudata(attr, &tmp))
+		return -1;
+	*ret = tmp;
+	return 0;
+}
+
 struct drgn_error *drgn_dwarf_type_alignment(struct drgn_type *type,
 					     uint64_t *ret)
 {
@@ -5362,8 +5376,8 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_base_type has missing or invalid DW_AT_encoding");
 	}
-	int size = dwarf_bytesize(die);
-	if (size == -1) {
+	uint64_t size;
+	if (dwarf_bytesize64(die, &size)) {
 		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_base_type has missing or invalid DW_AT_byte_size");
 	}
@@ -5948,13 +5962,12 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		struct drgn_compound_type_builder builder;
 	drgn_compound_type_builder_init(&builder, dbinfo->prog, kind);
 
-	int size;
+	uint64_t size;
 	bool little_endian;
 	if (declaration) {
 		size = 0;
 	} else {
-		size = dwarf_bytesize(die);
-		if (size == -1) {
+		if (dwarf_bytesize64(die, &size)) {
 			return drgn_error_format(DRGN_ERROR_BAD_DATA,
 						 "%s has missing or invalid DW_AT_byte_size",
 						 dwarf_tag_str(die, tag_buf));
@@ -6073,8 +6086,8 @@ enum_compatible_type_fallback(struct drgn_debug_info *dbinfo,
 			      const struct drgn_language *lang,
 			      struct drgn_type **ret)
 {
-	int size = dwarf_bytesize(die);
-	if (size == -1) {
+	uint64_t size;
+	if (dwarf_bytesize64(die, &size)) {
 		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DW_TAG_enumeration_type has missing or invalid DW_AT_byte_size");
 	}

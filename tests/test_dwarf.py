@@ -692,6 +692,19 @@ class TestTypes(TestCase):
         )
         self.assertIdentical(prog.type("TEST").type, prog.struct_type(None, 0, ()))
 
+    def test_struct_large_byte_size(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (DwarfAttrib(DW_AT.byte_size, DW_FORM.data8, 0x100000004),),
+                )
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type, prog.struct_type(None, 0x100000004, ())
+        )
+
     def test_struct_incomplete(self):
         prog = dwarf_program(
             wrap_test_type_dies(
