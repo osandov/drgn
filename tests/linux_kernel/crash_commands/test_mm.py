@@ -5,6 +5,8 @@
 import mmap
 import os
 import re
+import subprocess
+import time
 
 from drgn import Object
 from drgn.helpers.linux.cpumask import for_each_online_cpu
@@ -359,3 +361,19 @@ class TestVm(CrashCommandTestCase):
         self.assertIn("PID: 2", cmd.stdout)
         self.assertRegex(cmd.stdout, r"\bMM\s+PGD\s+RSS\s+TOTAL_VM\s+0\s+0\s+0k\s+0k\b")
         self.assertNotIn("VMA", cmd.stdout)
+
+    @skip_unless_have_full_mm_support
+    def test_p_page_translation(self):
+        self.run_crash_command("set -p")
+
+        proc = subprocess.Popen(["sleep", "60"])
+        try:
+            time.sleep(0.1)
+            cmd = self.check_crash_command(f"vm -p {proc.pid}", mode="capture")
+            self.assertIn(f"PID: {proc.pid}", cmd.stdout)
+            self.assertIn("VIRTUAL", cmd.stdout)
+            self.assertIn("PHYSICAL", cmd.stdout)
+            self.assertIn("VMA", cmd.stdout)
+        finally:
+            proc.kill()
+            proc.wait()
