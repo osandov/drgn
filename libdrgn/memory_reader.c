@@ -609,8 +609,10 @@ drgn_memory_search_iterator_refill(struct drgn_memory_search_iterator *it,
 		it->physical ? &it->prog->reader.physical_segments
 			     : &it->prog->reader.virtual_segments;
 
-	if (drgn_memory_search_iterator_remaining_bytes(it) >= needed)
+	if (drgn_memory_search_iterator_remaining_bytes(it) >= needed) {
+		*gap_ret = false;
 		return NULL;
+	}
 
 	err = drgn_blocking_check_signals(blocking_state);
 	if (err)
