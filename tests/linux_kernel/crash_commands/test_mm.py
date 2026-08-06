@@ -10,8 +10,9 @@ import time
 
 from drgn import Object
 from drgn.helpers.linux.cpumask import for_each_online_cpu
-from drgn.helpers.linux.mm import PFN_PHYS, TaskRss, phys_to_virt
+from drgn.helpers.linux.mm import PFN_PHYS, TaskRss, for_each_vma, phys_to_virt
 from drgn.helpers.linux.percpu import per_cpu_ptr
+from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
     skip_if_highmem,
     skip_unless_have_full_mm_support,
@@ -377,3 +378,15 @@ class TestVm(CrashCommandTestCase):
         finally:
             proc.kill()
             proc.wait()
+
+    @skip_unless_have_full_mm_support
+    def test_P_specific_vma(self):
+        self.run_crash_command("set -p")
+
+        task = find_task(self.prog, os.getpid())
+        vma_addr = next(for_each_vma(task.mm)).value_()
+        cmd = self.check_crash_command(
+            f"vm -P {vma_addr:x} {os.getpid()}", mode="capture"
+        )
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("VIRTUAL", cmd.stdout)

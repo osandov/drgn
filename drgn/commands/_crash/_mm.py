@@ -582,6 +582,13 @@ for si in for_each_swap_info():
             help="translate each virtual page to its physical address",
         ),
         argument(
+            "-P",
+            dest="P",
+            metavar="vma",
+            type="hexadecimal",
+            help="translate pages belonging to the specified VM area",
+        ),
+        argument(
             "-x",
             dest="integer_base",
             action="store_const",
@@ -652,6 +659,35 @@ if mm:
                 phys_addr = follow_phys(mm, page_addr)
             except FaultError:
                 phys_addr = None
+"""
+                )
+            elif args.P is not None:
+                code.add_from_import("drgn", "FaultError", "Object")
+                code.add_from_import(
+                    "drgn.helpers.linux.mm",
+                    "follow_phys",
+                    "task_rss",
+                    "vma_name",
+                )
+                code.append(
+                    f"""\
+page_size = prog["PAGE_SIZE"].value_()
+mm = task.mm.read_()
+if mm:
+    pgd = mm.pgd
+    rss = task_rss(task)
+    total_vm = mm.total_vm
+    vma = Object(prog, "struct vm_area_struct *", {hex(args.P)})
+    start = vma.vm_start
+    end = vma.vm_end
+    flags = vma.vm_flags
+    file = vma_name(vma)
+    vm_file = vma.vm_file.read_()
+    for page_addr in range(start, end, page_size):
+        try:
+            phys_addr = follow_phys(mm, page_addr)
+        except FaultError:
+            phys_addr = None
 """
                 )
             elif args.reference:
@@ -810,6 +846,66 @@ if mm:
                                 )
             continue
 
+        if args.P is not None:
+            if mm:
+                page_size = prog["PAGE_SIZE"].value_()
+                vma = Object(prog, "struct vm_area_struct *", args.P)
+                try:
+                    vma_start = vma.vm_start.value_()
+                except FaultError:
+                    print(f"(invalid VMA: {args.P:#x})")
+                    continue
+                vma_end = vma.vm_end.value_()
+                vm_file = vma.vm_file.read_()
+                vm_pgoff = vma.vm_pgoff.value_() if vm_file else 0
+                vma_name_str = vma_name(vma)
+                print_table(
+                    (
+                        (
+                            CellFormat("VMA", "^"),
+                            CellFormat("START", "^"),
+                            CellFormat("END", "^"),
+                            CellFormat("FLAGS", "<"),
+                            CellFormat("FILE", "<"),
+                        ),
+                        (
+                            CellFormat(vma.value_(), "^x"),
+                            CellFormat(vma_start, "^x"),
+                            CellFormat(vma_end, "^x"),
+                            CellFormat(vma.vm_flags.value_(), "<x"),
+                            escape_ascii_string(vma_name_str, escape_backslash=True),
+                        ),
+                    )
+                )
+                vma_translation_rows: List[Sequence[Any]] = [("VIRTUAL", "PHYSICAL")]
+                for page_addr in range(vma_start, vma_end, page_size):
+                    try:
+                        phys_addr = follow_phys(mm, page_addr).value_()
+                        vma_translation_rows.append(
+                            (
+                                CellFormat(page_addr, "^x"),
+                                CellFormat(phys_addr, "^x"),
+                            )
+                        )
+                    except FaultError:
+                        if vm_file:
+                            offset = (page_addr - vma_start) + vm_pgoff * page_size
+                            vma_translation_rows.append(
+                                (
+                                    CellFormat(page_addr, "^x"),
+                                    f"FILE: {vma_name_str.decode(errors='replace')}  OFFSET: {offset:x}",
+                                )
+                            )
+                        else:
+                            vma_translation_rows.append(
+                                (
+                                    CellFormat(page_addr, "^x"),
+                                    "SWAP: (unavailable)",
+                                )
+                            )
+                print_table(vma_translation_rows)
+            continue
+
         if mm:
             pgd_value = mm.pgd.value_()
             rss_total = task_rss(task).total
@@ -906,6 +1002,13 @@ arguments are entered, the current context is used.
             dest="p",
             action="store_true",
             help="translate each virtual page to its physical address",
+        ),
+        argument(
+            "-P",
+            dest="P",
+            metavar="vma",
+            type="hexadecimal",
+            help="translate pages belonging to the specified VM area",
         ),
         argument(
             "-x",
