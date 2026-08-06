@@ -1750,6 +1750,13 @@ drgn_module_try_file_internal(struct drgn_module *module, const char *path,
 	// fd and elf are owned by the drgn_elf_file now.
 	fd = -1;
 	elf = NULL;
+
+	if (is_gnu_debugaltlink_file && !drgn_elf_file_has_dwarf(file)) {
+		drgn_log_debug(prog, "%s has no debug info; ignoring", path);
+		drgn_elf_file_destroy(file);
+		return NULL;
+	}
+
 	return drgn_module_maybe_use_elf_file(module, file,
 					      is_gnu_debugaltlink_file);
 }

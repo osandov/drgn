@@ -528,6 +528,66 @@ class TestModuleTryFile(TestCase):
             self.assertEqual(module.wants_debug_file(), True)
             self.assertRaises(ValueError, module.wanted_supplementary_debug_file)
 
+    def test_gnu_debugaltlink_no_dwarf(self):
+        build_id = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
+        alt_build_id = b"\xfe\xdc\xba\x98\x76\x54\x32\x10"
+
+        with tempfile.TemporaryDirectory(
+            prefix="bin-"
+        ) as bin_dir, tempfile.TemporaryDirectory(prefix="debug-") as debug_dir:
+            bin_dir = Path(bin_dir)
+            debug_dir = Path(debug_dir)
+
+            alt_path = debug_dir / "alt.debug"
+            alt_path.write_bytes(create_elf_file(ET.EXEC, build_id=alt_build_id))
+
+            binary_path = bin_dir / "binary"
+            binary_path.write_bytes(
+                create_dwarf_file(
+                    (),
+                    sections=(ALLOCATED_SECTION,),
+                    build_id=build_id,
+                    gnu_debugaltlink=(alt_path, alt_build_id),
+                )
+            )
+
+            module = self.prog.extra_module(bin_dir / "binary", create=True)
+            module.build_id = build_id
+
+            module.try_file(binary_path)
+            self.assertEqual(
+                module.debug_file_status, ModuleFileStatus.WANT_SUPPLEMENTARY
+            )
+            self.assertIsNone(module.debug_file_path)
+            self.assertIsNone(module.supplementary_debug_file_kind)
+            self.assertIsNone(module.supplementary_debug_file_path)
+            self.assertEqual(
+                module.wanted_supplementary_debug_file(),
+                (
+                    SupplementaryFileKind.GNU_DEBUGALTLINK,
+                    str(binary_path),
+                    str(alt_path),
+                    alt_build_id,
+                ),
+            )
+
+            module.try_file(alt_path)
+            self.assertEqual(
+                module.debug_file_status, ModuleFileStatus.WANT_SUPPLEMENTARY
+            )
+            self.assertIsNone(module.debug_file_path)
+            self.assertIsNone(module.supplementary_debug_file_kind)
+            self.assertIsNone(module.supplementary_debug_file_path)
+            self.assertEqual(
+                module.wanted_supplementary_debug_file(),
+                (
+                    SupplementaryFileKind.GNU_DEBUGALTLINK,
+                    str(binary_path),
+                    str(alt_path),
+                    alt_build_id,
+                ),
+            )
+
     def test_extra_module_no_address_range(self):
         module = self.prog.extra_module("/foo/bar", create=True)
         with NamedTemporaryElfFile() as f:
