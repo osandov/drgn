@@ -168,8 +168,11 @@ drgn_namespace_dwarf_index_init(struct drgn_namespace_dwarf_index *dindex,
 	dindex->saved_err = NULL;
 }
 
+// Deinitialize one namespace, pushing its children onto a stack threaded
+// through their parent pointers, which are dead once we're tearing down.
 static void
-drgn_namespace_dwarf_index_deinit(struct drgn_namespace_dwarf_index *dindex)
+drgn_namespace_dwarf_index_deinit_one(struct drgn_namespace_dwarf_index *dindex,
+				      struct drgn_namespace_dwarf_index **stack)
 {
 	drgn_error_destroy(dindex->saved_err);
 	array_for_each(tag_map, dindex->map) {
@@ -178,10 +181,26 @@ drgn_namespace_dwarf_index_deinit(struct drgn_namespace_dwarf_index *dindex)
 		drgn_dwarf_index_die_map_deinit(tag_map);
 	}
 	hash_table_for_each(drgn_namespace_table, it, &dindex->children) {
-		drgn_namespace_dwarf_index_deinit(*it.entry);
-		free(*it.entry);
+		(*it.entry)->parent = *stack;
+		*stack = *it.entry;
 	}
 	drgn_namespace_table_deinit(&dindex->children);
+}
+
+static void
+drgn_namespace_dwarf_index_deinit(struct drgn_namespace_dwarf_index *dindex)
+{
+	// Namespaces can be nested arbitrarily deeply, so do this iteratively
+	// instead of recursively. Note that dindex itself is not freed; only
+	// its descendants are.
+	struct drgn_namespace_dwarf_index *stack = NULL;
+	drgn_namespace_dwarf_index_deinit_one(dindex, &stack);
+	while (stack) {
+		struct drgn_namespace_dwarf_index *ns = stack;
+		stack = ns->parent;
+		drgn_namespace_dwarf_index_deinit_one(ns, &stack);
+		free(ns);
+	}
 }
 
 void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo)
