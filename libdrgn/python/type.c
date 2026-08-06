@@ -1374,6 +1374,8 @@ static int byteorder_converter(PyObject *o, void *p)
 
 	if (PyUnicode_Check(o)) {
 		const char *s = PyUnicode_AsUTF8(o);
+		if (!s)
+			return 0;
 		if (strcmp(s, "little") == 0) {
 			arg->value = DRGN_LITTLE_ENDIAN;
 			return 1;
