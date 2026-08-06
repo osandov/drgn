@@ -299,3 +299,20 @@ class TestVm(CrashCommandTestCase):
         cmd = self.check_crash_command("vm -m 2")
         self.assertIn("(no mm_struct)", cmd.stdout)
         self.assertFalse(cmd.drgn_option.globals["mm"])
+
+    def test_v_dump_vma_structs(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -v")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("struct vm_area_struct", cmd.stdout)
+        self.assertIn("vm_start", cmd.stdout)
+        self.assertIn("vm_end", cmd.stdout)
+        self.assertIn("vm_flags", cmd.stdout)
+
+        self.assertIsInstance(cmd.drgn_option.globals["vma"], Object)
+
+    def test_v_kernel_thread(self):
+        cmd = self.check_crash_command("vm -v 2")
+        self.assertIn("(no mm_struct)", cmd.stdout)
+        self.assertNotIn("vm_area_struct", cmd.stdout)

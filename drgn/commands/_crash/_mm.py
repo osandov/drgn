@@ -493,6 +493,12 @@ for si in for_each_swap_info():
             action="store_true",
             help="dump the mm_struct associated with the task",
         ),
+        argument(
+            "-v",
+            dest="v",
+            action="store_true",
+            help="dump all vm_area_structs associated with the task",
+        ),
         drgn_argument,
     ),
 )
@@ -505,6 +511,16 @@ def _crash_foreach_vm(task_selector: _TaskSelector, args: argparse.Namespace) ->
             code.append_task_header()
             if args.m:
                 code.append("mm = task.mm.read_()\n")
+            elif args.v:
+                code.add_from_import("drgn.helpers.linux.mm", "for_each_vma")
+                code.append(
+                    """\
+mm = task.mm.read_()
+if mm:
+    for vma in for_each_vma(mm):
+        pass
+"""
+                )
             else:
                 code.add_from_import(
                     "drgn.helpers.linux.mm",
@@ -545,6 +561,14 @@ if mm:
         if args.m:
             if mm:
                 print(mm[0].format_(**format_options))
+            else:
+                print("(no mm_struct)")
+            continue
+
+        if args.v:
+            if mm:
+                for vma in for_each_vma(mm):
+                    print(vma[0].format_(**format_options))
             else:
                 print("(no mm_struct)")
             continue
@@ -611,6 +635,12 @@ arguments are entered, the current context is used.
             dest="m",
             action="store_true",
             help="dump the mm_struct associated with the task",
+        ),
+        argument(
+            "-v",
+            dest="v",
+            action="store_true",
+            help="dump all vm_area_structs associated with the task",
         ),
         argument(
             "tasks",
