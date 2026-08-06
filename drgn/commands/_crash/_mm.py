@@ -589,6 +589,12 @@ for si in for_each_swap_info():
             const=10,
             help="output integers in decimal format regardless of the default",
         ),
+        argument(
+            "-R",
+            dest="reference",
+            metavar="reference",
+            help="search for references to this number or filename",
+        ),
         drgn_argument,
     ),
 )
@@ -609,6 +615,44 @@ mm = task.mm.read_()
 if mm:
     for vma in for_each_vma(mm):
         pass
+"""
+                )
+            elif args.reference:
+                code.add_from_import(
+                    "drgn.helpers.linux.mm",
+                    "for_each_vma",
+                    "task_rss",
+                    "vma_name",
+                )
+                code.append(
+                    f"""\
+ref = {repr(args.reference)}
+try:
+    ref_num = int(ref, 16)
+except ValueError:
+    ref_num = None
+mm = task.mm.read_()
+if mm:
+    pgd = mm.pgd
+    rss = task_rss(task)
+    total_vm = mm.total_vm
+
+    for vma in for_each_vma(mm):
+        matches = True
+        if ref_num is not None:
+            start = vma.vm_start
+            end = vma.vm_end
+            flags = vma.vm_flags
+            matches = (
+                flags == ref_num
+                or start == ref_num
+                or start <= ref_num < end
+            )
+        else:
+            file = vma_name(vma)
+            matches = ref in file.decode(errors="replace")
+        if matches:
+            pass
 """
                 )
             else:
@@ -698,7 +742,29 @@ if mm:
                 CellFormat("FILE", "<"),
             )
         ]
+        reference = args.reference
+        ref_num = None
+        if reference is not None:
+            try:
+                ref_num = int(reference, 16)
+            except ValueError:
+                pass
         for vma in for_each_vma(mm):
+            if reference is not None:
+                vma_start = vma.vm_start.value_()
+                vma_end = vma.vm_end.value_()
+                vma_flags = vma.vm_flags.value_()
+                vma_file = vma_name(vma)
+                if ref_num is not None:
+                    if not (
+                        vma_flags == ref_num
+                        or vma_start == ref_num
+                        or vma_start <= ref_num < vma_end
+                    ):
+                        continue
+                else:
+                    if reference not in vma_file.decode(errors="replace"):
+                        continue
             rows.append(
                 (
                     CellFormat(vma.value_(), "^x"),
@@ -752,6 +818,12 @@ arguments are entered, the current context is used.
             metavar="vm_flags",
             type="hexadecimal",
             help="translate the bits of a FLAGS (vm_flags) value",
+        ),
+        argument(
+            "-R",
+            dest="reference",
+            metavar="reference",
+            help="search for references to this number or filename",
         ),
         argument(
             "tasks",

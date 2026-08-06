@@ -341,3 +341,21 @@ class TestVm(CrashCommandTestCase):
     def test_f_decode_zero(self):
         cmd = self.check_crash_command("vm -f 0")
         self.assertIn("0: (0)", cmd.stdout)
+
+    def test_r_reference(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -R libc")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("VMA", cmd.stdout)
+        self.assertIn("libc", cmd.stdout)
+
+        self.assertIn("ref", cmd.drgn_option.globals)
+        self.assertIsInstance(cmd.drgn_option.globals["ref"], str)
+        self.assertEqual(cmd.drgn_option.globals["ref"], "libc")
+
+    def test_r_reference_kernel_thread(self):
+        cmd = self.check_crash_command("vm -R 75 2")
+        self.assertIn("PID: 2", cmd.stdout)
+        self.assertRegex(cmd.stdout, r"\bMM\s+PGD\s+RSS\s+TOTAL_VM\s+0\s+0\s+0k\s+0k\b")
+        self.assertNotIn("VMA", cmd.stdout)
