@@ -499,6 +499,20 @@ for si in for_each_swap_info():
             action="store_true",
             help="dump all vm_area_structs associated with the task",
         ),
+        argument(
+            "-x",
+            dest="integer_base",
+            action="store_const",
+            const=16,
+            help="output integers in hexadecimal format regardless of the default",
+        ),
+        argument(
+            "-d",
+            dest="integer_base",
+            action="store_const",
+            const=10,
+            help="output integers in decimal format regardless of the default",
+        ),
         drgn_argument,
     ),
 )
@@ -641,6 +655,20 @@ arguments are entered, the current context is used.
             dest="v",
             action="store_true",
             help="dump all vm_area_structs associated with the task",
+        ),
+        argument(
+            "-x",
+            dest="integer_base",
+            action="store_const",
+            const=16,
+            help="output integers in hexadecimal format regardless of the default",
+        ),
+        argument(
+            "-d",
+            dest="integer_base",
+            action="store_const",
+            const=10,
+            help="output integers in decimal format regardless of the default",
         ),
         argument(
             "tasks",

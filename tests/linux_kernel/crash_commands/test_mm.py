@@ -316,3 +316,17 @@ class TestVm(CrashCommandTestCase):
         cmd = self.check_crash_command("vm -v 2")
         self.assertIn("(no mm_struct)", cmd.stdout)
         self.assertNotIn("vm_area_struct", cmd.stdout)
+
+    def test_x_mm_struct_hex(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -m -x")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("struct mm_struct", cmd.stdout)
+
+    def test_d_mm_struct_dec(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -m -d")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("struct mm_struct", cmd.stdout)
