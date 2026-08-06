@@ -2636,6 +2636,20 @@ class TestImplicitConvert(MockProgramTestCase):
             Object(self.prog, type1, 0x8),
         )
 
+    def test_function_pointer_parameter_cycle(self):
+        type1 = self.prog.function_type(
+            self.prog.type("void"), (TypeParameter(lambda: type1),)
+        )
+        type2 = self.prog.function_type(
+            self.prog.type("void"), (TypeParameter(lambda: type2),)
+        )
+        self.assertRaises(
+            RecursionError,
+            implicit_convert,
+            self.prog.pointer_type(type1),
+            Object(self.prog, self.prog.pointer_type(type2), 0x8),
+        )
+
     def test_function_pointers_with_different_is_variadic(self):
         type1 = self.prog.pointer_type(
             self.prog.function_type(self.prog.type("int"), (), is_variadic=False)

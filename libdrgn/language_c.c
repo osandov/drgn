@@ -3285,6 +3285,8 @@ c_types_compatible_impl(struct drgn_qualified_type qualified_type1,
 	if (type1 == type2)
 		return NULL;
 
+	drgn_recursion_guard(1000, "maximum type depth exceeded");
+
 	if (drgn_type_kind(type1) != drgn_type_kind(type2)) {
 		// Enum types are compatible with their compatible integer type.
 		// but not with different enum types with the same compatible
