@@ -2570,6 +2570,8 @@ c_parse_abstract_declarator(struct drgn_program *prog,
 			    struct c_declarator **outer,
 			    struct c_declarator **inner)
 {
+	drgn_recursion_guard(1000, "maximum type depth exceeded");
+
 	struct drgn_error *err;
 	struct drgn_token token;
 
@@ -2606,39 +2608,48 @@ c_type_from_declarator(struct drgn_program *prog,
 		       struct c_declarator *declarator,
 		       struct drgn_qualified_type *ret)
 {
-	struct drgn_error *err;
-
-	if (!declarator)
-		return NULL;
-
-	err = c_type_from_declarator(prog, declarator->next, ret);
-	if (err) {
-		free(declarator);
-		return err;
+	// The declarator list is outermost-first, but we need to build the type
+	// innermost-first. Reverse it.
+	struct c_declarator *reversed = NULL;
+	while (declarator) {
+		struct c_declarator *next = declarator->next;
+		declarator->next = reversed;
+		reversed = declarator;
+		declarator = next;
 	}
+	declarator = reversed;
 
-	if (declarator->kind == C_TOKEN_ASTERISK) {
-		uint64_t address_size;
-		err = drgn_program_address_size(prog, &address_size);
+	struct drgn_error *err = NULL;
+	while (declarator) {
+		struct c_declarator *next = declarator->next;
 		if (!err) {
-			err = drgn_pointer_type_create(prog, *ret, address_size,
-						       DRGN_PROGRAM_ENDIAN,
-						       drgn_type_language(ret->type),
-						       &ret->type);
+			if (declarator->kind == C_TOKEN_ASTERISK) {
+				uint64_t address_size;
+				err = drgn_program_address_size(prog,
+								&address_size);
+				if (!err) {
+					err = drgn_pointer_type_create(prog, *ret,
+								       address_size,
+								       DRGN_PROGRAM_ENDIAN,
+								       drgn_type_language(ret->type),
+								       &ret->type);
+				}
+			} else if (declarator->is_complete) {
+				err = drgn_array_type_create(prog, *ret,
+							     declarator->length,
+							     drgn_type_language(ret->type),
+							     &ret->type);
+			} else {
+				err = drgn_incomplete_array_type_create(prog, *ret,
+									drgn_type_language(ret->type),
+									&ret->type);
+			}
+			if (!err)
+				ret->qualifiers = declarator->qualifiers;
 		}
-	} else if (declarator->is_complete) {
-		err = drgn_array_type_create(prog, *ret, declarator->length,
-					     drgn_type_language(ret->type),
-					     &ret->type);
-	} else {
-		err = drgn_incomplete_array_type_create(prog, *ret,
-							drgn_type_language(ret->type),
-							&ret->type);
+		free(declarator);
+		declarator = next;
 	}
-
-	if (!err)
-		ret->qualifiers = declarator->qualifiers;
-	free(declarator);
 	return err;
 }
 

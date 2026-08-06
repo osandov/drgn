@@ -974,6 +974,12 @@ class TestTypes(MockProgramTestCase):
             ),
         )
 
+    def test_deeply_nested_declarator(self):
+        depth = 10000
+        self.assertRaises(
+            RecursionError, self.prog.type, "int " + "(" * depth + "*" + ")" * depth
+        )
+
     def test_pointer_to_array(self):
         self.assertIdentical(
             self.prog.type("int (*)[2]"),
