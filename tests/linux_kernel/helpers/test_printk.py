@@ -5,7 +5,11 @@ import errno
 import os
 import re
 
-from drgn.helpers.linux.printk import PrintkRecord, get_printk_records
+from drgn.helpers.linux.printk import (
+    PrintkRecord,
+    for_each_dmesg_stack_trace,
+    get_printk_records,
+)
 from tests.linux_kernel import LinuxKernelTestCase
 
 
@@ -70,3 +74,18 @@ class TestPrintk(LinuxKernelTestCase):
                 for record in get_printk_records(self.prog)
             ],
         )
+
+    def test_for_each_dmesg_stack_trace(self):
+        with open("/proc/sysrq-trigger", "wb") as f:
+            f.write(b"l")
+
+        traces = list(for_each_dmesg_stack_trace(self.prog))
+
+        for trace in traces:
+            # write_sysrq_trigger() has been so named since the initial import
+            # of Linux source into git, commit 1da177e4c3f41
+            # ("Linux-2.6.12-rc2").
+            if any(frame.name == "write_sysrq_trigger" for frame in trace.stack_trace):
+                break
+        else:
+            self.fail("Did not find test stack trace in kernel log")

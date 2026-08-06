@@ -10,10 +10,12 @@ kernel log buffer.
 """
 
 import operator
+import re
 import sys
 from typing import (
     TYPE_CHECKING,
     Dict,
+    Iterator,
     List,
     Literal,
     NamedTuple,
@@ -27,14 +29,16 @@ if TYPE_CHECKING:
 
 from datetime import datetime
 
-from drgn import Object, Program, cast, sizeof
+from drgn import Object, Program, StackTrace, cast, sizeof
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.timekeeping import ktime_get_coarse_ns, ktime_get_coarse_real_ns
 
 __all__ = (
+    "for_each_dmesg_stack_trace",
     "get_dmesg",
     "get_printk_records",
     "print_dmesg",
+    "stack_trace_from_text",
 )
 
 
@@ -336,3 +340,108 @@ def print_dmesg(
     (sys.stdout if file is None else file).write(
         get_dmesg(prog, timestamps=timestamps).decode(errors="replace")
     )
+
+
+@takes_program_or_default
+def stack_trace_from_text(prog: Program, log: str) -> StackTrace:
+    """
+    Return a drgn stack trace from a text form
+
+    Search the given text for all occurrences of the pattern
+    ``symbol+0x1a/0x40`` (a symbol name with an offset and size). Look up the
+    symbols and convert this sequence into a drgn stack trace. The resulting
+    stack trace can leverage drgn's understanding of the debug info, and thus it
+    can include information not present in the original text: filenames, line
+    numbers, and even extra stack frames for inline functions.
+
+    :param log: the text of the stack trace
+    :returns: an equivalent drgn stack trace
+    """
+    pcs = []
+    for match in re.finditer(
+        r"(\? )?([a-zA-Z_][a-zA-Z0-9_.]*)\+(0x[0-9a-f]+)/0x[0-9a-f]+", log
+    ):
+        # Some symbols have a "?" before them, these are text addresses found on
+        # the stack which are not part of the reliable stack trace. We could try
+        # to tweak the regex with a negative lookbehind assertion to avoid them,
+        # but it turns out to be easier to just match and ignore them.
+        if match.group(1) == "? ":
+            continue
+        symbol_name = match.group(2)
+        offset = int(match.group(3), 16)
+        pcs.append(prog.symbol(symbol_name).address + offset)
+    return prog.stack_trace_from_pcs(pcs)
+
+
+class PrintkStackTrace(NamedTuple):
+    """A stack trace and metadata logged to the kernel log."""
+
+    timestamp: int
+    """Timestamp in nanoseconds"""
+
+    stack_trace: StackTrace
+    """The trace, reperesented with a drgn stack trace object."""
+
+    cpu: Optional[int]
+    """The CPU of the stack trace, if it was found in the log."""
+
+    pid: Optional[int]
+    """The PID of the stack trace, if it was found in the log."""
+
+
+@takes_program_or_default
+def for_each_dmesg_stack_trace(
+    prog: Program, records: Optional[List[PrintkRecord]] = None
+) -> Iterator[PrintkStackTrace]:
+    """
+    Yield stack traces from the kernel log, or the provided log records
+
+    This searches the kernel log, or provided records, for stack traces. Stack
+    traces are printed by architecture-specific code, whose format can vary.
+    Further, stack traces are printed in many situations (panics, warnings,
+    etc), and the format of the metadata placed around them can vary as well.
+    As a result, this process is best-effort, and could even fail. It is only
+    tested on x86_64 at this time.
+
+    :param records: a list of printk records to search. If not provided, we'll
+      use the full list from get_printk_records()
+    :returns: an iterator of printk stack trace records
+    """
+    if records is None:
+        records = get_printk_records(prog)
+
+    cpu_pid_re = re.compile(rb"(cpu|pid):\s*(\d+)", re.I)
+    i = 0
+    while i < len(records):
+        record = records[i]
+        if b"Call Trace:" not in record.text:
+            i += 1
+            continue
+
+        # Collect the records composing the stack trace.
+        this_trace = []
+        j = i + 1
+        while j < len(records) and records[j].text[0] == ord(b" "):
+            this_trace.append(records[j].text)
+            j += 1
+
+        trace_text = b"".join(this_trace).decode("utf-8", errors="replace")
+        trace = stack_trace_from_text(prog, trace_text)
+
+        # Search the previous log records for the first record containing "CPU:"
+        # and/or "PID", which is within 1ms of the Call Trace record.
+        NUM_SEARCH = 20
+        cpu = pid = None
+        for k in range(i - 1, max(i - 1 - NUM_SEARCH, 0), -1):
+            if (record.timestamp - records[k].timestamp) > 1000000:
+                break
+
+            for match in cpu_pid_re.finditer(records[k].text):
+                if match.group(1).lower() == b"cpu":
+                    cpu = int(match.group(2))
+                else:
+                    pid = int(match.group(2))
+            if cpu is not None or pid is not None:
+                break
+        yield PrintkStackTrace(record.timestamp, trace, cpu, pid)
+        i = j
