@@ -2185,21 +2185,25 @@ static struct drgn_error *cpp_append_to_identifier(
 		return NULL;
 
 	struct drgn_token token;
-
-	do {
+	const char *end = identifier + *len_ret;
+	for (;;) {
 		err = drgn_lexer_pop(lexer, &token);
-	} while (!err && (token.kind == C_TOKEN_IDENTIFIER ||
-			  token.kind == C_TOKEN_COLON));
-
-	if (err)
-		return err;
-	if (token.kind != C_TOKEN_TEMPLATE_ARGUMENTS) {
-		err = drgn_lexer_push(lexer, &token);
 		if (err)
 			return err;
+		if (token.kind != C_TOKEN_IDENTIFIER &&
+		    token.kind != C_TOKEN_COLON &&
+		    token.kind != C_TOKEN_TEMPLATE_ARGUMENTS) {
+			err = drgn_lexer_push(lexer, &token);
+			if (err)
+				return err;
+			break;
+		}
+		end = token.value + token.len;
+		if (token.kind == C_TOKEN_TEMPLATE_ARGUMENTS)
+			break;
 	}
 
-	*len_ret = token.value + token.len - identifier;
+	*len_ret = end - identifier;
 	return NULL;
 }
 
