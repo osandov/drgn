@@ -283,3 +283,19 @@ class TestVm(CrashCommandTestCase):
         self.assertNotIn("VMA", cmd.stdout)
 
         self.assertFalse(cmd.drgn_option.globals["mm"])
+
+    def test_m_dump_mm_struct(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -m")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("struct mm_struct", cmd.stdout)
+        self.assertIn("mmap", cmd.stdout)
+        self.assertIn("pgd", cmd.stdout)
+
+        self.assertIsInstance(cmd.drgn_option.globals["mm"], Object)
+
+    def test_m_kernel_thread(self):
+        cmd = self.check_crash_command("vm -m 2")
+        self.assertIn("(no mm_struct)", cmd.stdout)
+        self.assertFalse(cmd.drgn_option.globals["mm"])

@@ -19,6 +19,7 @@ from drgn.commands import (
 from drgn.commands._crash.common import (
     CrashDrgnCodeBuilder,
     _crash_foreach_subcommand,
+    _object_format_options,
     _TaskSelector,
     crash_command,
     parse_cpuspec,
@@ -485,7 +486,15 @@ for si in for_each_swap_info():
 
 
 @_crash_foreach_subcommand(
-    arguments=(drgn_argument,),
+    arguments=(
+        argument(
+            "-m",
+            dest="m",
+            action="store_true",
+            help="dump the mm_struct associated with the task",
+        ),
+        drgn_argument,
+    ),
 )
 def _crash_foreach_vm(task_selector: _TaskSelector, args: argparse.Namespace) -> None:
     prog = task_selector.prog
@@ -494,11 +503,17 @@ def _crash_foreach_vm(task_selector: _TaskSelector, args: argparse.Namespace) ->
         code = CrashDrgnCodeBuilder(prog)
         with task_selector.begin_task_loop(code):
             code.append_task_header()
-            code.add_from_import(
-                "drgn.helpers.linux.mm", "for_each_vma", "task_rss", "vma_name"
-            )
-            code.append(
-                """\
+            if args.m:
+                code.append("mm = task.mm.read_()\n")
+            else:
+                code.add_from_import(
+                    "drgn.helpers.linux.mm",
+                    "for_each_vma",
+                    "task_rss",
+                    "vma_name",
+                )
+                code.append(
+                    """\
 
 mm = task.mm.read_()
 if mm:
@@ -512,8 +527,10 @@ if mm:
         flags = vma.vm_flags
         file = vma_name(vma)
 """
-            )
+                )
         return code.print()
+
+    format_options = _object_format_options(prog, getattr(args, "integer_base", None))
 
     first = True
     for task in task_selector.tasks():
@@ -524,6 +541,14 @@ if mm:
         print_task_header(task)
 
         mm = task.mm.read_()
+
+        if args.m:
+            if mm:
+                print(mm[0].format_(**format_options))
+            else:
+                print("(no mm_struct)")
+            continue
+
         if mm:
             pgd_value = mm.pgd.value_()
             rss_total = task_rss(task).total
@@ -581,6 +606,12 @@ its starting and ending address, vm_flags value, and file pathname. If no
 arguments are entered, the current context is used.
 """,
     arguments=(
+        argument(
+            "-m",
+            dest="m",
+            action="store_true",
+            help="dump the mm_struct associated with the task",
+        ),
         argument(
             "tasks",
             metavar="pid|task",
