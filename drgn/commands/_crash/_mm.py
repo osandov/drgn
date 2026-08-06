@@ -6,9 +6,16 @@
 
 import argparse
 import sys
-from typing import Any, List, Sequence
+from typing import Any, List, Sequence, Tuple
 
-from drgn import Architecture, FaultError, Object, Platform, Program
+from drgn import (
+    Architecture,
+    FaultError,
+    Object,
+    ObjectNotFoundError,
+    Platform,
+    Program,
+)
 from drgn.commands import (
     DrgnCodeBlockContext,
     argument,
@@ -25,7 +32,12 @@ from drgn.commands._crash.common import (
     parse_cpuspec,
     print_task_header,
 )
-from drgn.helpers.common.format import CellFormat, escape_ascii_string, print_table
+from drgn.helpers.common.format import (
+    CellFormat,
+    decode_flags,
+    escape_ascii_string,
+    print_table,
+)
 from drgn.helpers.linux.mm import (
     follow_phys,
     for_each_vma,
@@ -40,6 +52,70 @@ from drgn.helpers.linux.swap import (
     swap_is_file,
     swap_usage_in_pages,
 )
+
+# Since Linux kernel commit 2b6a3f061f11 ("mm: declare VMA flags by bit") (in
+# v6.19), VMA flag bit numbers are defined in an anonymous enum. Before that,
+# we have to hard-code them.
+_VM_FLAGS: Sequence[Tuple[str, int]] = [
+    ("READ", 0x00000001),
+    ("WRITE", 0x00000002),
+    ("EXEC", 0x00000004),
+    ("SHARED", 0x00000008),
+    ("MAYREAD", 0x00000010),
+    ("MAYWRITE", 0x00000020),
+    ("MAYEXEC", 0x00000040),
+    ("MAYSHARE", 0x00000080),
+    ("GROWSDOWN", 0x00000100),
+    ("UFFD_MISSING", 0x00000200),
+    ("PFNMAP", 0x00000400),
+    ("DENYWRITE", 0x00000800),
+    ("EXECUTABLE", 0x00001000),
+    ("LOCKED", 0x00002000),
+    ("IO", 0x00004000),
+    ("SEQ_READ", 0x00008000),
+    ("RAND_READ", 0x00010000),
+    ("DONTCOPY", 0x00020000),
+    ("DONTEXPAND", 0x00040000),
+    ("LOCKONFAULT", 0x00080000),
+    ("ACCOUNT", 0x00100000),
+    ("NORESERVE", 0x00200000),
+    ("HUGETLB", 0x00400000),
+    ("SYNC", 0x00800000),
+    ("ARCH_1", 0x01000000),
+    ("WIPEONFORK", 0x02000000),
+    ("DONTDUMP", 0x04000000),
+    ("SOFTDIRTY", 0x08000000),
+    ("MIXEDMAP", 0x10000000),
+    ("HUGEPAGE", 0x20000000),
+    ("NOHUGEPAGE", 0x40000000),
+    ("MERGEABLE", 0x80000000),
+]
+
+
+def _get_vm_flag_values(prog: Program) -> Sequence[Tuple[str, int]]:
+    try:
+        enumerators = prog["VMA_READ_BIT"].type_.enumerators
+    except ObjectNotFoundError:
+        return _VM_FLAGS
+    if enumerators is None:
+        return _VM_FLAGS
+    flags = []
+    for name, bit_num in enumerators:
+        flags.append(
+            (
+                (
+                    name[4:-4]
+                    if name.startswith("VMA_") and name.endswith("_BIT")
+                    else (
+                        name[4:]
+                        if name.startswith("VMA_")
+                        else name[:-4] if name.endswith("_BIT") else name
+                    )
+                ),
+                1 << bit_num,
+            )
+        )
+    return flags
 
 
 @crash_command(
@@ -671,6 +747,13 @@ arguments are entered, the current context is used.
             help="output integers in decimal format regardless of the default",
         ),
         argument(
+            "-f",
+            dest="f",
+            metavar="vm_flags",
+            type="hexadecimal",
+            help="translate the bits of a FLAGS (vm_flags) value",
+        ),
+        argument(
             "tasks",
             metavar="pid|task",
             nargs="*",
@@ -683,6 +766,22 @@ arguments are entered, the current context is used.
 def _crash_cmd_vm(
     prog: Program, name: str, args: argparse.Namespace, **kwargs: Any
 ) -> None:
+    if args.f is not None:
+        if args.drgn:
+            code = CrashDrgnCodeBuilder(prog)
+            code.add_from_import("drgn.commands._crash._mm", "_get_vm_flag_values")
+            code.add_from_import("drgn.helpers.common.format", "decode_flags")
+            code.append(f"vm_flags = {hex(args.f)}\n")
+            code.append(
+                "decoded = decode_flags("
+                "vm_flags, _get_vm_flag_values(prog), bit_numbers=False)\n"
+            )
+            return code.print()
+        print(
+            f"{args.f:x}: ("
+            f"{decode_flags(args.f, _get_vm_flag_values(prog), bit_numbers=False)})"
+        )
+        return
     if not args.tasks:
         args.tasks.append(None)
     return _crash_foreach_vm(_TaskSelector(prog, args.tasks), args)

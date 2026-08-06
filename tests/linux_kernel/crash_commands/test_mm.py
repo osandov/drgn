@@ -330,3 +330,14 @@ class TestVm(CrashCommandTestCase):
         cmd = self.check_crash_command("vm -m -d")
         self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
         self.assertIn("struct mm_struct", cmd.stdout)
+
+    def test_f_decode_flags(self):
+        cmd = self.check_crash_command("vm -f 75")
+        self.assertIn("75: (READ|EXEC|MAYREAD|MAYWRITE|MAYEXEC)", cmd.stdout)
+
+        self.assertEqual(cmd.drgn_option.globals["vm_flags"], 0x75)
+        self.assertIsInstance(cmd.drgn_option.globals["decoded"], str)
+
+    def test_f_decode_zero(self):
+        cmd = self.check_crash_command("vm -f 0")
+        self.assertIn("0: (0)", cmd.stdout)
