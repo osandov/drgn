@@ -390,3 +390,25 @@ class TestVm(CrashCommandTestCase):
         )
         self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
         self.assertIn("VIRTUAL", cmd.stdout)
+
+    def test_M_manual_mm(self):
+        self.run_crash_command("set -p")
+
+        task = find_task(self.prog, os.getpid())
+        mm = task.mm.read_()
+        mm_addr = mm.value_()
+        cmd = self.check_crash_command(
+            f"vm -M {mm_addr:x} {os.getpid()}", mode="capture"
+        )
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("MM", cmd.stdout)
+        self.assertIn(f"{mm_addr:x}", cmd.stdout)
+
+    def test_M_manual_mm_drgn(self):
+        self.run_crash_command("set -p")
+
+        task = find_task(self.prog, os.getpid())
+        mm = task.mm.read_()
+        mm_addr = mm.value_()
+        cmd = self.check_crash_command(f"vm -M {mm_addr:x} {os.getpid()}")
+        self.assertIsInstance(cmd.drgn_option.globals["mm"], Object)
