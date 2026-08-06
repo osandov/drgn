@@ -890,16 +890,20 @@ static const char *PyType_name(PyTypeObject *type)
 static DrgnObject *LazyObject_get_borrowed(LazyObject *self)
 {
 	if (unlikely(self->lazy_obj != DRGNPY_LAZY_OBJECT_EVALUATED)) {
-		DrgnObject *obj;
+		// We need to keep this alive to protect against reentrant
+		// calls.
+		_cleanup_pydecref_ PyObject *obj = self->obj;
+		Py_INCREF(obj);
+		DrgnObject *res;
 		if (self->lazy_obj == DRGNPY_LAZY_OBJECT_CALLABLE) {
-			PyObject *ret = PyObject_CallObject(self->obj, NULL);
+			PyObject *ret = PyObject_CallObject(obj, NULL);
 			if (!ret)
 				return NULL;
 			if (PyObject_TypeCheck(ret, &DrgnObject_type)) {
-				obj = (DrgnObject *)ret;
+				res = (DrgnObject *)ret;
 				if (Py_TYPE(self) ==
 				    &TypeTemplateParameter_type &&
-				    obj->obj.kind == DRGN_OBJECT_ABSENT) {
+				    res->obj.kind == DRGN_OBJECT_ABSENT) {
 					Py_DECREF(ret);
 					PyErr_Format(PyExc_ValueError,
 						     "%s() callable must not return absent Object",
@@ -907,9 +911,9 @@ static DrgnObject *LazyObject_get_borrowed(LazyObject *self)
 					return NULL;
 				}
 			} else if (PyObject_TypeCheck(ret, &DrgnType_type)) {
-				obj = DrgnType_to_absent_DrgnObject((DrgnType *)ret);
+				res = DrgnType_to_absent_DrgnObject((DrgnType *)ret);
 				Py_DECREF(ret);
-				if (!obj)
+				if (!res)
 					return NULL;
 			} else {
 				Py_DECREF(ret);
@@ -919,24 +923,27 @@ static DrgnObject *LazyObject_get_borrowed(LazyObject *self)
 				return NULL;
 			}
 		} else {
+			// Evaluating the thunk may run Python code that
+			// reenters this function and replaces this.
+			union drgn_lazy_object *lazy_obj = self->lazy_obj;
 			struct drgn_error *err =
-				drgn_lazy_object_evaluate(self->lazy_obj);
+				drgn_lazy_object_evaluate(lazy_obj);
 			if (err)
 				return set_drgn_error(err);
-			obj = DrgnObject_alloc(container_of(drgn_object_program(&self->lazy_obj->obj),
+			res = DrgnObject_alloc(container_of(drgn_object_program(&lazy_obj->obj),
 							    Program, prog));
-			if (!obj)
+			if (!res)
 				return NULL;
-			err = drgn_object_copy(&obj->obj, &self->lazy_obj->obj);
+			err = drgn_object_copy(&res->obj, &lazy_obj->obj);
 			if (err) {
-				Py_DECREF(obj);
+				Py_DECREF(res);
 				return set_drgn_error(err);
 			}
 		}
-		// lazy_obj must be updated before obj to guard against
-		// reentrant calls.
+		// Deallocating self->obj may reenter this function, so we need
+		// to update lazy_obj first.
 		self->lazy_obj = DRGNPY_LAZY_OBJECT_EVALUATED;
-		Py_SETREF(self->obj, (PyObject *)obj);
+		Py_SETREF(self->obj, (PyObject *)res);
 	}
 	return (DrgnObject *)self->obj;
 }

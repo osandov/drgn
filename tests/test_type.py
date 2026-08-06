@@ -1230,10 +1230,28 @@ class TestTypeMember(MockProgramTestCase):
             def __call__(self2):
                 if self2.first:
                     self2.first = False
-                    return member.object
+                    member.object
                 return Object(self.prog, self.prog.int_type("int", 4, True))
 
         member = TypeMember(Callable())
+        self.assertIdentical(
+            member.object, Object(self.prog, self.prog.int_type("int", 4, True))
+        )
+
+    def test_thunk_reentrant(self):
+        # Test a callable that reenters the object evaluation through the
+        # drgn_lazy_object thunk rather than the callable directly.
+        class Callable:
+            def __init__(self2):
+                self2.first = True
+
+            def __call__(self2):
+                if self2.first:
+                    self2.first = False
+                    member.object
+                return Object(self.prog, self.prog.int_type("int", 4, True))
+
+        member = self.prog.struct_type("foo", 8, [TypeMember(Callable())]).members[0]
         self.assertIdentical(
             member.object, Object(self.prog, self.prog.int_type("int", 4, True))
         )
