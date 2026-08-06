@@ -109,7 +109,9 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 
 			enum drgn_dwarf_file_type dwarf_section_type;
 			if (strcmp(scnname, ".debug_cu_index") == 0 ||
-			    strcmp(scnname, ".debug_tu_index") == 0) {
+			    strcmp(scnname, ".debug_tu_index") == 0 ||
+			    strcmp(scnname, ".zdebug_cu_index") == 0 ||
+			    strcmp(scnname, ".zdebug_tu_index") == 0) {
 				dwarf_section_type = DRGN_DWARF_FILE_DWO;
 			} else if (strstartswith(scnname, ".debug_") ||
 				   strstartswith(scnname, ".zdebug_")) {
@@ -131,14 +133,16 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 			if (!shdr)
 				return drgn_error_libelf();
 
-			if (shdr->sh_type != SHT_PROGBITS)
+			// libdw accepts debug sections with any type other than
+			// SHT_NOBITS.
+			if (shdr->sh_type == SHT_NOBITS)
 				continue;
 
 			const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
 			if (!scnname)
 				return drgn_error_libelf();
 
-			enum drgn_section_index index;
+			enum drgn_section_index index = DRGN_SECTION_INDEX_NUM;
 			if (strstartswith(scnname, ".debug_") ||
 			    strstartswith(scnname, ".zdebug_")) {
 				const char *subname;
@@ -163,15 +167,17 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 					scnname + sizeof(".gnu.debuglto_.debug_") - 1;
 				index = drgn_debug_section_name_to_index(subname,
 									 strlen(subname));
-			} else if (strcmp(scnname, ".init.text") == 0) {
-				// We consider a file to be vmlinux if it has an
-				// .init.text section and is not relocatable
-				// (which excludes kernel modules).
-				// Keep this in sync with elf_is_vmlinux().
-				file->is_vmlinux = ehdr->e_type != ET_REL;
-				index = DRGN_SECTION_INDEX_NUM;
-			} else {
-				index = drgn_non_debug_section_name_to_index(scnname);
+			} else if (shdr->sh_type == SHT_PROGBITS) {
+				if (strcmp(scnname, ".init.text") == 0) {
+					// We consider a file to be vmlinux if
+					// it has an .init.text section and is
+					// not relocatable (which excludes
+					// kernel modules). Keep this in sync
+					// with elf_is_vmlinux().
+					file->is_vmlinux = ehdr->e_type != ET_REL;
+				} else {
+					index = drgn_non_debug_section_name_to_index(scnname);
+				}
 			}
 			if (index < DRGN_SECTION_INDEX_NUM && !file->scns[index])
 				file->scns[index] = scn;
