@@ -2556,8 +2556,8 @@ INTEGER_BINARY_OP(xor, ^)
 		uint64_t uvalue;						\
 	} tmp;									\
 	_err = drgn_object_convert_signed((obj), _type->bit_size, &tmp.svalue);	\
-	tmp.uvalue = op tmp.uvalue;						\
 	if (!_err) {								\
+		tmp.uvalue = op tmp.uvalue;					\
 		_err = drgn_object_set_signed_internal((res), _type,		\
 						       tmp.svalue);		\
 	}									\
