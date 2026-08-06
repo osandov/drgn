@@ -133,12 +133,12 @@ static int get_logging_status(int *log_level_ret, bool *enable_progress_bar_ret)
 		if (!ret)
 			break;
 
-		Py_XDECREF(logger_to_decref);
-		logger_to_decref = PyObject_GetAttrString(current_logger,
-							  "parent");
-		if (!logger_to_decref)
+		PyObject *parent =
+			PyObject_GetAttrString(current_logger, "parent");
+		if (!parent)
 			return -1;
-		current_logger = logger_to_decref;
+		Py_XSETREF(logger_to_decref, parent);
+		current_logger = parent;
 	} while (current_logger != Py_None);
 
 	*enable_progress_bar_ret = false;
