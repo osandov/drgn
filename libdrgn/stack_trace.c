@@ -1371,6 +1371,16 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_stack_trace_from_pcs(struct drgn_program *prog, const uint64_t *pcs,
 				  size_t pcs_size, struct drgn_stack_trace **ret)
 {
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "cannot create stack trace without platform");
+	}
+	if (!prog->platform.arch->register_layout) {
+		return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
+					 "stack traces are not supported on %s architecture",
+					 prog->platform.arch->name);
+	}
+
 	_cleanup_stack_trace_ struct drgn_stack_trace *trace =
 		malloc_flexible_array(struct drgn_stack_trace, frames,
 				      pcs_size);

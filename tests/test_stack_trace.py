@@ -1,7 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from drgn import Object, Program
+from drgn import Architecture, Object, Platform, PlatformFlags, Program
 from tests import TestCase
 from tests.resources import get_resource
 
@@ -52,4 +52,21 @@ class TestLinuxUserspaceCoreDump(TestCase):
             TypeError,
             self.prog.stack_trace,
             Object(self.prog, self.prog.pointer_type(self.prog.struct_type(None)), 0),
+        )
+
+
+class TestStackTraceFromPcs(TestCase):
+    def test_no_platform(self):
+        self.assertRaises(ValueError, Program().stack_trace_from_pcs, [0xDEADBEEF])
+
+    def test_unknown_platform(self):
+        self.assertRaises(
+            NotImplementedError,
+            Program(
+                Platform(
+                    Architecture.UNKNOWN,
+                    PlatformFlags.IS_64_BIT | PlatformFlags.IS_LITTLE_ENDIAN,
+                )
+            ).stack_trace_from_pcs,
+            [0xDEADBEEF],
         )
