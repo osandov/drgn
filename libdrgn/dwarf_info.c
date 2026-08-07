@@ -5127,8 +5127,9 @@ reg:
 	if (bit_pos < type.bit_size || (bit_offset < 0 && !value_buf)) {
 absent:
 		if (dwarf_tag(die) == DW_TAG_template_value_parameter) {
-			return drgn_error_create(DRGN_ERROR_BAD_DATA,
-						 "DW_AT_template_value_parameter is missing value");
+			err = drgn_error_create(DRGN_ERROR_BAD_DATA,
+						"DW_AT_template_value_parameter is missing value");
+			goto out;
 		}
 		drgn_object_set_absent_internal(ret, &type, absence_reason);
 		err = NULL;
