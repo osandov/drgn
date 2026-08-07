@@ -120,6 +120,17 @@ def _compile_debug_info(
     unit_references = []
     code = 1
 
+    debug_str = bytearray(1)
+    debug_str_offsets = {"": 0}
+
+    def add_debug_str(string):
+        offset = debug_str_offsets.get(string)
+        if offset is None:
+            offset = debug_str_offsets[string] = len(debug_str)
+            debug_str.extend(string.encode())
+            debug_str.append(0)
+        return offset
+
     def aux(buf, die, depth):
         if isinstance(die, DwarfLabel):
             if die.name in labels:
@@ -157,7 +168,11 @@ def _compile_debug_info(
             elif attrib.form == DW_FORM.block1:
                 buf.append(len(value))
                 buf.extend(value)
-            elif attrib.form in (DW_FORM.strp, DW_FORM.GNU_ref_alt):
+            elif attrib.form == DW_FORM.GNU_ref_alt:
+                buf.extend(value.to_bytes(offset_size, byteorder))
+            elif attrib.form == DW_FORM.strp:
+                if isinstance(value, str):
+                    value = add_debug_str(value)
                 buf.extend(value.to_bytes(offset_size, byteorder))
             elif attrib.form == DW_FORM.string:
                 buf.extend(value.encode())
@@ -260,7 +275,7 @@ def _compile_debug_info(
     for offset, size, label in references:
         buf[offset : offset + size] = labels[label].to_bytes(size, byteorder)
 
-    return debug_info, debug_types, labels
+    return debug_info, debug_types, debug_str, labels
 
 
 def _compile_debug_line(units, little_endian, bits, version):
@@ -481,7 +496,7 @@ def compile_dwarf(
             units, little_endian, bits, version
         )
 
-    debug_info, debug_types, labels = _compile_debug_info(
+    debug_info, debug_types, debug_str, labels = _compile_debug_info(
         units, little_endian, bits, version, file_names, use_dw_form_indirect
     )
 
@@ -508,7 +523,7 @@ def compile_dwarf(
             ".debug_abbrev", _compile_debug_abbrev(units, use_dw_form_indirect)
         ),
         debug_section(".debug_info", debug_info),
-        debug_section(".debug_str", b"\0"),
+        debug_section(".debug_str", debug_str),
     ]
     if not split:
         dwarf_sections.append(debug_section(".debug_line", debug_line))
