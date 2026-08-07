@@ -42,14 +42,6 @@ static inline void elf_endp(Elf **elfp)
 }
 
 /**
- * Read the raw data from an ELF section, decompressing it first if it is
- * compressed.
- *
- * This returns an error if the section type is `SHT_NOBITS`.
- */
-struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret);
-
-/**
  * Truncate any bytes beyond the last null character in an ELF string table.
  *
  * This sets `data->d_size` so that any string table index less than
@@ -144,9 +136,19 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 
 void drgn_elf_file_destroy(struct drgn_elf_file *file);
 
-/** Apply ELF relocations to the file if needed. */
-struct drgn_error *
-drgn_elf_file_apply_relocations(struct drgn_elf_file *file);
+/**
+ * Read the raw data from an ELF section, decompressing it first if it is
+ * compressed.
+ *
+ * This returns an error if the section type is `SHT_NOBITS`.
+ *
+ * @param[in] apply_relocations Whether to apply ELF relocations to the file
+ * first.
+ */
+struct drgn_error *drgn_elf_file_read_section(struct drgn_elf_file *file,
+					      Elf_Scn *scn,
+					      bool apply_relocations,
+					      Elf_Data **ret);
 
 /**
  * Read a cached ELF section.

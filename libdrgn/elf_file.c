@@ -20,25 +20,6 @@
 #include "minmax.h"
 #include "util.h"
 
-struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
-{
-	GElf_Shdr shdr_mem, *shdr;
-	shdr = gelf_getshdr(scn, &shdr_mem);
-	if (!shdr)
-		return drgn_error_libelf();
-	if (shdr->sh_type == SHT_NOBITS) {
-		return drgn_error_create(DRGN_ERROR_BAD_DATA,
-					 "section has no data");
-	}
-	if ((shdr->sh_flags & SHF_COMPRESSED) && elf_compress(scn, 0, 0) < 0)
-		return drgn_error_libelf();
-	Elf_Data *data = elf_rawdata(scn, NULL);
-	if (!data)
-		return drgn_error_libelf();
-	*ret = data;
-	return NULL;
-}
-
 void truncate_elf_string_data(Elf_Data *data)
 {
 	if (!data->d_buf)
@@ -435,7 +416,7 @@ apply_elf_rels(const struct drgn_relocating_section *relocating,
 	return NULL;
 }
 
-struct drgn_error *
+static struct drgn_error *
 drgn_elf_file_apply_relocations(struct drgn_elf_file *file)
 {
 	struct drgn_error *err;
@@ -506,9 +487,16 @@ drgn_elf_file_apply_relocations(struct drgn_elf_file *file)
 			}
 
 			Elf_Data *data, *reloc_data, *symtab_data;
-			if ((err = read_elf_section(scn, &data))
-			    || (err = read_elf_section(reloc_scn, &reloc_data))
-			    || (err = read_elf_section(symtab_scn, &symtab_data)))
+			if ((err = drgn_elf_file_read_section(file, scn, false,
+							      &data))
+			    || (err = drgn_elf_file_read_section(file,
+								 reloc_scn,
+								 false,
+								 &reloc_data))
+			    || (err = drgn_elf_file_read_section(file,
+								 symtab_scn,
+								 false,
+								 &symtab_data)))
 				return err;
 
 			struct drgn_relocating_section relocating = {
@@ -535,16 +523,46 @@ drgn_elf_file_apply_relocations(struct drgn_elf_file *file)
 	return NULL;
 }
 
+struct drgn_error *drgn_elf_file_read_section(struct drgn_elf_file *file,
+					      Elf_Scn *scn,
+					      bool apply_relocations,
+					      Elf_Data **ret)
+{
+	struct drgn_error *err;
+
+	GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
+	if (!shdr)
+		return drgn_error_libelf();
+
+	if (shdr->sh_type == SHT_NOBITS) {
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "section has no data");
+	}
+
+	if (apply_relocations) {
+		err = drgn_elf_file_apply_relocations(file);
+		if (err)
+			return err;
+	}
+
+	if ((shdr->sh_flags & SHF_COMPRESSED) && elf_compress(scn, 0, 0) < 0)
+		return drgn_error_libelf();
+
+	Elf_Data *data = elf_rawdata(scn, NULL);
+	if (!data)
+		return drgn_error_libelf();
+	*ret = data;
+	return NULL;
+}
+
 struct drgn_error *
 drgn_elf_file_read_cached_section(struct drgn_elf_file *file,
 				  enum drgn_section_index scn, Elf_Data **ret)
 {
 	struct drgn_error *err;
 	if (!file->scn_data[scn]) {
-		err = drgn_elf_file_apply_relocations(file);
-		if (err)
-			return err;
-		err = read_elf_section(file->scns[scn], &file->scn_data[scn]);
+		err = drgn_elf_file_read_section(file, file->scns[scn], true,
+						 &file->scn_data[scn]);
 		if (err)
 			return err;
 		if (scn == DRGN_SCN_DEBUG_STR)

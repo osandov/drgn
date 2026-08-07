@@ -332,10 +332,6 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 		return NULL;
 	}
 
-	err = drgn_elf_file_apply_relocations(module->debug_file);
-	if (err)
-		return err;
-
 	// Since Linux kernel b9f174c811e3 ("x86/unwind/orc: Add ELF section
 	// with ORC version identifier") (in v6.4), which was also backported to
 	// Linux 6.3.10, vmlinux and kernel modules have a .orc_header ELF
@@ -345,7 +341,9 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 	// fall back to checking the kernel version.
 	if (orc_header_scn) {
 		Elf_Data *orc_header;
-		err = read_elf_section(orc_header_scn, &orc_header);
+		err = drgn_elf_file_read_section(module->debug_file,
+						 orc_header_scn, true,
+						 &orc_header);
 		if (err)
 			return err;
 		module->orc.version = -1;
@@ -360,10 +358,12 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 	}
 
 	Elf_Data *orc_unwind_ip, *orc_unwind;
-	err = read_elf_section(orc_unwind_ip_scn, &orc_unwind_ip);
+	err = drgn_elf_file_read_section(module->debug_file, orc_unwind_ip_scn,
+					 true, &orc_unwind_ip);
 	if (err)
 		return err;
-	err = read_elf_section(orc_unwind_scn, &orc_unwind);
+	err = drgn_elf_file_read_section(module->debug_file, orc_unwind_scn,
+					 true, &orc_unwind);
 	if (err)
 		return err;
 

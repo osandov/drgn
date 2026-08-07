@@ -92,7 +92,8 @@ load_gnu_debugdata_file(struct drgn_module *module, Elf_Scn *gnu_debugdata_scn,
 {
 	Elf_Data *gnu_debugdata_data;
 	struct drgn_error *err;
-	err = read_elf_section(gnu_debugdata_scn, &gnu_debugdata_data);
+	err = drgn_elf_file_read_section(module->loaded_file, gnu_debugdata_scn,
+					 false, &gnu_debugdata_data);
 	if (err)
 		return err;
 
@@ -204,8 +205,9 @@ set_elf_symtab(struct drgn_elf_symbol_table *symtab, struct drgn_elf_file *file,
 
 	struct drgn_error *err;
 	Elf_Data *data, *strtab_data;
-	if ((err = read_elf_section(symtab_scn, &data))
-	    || (err = read_elf_section(strtab_scn, &strtab_data)))
+	if ((err = drgn_elf_file_read_section(file, symtab_scn, false, &data))
+	    || (err = drgn_elf_file_read_section(file, strtab_scn, false,
+						 &strtab_data)))
 		return err;
 
 	truncate_elf_string_data(strtab_data);
@@ -216,7 +218,8 @@ set_elf_symtab(struct drgn_elf_symbol_table *symtab, struct drgn_elf_file *file,
 		Elf_Scn *shndx_scn = elf_getscn(file->elf, shndx_idx);
 		if (!shndx_scn)
 			return drgn_error_libelf();
-		err = read_elf_section(shndx_scn, &shndx_data);
+		err = drgn_elf_file_read_section(file, shndx_scn, false,
+						 &shndx_data);
 		if (err)
 			return err;
 	}
