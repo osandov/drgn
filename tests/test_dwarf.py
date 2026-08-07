@@ -7197,12 +7197,23 @@ class TestProgram(TestCase):
 
 
 class TestCompressedDebugSections(TestCase):
+    # int_die using DW_FORM_strp instead of DW_FORM_string to exercise
+    # .{z,}debug_str.
+    int_die = DwarfDie(
+        DW_TAG.base_type,
+        (
+            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+            DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
+            DwarfAttrib(DW_AT.name, DW_FORM.strp, "int"),
+        ),
+    )
+
     def test_zlib_gnu(self):
-        prog = dwarf_program(wrap_test_type_dies(int_die), compress="zlib-gnu")
+        prog = dwarf_program(wrap_test_type_dies(self.int_die), compress="zlib-gnu")
         self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
 
     def test_zlib_gabi(self):
-        prog = dwarf_program(wrap_test_type_dies(int_die), compress="zlib-gabi")
+        prog = dwarf_program(wrap_test_type_dies(self.int_die), compress="zlib-gabi")
         self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
 
 

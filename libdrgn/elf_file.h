@@ -117,6 +117,8 @@ struct drgn_elf_file {
 	 * `.debug_str` section data.
 	 */
 	Elf_Data *alt_debug_str_data;
+	/** Bitmap of GNU-compressed sections, or @c NULL if there are none. */
+	unsigned long *gnu_compressed_sections;
 	/**
 	 * For relocatable files, a bitmap of which sections have their address
 	 * set.

@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "array.h"
+#include "bitmap.h"
 #include "cleanup.h"
 #include "debug_info.h"
 #include "drgn_internal.h"
@@ -41,6 +42,14 @@ enum drgn_dwarf_file_type {
 	DRGN_DWARF_FILE_PLAIN,
 };
 
+static void drgn_elf_file_create_cleanup(struct drgn_elf_file **filep)
+{
+	if (*filep) {
+		free((*filep)->gnu_compressed_sections);
+		free(*filep);
+	}
+}
+
 struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 					const char *path, int fd, char *image,
 					Elf *elf, struct drgn_elf_file **ret)
@@ -52,7 +61,8 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 	if (!ehdr)
 		return drgn_error_libelf();
 
-	_cleanup_free_ struct drgn_elf_file *file = calloc(1, sizeof(*file));
+	_cleanup_(drgn_elf_file_create_cleanup) struct drgn_elf_file *file =
+		calloc(1, sizeof(*file));
 	if (!file)
 		return &drgn_enomem;
 
@@ -127,10 +137,24 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 			if (strstartswith(scnname, ".debug_") ||
 			    strstartswith(scnname, ".zdebug_")) {
 				const char *subname;
-				if (strstartswith(scnname, ".zdebug_"))
+				if (strstartswith(scnname, ".zdebug_")) {
 					subname = scnname + sizeof(".zdebug_") - 1;
-				else
+
+					if (!file->gnu_compressed_sections) {
+						size_t shdrnum;
+						if (elf_getshdrnum(elf,
+								   &shdrnum))
+							return drgn_error_libelf();
+						file->gnu_compressed_sections =
+							drgn_bitmap_create(shdrnum);
+						if (!file->gnu_compressed_sections)
+							return &drgn_enomem;
+					}
+					drgn_bitmap_set_bit(file->gnu_compressed_sections,
+							    elf_ndxscn(scn));
+				} else {
 					subname = scnname + sizeof(".debug_") - 1;
+				}
 				size_t len = strlen(subname);
 				if (len >= 4
 				    && strcmp(subname + len - 4, ".dwo") == 0) {
@@ -209,6 +233,7 @@ void drgn_elf_file_destroy(struct drgn_elf_file *file)
 {
 	if (file) {
 		free(file->sections_with_address);
+		free(file->gnu_compressed_sections);
 		dwarf_end(file->_dwarf);
 		elf_end(file->elf);
 		if (file->fd >= 0)
@@ -543,6 +568,14 @@ struct drgn_error *drgn_elf_file_read_section(struct drgn_elf_file *file,
 		err = drgn_elf_file_apply_relocations(file);
 		if (err)
 			return err;
+	}
+
+	if (file->gnu_compressed_sections
+	    && drgn_bitmap_test_bit(file->gnu_compressed_sections,
+				    elf_ndxscn(scn))) {
+		// Ignore errors since we can't tell whether it has already been
+		// decompressed.
+		elf_compress_gnu(scn, 0, 0);
 	}
 
 	if ((shdr->sh_flags & SHF_COMPRESSED) && elf_compress(scn, 0, 0) < 0)
