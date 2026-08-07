@@ -5761,6 +5761,14 @@ drgn_module_create_split_dwarf_file(struct drgn_module *module,
 				   ret);
 	if (err)
 		return err;
+
+	if (!drgn_elf_file_has_dwarf(*ret)) {
+		drgn_split_dwarf_elf_file_destroy(*ret);
+		return drgn_error_format(DRGN_ERROR_BAD_DATA,
+					 "%s: debug info not found in split DWARF file",
+					 name);
+	}
+
 	(*ret)->_dwarf = dwarf;
 	int r = drgn_elf_file_dwarf_table_insert(&module->split_dwarf_files,
 						 ret, NULL);
