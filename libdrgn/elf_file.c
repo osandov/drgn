@@ -535,9 +535,9 @@ drgn_elf_file_apply_relocations(struct drgn_elf_file *file)
 	return NULL;
 }
 
-struct drgn_error *drgn_elf_file_read_section(struct drgn_elf_file *file,
-					      enum drgn_section_index scn,
-					      Elf_Data **ret)
+struct drgn_error *
+drgn_elf_file_read_cached_section(struct drgn_elf_file *file,
+				  enum drgn_section_index scn, Elf_Data **ret)
 {
 	struct drgn_error *err;
 	if (!file->scn_data[scn]) {

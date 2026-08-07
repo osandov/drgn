@@ -649,7 +649,8 @@ drgn_dwarf_index_read_file(struct drgn_elf_file *file,
 	for (int scn = 0; scn < DRGN_SECTION_INDEX_NUM_DWARF_INDEX; scn++) {
 		if (file->scns[scn]) {
 			Elf_Data *data;
-			err = drgn_elf_file_read_section(file, scn, &data);
+			err = drgn_elf_file_read_cached_section(file, scn,
+								&data);
 			if (err)
 				return err;
 		}
@@ -3263,7 +3264,9 @@ static struct drgn_error *drgn_dwarf_next_addrx(struct binary_buffer *bb,
 						 "indirect address without .debug_addr section");
 		}
 		Elf_Data *data;
-		err = drgn_elf_file_read_section(file, DRGN_SCN_DEBUG_ADDR, &data);
+		err = drgn_elf_file_read_cached_section(file,
+							DRGN_SCN_DEBUG_ADDR,
+							&data);
 		if (err)
 			return err;
 
@@ -3342,7 +3345,8 @@ static struct drgn_error *drgn_dwarf_read_loclistx(struct drgn_elf_file *file,
 					 "DW_FORM_loclistx without .debug_loclists section");
 	}
 	Elf_Data *data;
-	err = drgn_elf_file_read_section(file, DRGN_SCN_DEBUG_LOCLISTS, &data);
+	err = drgn_elf_file_read_cached_section(file, DRGN_SCN_DEBUG_LOCLISTS,
+						&data);
 	if (err)
 		return err;
 

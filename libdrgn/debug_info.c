@@ -1186,7 +1186,7 @@ drgn_module_set_wanted_gnu_debugaltlink(struct drgn_module *module,
 	struct drgn_program *prog = module->prog;
 
 	// We don't cache .gnu_debugaltlink, and it doesn't need relocation, so
-	// don't use drgn_elf_file_read_section().
+	// don't use drgn_elf_file_read_cached_section().
 	Elf_Data *data;
 	err = read_elf_section(file->scns[DRGN_SCN_GNU_DEBUGALTLINK], &data);
 	if (err) {
@@ -2306,7 +2306,7 @@ drgn_module_try_files_by_gnu_debuglink(struct drgn_module *module,
 	if (!file || !file->scns[DRGN_SCN_GNU_DEBUGLINK])
 		return NULL;
 	// We don't cache .gnu_debuglink, and it doesn't need relocation, so
-	// don't use drgn_elf_file_read_section().
+	// don't use drgn_elf_file_read_cached_section().
 	Elf_Data *data;
 	err = read_elf_section(file->scns[DRGN_SCN_GNU_DEBUGLINK], &data);
 	if (err) {

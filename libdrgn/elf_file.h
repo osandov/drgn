@@ -149,13 +149,13 @@ struct drgn_error *
 drgn_elf_file_apply_relocations(struct drgn_elf_file *file);
 
 /**
- * Read an indexed ELF section.
+ * Read a cached ELF section.
  *
  * This applies ELF relocations to the file first if needed.
  */
-struct drgn_error *drgn_elf_file_read_section(struct drgn_elf_file *file,
-					      enum drgn_section_index scn,
-					      Elf_Data **ret);
+struct drgn_error *
+drgn_elf_file_read_cached_section(struct drgn_elf_file *file,
+				  enum drgn_section_index scn, Elf_Data **ret);
 
 struct drgn_error *drgn_elf_file_get_dwarf(struct drgn_elf_file *file,
 					   Dwarf **ret);
@@ -232,7 +232,7 @@ drgn_elf_file_section_buffer_init(struct drgn_elf_file_section_buffer *buffer,
 }
 
 /**
- * Initialize a @ref binary_buffer for an indexed ELF section that has already
+ * Initialize a @ref binary_buffer for a cached ELF section that has already
  * been read.
  */
 static inline void
@@ -245,8 +245,8 @@ drgn_elf_file_section_buffer_init_index(struct drgn_elf_file_section_buffer *buf
 }
 
 /**
- * Read an indexed ELF section (applying ELF relocations if needed) and
- * initialize a @ref binary_buffer for it.
+ * Read a cached ELF section (applying ELF relocations if needed) and initialize
+ * a @ref binary_buffer for it.
  */
 static inline struct drgn_error *
 drgn_elf_file_section_buffer_read(struct drgn_elf_file_section_buffer *buffer,
@@ -254,7 +254,8 @@ drgn_elf_file_section_buffer_read(struct drgn_elf_file_section_buffer *buffer,
 				  enum drgn_section_index scn)
 {
 	Elf_Data *data;
-	struct drgn_error *err = drgn_elf_file_read_section(file, scn, &data);
+	struct drgn_error *err =
+		drgn_elf_file_read_cached_section(file, scn, &data);
 	if (err)
 		return err;
 	drgn_elf_file_section_buffer_init(buffer, file, file->scns[scn], data);
