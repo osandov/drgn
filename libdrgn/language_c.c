@@ -3157,9 +3157,9 @@ static struct drgn_error *c_common_real_type(struct drgn_program *prog,
 		uint64_t width1, width2;
 
 		width1 = (type1->bit_field_size ? type1->bit_field_size :
-			  8 * drgn_type_size(type1->type));
+			  8 * drgn_type_size(type1->underlying_type));
 		width2 = (type2->bit_field_size ? type2->bit_field_size :
-			  8 * drgn_type_size(type2->type));
+			  8 * drgn_type_size(type2->underlying_type));
 		if (width1 < width2 ||
 		    (width1 == width2 && (!is_signed2 || is_signed1)))
 			goto ret2;

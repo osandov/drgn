@@ -1248,6 +1248,10 @@ class TestCommonRealType(MockProgramTestCase):
         type_ = self.prog.typedef_type("LONG", self.prog.type("long"))
         self.assertCommonRealType(type_, "int", type_)
 
+    def test_typedef_and_bit_field(self):
+        type_ = self.prog.typedef_type("LONG", self.prog.type("long"))
+        self.assertCommonRealType(type_, ("long", 48), type_)
+
 
 class TestOperators(MockProgramTestCase):
     def test_bool_arrays(self):
