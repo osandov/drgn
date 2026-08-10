@@ -4192,12 +4192,12 @@ deref:
 			break;
 		case DW_OP_div: {
 			CHECK(2);
-			if (ELEM(0) == 0) {
+			int64_t divisor = truncate_signed(ELEM(0), address_bits);
+			if (divisor == 0) {
 				return binary_buffer_error(&ctx->bb,
 							   "division by zero in DWARF expression");
 			}
 			int64_t dividend = truncate_signed(ELEM(1), address_bits);
-			int64_t divisor = truncate_signed(ELEM(0), address_bits);
 			if (dividend == INT64_MIN && divisor == -1)
 				ELEM(1) = INT64_MIN & address_mask;
 			else
