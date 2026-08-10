@@ -4607,6 +4607,42 @@ class TestObjects(TestCase):
         )
         self.assertRaises(ObjectNotFoundError, prog.constant, "RED")
 
+    def test_constant_enum_specification_not_enum(self):
+        # A declaration DW_TAG_enumeration_type whose definition (via
+        # DW_AT_specification) is something other than an enumerated type.
+        prog = dwarf_program(
+            (
+                *labeled_int_die,
+                DwarfLabel("declaration"),
+                DwarfDie(
+                    DW_TAG.enumeration_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "color"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                        DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.enumerator,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "RED"),
+                                DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 0),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "color"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                        DwarfAttrib(DW_AT.specification, DW_FORM.ref4, "declaration"),
+                    ),
+                ),
+            )
+        )
+        self.assertRaises(ObjectNotFoundError, prog.constant, "RED")
+
     def test_function(self):
         prog = dwarf_program(
             wrap_test_type_dies(

@@ -4729,6 +4729,16 @@ drgn_object_from_dwarf_enumerator(struct drgn_debug_info *dbinfo,
 	err = drgn_type_from_dwarf(dbinfo, file, die, &qualified_type);
 	if (err)
 		return err;
+	// The DWARF index doesn't check for DW_AT_declaration on
+	// DW_TAG_enumeration_type DIEs when indexing their DW_TAG_enumerator
+	// children (because that would be malformed). As a result,
+	// drgn_type_from_dwarf() (which honors DW_AT_declaration and follows
+	// DW_AT_specification/DW_AT_signature) may return a type that disagrees
+	// with the DWARF index for such a malformed DIE: an enum type that does
+	// not contain the expected enumerator or a completely different kind of
+	// type.
+	if (drgn_type_kind(qualified_type.type) != DRGN_TYPE_ENUM)
+		return &drgn_not_found;
 	const struct drgn_type_enumerator *enumerators =
 		drgn_type_enumerators(qualified_type.type);
 	size_t num_enumerators = drgn_type_num_enumerators(qualified_type.type);
@@ -4745,11 +4755,6 @@ drgn_object_from_dwarf_enumerator(struct drgn_debug_info *dbinfo,
 							0);
 		}
 	}
-	// This can happen if the DWARF index and drgn_type_from_dwarf()
-	// disagree. In particular, the DWARF index doesn't check for
-	// DW_AT_declaration on DW_TAG_enumeration_type DIEs, so if such a DIE
-	// has DW_TAG_enumerator children (which is malformed), the DWARF index
-	// will include them but drgn_type_from_dwarf() won't.
 	return &drgn_not_found;
 }
 
