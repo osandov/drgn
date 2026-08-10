@@ -4164,7 +4164,7 @@ deref:
 				drgn_register_state_get_cfa(ctx->regs);
 			if (!cfa.has_value)
 				return &drgn_not_found;
-			PUSH(cfa.value);
+			PUSH_MASK(cfa.value);
 			break;
 		}
 		/* Arithmetic and logical operations. */
