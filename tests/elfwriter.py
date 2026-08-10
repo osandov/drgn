@@ -211,19 +211,26 @@ def create_elf_file(
             )
         )
 
+    shstrtab = bytearray(1)
+    shstrtab_offsets = {"": 0}
+
+    def add_to_shstrtab(name):
+        if name not in shstrtab_offsets:
+            shstrtab_offsets[name] = len(shstrtab)
+            shstrtab.extend(name.encode())
+            shstrtab.append(0)
+
     shnum = 0
     phnum = 0
-    shstrtab = bytearray(1)
     for section in sections:
         if section.name is not None:
-            shstrtab.extend(section.name.encode())
-            shstrtab.append(0)
+            add_to_shstrtab(section.name)
             shnum += 1
         if section.p_type is not None:
             phnum += 1
     if shnum > 0:
         shnum += 2  # One for the SHT_NULL section, one for .shstrtab.
-        shstrtab.extend(b".shstrtab\0")
+        add_to_shstrtab(".shstrtab")
         sections.append(ElfSection(name=".shstrtab", sh_type=SHT.STRTAB, data=shstrtab))
 
     shdr_offset = ehdr_struct.size
@@ -282,7 +289,7 @@ def create_elf_file(
             shdr_struct.pack_into(
                 buf,
                 shdr_offset,
-                shstrtab.index(section.name.encode()),  # sh_name
+                shstrtab_offsets[section.name],  # sh_name
                 section.sh_type,  # sh_type
                 section.sh_flags,  # sh_flags
                 section.vaddr,  # sh_addr
