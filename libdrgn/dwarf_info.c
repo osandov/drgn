@@ -3954,8 +3954,10 @@ addr:
 			 * case.
 			 */
 			if (drgn_module_contains_address(ctx->file->module,
-					uvalue + ctx->file->module->debug_file_bias))
-				uvalue += ctx->file->module->debug_file_bias;
+					uvalue + ctx->file->module->debug_file_bias)) {
+				uvalue = (uvalue + ctx->file->module->debug_file_bias)
+					 & address_mask;
+			}
 			PUSH(uvalue);
 			break;
 		case DW_OP_const1u:
