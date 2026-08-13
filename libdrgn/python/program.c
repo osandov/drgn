@@ -2971,6 +2971,7 @@ static PyObject *Program_notify_program_lost(Program *self, PyObject *args,
 static PyObject *Program_notify_thread_stop(Program *self, PyObject *args,
 					    PyObject *kwds)
 {
+	struct drgn_error *err;
 	static char *keywords[] = {
 		"thread", "sig", "pc", "reasons", "ignore_reasons", NULL
 	};
@@ -2994,14 +2995,17 @@ static PyObject *Program_notify_thread_stop(Program *self, PyObject *args,
 		return NULL;
 	}
 
-	drgn_notify_thread_stop(&thread->thread, sig, pc,
-				reasons & ~ignore_reasons);
+	err = drgn_notify_thread_stop(&thread->thread, sig, pc,
+				      reasons & ~ignore_reasons);
+	if (err)
+		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
 static PyObject *Program_notify_thread_breakpoint(Program *self, PyObject *args,
 						  PyObject *kwds)
 {
+	struct drgn_error *err;
 	static char *keywords[] = {"thread", "site", NULL};
 	Thread *thread;
 	BreakpointSite *site;
@@ -3015,14 +3019,9 @@ static PyObject *Program_notify_thread_breakpoint(Program *self, PyObject *args,
 				"thread is from different program");
 		return NULL;
 	}
-	drgn_notify_thread_breakpoint(&thread->thread, &site->site);
-	Py_RETURN_NONE;
-}
-
-static PyObject *Program_notify_all_stop(Program *self,
-					 PyObject *Py_UNUSED(ignored))
-{
-	drgn_notify_all_stop(&self->prog);
+	err = drgn_notify_thread_breakpoint(&thread->thread, &site->site);
+	if (err)
+		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
@@ -3166,8 +3165,6 @@ static PyMethodDef Program_methods[] = {
 	 (PyCFunction)Program_notify_thread_breakpoint,
 	 METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_notify_thread_breakpoint_DOC},
-	{"notify_all_stop", (PyCFunction)Program_notify_all_stop, METH_NOARGS,
-	 drgn_Program_notify_all_stop_DOC},
 	{"detach", (PyCFunction)Program_detach, METH_NOARGS,
 	 drgn_Program_detach_DOC},
 	{"interrupt_any_thread", (PyCFunction)Program_interrupt_any_thread,

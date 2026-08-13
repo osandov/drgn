@@ -90,6 +90,9 @@ class MockExecutionController(drgn.ExecutionController):
     def detach(self, prog, promise):
         self._op("detach", (), promise, None)
 
+    def stop_all_threads(self, prog, promise):
+        self._op("stop_all_threads", (), promise, None)
+
     def resume_threads(self, prog, actions, promise):
         self._op("resume_threads", (list(actions),), promise, None)
 
@@ -505,12 +508,6 @@ class TestAllStop(ExecutionControlTestCase):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
             self.assertIsNone(self.prog.thread(1).stop_reason)
 
-            self.queue_call(
-                lambda prog: prog.notify_thread_stop(
-                    prog.thread(1), signal.SIGWINCH, 0x1337
-                )
-            )
-
             def check_stop_reasons():
                 self.assertEqual(
                     self.prog.thread(1).stop_reason,
@@ -522,22 +519,23 @@ class TestAllStop(ExecutionControlTestCase):
                 return True
 
             with self.expect(
+                ExpectOp(lambda name, args: name == "stop_all_threads"),
+                Barrier,
                 ExpectEvent(
                     lambda event: event == drgn.ThreadStopEvent(self.prog.thread(1))
                     and check_stop_reasons()
-                )
+                ),
             ):
-                self.queue_call(lambda prog: prog.notify_all_stop())
+                self.queue_call(
+                    lambda prog: prog.notify_thread_stop(
+                        prog.thread(1), signal.SIGWINCH, 0x1337
+                    )
+                )
 
             check_stop_reasons()
 
     def test_signal_stop_explicit(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            self.queue_call(
-                lambda prog: prog.notify_thread_stop(
-                    prog.thread(1), signal.SIGWINCH, 0x1337, drgn.SignalStopReason
-                )
-            )
 
             def check_stop_reasons():
                 self.assertEqual(
@@ -550,12 +548,18 @@ class TestAllStop(ExecutionControlTestCase):
                 return True
 
             with self.expect(
+                ExpectOp(lambda name, args: name == "stop_all_threads"),
+                Barrier,
                 ExpectEvent(
                     lambda event: event == drgn.ThreadStopEvent(self.prog.thread(1))
                     and check_stop_reasons()
-                )
+                ),
             ):
-                self.queue_call(lambda prog: prog.notify_all_stop())
+                self.queue_call(
+                    lambda prog: prog.notify_thread_stop(
+                        prog.thread(1), signal.SIGWINCH, 0x1337, drgn.SignalStopReason
+                    )
+                )
 
             check_stop_reasons()
 
@@ -566,13 +570,12 @@ class TestAllStop(ExecutionControlTestCase):
         ):
             with self.subTest(msg):
                 with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-                    self.queue_call(
-                        lambda prog: prog.notify_thread_stop(
-                            prog.thread(1), signal.SIGWINCH, 0x1337
+                    with self.complete_ops(), self.ignore_events():
+                        self.queue_call(
+                            lambda prog: prog.notify_thread_stop(
+                                prog.thread(1), signal.SIGWINCH, 0x1337
+                            )
                         )
-                    )
-                    with self.ignore_events():
-                        self.queue_call(lambda prog: prog.notify_all_stop())
 
                     with self.expect(
                         ExpectOp(
@@ -595,13 +598,12 @@ class TestAllStop(ExecutionControlTestCase):
 
     def test_signal_cont_suppress(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            self.queue_call(
-                lambda prog: prog.notify_thread_stop(
-                    prog.thread(1), signal.SIGWINCH, 0x1337
+            with self.complete_ops(), self.ignore_events():
+                self.queue_call(
+                    lambda prog: prog.notify_thread_stop(
+                        prog.thread(1), signal.SIGWINCH, 0x1337
+                    )
                 )
-            )
-            with self.ignore_events():
-                self.queue_call(lambda prog: prog.notify_all_stop())
 
             with self.expect(
                 ExpectOp(
@@ -623,13 +625,12 @@ class TestAllStop(ExecutionControlTestCase):
         ):
             with self.subTest(msg, sig=sig):
                 with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-                    self.queue_call(
-                        lambda prog: prog.notify_thread_stop(
-                            prog.thread(1), sig, 0x1337
+                    with self.complete_ops(), self.ignore_events():
+                        self.queue_call(
+                            lambda prog: prog.notify_thread_stop(
+                                prog.thread(1), sig, 0x1337
+                            )
                         )
-                    )
-                    with self.ignore_events():
-                        self.queue_call(lambda prog: prog.notify_all_stop())
 
                     with self.expect(
                         ExpectOp(
@@ -644,13 +645,12 @@ class TestAllStop(ExecutionControlTestCase):
 
     def test_signal_cont_different_signal(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            self.queue_call(
+            with self.complete_ops(), self.ignore_events():
+                self.queue_call(
                 lambda prog: prog.notify_thread_stop(
                     prog.thread(1), signal.SIGWINCH, 0x1337
                 )
-            )
-            with self.ignore_events():
-                self.queue_call(lambda prog: prog.notify_all_stop())
+)
 
             with self.expect(
                 ExpectOp(
@@ -673,13 +673,12 @@ class TestAllStop(ExecutionControlTestCase):
 
     def test_signal_cont_unrelated_thread_with_signal(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            self.queue_call(
+            with self.complete_ops(), self.ignore_events():
+                self.queue_call(
                 lambda prog: prog.notify_thread_stop(
                     prog.thread(1), signal.SIGWINCH, 0x1337
                 )
-            )
-            with self.ignore_events():
-                self.queue_call(lambda prog: prog.notify_all_stop())
+)
 
             with self.expect(
                 ExpectOp(
@@ -712,17 +711,6 @@ class TestAllStop(ExecutionControlTestCase):
         ):
             with self.subTest(msg):
                 with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-                    self.queue_call(
-                        lambda prog: prog.notify_thread_stop(
-                            prog.thread(1), signal.SIGWINCH, 0x1337
-                        )
-                    )
-                    self.queue_call(
-                        lambda prog: prog.notify_thread_stop(
-                            prog.thread(2), signal.SIGCHLD, 0xDEAD
-                        )
-                    )
-
                     threads = None
                     signals = None
 
@@ -759,8 +747,21 @@ class TestAllStop(ExecutionControlTestCase):
                         threads.append(self.prog.thread(3))
                         return check_stop_reasons1()
 
-                    with self.expect(ExpectEvent(event1)):
-                        self.queue_call(lambda prog: prog.notify_all_stop())
+                    with self.expect(
+                        ExpectOp(lambda name, args: name == "stop_all_threads"),
+                        Call(
+                            lambda prog: prog.notify_thread_stop(
+                                prog.thread(2), signal.SIGCHLD, 0xDEAD
+                            )
+                        ),
+                        Barrier,
+                        ExpectEvent(event1),
+                    ):
+                        self.queue_call(
+                            lambda prog: prog.notify_thread_stop(
+                                prog.thread(1), signal.SIGWINCH, 0x1337
+                            )
+                        )
 
                     check_stop_reasons1()
 

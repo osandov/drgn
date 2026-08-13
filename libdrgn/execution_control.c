@@ -629,7 +629,7 @@ drgn_program_detach(struct drgn_program *prog)
 	}
 
 	prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
-	prog->in_all_stop = false;
+	prog->in_all_stop_ = DRGN_NOT_ALL_STOPPED;
 	return NULL;
 }
 
@@ -712,7 +712,7 @@ enum drgn_stop_reason drgn_thread_stop_reason(struct drgn_thread *thread)
 {
 	if (thread->stop_event_emitted)
 		return thread->stop_reason;
-	if (drgn_thread_program(thread)->in_all_stop)
+	if (drgn_thread_program(thread)->in_all_stop_ == DRGN_ALL_STOPPED)
 		return DRGN_STOP_REASON_SYNTHETIC;
 	return DRGN_STOP_REASON_NONE;
 }
@@ -1177,7 +1177,7 @@ static struct drgn_error *continue_all_threads(struct drgn_program *prog)
 #if 0
 	clear_running_threads(prog);
 #endif
-	prog->in_all_stop = false;
+	prog->in_all_stop_ = DRGN_NOT_ALL_STOPPED;
 	return NULL;
 }
 
@@ -1203,9 +1203,9 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 	if (err)
 		return err;
 
-	if (!prog->in_all_stop || only) {
+	if (prog->in_all_stop_ == DRGN_NOT_ALL_STOPPED || only) {
 		return drgn_error_format(DRGN_ERROR_OTHER, "TODO %d %d",
-					 prog->in_all_stop, only);
+					 prog->in_all_stop_, only);
 	}
 
 	set_resume_signal(thread, sig);
@@ -2069,31 +2069,70 @@ drgn_notify_program_lost(struct drgn_program *prog, struct drgn_error *_err)
 	return NULL;
 }
 
-static bool ignore_notify_thread_stop(struct drgn_thread *thread)
+static struct drgn_error *check_notify_thread_stop(struct drgn_thread *thread)
 {
 	struct drgn_program *prog = drgn_thread_program(thread);
-	if (prog->in_all_stop && !prog->bypassing_breakpoint) {
-		drgn_log_warning(prog,
-				 "ignored thread stop notification while in all-stop");
-		return true;
+	if (prog->in_all_stop_ == DRGN_ALL_STOPPED
+	    && !prog->bypassing_breakpoint) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, // TODO: better error code?
+					 "thread stop notification while in all-stop");
 	}
 	if (thread->stop_reason != DRGN_STOP_REASON_NONE) {
-		drgn_log_warning(prog,
-				 "ignored thread stop notification on stopped thread");
-		return true;
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, // TODO: better error code?
+					 "thread stop notification on stopped thread");
 	}
-	return false;
+	return NULL;
 }
 
-static void drgn_notify_thread_stop_common(struct drgn_thread *thread)
+struct all_stop_promise {
+	struct drgn_void_promise promise;
+	struct drgn_program *prog;
+};
+
+static void all_stop_done(struct drgn_promise *p)
+{
+	struct all_stop_promise *promise =
+		container_of(p, struct all_stop_promise, promise.promise);
+	struct drgn_program *prog = promise->prog;
+	// TODO: what if there's an error?
+	prog->in_all_stop_ = DRGN_ALL_STOPPED;
+	emit_random_thread_stop_event(prog);
+}
+
+static struct drgn_error *
+drgn_notify_thread_stop_common(struct drgn_thread *thread)
 {
 	struct drgn_program *prog = drgn_thread_program(thread);
+
 	move_thread(thread, &prog->stopped_threads);
-	if (!prog->all_stop)
+
+	if (!prog->all_stop) {
 		emit_thread_stop_event(thread);
+		return NULL;
+	}
+	if (prog->in_all_stop_ == DRGN_ALL_STOPPING)
+		return NULL;
+
+	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
+	if (!ctrl->ops.stop_all_threads) {
+		// TODO: we should check this earlier
+		return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
+					 "TODO");
+	}
+
+	struct all_stop_promise *promise = malloc(sizeof(*promise));
+	if (!promise)
+		return &drgn_enomem;
+	drgn_promise_init(&promise->promise.promise, NULL);
+	promise->prog = prog;
+	promise->promise.promise.then = all_stop_done;
+	prog->in_all_stop_ = DRGN_ALL_STOPPING;
+	ctrl->ops.stop_all_threads(ctrl->arg, prog,
+				   drgn_promise_share(&promise->promise));
+	return NULL;
 }
 
-static void
+static struct drgn_error *
 drgn_notify_thread_breakpoint_impl(struct drgn_thread *thread,
 				   struct drgn_breakpoint_site *site)
 {
@@ -2102,15 +2141,16 @@ drgn_notify_thread_breakpoint_impl(struct drgn_thread *thread,
 	drgn_breakpoint_site_incref(site);
 	thread->stop_site = site;
 
-	drgn_notify_thread_stop_common(thread);
+	return drgn_notify_thread_stop_common(thread);
 }
 
-LIBDRGN_PUBLIC void drgn_notify_thread_stop(struct drgn_thread *thread, int sig,
-					    uint64_t pc, uint64_t reason_mask)
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_notify_thread_stop(struct drgn_thread *thread, int sig, uint64_t pc,
+			uint64_t reason_mask)
 {
-	// TODO: validate sig
-	if (ignore_notify_thread_stop(thread))
-		return;
+	struct drgn_error *err = check_notify_thread_stop(thread);
+	if (err)
+		return err;
 
 	enum drgn_stop_reason stop_reason = DRGN_STOP_REASON_SIGNAL;
 	if (sig == SIGTRAP) {
@@ -2119,16 +2159,15 @@ LIBDRGN_PUBLIC void drgn_notify_thread_stop(struct drgn_thread *thread, int sig,
 			auto it = drgn_breakpoint_site_table_search(&prog->breakpoint_sites,
 								    &pc);
 			if (it.entry && drgn_breakpoint_site_enabled(*it.entry)) {
-				drgn_notify_thread_breakpoint_impl(thread,
-								   *it.entry);
-				return;
+				return drgn_notify_thread_breakpoint_impl(thread,
+									  *it.entry);
 			}
 		}
 		if (reason_mask & (1 << DRGN_STOP_REASON_STEP)
 		    && thread->stepping) {
 			thread->stepping = false;
 			if (thread == prog->bypassing_breakpoint)
-				return;
+				return NULL; // TODO
 			stop_reason = DRGN_STOP_REASON_STEP;
 		}
 	}
@@ -2136,37 +2175,18 @@ LIBDRGN_PUBLIC void drgn_notify_thread_stop(struct drgn_thread *thread, int sig,
 	thread->stop_reason = stop_reason;
 	thread->stop_signal = sig;
 
-	drgn_notify_thread_stop_common(thread);
+	return drgn_notify_thread_stop_common(thread);
 }
 
-LIBDRGN_PUBLIC
-void drgn_notify_thread_breakpoint(struct drgn_thread *thread,
-				   struct drgn_breakpoint_site *site)
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_notify_thread_breakpoint(struct drgn_thread *thread,
+			      struct drgn_breakpoint_site *site)
 {
-	if (!ignore_notify_thread_stop(thread))
-		drgn_notify_thread_breakpoint_impl(thread, site);
-}
+	struct drgn_error *err = check_notify_thread_stop(thread);
+	if (err)
+		return err;
 
-LIBDRGN_PUBLIC void drgn_notify_all_stop(struct drgn_program *prog)
-{
-	if (prog->bypassing_breakpoint) {
-		prog->bypassing_breakpoint = NULL;
-		return;
-	}
-
-	if (!prog->all_stop) {
-		drgn_log_warning(prog,
-				 "ignored all-stop notification in non-stop mode");
-		return;
-	}
-	if (prog->in_all_stop) {
-		drgn_log_warning(prog,
-				 "ignored all-stop notification while already in all-stop");
-		return;
-	}
-
-	prog->in_all_stop = true;
-	emit_random_thread_stop_event(prog);
+	return drgn_notify_thread_breakpoint_impl(thread, site);
 }
 
 static inline uint32_t drgn_fd_events_to_epoll(enum drgn_fd_events events)

@@ -5511,13 +5511,12 @@ struct drgn_error *drgn_notify_program_exit(struct drgn_program *prog,
 struct drgn_error *drgn_notify_program_lost(struct drgn_program *prog,
 					    struct drgn_error *err);
 
-void drgn_notify_thread_stop(struct drgn_thread *thread, int sig, uint64_t pc,
-			     uint64_t reason_mask);
+struct drgn_error *drgn_notify_thread_stop(struct drgn_thread *thread, int sig,
+					   uint64_t pc, uint64_t reason_mask);
 
-void drgn_notify_thread_breakpoint(struct drgn_thread *thread,
-				   struct drgn_breakpoint_site *site);
-
-void drgn_notify_all_stop(struct drgn_program *prog);
+struct drgn_error *
+drgn_notify_thread_breakpoint(struct drgn_thread *thread,
+			      struct drgn_breakpoint_site *site);
 
 enum drgn_fd_events {
 	DRGN_FD_EVENT_READ = 1 << 0,
@@ -5600,8 +5599,8 @@ struct drgn_execution_controller_ops {
 				 struct drgn_void_promise *promise);
 	void (*interrupt_any_thread)(void *arg, struct drgn_program *prog,
 				     struct drgn_void_promise *promise);
-	void (*pause_all_threads)(void *arg, struct drgn_program *prog,
-				  struct drgn_void_promise *promise);
+	void (*stop_all_threads)(void *arg, struct drgn_program *prog,
+				 struct drgn_void_promise *promise);
 	void (*resume_threads)(void *arg, struct drgn_program *prog,
 			       const struct drgn_resume_action *actions,
 			       size_t num_actions,

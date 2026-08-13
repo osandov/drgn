@@ -41,6 +41,7 @@ static PyObject *ExecutionController_not_implemented(PyObject *self,
 	/* X(set_all_stop) */		\
 	/* X(interrupt_thread) */	\
 	X(interrupt_any_thread)		\
+	X(stop_all_threads)		\
 	X(resume_threads)		\
 	X(enable_breakpoint_sites)	\
 	X(disable_breakpoint_sites)
@@ -148,6 +149,24 @@ py_execution_controller_interrupt_any_thread(void *arg,
 
 	_cleanup_pydecref_ PyObject *res =
 		PyObject_CallMethod(arg, "interrupt_any_thread", "OO",
+				    container_of(prog, Program, prog),
+				    promise_obj);
+	if (!res)
+		Promise_catch_exception(promise_obj);
+}
+
+static void
+py_execution_controller_stop_all_threads(void *arg, struct drgn_program *prog,
+					 struct drgn_void_promise *promise)
+{
+	PyGILState_guard();
+
+	_cleanup_pydecref_ Promise *promise_obj = NonePromise_wrap(promise);
+	if (!promise_obj)
+		return;
+
+	_cleanup_pydecref_ PyObject *res =
+		PyObject_CallMethod(arg, "stop_all_threads", "OO",
 				    container_of(prog, Program, prog),
 				    promise_obj);
 	if (!res)

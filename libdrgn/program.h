@@ -69,6 +69,13 @@ struct drgn_prpsinfo {
 	bool found;
 };
 
+// TODO: naming
+enum drgn_in_all_stop {
+	DRGN_NOT_ALL_STOPPED,
+	DRGN_ALL_STOPPING,
+	DRGN_ALL_STOPPED,
+} __attribute__((__packed__));
+
 #define SEARCH_MEMORY_UINT_SIZES X(16) X(32) X(64)
 
 struct drgn_program {
@@ -157,7 +164,9 @@ struct drgn_program {
 	struct drgn_handler_list execution_controllers;
 	enum drgn_attach_state attach_state;
 	bool all_stop;
-	bool in_all_stop;
+	// TODO: remove trailing underscore. Also, can we combine this with
+	// all_stop?
+	enum drgn_in_all_stop in_all_stop_;
 	bool resuming_threads;
 	struct drgn_breakpoint_site_table breakpoint_sites;
 	struct list_head breakpoints;

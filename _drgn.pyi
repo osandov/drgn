@@ -1207,10 +1207,6 @@ class Program:
         """TODO"""
         ...
 
-    def notify_all_stop(self) -> None:
-        """TODO"""
-        ...
-
     def register_fd(
         self,
         fd: int,
@@ -3063,6 +3059,10 @@ class ExecutionController:
 
     def interrupt_any_thread(self, prog: Program) -> None:
         """Implement :meth:`Program.interrupt_any_thread()`."""
+        ...
+
+    def stop_all_threads(self, prog: Program, promise: Promise[None]) -> None:
+        """TODO"""
         ...
 
     def resume_threads(
