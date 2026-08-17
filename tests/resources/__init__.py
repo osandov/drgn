@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import fcntl
 import os
 from pathlib import Path
 import subprocess
@@ -15,25 +16,33 @@ def get_resource(name: str) -> Path:
     decompressed_path = dir / name
     compressed_path = dir / (name + ".zst")
     if out_of_date(decompressed_path, compressed_path):
-        tmp_file = tempfile.NamedTemporaryFile(dir=dir, prefix=name, delete=False)
-        try:
-            try:
-                subprocess.check_call(
-                    [
-                        "zstd",
-                        "--quiet",
-                        "--force",
-                        "--decompress",
-                        "--stdout",
-                        str(compressed_path),
-                    ],
-                    stdout=tmp_file,
+        with open(compressed_path, "rb") as lock_file:
+            # Serialize against other processes to avoid deleting open resource
+            # files, which can cause core dump debug info test cases to fail
+            # since they readlink /proc/self/fd/$fd and get "... (deleted)".
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            if out_of_date(decompressed_path, compressed_path):
+                tmp_file = tempfile.NamedTemporaryFile(
+                    dir=dir, prefix=name, delete=False
                 )
-            except FileNotFoundError:
-                raise unittest.SkipTest("zstd not found")
-        except BaseException:
-            os.unlink(tmp_file.name)
-            raise
-        else:
-            os.rename(tmp_file.name, decompressed_path)
+                try:
+                    try:
+                        subprocess.check_call(
+                            [
+                                "zstd",
+                                "--quiet",
+                                "--force",
+                                "--decompress",
+                                "--stdout",
+                                str(compressed_path),
+                            ],
+                            stdout=tmp_file,
+                        )
+                    except FileNotFoundError:
+                        raise unittest.SkipTest("zstd not found")
+                except BaseException:
+                    os.unlink(tmp_file.name)
+                    raise
+                else:
+                    os.rename(tmp_file.name, decompressed_path)
     return decompressed_path
