@@ -45,4 +45,6 @@ def get_resource(name: str) -> Path:
                     raise
                 else:
                     os.rename(tmp_file.name, decompressed_path)
+                finally:
+                    tmp_file.close()
     return decompressed_path
