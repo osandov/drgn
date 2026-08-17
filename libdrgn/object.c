@@ -481,7 +481,7 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 		}
 	}
 	if (type->bit_size > UINT64_MAX - bit_offset) {
-		return drgn_error_format(DRGN_ERROR_OVERFLOW,
+		return drgn_error_create(DRGN_ERROR_OVERFLOW,
 					 "object is too large");
 	}
 
@@ -1623,7 +1623,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 
 	SWITCH_ENUM(obj->kind) {
 	case DRGN_OBJECT_VALUE:
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "cannot take address of value");
 	case DRGN_OBJECT_REFERENCE:
 		break;
@@ -1634,7 +1634,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 	}
 
 	if (obj->is_bit_field || obj->bit_offset) {
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "cannot take address of bit field");
 	}
 
@@ -1914,7 +1914,7 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 	case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
 		SWITCH_ENUM(ptr->kind) {
 		case DRGN_OBJECT_VALUE:
-			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "cannot get address of value");
 		case DRGN_OBJECT_REFERENCE:
 			*ret = ptr->address;

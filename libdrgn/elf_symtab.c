@@ -73,7 +73,7 @@ drgn_error_lzma(lzma_ret code)
 		case LZMA_MEM_ERROR:
 			return &drgn_enomem;
 		case LZMA_OPTIONS_ERROR:
-			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "lzma: invalid options");
 		case LZMA_FORMAT_ERROR:
 		case LZMA_DATA_ERROR:

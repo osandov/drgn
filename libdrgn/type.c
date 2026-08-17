@@ -1666,7 +1666,7 @@ drgn_type_offsetof(struct drgn_type *type, const char *member_designator,
 	if (err)
 		return err;
 	if (bit_offset % 8) {
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "member is not byte-aligned");
 	}
 	*ret = bit_offset / 8;

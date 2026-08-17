@@ -6265,7 +6265,7 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	if ((attr = dwarf_attr_integrate(die, DW_AT_byte_size, &attr_mem))) {
 		Dwarf_Word word;
 		if (dwarf_formudata(attr, &word)) {
-			return drgn_error_format(DRGN_ERROR_BAD_DATA,
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
 						 "DW_TAG_pointer_type has invalid DW_AT_byte_size");
 		}
 		size = word;

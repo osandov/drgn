@@ -382,7 +382,7 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 
 	ehdr = gelf_getehdr(prog->core, &ehdr_mem);
 	if (!ehdr || ehdr->e_type != ET_CORE) {
-		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+		err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					"not an ELF core file");
 		goto out_elf;
 	}

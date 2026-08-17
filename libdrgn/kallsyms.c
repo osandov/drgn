@@ -205,14 +205,14 @@ kallsyms_copy_tables(struct drgn_program *prog, struct kallsyms_reader *kr,
 			// format. For now, just check that there's no third
 			// byte to the length.
 			if (len_u8 & 0x80)
-				return drgn_error_format(
+				return drgn_error_create(
 					DRGN_ERROR_BAD_DATA,
 					"Unexpected 3-byte length encoding in kallsyms names"
 				);
 			len = (len & 0x7F) | (len_u8 << 7);
 		}
 		if (__builtin_add_overflow(names_idx, len + 1, &names_idx))
-			return drgn_error_format(
+			return drgn_error_create(
 				DRGN_ERROR_BAD_DATA, "couldn't find end of kallsyms_names");
 	}
 	kr->names_len = names_idx;
@@ -602,8 +602,8 @@ drgn_load_builtin_kallsyms(struct drgn_program *prog,
 		if (err)
 			return err;
 		if (sb.len == 0)
-			return drgn_error_format(DRGN_ERROR_BAD_DATA,
-						 "error: zero-length symbol in kallsyms");
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
+						 "zero-length symbol in kallsyms");
 		if (i + 1 < kr.num_syms &&
 		    addresses[i + 1] - addresses[i] < MAX_SYMBOL_LENGTH)
 			size = addresses[i + 1] - addresses[i];

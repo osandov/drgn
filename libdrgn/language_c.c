@@ -2968,7 +2968,7 @@ static struct drgn_error *c_integer_promotions(struct drgn_program *prog,
 		type->type = type->underlying_type =
 			drgn_type_type(type->underlying_type).type;
 		if (!type->type) {
-			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "operand cannot have incomplete enum type");
 		}
 		break;

@@ -786,7 +786,7 @@ static struct drgn_error *qmp_connect_unix(const char *address, int *ret)
 	struct sockaddr_un sa = { .sun_family = AF_UNIX };
 	size_t path_len = strlen(address);
 	if (path_len >= sizeof(sa.sun_path)) {
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					"QMP Unix socket path is too long");
 	}
 	memcpy(sa.sun_path, address, path_len + 1);
