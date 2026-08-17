@@ -135,7 +135,15 @@ def path_lookup(
     }
     """
     if root is None:
-        root = prog["init_task"].fs.root
+        # Since Linux kernel commit 32750c77e811 ("fs: start all kthreads in
+        # nullfs") (in v7.3), init_task's root is nullfs. Instead, use
+        # userspace_init_fs, which is PID 1's filesystem and was added by Linux
+        # kernel commit 9a8e29695888 ("fs: make userspace_init_fs a
+        # dynamically-initialized pointer") (in v7.3).
+        try:
+            root = prog["userspace_init_fs"].root
+        except KeyError:
+            root = prog["init_task"].fs.root
     mnt = root_mnt = container_of(root.mnt.read_(), "struct mount", "mnt")
     dentry = root_dentry = root.dentry.read_()
     components = os.fsencode(path).split(b"/")
