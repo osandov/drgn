@@ -10,7 +10,7 @@ The ``drgn.helpers.linux.sched`` module provides helpers for working with the
 Linux CPU scheduler.
 """
 
-from typing import Iterator, Tuple
+from typing import Dict, Iterator, List, Set, Tuple
 
 from _drgn import (
     _linux_helper_cpu_curr,
@@ -327,7 +327,11 @@ def cfs_rq_for_each_entity(cfs_rq: Object) -> Iterator[Tuple[Object, int, bool, 
         group.
     """
 
+    cfs_rq = cfs_rq.read_()
+
     def entities(cfs_rq: Object) -> Iterator[Tuple[Object, bool]]:
+        # curr must be yielded first for the ancestor walk below to set is_curr
+        # of task groups correctly.
         curr = cfs_rq.curr.read_()
         if curr:
             yield curr, True
@@ -346,23 +350,72 @@ def cfs_rq_for_each_entity(cfs_rq: Object) -> Iterator[Tuple[Object, int, bool, 
         ):
             yield se, False
 
-    stack = [(entities(cfs_rq), 0)]
-    while stack:
-        it, depth = stack[-1]
+    # Since Linux kernel commit 85570f10a4c6 ("sched/eevdf: Move to a single
+    # runqueue") (in v7.3), all tasks are queued on the CPU runqueues, and task
+    # groups are not queued. Before that, each task group had its own runqueue
+    # containing its entities. We distinguish based on the existence of
+    # cfs_rq::h_curr, which was added by that commit.
+    if hasattr(cfs_rq, "h_curr"):
         try:
-            se, is_curr = next(it)
-        except StopIteration:
-            stack.pop()
-        else:
+            rq = cfs_rq.rq
+        except AttributeError:
+            # CONFIG_FAIR_GROUP_SCHED must be disabled, so there are no task
+            # groups, and every entity on the runqueue is a task.
+            for se, is_curr in entities(cfs_rq):
+                yield se, 0, is_curr, True
+            return
+
+        # Reconstruct the task group hierarchy by walking up from each task on
+        # the CPU runqueue.
+        cfs_rq_address = cfs_rq.value_()
+        children: Dict[int, List[Tuple[Object, bool, int]]] = {}
+        seen: Set[int] = set()
+        for se, is_curr in entities(rq.cfs.address_of_()):
+            is_task = True
+            while se:
+                address = se.value_()
+                if address in seen:
+                    break
+                seen.add(address)
+
+                se_cfs_rq_address = se.cfs_rq.value_()
+                my_q_address = 0 if is_task else se.my_q.value_()
+                children.setdefault(se_cfs_rq_address, []).append(
+                    (se, is_curr, my_q_address)
+                )
+
+                if se_cfs_rq_address == cfs_rq_address:
+                    break
+                se = se.parent.read_()
+                is_task = False
+
+        def visit(
+            cfs_rq_address: int, depth: int
+        ) -> Iterator[Tuple[Object, int, bool, bool]]:
+            for se, is_curr, my_q_address in children.get(cfs_rq_address, ()):
+                yield se, depth, is_curr, not my_q_address
+                if my_q_address:
+                    yield from visit(my_q_address, depth + 1)
+
+        yield from visit(cfs_rq_address, 0)
+    else:
+        stack = [(entities(cfs_rq), 0)]
+        while stack:
+            it, depth = stack[-1]
             try:
-                my_q = se.my_q.read_()
-            except AttributeError:
-                my_q = None
+                se, is_curr = next(it)
+            except StopIteration:
+                stack.pop()
+            else:
+                try:
+                    my_q = se.my_q.read_()
+                except AttributeError:
+                    my_q = None
 
-            yield se, depth, is_curr, not my_q
+                yield se, depth, is_curr, not my_q
 
-            if my_q:
-                stack.append((entities(my_q), depth + 1))
+                if my_q:
+                    stack.append((entities(my_q), depth + 1))
 
 
 def task_since_last_arrival_ns(task: Object) -> int:

@@ -52,6 +52,18 @@ def tmp_cgroup_with_cpu_controller():
         yield cgroup_dir
 
 
+@contextlib.contextmanager
+def tmp_nested_cgroups_with_cpu_controller():
+    with tmp_cgroup_with_cpu_controller() as parent_dir:
+        (parent_dir / "cgroup.subtree_control").write_text("+cpu")
+        child_dir = parent_dir / "child"
+        child_dir.mkdir()
+        try:
+            yield parent_dir, child_dir
+        finally:
+            child_dir.rmdir()
+
+
 class TestSched(LinuxKernelTestCase):
     @skip_unless_have_test_kmod
     def test_task_thread_info(self):
@@ -229,6 +241,47 @@ class TestSched(LinuxKernelTestCase):
                 )
                 self.assertIn((task_group_se, 0, True, False), entities)
                 self.assertIn((task_se, 1, True, True), entities)
+            finally:
+                old_cgroup_procs.write_text(str(os.getpid()))
+
+    def test_cfs_rq_for_each_entity_nested(self):
+        old_affinity = os.sched_getaffinity(0)
+        cpu = max(old_affinity)
+        self.addCleanup(os.sched_setaffinity, 0, old_affinity)
+        os.sched_setaffinity(0, (cpu,))
+
+        with tmp_nested_cgroups_with_cpu_controller() as (parent_dir, child_dir):
+            old_cgroup = (
+                Path("/proc/self/cgroup").read_text().strip().partition("::")[2]
+            )
+            old_cgroup_procs = (
+                parent_dir.parent / old_cgroup.lstrip("/") / "cgroup.procs"
+            )
+            (child_dir / "cgroup.procs").write_text(str(os.getpid()))
+            try:
+
+                def task_group_se(path):
+                    cgrp = cgroup_get_from_path(self.prog, path)
+                    css = cgrp.subsys[self.prog["cpu_cgrp_id"]]
+                    return task_group_sched_entity(
+                        container_of(css, "struct task_group", "css"), cpu
+                    )
+
+                parent_se = task_group_se(parent_dir.name)
+                child_se = task_group_se(f"{parent_dir.name}/{child_dir.name}")
+                task_se = find_task(self.prog, os.getpid()).se.address_of_()
+
+                entities = list(
+                    cfs_rq_for_each_entity(cpu_rq(self.prog, cpu).cfs.address_of_())
+                )
+                expected = [
+                    (parent_se, 0, True, False),
+                    (child_se, 1, True, False),
+                    (task_se, 2, True, True),
+                ]
+                self.assertIn(expected[0], entities)
+                i = entities.index(expected[0])
+                self.assertEqual(entities[i : i + 3], expected)
             finally:
                 old_cgroup_procs.write_text(str(os.getpid()))
 
