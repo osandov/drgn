@@ -4,7 +4,7 @@ import argparse
 import os
 import sys
 import typing
-from typing import Any, Callable, Iterator, Optional, Sequence, Union
+from typing import Any, Callable, Iterable, Iterator, Optional, Sequence, Union
 
 from drgn import FaultError, Object, Program, TypeKind, cast, container_of
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
@@ -291,12 +291,24 @@ def visit_tasks(
 
 
 def visit_binfmt_misc(prog: Program, visitor: "Visitor") -> None:
+    # Since Linux kernel commit e22835c83df4 ("binfmt_misc: rename Node to
+    # struct binfmt_misc_entry") (in v7.3), the entry type is named struct
+    # binfmt_misc_entry. Before that, it was named Node.
     try:
-        Node = prog.type("Node", filename="binfmt_misc.c")
+        entry_type = prog.type("struct binfmt_misc_entry")
     except LookupError:
-        # If the Node type doesn't exist, then CONFIG_BINFMT_MISC=n or the
-        # binfmt_misc module isn't loaded.
-        return
+        try:
+            entry_type = prog.type("Node", filename="binfmt_misc.c")
+        except LookupError:
+            # If neither type exists, then CONFIG_BINFMT_MISC=n or the
+            # binfmt_misc module isn't loaded.
+            return
+
+    # Since Linux kernel commit 7a8b81e8b9c7 ("binfmt_misc: convert entry list
+    # to an hlist") (in v7.3), the entries are in an hlist linked by the node
+    # member. Before that, they were in a list linked by the list member.
+    entries_are_hlist = entry_type.has_member("node")
+
     with warn_on_fault("iterating binfmt_misc instances"):
         for sb in hlist_for_each_entry(
             "struct super_block", prog["bm_fs_type"].fs_supers, "s_instances"
@@ -310,24 +322,52 @@ def visit_binfmt_misc(prog: Program, visitor: "Visitor") -> None:
                 binfmt_misc = user_ns.binfmt_misc
             except AttributeError:
                 entries = prog.object("entries", filename="binfmt_misc.c")
-                have_user_ns = False
+                user_ns_note = ""
             else:
                 entries = binfmt_misc.entries
-                have_user_ns = True
+                if user_ns.level:
+                    user_ns_note = f" (user namespace {user_ns.ns.inum.value_()})"
+                else:
+                    user_ns_note = ""
 
-            for node in list_for_each_entry(Node, entries.address_of_(), "list"):
+            if entries_are_hlist:
+                entry_iter = hlist_for_each_entry(
+                    entry_type, entries.address_of_(), "node"
+                )
+            else:
+                entry_iter = list_for_each_entry(
+                    entry_type, entries.address_of_(), "list"
+                )
+
+            for entry in entry_iter:
                 with ignore_fault:
-                    match = visitor.visit_file(node.interp_file)
-                    if match:
-                        if have_user_ns and user_ns.level:
-                            user_ns_note = (
-                                f" (user namespace {user_ns.ns.inum.value_()})"
+                    # Since Linux kernel commit a7b880449ab1 ("binfmt_misc:
+                    # carry pre-opened interpreters in struct
+                    # binfmt_misc_interp") (in v7.3), an entry can bind
+                    # multiple interpreters, each with its own file. Before
+                    # that, it had a single interp_file.
+                    try:
+                        interps = entry.interps
+                    except AttributeError:
+                        file = entry.interp_file.read_()
+                        interp_files: Iterable[Object] = (file,) if file else ()
+                    else:
+                        interp_files = (
+                            interp.file
+                            for interp in list_for_each_entry(
+                                "struct binfmt_misc_interp",
+                                interps.address_of_(),
+                                "list",
                             )
-                        else:
-                            user_ns_note = ""
-                        print(
-                            f"binfmt_misc{user_ns_note} {os.fsdecode(node.name.string_())} {node.format_(**format_args)} {match}"
                         )
+
+                    for interp_file in interp_files:
+                        with ignore_fault:
+                            match = visitor.visit_file(interp_file)
+                            if match:
+                                print(
+                                    f"binfmt_misc{user_ns_note} {os.fsdecode(entry.name.string_())} {entry.format_(**format_args)} {match}"
+                                )
 
 
 def visit_loop_devices(prog: Program, visitor: "Visitor") -> None:
