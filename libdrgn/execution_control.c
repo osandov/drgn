@@ -938,7 +938,7 @@ static void emit_random_thread_stop_event(struct drgn_program *prog)
 		random_r(&prog->random_data, &i);
 		i %= n;
 #else
-		int32_t i = n - 1;
+		int32_t i = 0;
 #endif
 		list_for_each_entry(thread, &prog->stopped_threads, node) {
 			if (i == 0)
