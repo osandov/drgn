@@ -232,6 +232,11 @@ struct drgn_program {
 				 * Whether 5-level paging was enabled on x86-64.
 				 */
 				bool pgtable_l5_enabled;
+				/** Whether the vmcoreinfo includes the state of the
+                                 *  PPC64 mmu Radix mode */
+				bool have_ppc64_radix_mmu;
+				/** Whether the PPC64 mmu is configured to Radix mode */
+				bool ppc64_radix_mmu;
 				/** Whether LPAE was enabled on Arm. */
 				bool arm_lpae;
 				/** Whether `CRASHTIME` was in the VMCOREINFO. */
