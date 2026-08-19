@@ -420,19 +420,21 @@ linux_kernel_pgtable_iterator_next_ppc64(struct drgn_program *prog,
 	static const uint64_t PAGE_PRESENT = UINT64_C(1) << 63;
 	static const uint64_t PAGE_PTE = UINT64_C(1) << 62;
 	static const uint64_t PT_MASK = UINT64_C(0xc0000000000000ff);
+	static const uint64_t KERNELBASE = UINT64_C(0xc000000000000000);
 	static const uint16_t levels = 4;
 	struct drgn_error *err;
 	struct pgtable_iterator_ppc64 *it_arch = it->arch;
 	uint64_t virt_addr = it->virt_addr;
 
+	uint64_t table = it->pgtable;
+	bool table_physical = false;
+	if (table == prog->vmcoreinfo.swapper_pg_dir) {
+		table -= KERNELBASE;
+		table_physical = true;
+	}
 	uint64_t entry;
 	for (uint16_t level = levels;; level--) {
-		uint64_t table;
-		bool table_physical;
-		if (level == levels) {
-			table = it->pgtable;
-			table_physical = false;
-		} else {
+		if (level != levels) {
 			// PAGE_PTE bit represents huge page.
 			if (!(entry & PAGE_PRESENT) || (entry & PAGE_PTE) || level == 0) {
 				uint64_t mask = (UINT64_C(1) << it_arch->pt_levels[level].shift) - 1;
