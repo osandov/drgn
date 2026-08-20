@@ -4,18 +4,23 @@
 import argparse
 from contextlib import contextmanager
 import fnmatch
+import functools
 import glob
+import http.client
 import logging
 import os
 from pathlib import Path
 import queue
 import re
 import shutil
+import ssl
 import subprocess
 import tempfile
 import threading
+import time
 from typing import (
     Any,
+    Callable,
     Dict,
     Generator,
     Iterable,
@@ -23,8 +28,11 @@ from typing import (
     List,
     NamedTuple,
     Optional,
+    TypeVar,
     Union,
+    cast,
 )
+import urllib.error
 import urllib.request
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
@@ -106,12 +114,42 @@ def downloaded_compiler(download_dir: Path, target: Architecture) -> Compiler:
     )
 
 
+_RetryFuncT = TypeVar("_RetryFuncT", bound=Callable[..., Any])
+
+
+def _retry_download(f: _RetryFuncT) -> _RetryFuncT:
+    @functools.wraps(f)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        wait = 1
+        for attempts_remaining in range(3, -1, -1):
+            try:
+                return f(*args, **kwargs)
+            except (
+                ConnectionError,
+                TimeoutError,
+                http.client.HTTPException,
+                ssl.SSLError,
+                urllib.error.URLError,
+            ) as e:
+                if isinstance(e, urllib.error.HTTPError) and not (500 <= e.code < 600):
+                    raise
+                if attempts_remaining == 0:
+                    raise
+                logger.warning("download failed (%s); retrying in %ds", e, wait)
+                time.sleep(wait)
+                wait *= 2
+        assert False
+
+    return cast(_RetryFuncT, wrapper)
+
+
 class Downloader:
     def __init__(self, directory: Path) -> None:
         self._directory = directory
         self._gh = GitHubApi(os.getenv("GITHUB_TOKEN"))
         self._cached_kernel_releases: Optional[Dict[str, Dict[str, GitHubAsset]]] = None
 
+    @_retry_download
     def _available_kernel_releases(self) -> Dict[str, Dict[str, GitHubAsset]]:
         if self._cached_kernel_releases is None:
             logger.info("getting available kernel releases")
@@ -182,7 +220,12 @@ class Downloader:
             url,
         )
         kernel.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_dir = Path(tempfile.mkdtemp(dir=kernel.path.parent))
+        self._download_and_extract_kernel(kernel.path, url)
+        return kernel
+
+    @_retry_download
+    def _download_and_extract_kernel(self, dest: Path, url: str) -> None:
+        tmp_dir = Path(tempfile.mkdtemp(dir=dest.parent))
         try:
             # Don't assume that the available version of tar has zstd support or
             # the non-standard -I/--use-compress-program option.
@@ -210,8 +253,7 @@ class Downloader:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
         else:
-            tmp_dir.rename(kernel.path)
-        return kernel
+            tmp_dir.rename(dest)
 
     def resolve_compiler(self, target: Architecture) -> Compiler:
         return downloaded_compiler(self._directory, target)
@@ -228,6 +270,9 @@ class Downloader:
                 _KERNEL_ORG_COMPILER_HOST_NAME,
                 compiler.target.kernel_org_compiler_target_name,
             )
+            archive_subdir = Path(
+                f"gcc-{KERNEL_ORG_COMPILER_VERSION}-nolibc/{compiler.target.kernel_org_compiler_target_name}"
+            )
             logger.info(
                 "downloading compiler for %s from %s to %s",
                 compiler.target.name,
@@ -235,40 +280,39 @@ class Downloader:
                 dir,
             )
             dir.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryDirectory(dir=dir.parent) as tmp_name:
-                tmp_dir = Path(tmp_name)
-                with subprocess.Popen(
-                    ["xz", "--decompress"],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                ) as xz_proc, subprocess.Popen(
-                    ["tar", "-C", str(tmp_dir), "-x"],
-                    stdin=xz_proc.stdout,
-                ) as tar_proc:
-                    assert xz_proc.stdin is not None
-                    try:
-                        with urllib.request.urlopen(url) as resp:
-                            shutil.copyfileobj(resp, xz_proc.stdin)
-                    finally:
-                        xz_proc.stdin.close()
-                if xz_proc.returncode != 0:
-                    raise subprocess.CalledProcessError(
-                        xz_proc.returncode, xz_proc.args
-                    )
-                if tar_proc.returncode != 0:
-                    raise subprocess.CalledProcessError(
-                        tar_proc.returncode, tar_proc.args
-                    )
-                archive_subdir = Path(
-                    f"gcc-{KERNEL_ORG_COMPILER_VERSION}-nolibc/{compiler.target.kernel_org_compiler_target_name}"
-                )
-                archive_bin_subdir = archive_subdir / "bin"
-                if not (tmp_dir / archive_bin_subdir).exists():
-                    raise FileNotFoundError(
-                        f"downloaded archive does not contain {archive_bin_subdir}"
-                    )
-                (tmp_dir / archive_subdir).rename(dir)
+            self._download_and_extract_compiler(dir, url, archive_subdir)
         return compiler
+
+    @_retry_download
+    def _download_and_extract_compiler(
+        self, dest: Path, url: str, archive_subdir: Path
+    ) -> None:
+        with tempfile.TemporaryDirectory(dir=dest.parent) as tmp_name:
+            tmp_dir = Path(tmp_name)
+            with subprocess.Popen(
+                ["xz", "--decompress"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+            ) as xz_proc, subprocess.Popen(
+                ["tar", "-C", str(tmp_dir), "-x"],
+                stdin=xz_proc.stdout,
+            ) as tar_proc:
+                assert xz_proc.stdin is not None
+                try:
+                    with urllib.request.urlopen(url) as resp:
+                        shutil.copyfileobj(resp, xz_proc.stdin)
+                finally:
+                    xz_proc.stdin.close()
+            if xz_proc.returncode != 0:
+                raise subprocess.CalledProcessError(xz_proc.returncode, xz_proc.args)
+            if tar_proc.returncode != 0:
+                raise subprocess.CalledProcessError(tar_proc.returncode, tar_proc.args)
+            archive_bin_subdir = archive_subdir / "bin"
+            if not (tmp_dir / archive_bin_subdir).exists():
+                raise FileNotFoundError(
+                    f"downloaded archive does not contain {archive_bin_subdir}"
+                )
+            (tmp_dir / archive_subdir).rename(dest)
 
 
 def _download_thread(
