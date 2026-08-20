@@ -127,8 +127,8 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
         if not record_committed(current_id, desc.state_var.counter.value_()):
             return
 
-        lpos_begin = desc.text_blk_lpos.begin & text_data_ring_mask
-        lpos_next = desc.text_blk_lpos.next & text_data_ring_mask
+        lpos_begin = (desc.text_blk_lpos.begin & text_data_ring_mask).value_()
+        lpos_next = (desc.text_blk_lpos.next & text_data_ring_mask).value_()
         lpos_begin += ulong_size
 
         if lpos_begin == lpos_next:
@@ -136,9 +136,9 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
             return
         if lpos_begin > lpos_next:
             # Data wrapped.
-            lpos_begin -= lpos_begin
+            lpos_begin = ulong_size
         info = infos[idx].read_()
-        text_len = info.text_len
+        text_len = info.text_len.value_()
         if lpos_next - lpos_begin < text_len:
             # Truncated record.
             text_len = lpos_next - lpos_begin
