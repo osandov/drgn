@@ -1203,12 +1203,13 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 	if (err)
 		return err;
 
-	if (prog->in_all_stop_ == DRGN_NOT_ALL_STOPPED || only) {
+	if (prog->in_all_stop_ != DRGN_ALL_STOPPED || only) {
 		return drgn_error_format(DRGN_ERROR_OTHER, "TODO %d %d",
 					 prog->in_all_stop_, only);
 	}
 
 	set_resume_signal(thread, sig);
+	fprintf(stderr, "set thread %u sig to %d\n", thread->tid, thread->resume_signal);
 	if (!thread->stop_event_emitted) {
 		if (list_empty(&thread->node))
 			move_thread(thread, &prog->resumed_threads);
@@ -1216,6 +1217,7 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 					  struct drgn_thread, node);
 		assert(thread->stop_event_emitted);
 		set_resume_signal(thread, DRGN_RESUME_DEFAULT_SIGNAL);
+		fprintf(stderr, "set stopped thread %u sig to default (%d)\n", thread->tid, thread->resume_signal);
 	}
 	move_thread(thread, &prog->resumed_threads);
 	thread->stop_event_emitted = false;
