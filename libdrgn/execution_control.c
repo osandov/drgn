@@ -933,7 +933,7 @@ static void emit_random_thread_stop_event(struct drgn_program *prog)
 		size_t n = list_count_nodes(&prog->stopped_threads);
 		if (n == 0)
 			return; // TODO: no stopped threads?
-#ifdef TODO
+#ifndef TODO
 		int32_t i;
 		random_r(&prog->random_data, &i);
 		i %= n;

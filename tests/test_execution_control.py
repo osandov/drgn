@@ -51,8 +51,6 @@ class _ExpectNode:
 
     @next.setter
     def next(self, value):
-        if isinstance(value, _TemporaryAndNode):
-            value = _AndNode(value._nodes)
         if not isinstance(value, (_ExpectNode, _OrNode)):
             raise TypeError(f"expected node, not {type(value).__name__}")
         if self._next is not None:
@@ -72,9 +70,9 @@ class _ExpectNode:
         self._on = value
 
     def __and__(self, other):
-        if not isinstance(other, _ExpectNode) or isinstance(other, _AndNode):
+        if not isinstance(other, _ExpectNode):
             return NotImplemented
-        return _TemporaryAndNode((self, other))
+        return _AndNode(self, other)
 
     def __or__(self, other):
         if not isinstance(other, _ExpectNode):
@@ -85,26 +83,14 @@ class _ExpectNode:
         return other is self
 
 
-class _TemporaryAndNode:
-    def __init__(self, nodes):
-        self._nodes = nodes
-
-    def __and__(self, other):
-        if isinstance(other, _ExpectNode) and not isinstance(other, _AndNode):
-            return _TemporaryAndNode(self._nodes + (other,))
-        elif isinstance(other, _TemporaryAndNode):
-            return _TemporaryAndNode(self._nodes + other._nodes)
-        else:
-            return NotImplemented
-
-
 class _AndNode(_ExpectNode):
-    def __init__(self, nodes):
+    def __init__(self, node1, node2):
         super().__init__()
-        self._nodes = nodes
+        self._node1 = node1
+        self._node2 = node2
 
     def __repr__(self):
-        return "(" + " & ".join([repr(node) for node in self._nodes]) + ")"
+        return f"({self._node1!r} & {self._node2!r})"
 
 
 class _OrNode:
@@ -167,6 +153,11 @@ class Call(_CallExpectNode):
 
 
 class _CallDone(_CallExpectNode):
+    def __init__(self, fn, *args, **kwargs):
+        super().__init__(fn, *args, **kwargs)
+        self.result = None
+        self.exception = None
+
     def __repr__(self):
         return self._repr("Call") + ".done"
 
@@ -212,6 +203,8 @@ class _OpDone(_ExpectNode):
         super().__init__()
         self._name = name
         self._args = args
+        self.result = None
+        self.exception = None
 
     def __repr__(self):
         return Op.__repr__(self) + ".done"
@@ -233,31 +226,30 @@ class Event(_ExpectNode):
 
 class _ExpectExecutionController(drgn.ExecutionController):
     def __init__(self) -> None:
-        self._graph = None
+        self._current = {}
         self._in_expect = False
         self._event_errors = []
         self._pending_ops = {}
 
     def _expect(self, prog, graph):
         try:
-            self._set_graph(graph)
+            self._add_current(None, set(), set(), graph)
             self._in_expect = True
 
             self._transition_controller_calls()
 
-            while self._graph is not None:
-                node = self._graph
-
-                if isinstance(node, Call):
-                    self._transition_graph(node)
-                    node._fn(*node._args, **node._kwargs)
-                    self._check_event_errors()
-                    self._transition_graph(node.done)
-                    self._transition_controller_calls()
+            while self._current:
+                for node in self._current:
+                    if isinstance(node, Call):
+                        self._transition_graph(node)
+                        node._fn(*node._args, **node._kwargs)
+                        self._check_event_errors()
+                        self._transition_graph(node.done)
+                        self._transition_controller_calls()
+                        break
                 else:
-                    assert not isinstance(node, (ControllerCall, _OpDone)), node
                     if not prog.poll(_TIMEOUT):
-                        raise TimeoutError(f"timed out while waiting for {node}")
+                        raise TimeoutError("timed out while waiting for TODO")
                     self._check_event_errors()
 
             while True:
@@ -266,55 +258,65 @@ class _ExpectExecutionController(drgn.ExecutionController):
                     break
         finally:
             self._in_expect = False
-            self._graph = None
+            self._current.clear()
 
-    def _set_graph(self, node):
-        self._graph = node
-        if isinstance(node, _AndNode):
-            self._and_remaining = list(node._nodes)
+    def _add_current(self, parent, and_siblings, or_siblings, node):
+        if isinstance(node, _OrNode):
+            for child in node._nodes:
+                self._add_current(parent, and_siblings, or_siblings, child)
+        else:
+            and_siblings.add(node)
+            or_siblings.add(node)
+            self._current[node] = (parent, and_siblings, or_siblings)
+            if isinstance(node, _AndNode):
+                children = set()
+                self._add_current(node, children, set(), node._node1)
+                self._add_current(node, children, set(), node._node2)
 
     def _transition_graph(self, o):
-        top = self._graph
-        if isinstance(top, _AndNode):
-            for i, node in enumerate(self._and_remaining):
-                if node.match(o):
-                    break
-            else:
-                raise AssertionError("TODO")
-            del self._and_remaining[i]
-            assert node.next is None
+        for node in self._current:
+            if node.match(o):
+                break
+        else:
+            expected = []
+            for i, node in enumerate(self._current):
+                if i > 0:
+                    if len(self._current) > 2:
+                        expected.append(", ")
+                    if i == len(self._current) - 1:
+                        expected.append(" or ")
+                expected.append(repr(node))
+            raise AssertionError(f"expected {' '.join(expected)}, not {o}")
+
+        def aux(node):
             if node.on is not None:
                 node.on()
-            if self._and_remaining:
-                return
-            node = top
-        elif isinstance(top, _OrNode):
-            for node in top._nodes:
-                if node.match(o):
-                    break
-            else:
-                raise AssertionError(f"expected {top}, not {o}")
-        elif top.match(o):
-            node = top
-        else:
-            raise AssertionError(f"expected {top}, not {o}")
 
-        print(node, "->", node.next)
-        self._set_graph(node.next)
-        if node.on is not None:
-            node.on()
+            parent, and_siblings, or_siblings = self._current[node]
+            and_siblings -= or_siblings
+            for sibling in or_siblings:
+                del self._current[sibling]
+
+            if node.next is not None:
+                self._add_current(parent, and_siblings, set(), node.next)
+            elif not and_siblings and parent is not None:
+                return aux(parent)
+
+        aux(node)
         return node
 
     def _transition_controller_calls(self):
         while True:
-            node = self._graph
-
-            if isinstance(node, ControllerCall):
-                self._transition_graph(node)
-                self._queue_call(node._fn, *node._args, **node._kwargs)
-            elif isinstance(node, _OpDone):
-                self._transition_graph(node)
-                self._queue_complete_op(node)
+            for node in self._current:
+                if isinstance(node, ControllerCall):
+                    self._transition_graph(node)
+                    self._queue_call(node._fn, *node._args, **node._kwargs)
+                elif isinstance(node, _OpDone):
+                    self._transition_graph(node)
+                    self._queue_complete_op(node)
+                else:
+                    continue
+                break
             else:
                 break
 
@@ -339,9 +341,12 @@ class _ExpectExecutionController(drgn.ExecutionController):
         os.write(self._pipe_w, b"\0")
 
     def _queue_complete_op(self, node):
-        promise, result = self._pending_ops.pop(node)
+        promise = self._pending_ops.pop(node)
         # TODO: clear timer?
-        self._queue_call(promise.set_result, result)
+        if node.exception is not None:
+            self._queue_call(promise.set_exception, node.exception)
+        else:
+            self._queue_call(promise.set_result, node.result)
 
     def _read_pipe(self, prog, fd, events):
         while True:
@@ -358,9 +363,9 @@ class _ExpectExecutionController(drgn.ExecutionController):
             op, (promise, _) = self._pending_ops.popitem()
             promise.set_exception(TimeoutError(f"{op} timed out"))
 
-    def _op(self, name, args, promise, result):
+    def _op(self, name, args, promise, default_result):
         if not self._in_expect:
-            promise.set_result(result)
+            promise.set_result(default_result)
             return
 
         try:
@@ -369,7 +374,7 @@ class _ExpectExecutionController(drgn.ExecutionController):
             promise.set_exception(e)
             return
 
-        self._pending_ops[node.done] = (promise, result)
+        self._pending_ops[node.done] = promise
         timerfd_settime(self._timer, initial=_TIMEOUT)
 
         self._transition_controller_calls()
@@ -467,46 +472,41 @@ class ExecutionControlTestCase(TestCase):
 
 
 class TestLifecycle(ExecutionControlTestCase):
-    def setUp(self):
-        super().setUp()
-        # Don't complete attach and detach by default for these tests.
-        self._ctrl._op_hook = lambda name, args, promise, result: False
-
     def test_attach_and_detach(self):
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
-        with self.expect(
-            [
-                ExpectOp("attach", drgn.AttachFlags.ALL_STOP).on(
-                    lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHING)
-                )
-            ]
-        ):
-            self.prog.attach(drgn.AttachFlags.ALL_STOP)
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
+        attach_call = Call(self.prog.attach, drgn.AttachFlags.ALL_STOP)
+        attach_op = Op("attach", drgn.AttachFlags.ALL_STOP)
+        detach_call = Call(self.prog.detach)
+        detach_op = Op("detach")
 
-        def expect_detach(name, args):
-            if name != "detach":
-                return False
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHING)
-            return True
+        attach_call.next = attach_op
+        attach_op.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHING)
+        attach_op.next = attach_op.done
+        attach_op.done.result = True
+        attach_op.done.next = attach_call.done
+        attach_call.done.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)  # TODO: return value
+        attach_call.done.next = detach_call
+        detach_call.next = detach_op
+        detach_op.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHING)
+        detach_op.next = detach_op.done
+        detach_op.done.next = detach_call.done
+        detach_call.done.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
-        with self.expect(ExpectOp(expect_detach)):
-            self.prog.detach()
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+        self.expect(start=attach_call)
 
     def test_attach_failure(self):
-        def attach_failure(name, args):
-            if name != "attach":
-                return False
-            raise Exception("foo")
+        attach_call = Call(self.prog.attach, drgn.AttachFlags.ALL_STOP)
+        attach_op = Op("attach", drgn.AttachFlags.ALL_STOP)
 
-        with self.expect(ExpectOp(attach_failure)):
-            self.assertRaisesRegex(
-                Exception, "foo", self.prog.attach, drgn.AttachFlags.ALL_STOP
-            )
+        attach_call.next = attach_op
+        attach_op.next = attach_op.done
+        attach_op.done.exception = Exception("foo")
+        attach_op.done.next = attach_call.done
+        attach_call.done.exception = Exception("foo")
+        attach_call.done.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)  # TODO: exception
 
-        self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+        self.expect(start=attach_call)
 
     def test_context_manager(self):
         with self.expect(ExpectOp(lambda name, args: name == "attach")):
@@ -867,55 +867,49 @@ class TestAllStop(ExecutionControlTestCase):
             notify_thread_stop2 = ControllerCall(
                 self.prog.notify_thread_stop, self.prog.thread(2), signal.SIGCHLD, 0xDEAD
             )
-            stop_event1_thread1 = Event(drgn.ThreadStopEvent, self.prog.thread(1))
-            stop_event1_thread2 = Event(drgn.ThreadStopEvent, self.prog.thread(2))
-            cont_thread1 = Call(self.prog.thread(1).cont)
-            cont_thread2 = Call(self.prog.thread(2).cont)
-            stop_event2_thread1 = Event(drgn.ThreadStopEvent, self.prog.thread(1))
-            stop_event2_thread2 = Event(drgn.ThreadStopEvent, self.prog.thread(2))
-            resume_threads = Op(
-                "resume_threads",
-                [
-                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
-                    drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
-                ],
-            )
 
-            def check_stopped_thread1():
-                self.assertEqual(
-                    self.stopped_threads(),
-                    {
-                        **self.all_stop(),
-                        1: drgn.SignalStopReason(signal.SIGWINCH),
-                    }
+            def stop_event1(tid):
+                other_tid = 2 if tid == 1 else 1
+
+                event1 = Event(drgn.ThreadStopEvent, self.prog.thread(tid))
+                cont1 = Call(self.prog.thread(tid).cont)
+                event2 = Event(drgn.ThreadStopEvent, self.prog.thread(other_tid))
+                resume_threads = Op(
+                    "resume_threads",
+                    [
+                        drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                        drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
+                        drgn.ContinueResumeAction(None, 0),
+                    ],
                 )
+                cont2 = Call(self.prog.thread(other_tid).cont)
 
-            def check_stopped_thread2():
+                event1.on = functools.partial(check_stopped_thread, tid)
+                event1.next = cont1
+                cont1.next = cont1.done & event2
+                cont1.done.on = functools.partial(check_stopped_thread, other_tid)
+                event2.on = functools.partial(check_stopped_thread, other_tid)
+                cont1.next.next = cont2
+                cont2.next = resume_threads
+                resume_threads.next = resume_threads.done
+                resume_threads.done.next = cont2.done
+                cont2.done.on = self.check_none_stopped
+
+                return event1
+
+            def check_stopped_thread(tid):
                 self.assertEqual(
                     self.stopped_threads(),
                     {
                         **self.all_stop(),
-                        2: drgn.SignalStopReason(signal.SIGCHLD),
+                        tid: drgn.SignalStopReason(signal.SIGWINCH if tid == 1 else signal.SIGCHLD),
                     }
                 )
 
             notify_thread_stop1.next = stop_all_threads
             stop_all_threads.next = notify_thread_stop2
             notify_thread_stop2.next = stop_all_threads.done
-            stop_all_threads.done.next = stop_event1_thread1 | stop_event1_thread2
-
-            stop_event1_thread1.on = check_stopped_thread1
-            stop_event1_thread1.next = cont_thread1
-            cont_thread1.next = cont_thread1.done & stop_event2_thread2 # TODO: is this right?
-            cont_thread1.done.on = check_stopped_thread2
-            stop_event2_thread2.on = check_stopped_thread2
-            cont_thread1.next.next = cont_thread2
-            cont_thread2.next = resume_threads
-            resume_threads.next = resume_threads.done
-            resume_threads.done.next = cont_thread2.done
-            cont_thread2.done.on = self.check_none_stopped
-
-            # TODO: stop_event1_thread2
+            stop_all_threads.done.next = stop_event1(1) | stop_event1(2)
 
             self.expect(start=notify_thread_stop1)
 
