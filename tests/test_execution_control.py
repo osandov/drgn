@@ -12,8 +12,7 @@ import drgn
 from tests import TestCase
 from tests.libc import timerfd_create, timerfd_settime
 
-
-_TIMEOUT = 1 # TODO: increase? move to controller?
+_TIMEOUT = 1  # TODO: increase? move to controller?
 
 
 # TODO: unify with test_thread_finder.py
@@ -132,7 +131,7 @@ class _CallExpectNode(_ExpectNode):
         self._args = args
         self._kwargs = kwargs
 
-    def _repr(self, class_name):
+    def __repr__(self):
         if hasattr(self._fn, "__qualname__"):
             fn = self._fn.__qualname__
         else:
@@ -140,26 +139,11 @@ class _CallExpectNode(_ExpectNode):
         args = [fn]
         args += [repr(arg) for arg in self._args]
         args += [f"{key}={value!r}" for key, value in self._kwargs.items()]
-        return f"{class_name}({', '.join(args)})"
-
-    def __repr__(self):
-        return self._repr(self.__class__.__name__)
+        return f"{self.__class__.__name__}({', '.join(args)})"
 
 
 class Call(_CallExpectNode):
-    def __init__(self, fn, *args, **kwargs):
-        super().__init__(fn, *args, **kwargs)
-        self.done = _CallDone(fn, *args, **kwargs)
-
-
-class _CallDone(_CallExpectNode):
-    def __init__(self, fn, *args, **kwargs):
-        super().__init__(fn, *args, **kwargs)
-        self.result = None
-        self.exception = None
-
-    def __repr__(self):
-        return self._repr("Call") + ".done"
+    pass
 
 
 class ControllerCall(_CallExpectNode):
@@ -171,7 +155,6 @@ class Op(_ExpectNode):
         super().__init__()
         self._name = name
         self._args = args
-        self.done = _OpDone(name, *args)
 
     def __repr__(self):
         args = [repr(self._name)] + [repr(arg) for arg in self._args]
@@ -195,19 +178,52 @@ class Op(_ExpectNode):
         )
 
     def match(self, other):
-        return isinstance(other, Op) and self._name == other._name and self._normalized_args() == other._normalized_args()
+        return (
+            isinstance(other, Op)
+            and self._name == other._name
+            and self._normalized_args() == other._normalized_args()
+        )
 
 
-class _OpDone(_ExpectNode):
-    def __init__(self, name, *args):
+ANY = object()
+
+
+class Return(_ExpectNode):
+    def __init__(self, call, value):
         super().__init__()
-        self._name = name
-        self._args = args
-        self.result = None
-        self.exception = None
+        self._call = call
+        self._value = value
 
     def __repr__(self):
-        return Op.__repr__(self) + ".done"
+        return f"Return({self._call!r}, {self._value!r})"
+
+    def match(self, other):
+        return other is self or (
+            isinstance(other, Return)
+            and self._call is other._call
+            and (self._value is ANY or self._value == other._value)
+        )
+
+
+def _exceptions_eq(a, b):
+    return type(a) is type(b) and a.args == b.args
+
+
+class Raise(_ExpectNode):
+    def __init__(self, call, exception):
+        super().__init__()
+        self._call = call
+        self._exception = exception
+
+    def __repr__(self):
+        return f"Raise({self._call!r}, {self._exception!r})"
+
+    def match(self, other):
+        return other is self or (
+            isinstance(other, Raise)
+            and self._call is other._call
+            and _exceptions_eq(self._exception, other._exception)
+        )
 
 
 class Event(_ExpectNode):
@@ -217,24 +233,36 @@ class Event(_ExpectNode):
         self._args = args
 
     def __repr__(self):
-        args = [f"{self._type.__module__}.{self._type.__qualname__}"] + [repr(arg) for arg in self._args]
+        args = [f"{self._type.__module__}.{self._type.__qualname__}"] + [
+            repr(arg) for arg in self._args
+        ]
         return f"Event({', '.join(args)})"
 
     def match(self, other):
-        return isinstance(other, drgn.Event) and isinstance(other, self._type) and tuple(other) == self._args
+        if type(other) is not self._type:
+            return False
+        args = self._args
+        other_args = tuple(other)
+        if self._type is drgn.ProgramLostEvent:
+            if _exceptions_eq(args[0], other_args[0]):
+                args = args[1:]
+                other_args = other_args[1:]
+            else:
+                return False
+        return other_args == args
 
 
 class _ExpectExecutionController(drgn.ExecutionController):
     def __init__(self) -> None:
         self._current = {}
-        self._in_expect = False
+        self._trace = None
         self._event_errors = []
         self._pending_ops = {}
 
     def _expect(self, prog, graph):
         try:
             self._add_current(None, set(), set(), graph)
-            self._in_expect = True
+            self._trace = []
 
             self._transition_controller_calls()
 
@@ -242,9 +270,15 @@ class _ExpectExecutionController(drgn.ExecutionController):
                 for node in self._current:
                     if isinstance(node, Call):
                         self._transition_graph(node)
-                        node._fn(*node._args, **node._kwargs)
+                        try:
+                            ret = node._fn(*node._args, **node._kwargs)
+                            done = Return(node, ret)
+                        except AssertionError:
+                            raise
+                        except Exception as e:
+                            done = Raise(node, e)
                         self._check_event_errors()
-                        self._transition_graph(node.done)
+                        self._transition_graph(done)
                         self._transition_controller_calls()
                         break
                 else:
@@ -257,17 +291,17 @@ class _ExpectExecutionController(drgn.ExecutionController):
                 if not prog.poll(0):
                     break
         finally:
-            self._in_expect = False
+            self._trace = None
             self._current.clear()
 
-    def _add_current(self, parent, and_siblings, or_siblings, node):
+    def _add_current(self, parent, siblings, or_siblings, node):
         if isinstance(node, _OrNode):
             for child in node._nodes:
-                self._add_current(parent, and_siblings, or_siblings, child)
+                self._add_current(parent, siblings, or_siblings, child)
         else:
-            and_siblings.add(node)
+            siblings.add(node)
             or_siblings.add(node)
-            self._current[node] = (parent, and_siblings, or_siblings)
+            self._current[node] = (parent, siblings, or_siblings)
             if isinstance(node, _AndNode):
                 children = set()
                 self._add_current(node, children, set(), node._node1)
@@ -286,20 +320,27 @@ class _ExpectExecutionController(drgn.ExecutionController):
                     if i == len(self._current) - 1:
                         expected.append(" or ")
                 expected.append(repr(node))
-            raise AssertionError(f"expected {' '.join(expected)}, not {o}")
+            msg = [f"expected {' '.join(expected)}, not {o}"]
+            if self._trace:
+                msg.append(", after")
+                for node in self._trace:
+                    msg.append(f"\n    {node!r}")
+            raise AssertionError("".join(msg))
+
+        self._trace.append(node)
 
         def aux(node):
             if node.on is not None:
                 node.on()
 
-            parent, and_siblings, or_siblings = self._current[node]
-            and_siblings -= or_siblings
+            parent, siblings, or_siblings = self._current[node]
+            siblings -= or_siblings
             for sibling in or_siblings:
                 del self._current[sibling]
 
             if node.next is not None:
-                self._add_current(parent, and_siblings, set(), node.next)
-            elif not and_siblings and parent is not None:
+                self._add_current(parent, siblings, set(), node.next)
+            elif not siblings and parent is not None:
                 return aux(parent)
 
         aux(node)
@@ -311,7 +352,7 @@ class _ExpectExecutionController(drgn.ExecutionController):
                 if isinstance(node, ControllerCall):
                     self._transition_graph(node)
                     self._queue_call(node._fn, *node._args, **node._kwargs)
-                elif isinstance(node, _OpDone):
+                elif isinstance(node, (Return, Raise)) and isinstance(node._call, Op):
                     self._transition_graph(node)
                     self._queue_complete_op(node)
                 else:
@@ -321,9 +362,10 @@ class _ExpectExecutionController(drgn.ExecutionController):
                 break
 
     def _event_listener(self, prog, event):
-        if self._in_expect:
+        if self._trace is not None:
             try:
                 self._transition_graph(event)
+                self._transition_controller_calls()
             except AssertionError as e:
                 self._event_errors.append(e)
 
@@ -341,12 +383,12 @@ class _ExpectExecutionController(drgn.ExecutionController):
         os.write(self._pipe_w, b"\0")
 
     def _queue_complete_op(self, node):
-        promise = self._pending_ops.pop(node)
+        promise = self._pending_ops.pop(node._call)
         # TODO: clear timer?
-        if node.exception is not None:
-            self._queue_call(promise.set_exception, node.exception)
+        if isinstance(node, Return):
+            self._queue_call(promise.set_result, node._value)
         else:
-            self._queue_call(promise.set_result, node.result)
+            self._queue_call(promise.set_exception, node._exception)
 
     def _read_pipe(self, prog, fd, events):
         while True:
@@ -360,11 +402,11 @@ class _ExpectExecutionController(drgn.ExecutionController):
 
     def _timeout(self, prog, fd, events):
         while self._pending_ops:
-            op, (promise, _) = self._pending_ops.popitem()
+            op, promise = self._pending_ops.popitem()
             promise.set_exception(TimeoutError(f"{op} timed out"))
 
     def _op(self, name, args, promise, default_result):
-        if not self._in_expect:
+        if self._trace is None:
             promise.set_result(default_result)
             return
 
@@ -374,7 +416,7 @@ class _ExpectExecutionController(drgn.ExecutionController):
             promise.set_exception(e)
             return
 
-        self._pending_ops[node.done] = promise
+        self._pending_ops[node] = promise
         timerfd_settime(self._timer, initial=_TIMEOUT)
 
         self._transition_controller_calls()
@@ -455,8 +497,7 @@ class ExecutionControlTestCase(TestCase):
 
     def all_stop(self):
         return {
-            thread.tid: drgn.SyntheticStopReason()
-            for thread in self.prog.threads()
+            thread.tid: drgn.SyntheticStopReason() for thread in self.prog.threads()
         }
 
     def stopped_threads(self):
@@ -470,206 +511,255 @@ class ExecutionControlTestCase(TestCase):
         self.assertEqual(self.stopped_threads(), {})
 
 
-
 class TestLifecycle(ExecutionControlTestCase):
     def test_attach_and_detach(self):
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
         attach_call = Call(self.prog.attach, drgn.AttachFlags.ALL_STOP)
         attach_op = Op("attach", drgn.AttachFlags.ALL_STOP)
+        attach_op_return = Return(attach_op, True)
+        attach_call_return = Return(attach_call, ANY)
         detach_call = Call(self.prog.detach)
         detach_op = Op("detach")
+        detach_op_return = Return(detach_op, None)
+        detach_call_return = Return(detach_call, None)
 
         attach_call.next = attach_op
-        attach_op.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHING)
-        attach_op.next = attach_op.done
-        attach_op.done.result = True
-        attach_op.done.next = attach_call.done
-        attach_call.done.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)  # TODO: return value
-        attach_call.done.next = detach_call
+        attach_op.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.ATTACHING
+        )
+        attach_op.next = attach_op_return
+        attach_op_return.next = attach_call_return
+        attach_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.ATTACHED
+        )
+        attach_call_return.next = detach_call
         detach_call.next = detach_op
-        detach_op.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHING)
-        detach_op.next = detach_op.done
-        detach_op.done.next = detach_call.done
-        detach_call.done.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+        detach_op.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHING
+        )
+        detach_op.next = detach_op_return
+        detach_op_return.next = detach_call_return
+        detach_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHED
+        )
 
         self.expect(start=attach_call)
 
     def test_attach_failure(self):
         attach_call = Call(self.prog.attach, drgn.AttachFlags.ALL_STOP)
         attach_op = Op("attach", drgn.AttachFlags.ALL_STOP)
+        attach_op_raise = Raise(attach_op, Exception("foo"))
+        attach_call_raise = Raise(attach_call, Exception("foo"))
 
         attach_call.next = attach_op
-        attach_op.next = attach_op.done
-        attach_op.done.exception = Exception("foo")
-        attach_op.done.next = attach_call.done
-        attach_call.done.exception = Exception("foo")
-        attach_call.done.on = lambda: self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)  # TODO: exception
+        attach_op.next = attach_op_raise
+        attach_op_raise.next = attach_call_raise
+        attach_call_raise.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHED
+        )
 
         self.expect(start=attach_call)
 
     def test_context_manager(self):
-        with self.expect(ExpectOp(lambda name, args: name == "attach")):
-            cm = self.prog.attach(drgn.AttachFlags.ALL_STOP)
-            cm.__enter__()
+        cm = self.prog.attach(drgn.AttachFlags.ALL_STOP)
 
-        self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
+        enter_call = Call(cm.__enter__)
+        enter_call_return = Return(enter_call, None)
+        exit_call = Call(cm.__exit__, None, None, None)
+        detach_op = Op("detach")
+        detach_op_return = Return(detach_op, None)
+        exit_call_return = Return(exit_call, None)
 
-        with self.expect(ExpectOp(lambda name, args: name == "detach")):
-            cm.__exit__(None, None, None)
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+        enter_call.next = enter_call_return
+        enter_call_return.next = exit_call
+        exit_call.next = detach_op
+        detach_op.next = detach_op_return
+        detach_op_return.next = exit_call_return
+        exit_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHED
+        )
+
+        self.expect(start=enter_call)
 
     def test_context_manager_exception(self):
-        with self.assertRaisesRegex(Exception, "foo"), self.expect(
-            ExpectOp(lambda name, args: name == "attach"),
-            Barrier,
-            ExpectOp(lambda name, args: name == "detach"),
-        ), self.prog.attach(drgn.AttachFlags.ALL_STOP):
+        cm = self.prog.attach(drgn.AttachFlags.ALL_STOP)
+        cm.__enter__()
+
+        try:
             raise Exception("foo")
+        except Exception as e:
+            exit_call = Call(cm.__exit__, type(e), e, e.__traceback__)
+        detach_op = Op("detach")
+        detach_op_return = Return(detach_op, None)
+        exit_call_return = Return(exit_call, None)
 
-    def test_attach_and_detach_synchronously(self):
-        with self.expect(
-            ExpectOp(lambda name, args: COMPLETE_PROMISE if name == "attach" else False)
-        ):
-            self.prog.attach(drgn.AttachFlags.ALL_STOP)
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED)
+        exit_call.next = detach_op
+        detach_op.next = detach_op_return
+        detach_op_return.next = exit_call_return
+        exit_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHED
+        )
 
-        with self.expect(
-            ExpectOp(lambda name, args: COMPLETE_PROMISE if name == "detach" else False)
-        ):
-            self.prog.detach()
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+        self.expect(start=exit_call)
 
     def test_program_exit(self):
-        with self.complete_ops():
-            self.prog.attach(drgn.AttachFlags.ALL_STOP)
+        self.prog.attach(drgn.AttachFlags.ALL_STOP)
 
-        def exit_event(event):
-            if not isinstance(event, drgn.ProgramExitEvent) or event.status != 0:
-                return False
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED)
-            return True
+        notify_exit = ControllerCall(self.prog.notify_program_exit, 0)
+        exit_event = Event(drgn.ProgramExitEvent, 0)
+        detach_call = Call(self.prog.detach)
+        detach_op = Op("detach")
+        detach_op_return = Return(detach_op, None)
+        detach_call_return = Return(detach_call, None)
 
-        with self.expect(ExpectEvent(exit_event)):
-            self.queue_call(lambda prog: prog.notify_program_exit(0))
+        notify_exit.next = exit_event
+        exit_event.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.EXITED
+        )
+        exit_event.next = detach_call
+        detach_call.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.EXITED
+        )
+        detach_call.next = detach_op
+        detach_op.next = detach_op_return
+        detach_op_return.next = detach_call_return
+        detach_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHED
+        )
 
-        self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED)
-
-        with self.complete_ops():
-            self.prog.detach()
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+        self.expect(start=notify_exit)
 
     def test_program_exit_during_attach(self):
-        def exit_during_attach(name, args):
-            if name != "attach":
-                return False
-            self.queue_call(lambda prog: prog.notify_program_exit(0))
-            return True
+        attach_call = Call(self.prog.attach, drgn.AttachFlags.ALL_STOP)
+        attach_op = Op("attach", drgn.AttachFlags.ALL_STOP)
+        notify_exit = ControllerCall(self.prog.notify_program_exit, 0)
+        exit_event = Event(drgn.ProgramExitEvent, 0)
+        attach_op_return = Return(attach_op, True)
+        attach_call_return = Return(attach_call, ANY)
 
-        def exit_event(event):
-            if not isinstance(event, drgn.ProgramExitEvent) or event.status != 0:
-                return False
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED)
-            return True
+        attach_call.next = attach_op
+        attach_op.next = notify_exit
+        notify_exit.next = exit_event
+        exit_event.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.EXITED
+        )
+        exit_event.next = attach_op_return
+        attach_op_return.next = attach_call_return
+        attach_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.EXITED
+        )
 
-        with self.expect(ExpectOp(exit_during_attach), ExpectEvent(exit_event)):
-            self.prog.attach()
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED)
+        self.expect(start=attach_call)
 
-    def test_program_exit_during_detach(self):
-        with self.complete_ops():
-            self.prog.attach(drgn.AttachFlags.ALL_STOP)
-
-        def exit_during_detach(name, args):
-            if name != "detach":
-                return False
-            self.queue_call(lambda prog: prog.notify_program_exit(0))
-            return True
-
-        def exit_event(event):
-            if not isinstance(event, drgn.ProgramExitEvent) or event.status != 0:
-                return False
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHING)
-            return True
-
-        with self.expect(ExpectOp(exit_during_detach), ExpectEvent(exit_event)):
-            self.prog.detach()
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
-
-    def test_program_lost(self):
-        with self.complete_ops():
-            self.prog.attach(drgn.AttachFlags.ALL_STOP)
-
-        def lost_event(event):
-            if (
-                not isinstance(event, drgn.ProgramLostEvent)
-                or not isinstance(event.exception, BrokenPipeError)
-                or event.exception.args != ("bye",)
-            ):
-                return False
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
-            return True
-
-        with self.expect(ExpectEvent(lost_event)):
-            self.queue_call(
-                lambda prog: prog.notify_program_lost(BrokenPipeError("bye"))
-            )
-
-        self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
-
-        with self.complete_ops():
-            self.prog.detach()
-
+        self.prog.detach()
         self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
+    def test_program_exit_during_detach(self):
+        self.prog.attach(drgn.AttachFlags.ALL_STOP)
+
+        detach_call = Call(self.prog.detach)
+        detach_op = Op("detach")
+        notify_exit = ControllerCall(self.prog.notify_program_exit, 0)
+        exit_event = Event(drgn.ProgramExitEvent, 0)
+        detach_op_return = Return(detach_op, None)
+        detach_call_return = Return(detach_call, None)
+
+        detach_call.next = detach_op
+        detach_op.next = notify_exit
+        notify_exit.next = exit_event
+        exit_event.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHING
+        )
+        exit_event.next = detach_op_return
+        detach_op_return.next = detach_call_return
+        detach_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHED
+        )
+
+        self.expect(start=detach_call)
+
+    def test_program_lost(self):
+        self.prog.attach(drgn.AttachFlags.ALL_STOP)
+
+        notify_lost = ControllerCall(
+            self.prog.notify_program_lost, BrokenPipeError("bye")
+        )
+        lost_event = Event(drgn.ProgramLostEvent, BrokenPipeError("bye"))
+        detach_call = Call(self.prog.detach)
+        detach_op = Op("detach")
+        detach_op_return = Return(detach_op, None)
+        detach_call_return = Return(detach_call, None)
+
+        notify_lost.next = lost_event
+        lost_event.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.LOST
+        )
+        lost_event.next = detach_call
+        detach_call.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.LOST
+        )
+        detach_call.next = detach_op
+        detach_op.next = detach_op_return
+        detach_op_return.next = detach_call_return
+        detach_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHED
+        )
+
+        self.expect(start=notify_lost)
+
     def test_program_lost_during_attach(self):
-        def lost_during_attach(name, args):
-            if name != "attach":
-                return False
-            self.queue_call(
-                lambda prog: prog.notify_program_lost(BrokenPipeError("bye"))
-            )
-            return True
+        attach_call = Call(self.prog.attach, drgn.AttachFlags.ALL_STOP)
+        attach_op = Op("attach", drgn.AttachFlags.ALL_STOP)
+        notify_lost = ControllerCall(
+            self.prog.notify_program_lost, BrokenPipeError("bye")
+        )
+        lost_event = Event(drgn.ProgramLostEvent, BrokenPipeError("bye"))
+        attach_op_return = Return(attach_op, True)
+        attach_call_return = Return(attach_call, ANY)
 
-        def lost_event(event):
-            if (
-                not isinstance(event, drgn.ProgramLostEvent)
-                or not isinstance(event.exception, BrokenPipeError)
-                or event.exception.args != ("bye",)
-            ):
-                return False
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
-            return True
+        attach_call.next = attach_op
+        attach_op.next = notify_lost
+        notify_lost.next = lost_event
+        lost_event.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.LOST
+        )
+        lost_event.next = attach_op_return
+        attach_op_return.next = attach_call_return
+        attach_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.LOST
+        )
 
-        with self.expect(ExpectOp(lost_during_attach), ExpectEvent(lost_event)):
-            self.prog.attach()
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.LOST)
+        self.expect(start=attach_call)
+
+        self.prog.detach()
+        self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
 
     def test_program_lost_during_detach(self):
-        with self.complete_ops():
-            self.prog.attach(drgn.AttachFlags.ALL_STOP)
+        self.prog.attach(drgn.AttachFlags.ALL_STOP)
 
-        def lost_during_detach(name, args):
-            if name != "detach":
-                return False
-            self.queue_call(
-                lambda prog: prog.notify_program_lost(BrokenPipeError("bye"))
-            )
-            return True
+        detach_call = Call(self.prog.detach)
+        detach_op = Op("detach")
+        notify_lost = ControllerCall(
+            self.prog.notify_program_lost, BrokenPipeError("bye")
+        )
+        lost_event = Event(drgn.ProgramLostEvent, BrokenPipeError("bye"))
+        detach_op_return = Return(detach_op, None)
+        detach_call_return = Return(detach_call, None)
 
-        def lost_event(event):
-            if (
-                not isinstance(event, drgn.ProgramLostEvent)
-                or not isinstance(event.exception, BrokenPipeError)
-                or event.exception.args != ("bye",)
-            ):
-                return False
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHING)
-            return True
+        detach_call.next = detach_op
+        detach_op.next = notify_lost
+        notify_lost.next = lost_event
+        lost_event.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHING
+        )
+        lost_event.next = detach_op_return
+        detach_op_return.next = detach_call_return
+        detach_call_return.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.DETACHED
+        )
 
-        with self.expect(ExpectOp(lost_during_detach), ExpectEvent(lost_event)):
-            self.prog.detach()
-            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED)
+        self.expect(start=detach_call)
 
 
 class TestAllStop(ExecutionControlTestCase):
@@ -678,9 +768,13 @@ class TestAllStop(ExecutionControlTestCase):
             self.check_none_stopped()
 
             notify_thread_stop = ControllerCall(
-                self.prog.notify_thread_stop, self.prog.thread(1), signal.SIGWINCH, 0x1337
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
             )
             stop_all_threads = Op("stop_all_threads")
+            stop_all_threads_return = Return(stop_all_threads, None)
             stop_event = Event(drgn.ThreadStopEvent, self.prog.thread(1))
 
             def check_stopped():
@@ -689,12 +783,12 @@ class TestAllStop(ExecutionControlTestCase):
                     {
                         **self.all_stop(),
                         1: drgn.SignalStopReason(signal.SIGWINCH),
-                    }
+                    },
                 )
 
             notify_thread_stop.next = stop_all_threads
-            stop_all_threads.next = stop_all_threads.done
-            stop_all_threads.done.next = stop_event
+            stop_all_threads.next = stop_all_threads_return
+            stop_all_threads_return.next = stop_event
             stop_event.on = check_stopped
 
             self.expect(start=notify_thread_stop)
@@ -703,6 +797,7 @@ class TestAllStop(ExecutionControlTestCase):
 
     def test_signal_stop_explicit(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+
             def check_stop_reasons():
                 self.assertEqual(
                     self.prog.thread(1).stop_reason,
@@ -730,113 +825,170 @@ class TestAllStop(ExecutionControlTestCase):
             check_stop_reasons()
 
     def test_signal_cont(self):
-        for continue_tid, msg in (
-            (1, "continuing stopped thread"),
-            (2, "continuing unrelated thread"),
-        ):
-            with self.subTest(msg):
-                with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-                    self.queue_call(
-                        self.prog.notify_thread_stop, self.prog.thread(1), signal.SIGWINCH, 0x1337
-                    )
-                    while self.prog.poll(0):
-                        pass
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
 
-                    cont = Call(self.prog.thread(continue_tid).cont)
-                    resume_threads = Op(
-                        "resume_threads",
-                        [
-                            drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
-                            drgn.ContinueResumeAction(None, 0),
-                        ]
-                    )
+            cont = Call(self.prog.thread(1).cont)
+            resume_threads = Op(
+                "resume_threads",
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+            resume_threads_return = Return(resume_threads, None)
+            cont_return = Return(cont, None)
 
-                    cont.next = resume_threads
-                    resume_threads.next = resume_threads.done
-                    resume_threads.done.next = cont.done
-                    cont.done.on = self.check_none_stopped
+            cont.next = resume_threads
+            resume_threads.next = resume_threads_return
+            resume_threads_return.next = cont_return
+            cont_return.on = self.check_none_stopped
 
-                    self.expect(start=cont)
+            self.expect(start=cont)
+
+    def test_signal_cont_unrelated_thread(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
+
+            cont = Call(self.prog.thread(2).cont)
+            resume_threads = Op(
+                "resume_threads",
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+            resume_threads_return = Return(resume_threads, None)
+            cont_return = Return(cont, None)
+
+            cont.next = resume_threads
+            resume_threads.next = resume_threads_return
+            resume_threads_return.next = cont_return
+            cont_return.on = self.check_none_stopped
+
+            self.expect(start=cont)
 
     def test_signal_cont_suppress(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            with self.complete_ops(), self.ignore_events():
-                self.queue_call(
-                    lambda prog: prog.notify_thread_stop(
-                        prog.thread(1), signal.SIGWINCH, 0x1337
-                    )
-                )
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
 
-            with self.expect(
-                ExpectOp(
-                    lambda name, args: name == "resume_threads"
-                    and args == ([drgn.ContinueResumeAction(None, 0)],)
-                )
-            ):
-                self.prog.thread(1).cont(sig=0)
+            cont = Call(self.prog.thread(1).cont, sig=0)
+            resume_threads = Op("resume_threads", [drgn.ContinueResumeAction(None, 0)])
+            resume_threads_return = Return(resume_threads, None)
+            cont_return = Return(cont, None)
 
-                self.assertIsNone(self.prog.thread(1).stop_reason)
-                self.assertIsNone(self.prog.thread(2).stop_reason)
+            cont.next = resume_threads
+            resume_threads.next = resume_threads_return
+            resume_threads_return.next = cont_return
+            cont_return.on = self.check_none_stopped
+
+            self.expect(start=cont)
 
     def test_signal_cont_suppress_by_default(self):
-        for continue_tid, sig, msg in (
-            # The thread to continue and the signal are orthogonal, but it's
-            # overkill to test all of the combinations.
-            (1, signal.SIGTRAP, "continuing stopped thread"),
-            (2, signal.SIGINT, "continuing unrelated thread"),
-        ):
-            with self.subTest(msg, sig=sig):
-                with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-                    with self.complete_ops(), self.ignore_events():
-                        self.queue_call(
-                            lambda prog: prog.notify_thread_stop(
-                                prog.thread(1), sig, 0x1337
-                            )
-                        )
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGTRAP,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
 
-                    with self.expect(
-                        ExpectOp(
-                            lambda name, args: name == "resume_threads"
-                            and args == ([drgn.ContinueResumeAction(None, 0)],)
-                        )
-                    ):
-                        self.prog.thread(continue_tid).cont()
+            cont = Call(self.prog.thread(1).cont)
+            resume_threads = Op("resume_threads", [drgn.ContinueResumeAction(None, 0)])
+            resume_threads_return = Return(resume_threads, None)
+            cont_return = Return(cont, None)
 
-                        self.assertIsNone(self.prog.thread(1).stop_reason)
-                        self.assertIsNone(self.prog.thread(2).stop_reason)
+            cont.next = resume_threads
+            resume_threads.next = resume_threads_return
+            resume_threads_return.next = cont_return
+            cont_return.on = self.check_none_stopped
+
+            self.expect(start=cont)
+
+    def test_signal_cont_unrelated_thread_suppress_by_default(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                # While we're testing the unrelated thread case, we might as
+                # well test a different signal.
+                signal.SIGINT,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
+
+            cont = Call(self.prog.thread(2).cont)
+            resume_threads = Op("resume_threads", [drgn.ContinueResumeAction(None, 0)])
+            resume_threads_return = Return(resume_threads, None)
+            cont_return = Return(cont, None)
+
+            cont.next = resume_threads
+            resume_threads.next = resume_threads_return
+            resume_threads_return.next = cont_return
+            cont_return.on = self.check_none_stopped
+
+            self.expect(start=cont)
 
     def test_signal_cont_different_signal(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            with self.complete_ops(), self.ignore_events():
-                self.queue_call(
-                lambda prog: prog.notify_thread_stop(
-                    prog.thread(1), signal.SIGWINCH, 0x1337
-                )
-)
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
 
-            with self.expect(
-                ExpectOp(
-                    lambda name, args: name == "resume_threads"
-                    and args
-                    == (
-                        [
-                            drgn.ContinueResumeAction(
-                                self.prog.thread(1), signal.SIGUSR1
-                            ),
-                            drgn.ContinueResumeAction(None, 0),
-                        ],
-                    )
-                )
-            ):
-                self.prog.thread(1).cont(sig=signal.SIGUSR1)
+            cont = Call(self.prog.thread(1).cont, sig=signal.SIGUSR1)
+            resume_threads = Op(
+                "resume_threads",
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGUSR1),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+            resume_threads_return = Return(resume_threads, None)
+            cont_return = Return(cont, None)
 
-                self.assertIsNone(self.prog.thread(1).stop_reason)
-                self.assertIsNone(self.prog.thread(2).stop_reason)
+            cont.next = resume_threads
+            resume_threads.next = resume_threads_return
+            resume_threads_return.next = cont_return
+            cont_return.on = self.check_none_stopped
+
+            self.expect(start=cont)
 
     def test_signal_cont_unrelated_thread_with_signal(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
             self.queue_call(
-                self.prog.notify_thread_stop, self.prog.thread(1), signal.SIGWINCH, 0x1337
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
             )
             while self.prog.poll(0):
                 pass
@@ -848,32 +1000,43 @@ class TestAllStop(ExecutionControlTestCase):
                     drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
                     drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGUSR1),
                     drgn.ContinueResumeAction(None, 0),
-                ]
+                ],
             )
+            resume_threads_return = Return(resume_threads, None)
+            cont_return = Return(cont, None)
 
             cont.next = resume_threads
-            resume_threads.next = resume_threads.done
-            resume_threads.done.next = cont.done
-            cont.done.on = self.check_none_stopped
+            resume_threads.next = resume_threads_return
+            resume_threads_return.next = cont_return
+            cont_return.on = self.check_none_stopped
 
             self.expect(start=cont)
 
     def test_simultaneous_stop(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
             notify_thread_stop1 = ControllerCall(
-                self.prog.notify_thread_stop, self.prog.thread(1), signal.SIGWINCH, 0x1337
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
             )
             stop_all_threads = Op("stop_all_threads")
             notify_thread_stop2 = ControllerCall(
-                self.prog.notify_thread_stop, self.prog.thread(2), signal.SIGCHLD, 0xDEAD
+                self.prog.notify_thread_stop,
+                self.prog.thread(2),
+                signal.SIGCHLD,
+                0xDEAD,
             )
+            stop_all_threads_return = Return(stop_all_threads, None)
 
             def stop_event1(tid):
                 other_tid = 2 if tid == 1 else 1
 
                 event1 = Event(drgn.ThreadStopEvent, self.prog.thread(tid))
                 cont1 = Call(self.prog.thread(tid).cont)
+                cont1_return = Return(cont1, None)
                 event2 = Event(drgn.ThreadStopEvent, self.prog.thread(other_tid))
+                cont2 = Call(self.prog.thread(other_tid).cont)
                 resume_threads = Op(
                     "resume_threads",
                     [
@@ -882,18 +1045,19 @@ class TestAllStop(ExecutionControlTestCase):
                         drgn.ContinueResumeAction(None, 0),
                     ],
                 )
-                cont2 = Call(self.prog.thread(other_tid).cont)
+                resume_threads_return = Return(resume_threads, None)
+                cont2_return = Return(cont2, None)
 
                 event1.on = functools.partial(check_stopped_thread, tid)
                 event1.next = cont1
-                cont1.next = cont1.done & event2
-                cont1.done.on = functools.partial(check_stopped_thread, other_tid)
+                cont1.next = cont1_return & event2
+                cont1_return.on = functools.partial(check_stopped_thread, other_tid)
                 event2.on = functools.partial(check_stopped_thread, other_tid)
                 cont1.next.next = cont2
                 cont2.next = resume_threads
-                resume_threads.next = resume_threads.done
-                resume_threads.done.next = cont2.done
-                cont2.done.on = self.check_none_stopped
+                resume_threads.next = resume_threads_return
+                resume_threads_return.next = cont2_return
+                cont2_return.on = self.check_none_stopped
 
                 return event1
 
@@ -902,14 +1066,83 @@ class TestAllStop(ExecutionControlTestCase):
                     self.stopped_threads(),
                     {
                         **self.all_stop(),
-                        tid: drgn.SignalStopReason(signal.SIGWINCH if tid == 1 else signal.SIGCHLD),
-                    }
+                        tid: drgn.SignalStopReason(
+                            signal.SIGWINCH if tid == 1 else signal.SIGCHLD
+                        ),
+                    },
                 )
 
             notify_thread_stop1.next = stop_all_threads
             stop_all_threads.next = notify_thread_stop2
-            notify_thread_stop2.next = stop_all_threads.done
-            stop_all_threads.done.next = stop_event1(1) | stop_event1(2)
+            notify_thread_stop2.next = stop_all_threads_return
+            stop_all_threads_return.next = stop_event1(1) | stop_event1(2)
+
+            self.expect(start=notify_thread_stop1)
+
+    def test_simultaneous_stop_cont_other_thread(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            notify_thread_stop1 = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            stop_all_threads = Op("stop_all_threads")
+            notify_thread_stop2 = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(2),
+                signal.SIGCHLD,
+                0xDEAD,
+            )
+            stop_all_threads_return = Return(stop_all_threads, None)
+
+            def stop_event1(tid):
+                other_tid = 2 if tid == 1 else 1
+
+                event1 = Event(drgn.ThreadStopEvent, self.prog.thread(tid))
+                cont1 = Call(self.prog.thread(other_tid).cont)
+                cont1_return = Return(cont1, None)
+                event2 = Event(drgn.ThreadStopEvent, self.prog.thread(other_tid))
+                cont2 = Call(self.prog.thread(tid).cont)
+                resume_threads = Op(
+                    "resume_threads",
+                    [
+                        drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                        drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
+                        drgn.ContinueResumeAction(None, 0),
+                    ],
+                )
+                resume_threads_return = Return(resume_threads, None)
+                cont2_return = Return(cont2, None)
+
+                event1.on = functools.partial(check_stopped_thread, tid)
+                event1.next = cont1
+                cont1.next = cont1_return & event2
+                cont1_return.on = functools.partial(check_stopped_thread, other_tid)
+                event2.on = functools.partial(check_stopped_thread, other_tid)
+                cont1.next.next = cont2
+                cont2.next = resume_threads
+                resume_threads.next = resume_threads_return
+                resume_threads_return.next = cont2_return
+                cont2_return.on = self.check_none_stopped
+
+                return event1
+
+            def check_stopped_thread(tid):
+                self.assertEqual(
+                    self.stopped_threads(),
+                    {
+                        **self.all_stop(),
+                        tid: drgn.SignalStopReason(
+                            signal.SIGWINCH if tid == 1 else signal.SIGCHLD
+                        ),
+                    },
+                )
+
+            notify_thread_stop1.next = stop_all_threads
+            stop_all_threads.next = notify_thread_stop2
+            notify_thread_stop2.next = stop_all_threads_return
+            stop_all_threads_return.next = stop_event1(1) | stop_event1(2)
 
             self.expect(start=notify_thread_stop1)
 
