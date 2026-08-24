@@ -5067,6 +5067,39 @@ absent:
 		drgn_object_set_absent_internal(ret, &type, absence_reason);
 		err = NULL;
 	} else if (bit_offset >= 0) {
+		/*
+		 * If the type is an incomplete array and we have an address,
+		 * try to use the ELF symbol size to create a complete array type.
+		 * This works around compilers that emit incomplete array types
+		 * in DWARF even when the array has a known size in the symbol table.
+		 */
+		if (qualified_type.type &&
+		    drgn_type_kind(qualified_type.type) == DRGN_TYPE_ARRAY &&
+		    !drgn_type_is_complete(qualified_type.type)) {
+			struct drgn_symbol *sym = NULL;
+			err = drgn_program_find_symbol_by_address_internal(prog, address, &sym);
+			if (!err && sym && sym->size > 0) {
+				struct drgn_qualified_type element_type =
+					drgn_type_type(qualified_type.type);
+				uint64_t element_size;
+				err = drgn_type_sizeof(element_type.type, &element_size);
+				if (!err && element_size > 0) {
+					uint64_t length = sym->size / element_size;
+					struct drgn_type *complete_array_type;
+					err = drgn_array_type_create(prog, element_type,
+								     length,
+								     drgn_type_language(qualified_type.type),
+								     &complete_array_type);
+					if (!err) {
+						qualified_type.type = complete_array_type;
+						err = drgn_object_type(qualified_type, 0, &type);
+					}
+				}
+			}
+			drgn_symbol_destroy(sym);
+			if (err)
+				goto out;
+		}
 		err = drgn_object_set_reference_internal(ret, &type, address,
 							 bit_offset);
 	} else if (type.encoding == DRGN_OBJECT_ENCODING_BUFFER) {
