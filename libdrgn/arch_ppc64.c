@@ -326,6 +326,42 @@ get_index(struct pgtable_iterator_ppc64 *it_arch, uint64_t va, uint16_t level)
 }
 
 static struct drgn_error *
+fail_if_not_radix_enabled(struct drgn_program * prog)
+{
+	// Note that this is a shortcut that allows working with physical
+	// memory only programs with VMCOREINFO. This was added in
+	// linux kernel commit 36e826b568e4 ("powerpc/vmcore: Add MMU
+	// information to vmcoreinfo"), in Linux 6.7.
+	if (prog->vmcoreinfo.have_ppc64_radix_mmu) {
+		if (prog->vmcoreinfo.ppc64_radix_mmu)
+			return NULL;
+		else
+			return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+						 "virtual address translation is only supported for Radix MMU");
+	}
+
+	struct drgn_error *err;
+	DRGN_OBJECT(tmp, prog);
+	// Identify the MMU type.
+	err = drgn_program_find_object(prog, "cur_cpu_spec", NULL,
+	                               DRGN_FIND_OBJECT_ANY, &tmp);
+	if (err)
+	        return err;
+	err = drgn_object_member_dereference(&tmp, &tmp, "mmu_features");
+	if (err)
+	        return err;
+	uint64_t mmu_features;
+	err = drgn_object_read_unsigned(&tmp, &mmu_features);
+	if (err)
+	        return err;
+	if (!(mmu_features & 0x40)) {
+	        return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+	                                 "virtual address translation is only supported for Radix MMU");
+	}
+	return NULL;
+}
+
+static struct drgn_error *
 linux_kernel_pgtable_iterator_arch_create_ppc64(struct drgn_program * prog,
 						void **ret)
 {
@@ -356,23 +392,9 @@ linux_kernel_pgtable_iterator_arch_create_ppc64(struct drgn_program * prog,
 	if (!drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 		return err;
 
-	// Identify the MMU type.
-	err = drgn_program_find_object(prog, "cur_cpu_spec", NULL,
-				       DRGN_FIND_OBJECT_ANY, &tmp);
+	err = fail_if_not_radix_enabled(prog);
 	if (err)
 		return err;
-	err = drgn_object_member_dereference(&tmp, &tmp, "mmu_features");
-	if (err)
-		return err;
-	uint64_t mmu_features;
-	err = drgn_object_read_unsigned(&tmp, &mmu_features);
-
-	if (err)
-		return err;
-	if (!(mmu_features & 0x40)) {
-		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
-					 "virtual address translation is only supported for Radix MMU");
-	}
 
 	*ret = no_cleanup_ptr(it_arch);
 	return NULL;
@@ -398,19 +420,21 @@ linux_kernel_pgtable_iterator_next_ppc64(struct drgn_program *prog,
 	static const uint64_t PAGE_PRESENT = UINT64_C(1) << 63;
 	static const uint64_t PAGE_PTE = UINT64_C(1) << 62;
 	static const uint64_t PT_MASK = UINT64_C(0xc0000000000000ff);
+	static const uint64_t KERNELBASE = UINT64_C(0xc000000000000000);
 	static const uint16_t levels = 4;
 	struct drgn_error *err;
 	struct pgtable_iterator_ppc64 *it_arch = it->arch;
 	uint64_t virt_addr = it->virt_addr;
 
+	uint64_t table = it->pgtable;
+	bool table_physical = false;
+	if (table == prog->vmcoreinfo.swapper_pg_dir) {
+		table -= KERNELBASE;
+		table_physical = true;
+	}
 	uint64_t entry;
 	for (uint16_t level = levels;; level--) {
-		uint64_t table;
-		bool table_physical;
-		if (level == levels) {
-			table = it->pgtable;
-			table_physical = false;
-		} else {
+		if (level != levels) {
 			// PAGE_PTE bit represents huge page.
 			if (!(entry & PAGE_PRESENT) || (entry & PAGE_PTE) || level == 0) {
 				uint64_t mask = (UINT64_C(1) << it_arch->pt_levels[level].shift) - 1;
