@@ -103,6 +103,8 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
     LOG_CONT = prog["LOG_CONT"].value_()
     desc_committed = prog["desc_committed"].value_()
     desc_finalized = prog["desc_finalized"].value_()
+    LPOS_DATALESS = 0x1
+    EMPTY_LINE_LPOS = 0x3
 
     def record_committed(current_id: int, state_var: int) -> bool:
         state_desc_id = state_var & DESC_ID_MASK
@@ -130,23 +132,35 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
 
         lpos_begin = (desc.text_blk_lpos.begin & text_data_ring_mask).value_()
         lpos_next = (desc.text_blk_lpos.next & text_data_ring_mask).value_()
-        lpos_begin += ulong_size
 
-        if lpos_begin == lpos_next:
-            # Data-less record.
+        data_less = (lpos_begin & LPOS_DATALESS) and (lpos_next & LPOS_DATALESS)
+        if data_less and (
+            lpos_begin != EMPTY_LINE_LPOS or lpos_next != EMPTY_LINE_LPOS
+        ):
+            # Lost, invalid or otherwise unavailable data.
             return
-        if lpos_next == 0:
-            # The block ends exactly at the ring boundary. Represent offset 0 as
-            # the end of the ring so that the text length can be calculated.
-            lpos_next = text_data_ring_size
-        if lpos_begin > lpos_next:
-            # Data wrapped.
-            lpos_begin = ulong_size
+
         info = infos[idx].read_()
-        text_len = info.text_len.value_()
-        if lpos_next - lpos_begin < text_len:
-            # Truncated record.
-            text_len = lpos_next - lpos_begin
+        if data_less:
+            # Empty-line record.
+            text = b""
+        else:
+            if lpos_next == 0:
+                # The block ends exactly at the ring boundary. Represent offset 0
+                # as the end of the ring so that the text length can be calculated.
+                lpos_next = text_data_ring_size
+            if lpos_begin > lpos_next:
+                # Data wrapped.
+                lpos_begin = 0
+
+            # Skip the block id.
+            lpos_begin += ulong_size
+
+            text_len = info.text_len.value_()
+            if lpos_next - lpos_begin < text_len:
+                # Truncated record.
+                text_len = lpos_next - lpos_begin
+            text = prog.read(text_data_ring_data + lpos_begin, text_len)
 
         caller_tid, caller_cpu = _caller_id(info.caller_id.value_())
 
@@ -160,7 +174,7 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
 
         result.append(
             PrintkRecord(
-                text=prog.read(text_data_ring_data + lpos_begin, text_len),
+                text=text,
                 facility=info.facility.value_(),
                 level=info.level.value_(),
                 seq=info.seq.value_(),
