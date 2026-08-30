@@ -2007,6 +2007,23 @@ class Module:
         """
         ...
 
+    def load_btf(
+        self,
+        *,
+        data: Union[bytes, str, None] = None,
+        main_module_base: Union[bool, None] = None,
+    ) -> None:
+        """
+        Load BPF Type Format (BTF) for this module, for type and object finding.
+
+        :param data: An optional buffer containing BTF data
+        :param main_module_base: Whether the main module BTF should be used as
+          the split BTF base. When unspecified or ``None``, the default depends
+          on the target.  For Linux kernel programs, the default is ``True``,
+          and for userspace programs, the default is ``False``.
+        """
+        ...
+
     def try_file(
         self,
         path: Path,
@@ -4156,6 +4173,7 @@ _have_debuginfod: bool
 _enable_dlopen_debuginfod: bool
 _with_json_c: bool
 _with_libkdumpfile: bool
+_with_libbpf: bool
 _with_lzma: bool
 _with_pcre2: bool
 _with_pcre2_utf: bool

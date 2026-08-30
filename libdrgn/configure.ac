@@ -158,6 +158,19 @@ AS_CASE(["x$with_json_c"],
 AM_CONDITIONAL([WITH_JSON_C], [test "x$with_json_c" = xyes])
 AM_COND_IF([WITH_JSON_C], [AC_DEFINE(WITH_JSON_C)])
 
+AC_ARG_WITH([libbpf],
+	    [AS_HELP_STRING([--with-libbpf],
+			    [build with support for loading BTF type information with libbpf
+			     @<:@default=auto@:>@])],
+			     [], [with_libbpf=auto])
+AS_CASE(["x$with_libbpf"],
+	[xyes], [PKG_CHECK_MODULES(bpf, [libbpf >= 1.0.0])],
+	[xauto], [PKG_CHECK_MODULES(bpf, [libbpf >= 1.0.0],
+				    [with_libbpf=yes],
+				    [with_libbpf=no])])
+AM_CONDITIONAL([WITH_LIBBPF], [test "x$with_libbpf" = xyes])
+AM_COND_IF([WITH_LIBBPF], [AC_DEFINE(WITH_LIBBPF)])
+
 dnl We need check for running tests, but we don't want to fail the build over
 dnl it. Instead, if it's not found, set variables so that only `make check`
 dnl fails.
