@@ -117,7 +117,8 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
     desc_ring_mask = (1 << desc_ring.count_bits.value_()) - 1
     text_data_ring = prb.text_data_ring
     text_data_ring_data = text_data_ring.data.read_()
-    text_data_ring_mask = (1 << text_data_ring.size_bits) - 1
+    text_data_ring_size = 1 << text_data_ring.size_bits
+    text_data_ring_mask = text_data_ring_size - 1
 
     result = []
 
@@ -134,9 +135,13 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
         if lpos_begin == lpos_next:
             # Data-less record.
             return
+        if lpos_next == 0:
+            # The block ends exactly at the ring boundary. Represent offset 0 as
+            # the end of the ring so that the text length can be calculated.
+            lpos_next = text_data_ring_size
         if lpos_begin > lpos_next:
             # Data wrapped.
-            lpos_begin = 0
+            lpos_begin = ulong_size
         info = infos[idx].read_()
         text_len = info.text_len.value_()
         if lpos_next - lpos_begin < text_len:
