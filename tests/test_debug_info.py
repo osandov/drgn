@@ -7,11 +7,12 @@ import contextlib
 import os
 import os.path
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 import unittest.mock
 
-from _drgn_util.elf import ET, PT, SHF, SHT
+from _drgn_util.elf import AT, ET, NT, PT, SHF, SHT
 from drgn import (
     DebugInfoOptions,
     MainModule,
@@ -48,6 +49,64 @@ def NamedTemporaryElfFile(*, loadable=True, debug=True, sections=(), **kwargs):
             f.write(create_elf_file(ET.EXEC, sections=sections, **kwargs))
         f.flush()
         yield f
+
+
+@contextlib.contextmanager
+def _userspace_core(main_load_segments):
+    main_address = 0x10000
+    main_elf = create_elf_file(
+        ET.DYN,
+        [
+            ElfSection(
+                p_type=PT.LOAD,
+                p_offset=0 if i == 0 else None,
+                vaddr=vaddr,
+                data=b"\0",
+                memsz=memsz,
+            )
+            for i, (vaddr, memsz) in enumerate(main_load_segments)
+        ],
+    )
+    main_phoff = struct.unpack_from("<Q", main_elf, 32)[0]
+    main_phnum = struct.unpack_from("<H", main_elf, 56)[0]
+    auxv_entries = [
+        (AT.PHDR, main_address + main_phoff),
+        (AT.PHNUM, main_phnum),
+        (AT.PAGESZ, 0x1000),
+    ]
+    auxv_entries.append((AT.NULL, 0))
+    auxv = b"".join(struct.pack("<QQ", *entry) for entry in auxv_entries)
+
+    def elf_note(type, desc):
+        return (
+            struct.pack("<III", 5, len(desc), type)
+            + b"CORE\0\0\0\0"
+            + desc
+            + bytes(-len(desc) % 4)
+        )
+
+    nt_file = (
+        struct.pack(
+            "<QQQQQ",
+            1,  # count
+            0x1000,  # page size
+            main_address,
+            main_address + len(main_elf),
+            0,  # file offset in pages
+        )
+        + b"/main\0"
+    )
+    note = elf_note(NT.AUXV, auxv) + elf_note(NT.FILE, nt_file)
+    sections = [
+        ElfSection(p_type=PT.NOTE, data=note),
+        ElfSection(p_type=PT.LOAD, vaddr=main_address, data=main_elf),
+    ]
+    with tempfile.NamedTemporaryFile() as f:
+        f.write(create_elf_file(ET.CORE, sections))
+        f.flush()
+        prog = Program()
+        prog.set_core_dump(f.name)
+        yield prog
 
 
 class TestModuleTryFile(TestCase):
@@ -622,6 +681,39 @@ class TestLinuxUserspaceCoreDump(TestCase):
         self.prog.debug_info_options.debug_link_directories = ()
         self.prog.set_enabled_debug_info_finders(["standard"])
 
+    def test_loaded_module_ranges_from_phdrs(self):
+        cases = (
+            (
+                "single unaligned end",
+                ((0, 0x801),),
+                ((0x10000, 0x11000),),
+            ),
+            (
+                "adjacent after alignment",
+                ((0, 0x801), (0x1000, 0x801)),
+                ((0x10000, 0x12000),),
+            ),
+            (
+                "overlapping after alignment",
+                ((0, 0x1800), (0x1800, 0x1001)),
+                ((0x10000, 0x13000),),
+            ),
+            (
+                "disjoint after alignment",
+                ((0, 0x801), (0x2000, 0x801)),
+                ((0x10000, 0x11000), (0x12000, 0x13000)),
+            ),
+            (
+                "unaligned start",
+                ((0x123, 0x801),),
+                ((0x10000, 0x11000),),
+            ),
+        )
+        for name, load_segments, expected_ranges in cases:
+            with self.subTest(name=name), _userspace_core(load_segments) as prog:
+                prog.create_loaded_modules()
+                self.assertEqual(prog.main_module().address_ranges, expected_ranges)
+
     def test_loaded_modules(self):
         self.prog.set_core_dump(get_resource("crashme.core"))
 
@@ -635,7 +727,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
             module = self.prog.main_module()
             found_modules.append(module)
             self.assertEqual(module.name, "/home/osandov/crashme")
-            self.assertEqual(module.address_range, (0x400000, 0x404010))
+            self.assertEqual(module.address_range, (0x400000, 0x405000))
             self.assertEqual(
                 module.build_id.hex(), "99a6524c4df01fbff9b43a6ead3d8e8e6201568b"
             )
@@ -645,7 +737,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
                 "/home/osandov/crashme.so", 0x7F6112CACE08
             )
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7F6112CA9000, 0x7F6112CAD010))
+            self.assertEqual(module.address_range, (0x7F6112CA9000, 0x7F6112CAE000))
             self.assertEqual(
                 module.build_id.hex(), "7bd58f10e741c3c8fbcf2031aa65f830f933d616"
             )
@@ -653,7 +745,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
         with self.subTest(module="libc"):
             module = self.prog.shared_library_module("/lib64/libc.so.6", 0x7F6112C94960)
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7F6112AAE000, 0x7F6112C9EB70))
+            self.assertEqual(module.address_range, (0x7F6112AAE000, 0x7F6112C9F000))
             self.assertEqual(
                 module.build_id.hex(), "77c77fee058b19c6f001cf2cb0371ce3b8341211"
             )
@@ -663,7 +755,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
                 "/lib64/ld-linux-x86-64.so.2", 0x7F6112CEAE68
             )
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7F6112CB6000, 0x7F6112CEC2D8))
+            self.assertEqual(module.address_range, (0x7F6112CB6000, 0x7F6112CED000))
             self.assertEqual(
                 module.build_id.hex(), "91dcd0244204201b616bbf59427771b3751736ce"
             )
@@ -671,7 +763,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
         with self.subTest(module="vdso"):
             module = self.prog.vdso_module("linux-vdso.so.1", 0x7F6112CB4438)
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7F6112CB4000, 0x7F6112CB590F))
+            self.assertEqual(module.address_range, (0x7F6112CB4000, 0x7F6112CB6000))
             self.assertEqual(
                 module.build_id.hex(), "fdc3e4d463911345fbc6d9cc432e5ebc276e8e03"
             )
@@ -726,7 +818,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
             module = self.prog.main_module()
             found_modules.append(module)
             self.assertEqual(module.name, "/home/osandov/crashme_pie")
-            self.assertEqual(module.address_range, (0x557ED343D000, 0x557ED3441018))
+            self.assertEqual(module.address_range, (0x557ED343D000, 0x557ED3442000))
             self.assertEqual(
                 module.build_id.hex(), "eb4ad7aaded3815ab133a6d7784a2c95a4e52998"
             )
@@ -736,7 +828,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
                 "/home/osandov/crashme.so", 0x7FAB2C38DE08
             )
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7FAB2C38A000, 0x7FAB2C38E010))
+            self.assertEqual(module.address_range, (0x7FAB2C38A000, 0x7FAB2C38F000))
             self.assertEqual(
                 module.build_id.hex(), "7bd58f10e741c3c8fbcf2031aa65f830f933d616"
             )
@@ -744,7 +836,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
         with self.subTest(module="libc"):
             module = self.prog.shared_library_module("/lib64/libc.so.6", 0x7FAB2C375960)
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7FAB2C18F000, 0x7FAB2C37FB70))
+            self.assertEqual(module.address_range, (0x7FAB2C18F000, 0x7FAB2C380000))
             self.assertEqual(
                 module.build_id.hex(), "77c77fee058b19c6f001cf2cb0371ce3b8341211"
             )
@@ -754,7 +846,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
                 "/lib64/ld-linux-x86-64.so.2", 0x7FAB2C3CBE68
             )
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7FAB2C397000, 0x7FAB2C3CD2D8))
+            self.assertEqual(module.address_range, (0x7FAB2C397000, 0x7FAB2C3CE000))
             self.assertEqual(
                 module.build_id.hex(), "91dcd0244204201b616bbf59427771b3751736ce"
             )
@@ -762,7 +854,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
         with self.subTest(module="vdso"):
             module = self.prog.vdso_module("linux-vdso.so.1", 0x7FAB2C395438)
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7FAB2C395000, 0x7FAB2C39690F))
+            self.assertEqual(module.address_range, (0x7FAB2C395000, 0x7FAB2C397000))
             self.assertEqual(
                 module.build_id.hex(), "fdc3e4d463911345fbc6d9cc432e5ebc276e8e03"
             )
@@ -812,7 +904,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
             module = self.prog.main_module()
             found_modules.append(module)
             self.assertEqual(module.name, "/home/osandov/crashme_static")
-            self.assertEqual(module.address_range, (0x400000, 0x4042B8))
+            self.assertEqual(module.address_range, (0x400000, 0x405000))
             self.assertEqual(
                 module.build_id.hex(), "a0b6befad9f0883c52c475ba3cee9c549cd082cf"
             )
@@ -820,7 +912,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
         with self.subTest(module="vdso"):
             module = self.prog.vdso_module("linux-vdso.so.1", 0x7FBC73A66438)
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7FBC73A66000, 0x7FBC73A6790F))
+            self.assertEqual(module.address_range, (0x7FBC73A66000, 0x7FBC73A68000))
             self.assertEqual(
                 module.build_id.hex(), "fdc3e4d463911345fbc6d9cc432e5ebc276e8e03"
             )
@@ -862,7 +954,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
             module = self.prog.main_module()
             found_modules.append(module)
             self.assertEqual(module.name, "/home/osandov/crashme_static_pie")
-            self.assertEqual(module.address_range, (0x7FD981DC9000, 0x7FD981DCD278))
+            self.assertEqual(module.address_range, (0x7FD981DC9000, 0x7FD981DCE000))
             self.assertEqual(
                 module.build_id.hex(), "3e0bc47f80d7e64724e11fc021a251ed0d35bc2c"
             )
@@ -870,7 +962,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
         with self.subTest(module="vdso"):
             module = self.prog.vdso_module("linux-vdso.so.1", 0x7FD981DC7438)
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7FD981DC7000, 0x7FD981DC890F))
+            self.assertEqual(module.address_range, (0x7FD981DC7000, 0x7FD981DC9000))
             self.assertEqual(
                 module.build_id.hex(), "fdc3e4d463911345fbc6d9cc432e5ebc276e8e03"
             )
@@ -921,7 +1013,7 @@ class TestLinuxUserspaceCoreDump(TestCase):
         with self.subTest(module="vdso"):
             module = self.prog.vdso_module("linux-vdso.so.1", 0x7F299F607438)
             found_modules.append(module)
-            self.assertEqual(module.address_range, (0x7F299F607000, 0x7F299F60890F))
+            self.assertEqual(module.address_range, (0x7F299F607000, 0x7F299F609000))
             self.assertEqual(
                 module.build_id.hex(), "fdc3e4d463911345fbc6d9cc432e5ebc276e8e03"
             )

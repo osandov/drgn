@@ -157,6 +157,8 @@ DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_module_address_tree, node,
 				    drgn_module_address_range_key,
 				    binary_search_tree_scalar_cmp, splay);
 
+DEFINE_VECTOR(uint64_pair_vector, uint64_t [2]);
+
 static void drgn_module_free_section_addresses(struct drgn_module *module)
 {
 	hash_table_for_each(drgn_module_section_address_map, it,
@@ -3822,14 +3824,43 @@ identify_module_from_phdrs(struct userspace_loaded_module_iterator *it,
 	struct drgn_error *err;
 	struct drgn_program *prog = it->it.prog;
 
-	uint64_t start = UINT64_MAX, end = 0;
+	VECTOR(uint64_pair_vector, ranges);
+	uint64_t page_mask = 0;
+	if (prog->auxv.at_pagesz)
+		page_mask = prog->auxv.at_pagesz - 1;
 	for (size_t i = 0; i < phnum; i++) {
 		GElf_Phdr phdr;
 		userspace_loaded_module_iterator_phdr(it, i, &phdr);
 		if (phdr.p_type == PT_LOAD) {
-			// Like elf_address_range_from_min_and_max_phdr().
-			start = min(start, phdr.p_vaddr + bias);
-			end = max(end, phdr.p_vaddr + phdr.p_memsz + bias);
+			uint64_t range[2] = {
+				(phdr.p_vaddr + bias),
+				(phdr.p_vaddr + phdr.p_memsz + bias),
+			};
+			// PT_LOAD segments may leave gaps large enough to
+			// enclose a mapped region from another module. This has
+			// been observed in practice on aarch64 systems linked
+			// for 64k pages, but with a runtime page size of 4k:
+			// https://github.com/osandov/drgn/issues/645
+			// Mapping each segment individually would unnecessarily
+			// fragment the address range tree. Page-align each
+			// segment and merge overlapping or adjacent ones to
+			// avoid fragmentation. We rely on the sorted ordering
+			// of PT_LOAD segments on p_vaddr for this to work,
+			// which is guaranteed by the ELF System V ABI 4.1, Ch.
+			// 5: "Loadable segment entries in the program header
+			// table appear in ascending order, sorted on the
+			// p_vaddr member."
+			if (page_mask) {
+				range[0] &= ~page_mask;
+				range[1] = (range[1] + page_mask) & ~page_mask;
+			}
+			if (!uint64_pair_vector_empty(&ranges)
+			    && (*uint64_pair_vector_last(&ranges))[1] >= range[0])
+				(*uint64_pair_vector_last(&ranges))[1] =
+					max((*uint64_pair_vector_last(&ranges))[1],
+					    range[1]);
+			else if (!uint64_pair_vector_append(&ranges, &range))
+				return &drgn_enomem;
 		} else if (phdr.p_type == PT_NOTE
 			   && module->build_id_len == 0) {
 			uint64_t note_size = min(phdr.p_filesz, phdr.p_memsz);
@@ -3885,16 +3916,19 @@ identify_module_from_phdrs(struct userspace_loaded_module_iterator *it,
 		drgn_log_debug(prog,
 			       "couldn't find build ID from mapped program headers");
 	}
-	if (start < end) {
-		err = drgn_module_set_address_range(module, start, end);
-		if (err)
-			return err;
-		drgn_log_debug(prog,
-			       "got address range 0x%" PRIx64 "-0x%" PRIx64 " from mapped program headers",
-			       start, end);
-	} else {
+	if (uint64_pair_vector_empty(&ranges)) {
 		drgn_log_debug(prog,
 			       "couldn't find address range from mapped program headers");
+	} else {
+		err = drgn_module_set_address_ranges(module,
+						     uint64_pair_vector_begin(&ranges),
+						     uint64_pair_vector_size(&ranges));
+		if (err)
+			return err;
+		vector_for_each(uint64_pair_vector, range, &ranges)
+			drgn_log_debug(prog,
+				       "got address range 0x%" PRIx64 "-0x%" PRIx64 " from mapped program headers",
+				       (*range)[0], (*range)[1]);
 	}
 	return NULL;
 }

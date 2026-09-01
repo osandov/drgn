@@ -963,6 +963,11 @@ struct drgn_error *drgn_program_cache_auxv(struct drgn_program *prog)
 				       auxv.a_un.a_val);
 			prog->auxv.at_sysinfo_ehdr = auxv.a_un.a_val;
 			break;
+		case AT_PAGESZ:
+			drgn_log_debug(prog, "found AT_PAGESZ %" PRIu64,
+				       auxv.a_un.a_val);
+			prog->auxv.at_pagesz = auxv.a_un.a_val;
+			break;
 		}
 	}
 #undef visit_aux_members
