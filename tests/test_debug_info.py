@@ -7,11 +7,12 @@ import contextlib
 import os
 import os.path
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 import unittest.mock
 
-from _drgn_util.elf import ET, PT, SHF, SHT
+from _drgn_util.elf import AT, ET, NT, PT, SHF, SHT
 from drgn import (
     DebugInfoOptions,
     MainModule,
@@ -48,6 +49,64 @@ def NamedTemporaryElfFile(*, loadable=True, debug=True, sections=(), **kwargs):
             f.write(create_elf_file(ET.EXEC, sections=sections, **kwargs))
         f.flush()
         yield f
+
+
+@contextlib.contextmanager
+def _userspace_core(main_load_segments):
+    main_address = 0x10000
+    main_elf = create_elf_file(
+        ET.DYN,
+        [
+            ElfSection(
+                p_type=PT.LOAD,
+                p_offset=0 if i == 0 else None,
+                vaddr=vaddr,
+                data=b"\0",
+                memsz=memsz,
+            )
+            for i, (vaddr, memsz) in enumerate(main_load_segments)
+        ],
+    )
+    main_phoff = struct.unpack_from("<Q", main_elf, 32)[0]
+    main_phnum = struct.unpack_from("<H", main_elf, 56)[0]
+    auxv_entries = [
+        (AT.PHDR, main_address + main_phoff),
+        (AT.PHNUM, main_phnum),
+        (AT.PAGESZ, 0x1000),
+    ]
+    auxv_entries.append((AT.NULL, 0))
+    auxv = b"".join(struct.pack("<QQ", *entry) for entry in auxv_entries)
+
+    def elf_note(type, desc):
+        return (
+            struct.pack("<III", 5, len(desc), type)
+            + b"CORE\0\0\0\0"
+            + desc
+            + bytes(-len(desc) % 4)
+        )
+
+    nt_file = (
+        struct.pack(
+            "<QQQQQ",
+            1,  # count
+            0x1000,  # page size
+            main_address,
+            main_address + len(main_elf),
+            0,  # file offset in pages
+        )
+        + b"/main\0"
+    )
+    note = elf_note(NT.AUXV, auxv) + elf_note(NT.FILE, nt_file)
+    sections = [
+        ElfSection(p_type=PT.NOTE, data=note),
+        ElfSection(p_type=PT.LOAD, vaddr=main_address, data=main_elf),
+    ]
+    with tempfile.NamedTemporaryFile() as f:
+        f.write(create_elf_file(ET.CORE, sections))
+        f.flush()
+        prog = Program()
+        prog.set_core_dump(f.name)
+        yield prog
 
 
 class TestModuleTryFile(TestCase):
@@ -621,6 +680,39 @@ class TestLinuxUserspaceCoreDump(TestCase):
         self.prog.debug_info_options.directories = ()
         self.prog.debug_info_options.debug_link_directories = ()
         self.prog.set_enabled_debug_info_finders(["standard"])
+
+    def test_loaded_module_ranges_from_phdrs(self):
+        cases = (
+            (
+                "single unaligned end",
+                ((0, 0x801),),
+                ((0x10000, 0x11000),),
+            ),
+            (
+                "adjacent after alignment",
+                ((0, 0x801), (0x1000, 0x801)),
+                ((0x10000, 0x12000),),
+            ),
+            (
+                "overlapping after alignment",
+                ((0, 0x1800), (0x1800, 0x1001)),
+                ((0x10000, 0x13000),),
+            ),
+            (
+                "disjoint after alignment",
+                ((0, 0x801), (0x2000, 0x801)),
+                ((0x10000, 0x11000), (0x12000, 0x13000)),
+            ),
+            (
+                "unaligned start",
+                ((0x123, 0x801),),
+                ((0x10000, 0x11000),),
+            ),
+        )
+        for name, load_segments, expected_ranges in cases:
+            with self.subTest(name=name), _userspace_core(load_segments) as prog:
+                prog.create_loaded_modules()
+                self.assertEqual(prog.main_module().address_ranges, expected_ranges)
 
     def test_loaded_modules(self):
         self.prog.set_core_dump(get_resource("crashme.core"))
