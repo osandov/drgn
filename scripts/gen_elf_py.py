@@ -20,7 +20,9 @@ def main() -> None:
     enums = {
         name: []
         for name in (
+            "AT",
             "ET",
+            "NT",
             "PT",
             "SHF",
             "SHN",
@@ -43,6 +45,9 @@ def main() -> None:
             value = int(match.group("value"), 0)
         else:
             value = 1 << int(match.group("bitshift"), 10)
+        # Prefix constants like NT_386_TLS -> NT._386_TLS
+        if name[0].isdigit():
+            name = "_" + name
         enums[enum].append((name, value))
 
     f = sys.stdout
