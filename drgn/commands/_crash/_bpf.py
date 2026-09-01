@@ -24,6 +24,8 @@ from drgn.helpers.linux.bpf import (
     bpf_map_by_id,
     bpf_map_for_each,
     bpf_prog_by_id,
+    bpf_prog_disasm,
+    bpf_prog_disasm_jited,
     bpf_prog_for_each,
     bpf_prog_used_maps,
 )
@@ -71,6 +73,24 @@ from drgn.helpers.linux.user import kuid_val
             action="store_const",
             const=10,
             help="output integers in decimal format in the -s struct dump",
+        ),
+        argument(
+            "-t",
+            dest="translate_bytecode",
+            action="store_true",
+            help="translate the bytecode of the specified program ID.",
+        ),
+        argument(
+            "-T",
+            dest="dump_bytecode",
+            action="store_true",
+            help="same as -t, and also dump the bytecode of each instruction.",
+        ),
+        argument(
+            "-j",
+            dest="disassemble_jit",
+            action="store_true",
+            help="disassemble the jited code of the specified program ID.",
         ),
         drgn_argument,
     ),
@@ -199,6 +219,12 @@ for bpf_map in bpf_map_for_each(prog):
             print()
 
             print(aux[0].format_(**format_options))
+
+        if args.disassemble_jit:
+            bpf_prog_disasm_jited(bpf_prog)
+
+        if args.translate_bytecode or args.dump_bytecode:
+            bpf_prog_disasm(bpf_prog, args.dump_bytecode)
 
         return
 
