@@ -2448,7 +2448,7 @@ static void drgn_test_search_exit(void)
 
 // kmodify
 
-#ifdef __x86_64__
+#if defined(__x86_64__) || (defined(__powerpc64__) && defined(__LITTLE_ENDIAN__))
 enum drgn_kmodify_enum {
 	DRGN_KMODIFY_ONE = 1,
 	DRGN_KMODIFY_TWO,
