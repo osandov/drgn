@@ -40,3 +40,11 @@ class TestBtVMCore(LinuxVMCoreCrashCommandTestCase):
         self.assertNotIn("(active)", cmd.stdout)
         for cpu in for_each_online_cpu(self.prog):
             self.assertIn(f"CPU: {cpu}", cmd.stdout)
+
+    def test_symbol_offset(self):
+        self._skip_if_cpu0_on_s390x()
+        for cmd in ("bt -s", "bt -s -d"):
+            with self.subTest(cmd=cmd):
+                res = self.check_crash_command(cmd)
+                self.assertIn("drgn_test_crash_func+", res.stdout)
+

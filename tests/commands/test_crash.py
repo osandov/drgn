@@ -13,6 +13,7 @@ from drgn import (
     SymbolBinding,
     SymbolKind,
 )
+from drgn.commands._crash._bt import _print_frame
 from drgn.commands._crash._rd import _print_memory
 from tests import TestCase
 
@@ -136,3 +137,71 @@ class TestPrintMemory(TestCase):
     def test_annotate_wrong_format(self):
         with self.assertRaises(ValueError):
             self.run_print_memory(0xFFFF0000, 1, unit=4, format="d", annotate="symbols")
+
+
+class TestBtPrintFrame(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.prog = Program(platform=Platform(Architecture.X86_64))
+        cls.prog.register_symbol_finder(
+            "test",
+            lambda prog, name, address, one: (
+                [
+                    Symbol(
+                        "my_function",
+                        0x1000,
+                        0x200,
+                        SymbolBinding.GLOBAL,
+                        SymbolKind.FUNC,
+                    )
+                ]
+                if (
+                    name == "my_function"
+                    or (name is None and address in range(0x0FFF, 0x1200))
+                )
+                else []
+            ),
+        )
+        cls.prog.set_enabled_symbol_finders(["test"])
+
+    def run_print_frame(self, pc: int, sp=None, **kwargs):
+        output = io.StringIO()
+        trace = self.prog.stack_trace_from_pcs([pc])
+        frame = trace[0]
+        with contextlib.redirect_stdout(output):
+            _print_frame(self.prog, 0, sp, frame, sp_width=8, **kwargs)
+        return output.getvalue()
+
+    def test_print_frame_default(self):
+        result = self.run_print_frame(0x1050)
+        self.assertEqual(result, " #0 [????????] my_function at 1050\n")
+
+    def test_print_frame_symbol_offset_decimal(self):
+        self.prog.config["crash_radix"] = 10
+        result = self.run_print_frame(0x1050, symbol_offset=True)
+        self.assertEqual(result, " #0 [????????] my_function+80 at 1050\n")
+
+    def test_print_frame_symbol_offset_hex(self):
+        self.prog.config["crash_radix"] = 16
+        result = self.run_print_frame(0x1050, symbol_offset=True)
+        self.assertEqual(result, " #0 [????????] my_function+0x50 at 1050\n")
+
+    def test_print_frame_symbol_offset_zero(self):
+        self.prog.config["crash_radix"] = 16
+        result = self.run_print_frame(0x1000, symbol_offset=True)
+        self.assertEqual(result, " #0 [????????] my_function at 1000\n")
+
+    def test_print_frame_drgn_style_symbol_offset_decimal(self):
+        self.prog.config["crash_radix"] = 10
+        result = self.run_print_frame(0x1050, drgn_style=True, symbol_offset=True)
+        self.assertEqual(result, " #0 my_function+80\n")
+
+    def test_print_frame_drgn_style_symbol_offset_hex(self):
+        self.prog.config["crash_radix"] = 16
+        result = self.run_print_frame(0x1050, drgn_style=True, symbol_offset=True)
+        self.assertEqual(result, " #0 my_function+0x50\n")
+
+    def test_print_frame_drgn_style_default(self):
+        result = self.run_print_frame(0x1050, drgn_style=True, symbol_offset=False)
+        self.assertEqual(result, " #0 my_function\n")
+
