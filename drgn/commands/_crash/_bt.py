@@ -45,15 +45,30 @@ def _print_frame(
     sp_width: int,
     drgn_style: bool = False,
     show_file_line: bool = False,
+    symbol_offset: bool = False,
 ) -> None:
     index_str = f"#{index}"
+
+    if symbol_offset and not frame.is_inline:
+        try:
+            sym = frame.symbol()
+            offset = frame.pc - sym.address
+            if offset:
+                fmt = str if prog.config.get("crash_radix", 10) == 10 else hex
+                name = f"{frame.name}+{fmt(offset)}"
+            else:
+                name = frame.name
+        except LookupError:
+            name = frame.name
+    else:
+        name = frame.name
 
     if drgn_style:
         try:
             source_info = " ({}:{}:{})".format(*frame.source())
         except LookupError:
             source_info = ""
-        print(f"{index_str:>3s} {frame.name}{source_info}")
+        print(f"{index_str:>3s} {name}{source_info}")
     else:
         mod_text = ""
         try:
@@ -64,15 +79,15 @@ def _print_frame(
             pass
         if frame.is_inline:
             print(
-                f"{index_str:>3s} {'(inline)':{sp_width + 2}s} {frame.name}{mod_text}"
+                f"{index_str:>3s} {'(inline)':{sp_width + 2}s} {name}{mod_text}"
             )
         elif sp is None:
             print(
-                f"{index_str:>3s} [{'?' * sp_width}] {frame.name} at {frame.pc:x}{mod_text}"
+                f"{index_str:>3s} [{'?' * sp_width}] {name} at {frame.pc:x}{mod_text}"
             )
         else:
             print(
-                f"{index_str:>3s} [{frame.sp:0{sp_width}x}] {frame.name} at {frame.pc:x}{mod_text}"
+                f"{index_str:>3s} [{frame.sp:0{sp_width}x}] {name} at {frame.pc:x}{mod_text}"
             )
         if show_file_line:
             try:
@@ -126,6 +141,7 @@ def _print_one_task(
     trace: LinuxKernelStack,
     show_file_line: bool = False,
     drgn_style: bool = False,
+    symbol_offset: bool = False,
     show_variables: bool = False,
     show_mem: bool = False,
     mem_annotate: Literal[None, "symbols", "slab", "verbose"] = None,
@@ -164,7 +180,16 @@ def _print_one_task(
                 sp = None
             if show_mem:
                 _maybe_print_mem(prog, prev_sp, sp, mem_annotate)
-            _print_frame(prog, i, sp, frame, sp_width, drgn_style, show_file_line)
+            _print_frame(
+                prog,
+                i,
+                sp,
+                frame,
+                sp_width,
+                drgn_style=drgn_style,
+                show_file_line=show_file_line,
+                symbol_offset=symbol_offset,
+            )
             if show_variables:
                 _print_variables(prog, frame)
             prev_sp = sp or prev_sp
@@ -194,6 +219,7 @@ def _print_bt(
             trace,
             drgn_style=args.drgn_style,
             show_file_line=args.show_file_line,
+            symbol_offset=args.symbol_offset,
             show_variables=args.show_variables,
             show_mem=args.frame,
             mem_annotate=args.annotate,
@@ -220,13 +246,23 @@ pid = task.pid.value_()
 comm = escape_ascii_string(task.comm.string_())
 """
     )
-    if args.show_file_line or args.show_variables:
+    if args.show_file_line or args.show_variables or args.symbol_offset:
         code.append(
             """\
 for segment in trace.segments:
     registers = segment.frames[0].registers()
     segment_kind = segment.kind
     for frame in segment.frames:
+"""
+        )
+    if args.symbol_offset:
+        code.append(
+            """\
+        try:
+            sym = frame.symbol()
+            offset = frame.pc - sym.address
+        except LookupError:
+            pass
 """
         )
     if args.show_file_line:
@@ -274,6 +310,12 @@ for segment in trace.segments:
             dest="show_file_line",
             action="store_true",
             help="show file and line number of each stack trace text location",
+        ),
+        argument(
+            "-s",
+            dest="symbol_offset",
+            action="store_true",
+            help="display the symbol name plus its offset",
         ),
         argument(
             "-d",
@@ -378,6 +420,12 @@ def _crash_foreach_bt(
             dest="show_file_line",
             action="store_true",
             help="show file and line number of each stack trace text location",
+        ),
+        argument(
+            "-s",
+            dest="symbol_offset",
+            action="store_true",
+            help="display the symbol name plus its offset",
         ),
         argument(
             "-d",
