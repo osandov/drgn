@@ -157,6 +157,8 @@ DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_module_address_tree, node,
 				    drgn_module_address_range_key,
 				    binary_search_tree_scalar_cmp, splay);
 
+DEFINE_VECTOR(uint64_pair_vector, uint64_t [2]);
+
 static void drgn_module_free_section_addresses(struct drgn_module *module)
 {
 	hash_table_for_each(drgn_module_section_address_map, it,
@@ -3814,6 +3816,17 @@ userspace_loaded_module_iterator_read_main_phdrs(struct userspace_loaded_module_
 	return NULL;
 }
 
+static int uint64_pair_compar(const void *lhs, const void *rhs)
+{
+	const uint64_t (*left_range)[2] = lhs, (*right_range)[2] = rhs;
+	if ((*left_range)[0] < (*right_range)[0])
+		return -1;
+	else if ((*left_range)[0] == (*right_range)[0])
+		return 0;
+	else
+		return 1;
+}
+
 static struct drgn_error *
 identify_module_from_phdrs(struct userspace_loaded_module_iterator *it,
 			   struct drgn_module *module, size_t phnum,
@@ -3822,14 +3835,31 @@ identify_module_from_phdrs(struct userspace_loaded_module_iterator *it,
 	struct drgn_error *err;
 	struct drgn_program *prog = it->it.prog;
 
-	uint64_t start = UINT64_MAX, end = 0;
+	VECTOR(uint64_pair_vector, ranges);
+	bool ranges_sorted = true;
+	uint64_t page_mask = 0;
+	if (prog->auxv.at_pagesz)
+		page_mask = prog->auxv.at_pagesz - 1;
 	for (size_t i = 0; i < phnum; i++) {
 		GElf_Phdr phdr;
 		userspace_loaded_module_iterator_phdr(it, i, &phdr);
-		if (phdr.p_type == PT_LOAD) {
-			// Like elf_address_range_from_min_and_max_phdr().
-			start = min(start, phdr.p_vaddr + bias);
-			end = max(end, phdr.p_vaddr + phdr.p_memsz + bias);
+		if (phdr.p_type == PT_LOAD && phdr.p_memsz) {
+			uint64_t range[2] = {
+				phdr.p_vaddr + bias,
+				phdr.p_vaddr + bias + phdr.p_memsz,
+			};
+			if (page_mask) {
+				range[0] &= ~page_mask;
+				range[1] = (range[1] + page_mask) & ~page_mask;
+			}
+			// Track whether the ranges are in sorted order based on
+			// their start. It's expected, but we don't rely on it.
+			// See drgn_elf_file_address_range().
+			if (!uint64_pair_vector_empty(&ranges)
+			    && (*uint64_pair_vector_last(&ranges))[0] > range[0])
+				ranges_sorted = false;
+			if (!uint64_pair_vector_append(&ranges, &range))
+				return &drgn_enomem;
 		} else if (phdr.p_type == PT_NOTE
 			   && module->build_id_len == 0) {
 			uint64_t note_size = min(phdr.p_filesz, phdr.p_memsz);
@@ -3885,16 +3915,34 @@ identify_module_from_phdrs(struct userspace_loaded_module_iterator *it,
 		drgn_log_debug(prog,
 			       "couldn't find build ID from mapped program headers");
 	}
-	if (start < end) {
-		err = drgn_module_set_address_range(module, start, end);
-		if (err)
-			return err;
-		drgn_log_debug(prog,
-			       "got address range 0x%" PRIx64 "-0x%" PRIx64 " from mapped program headers",
-			       start, end);
-	} else {
+	if (uint64_pair_vector_empty(&ranges)) {
 		drgn_log_debug(prog,
 			       "couldn't find address range from mapped program headers");
+	} else {
+		if (!ranges_sorted)
+			qsort(uint64_pair_vector_begin(&ranges),
+			      uint64_pair_vector_size(&ranges),
+			      sizeof(uint64_t[2]), uint64_pair_compar);
+
+		// Merge overlapping/adjacent ranges
+		uint64_t (*arrs)[2] = uint64_pair_vector_begin(&ranges);
+		size_t prev = 0;
+		for (size_t i = 1; i < uint64_pair_vector_size(&ranges); i++) {
+			if (arrs[i][0] <= arrs[prev][1]) {
+				arrs[prev][1] = max(arrs[prev][1], arrs[i][1]);
+			} else if (prev + 1 == i) {
+				prev++;
+			} else {
+				memcpy(&arrs[++prev], &arrs[i], sizeof(arrs[i]));
+			}
+		}
+		err = drgn_module_set_address_ranges(module, arrs, prev + 1);
+		if (err)
+			return err;
+		vector_for_each(uint64_pair_vector, range, &ranges)
+			drgn_log_debug(prog,
+				       "got address range 0x%" PRIx64 "-0x%" PRIx64 " from mapped program headers",
+				       (*range)[0], (*range)[1]);
 	}
 	return NULL;
 }

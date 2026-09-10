@@ -169,6 +169,7 @@ struct drgn_program {
 				uint64_t at_phdr;
 				uint64_t at_phnum;
 				uint64_t at_sysinfo_ehdr;
+				uint64_t at_pagesz;
 			} auxv;
 			bool auxv_cached;
 		};
