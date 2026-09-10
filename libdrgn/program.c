@@ -970,6 +970,16 @@ struct drgn_error *drgn_program_cache_auxv(struct drgn_program *prog)
 	return NULL;
 }
 
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_aarch64_insn_pac_mask(struct drgn_program *prog, uint64_t mask)
+{
+	if (prog->aarch64_insn_pac_mask)
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "pac_mask is already set");
+	prog->aarch64_insn_pac_mask = mask;
+	return NULL;
+}
+
 static struct drgn_error *get_prstatus_pid(struct drgn_program *prog, const char *data,
 					   size_t size, uint32_t *ret)
 {

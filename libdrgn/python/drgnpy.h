@@ -517,6 +517,7 @@ struct index_arg {
 int index_converter(PyObject *o, void *p);
 
 int u64_converter(PyObject *o, void *p);
+int optional_u64_converter(PyObject *o, void *p);
 
 struct path_arg {
 	bool allow_fd;
