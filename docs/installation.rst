@@ -13,6 +13,8 @@ drgn depends on:
 
 It optionally depends on:
 
+- `Capstone <https://www.capstone-engine.org/>`_ Python bindings for
+  disassembly support
 - `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_ for `makedumpfile
   <https://github.com/makedumpfile/makedumpfile>`_ compressed kernel core dump
   format support

@@ -11,6 +11,7 @@
 #include "../debug_info.h"
 #include "../error.h"
 #include "../path.h"
+#include "../stack_trace.h"
 
 /* Basically PyModule_AddType(), which is only available since Python 3.9. */
 static int add_type(PyObject *module, PyTypeObject *type)
@@ -223,6 +224,28 @@ static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
 	return PyLong_FromUInt64(offset);
 }
 
+static PyObject *drgnpy_parse_addr2line(PyObject *self, PyObject *arg)
+{
+	struct drgn_error *err;
+	if (!PyUnicode_Check(arg)) {
+		PyErr_SetString(PyExc_TypeError, "argument must be str");
+		return NULL;
+	}
+	const char *s = PyUnicode_AsUTF8(arg);
+	if (!s)
+		return NULL;
+
+	const char *sym_name;
+	size_t sym_name_len;
+	unsigned long long offset;
+	err = drgn_parse_addr2line(s, &sym_name, &sym_name_len, &offset);
+	if (err)
+		return set_drgn_error(err);
+
+	return Py_BuildValue("s#K", sym_name ? sym_name : "",
+			     (Py_ssize_t)sym_name_len, offset);
+}
+
 static PyMethodDef drgn_methods[] = {
 	{"get_default_prog", get_default_prog, METH_NOARGS,
 	 drgn_get_default_prog_DOC},
@@ -250,6 +273,7 @@ static PyMethodDef drgn_methods[] = {
 	 METH_NOARGS, drgn_program_from_kernel_DOC},
 	{"program_from_pid", (PyCFunction)program_from_pid,
 	 METH_VARARGS | METH_KEYWORDS, drgn_program_from_pid_DOC},
+	{"_parse_addr2line", drgnpy_parse_addr2line, METH_O},
 	{"_linux_helper_direct_mapping_offset",
 	 (PyCFunction)drgnpy_linux_helper_direct_mapping_offset, METH_O},
 	{"_linux_helper_read_vm", (PyCFunction)drgnpy_linux_helper_read_vm,

@@ -15,9 +15,17 @@ import itertools
 from typing import Iterator
 
 from drgn import IntegerLike, Object, Program, cast
+from drgn.helpers.common.disasm import disasm_bytes
 from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.idr import idr_find, idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
+
+try:
+    import capstone  # type: ignore # no type hints available
+
+    _HAVE_CAPSTONE = True
+except ImportError:
+    _HAVE_CAPSTONE = False
 
 __all__ = (
     "bpf_btf_for_each",
@@ -29,6 +37,8 @@ __all__ = (
     "bpf_prog_used_maps",
     "bpf_prog_by_id",
     "bpf_map_by_id",
+    "bpf_prog_disasm",
+    "bpf_prog_disasm_jited",
 )
 
 
@@ -194,6 +204,72 @@ def bpf_prog_used_maps(bpf_prog: Object) -> Iterator[Object]:
     """
     aux = bpf_prog.aux.read_()
     return iter(aux.used_maps[: aux.used_map_cnt])
+
+
+def bpf_prog_disasm_jited(bpf_prog: Object) -> None:
+    """
+    Print a disassembly the jited code for a BPF program.
+
+    :param bpf_prog: ``struct bpf_prog *``
+    """
+    try:
+        jited_len = bpf_prog.member_("jited_len").value_()
+        bpf_func = bpf_prog.member_("bpf_func").value_()
+    except LookupError:
+        return
+    if jited_len > 0:
+        disasm_bytes(bpf_prog.prog_, bpf_func, jited_len)
+    else:
+        print("(program not jited)")
+
+
+def _get_bpf_disassembler(prog: Program, is_extended: bool) -> "capstone.Cs":
+    if not _HAVE_CAPSTONE:
+        raise NotImplementedError()
+    if is_extended:
+        cache_key = "ebpf_disassembler"
+    else:
+        cache_key = "bpf_disassembler"
+    try:
+        return prog.cache[cache_key]
+    except KeyError:
+        if is_extended:
+            disassembler = capstone.Cs(
+                capstone.CS_ARCH_BPF, capstone.CS_MODE_BPF_EXTENDED
+            )
+        else:
+            disassembler = capstone.Cs(
+                capstone.CS_ARCH_BPF, capstone.CS_MODE_BPF_CLASSIC
+            )
+        disassembler.skipdata = True
+        prog.cache[cache_key] = disassembler
+        return disassembler
+
+
+def bpf_prog_disasm(bpf_prog: Object, dump_bytes: bool = False) -> None:
+    """
+    disassemble a BPF program.
+
+    :param bpf_prog: ``struct bpf_prog *``
+    :param dump_bytes: include the byte values of the bpf byte code in
+        the bytecode dump
+    """
+
+    try:
+        bpf_len = bpf_prog.member_("len").value_()
+        insnsi = bpf_prog.member_("insnsi").address_of_()
+        is_extended = bpf_prog.member_("type") != bpf_prog.prog_.constant(
+            "BPF_PROG_TYPE_UNSPEC"
+        )
+    except LookupError:
+        return
+    disassembler = _get_bpf_disassembler(bpf_prog.prog_, is_extended=is_extended)
+    machine_code = bpf_prog.prog_.read(insnsi, bpf_len * 8)
+
+    for idx, i in enumerate(disassembler.disasm(machine_code, insnsi)):
+        print(f"{idx:4x}:\t{i.mnemonic}\t{i.op_str}")
+        if dump_bytes:
+            print("\t{}".format(" ".join([f"{b:02x}" for b in i.bytes])))
 
 
 @takes_program_or_default
