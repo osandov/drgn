@@ -21,6 +21,9 @@ from drgn import (
     Program,
     ProgramFlags,
     Qualifiers,
+    Symbol,
+    SymbolBinding,
+    SymbolKind,
     TypeKind,
     TypeMember,
     get_default_prog,
@@ -1197,6 +1200,64 @@ class TestCoreDump(TestCase):
         with self.assertRaisesRegex(FaultError, "memory not saved in core dump") as cm:
             prog.read(0xFFFF0000, len(data) + 4)
         self.assertEqual(cm.exception.address, 0xFFFF000C)
+
+    def test_arm_missing_virtual_address_segment(self):
+        expected = b"hello, world"
+        data = bytearray(0x8000)
+        data[: len(expected)] = expected
+
+        page_offset = 0xC0000000
+        phys_offset = 0x80000000
+        swapper_pg_dir = page_offset + 0x4000
+        pgd_phys = swapper_pg_dir - page_offset + phys_offset
+
+        # Map the 1 MB section at PAGE_OFFSET to the section at PHYS_OFFSET.
+        pgd_entry_offset = pgd_phys - phys_offset + (page_offset >> 20) * 4
+        data[pgd_entry_offset : pgd_entry_offset + 4] = (phys_offset | 0x2).to_bytes(
+            4, "little"
+        )
+
+        prog = Program(
+            Platform(Architecture.ARM, PlatformFlags.IS_LITTLE_ENDIAN),
+            vmcoreinfo=make_vmcoreinfo(swapper_pg_dir=swapper_pg_dir),
+        )
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(
+                create_elf_file(
+                    ET.CORE,
+                    [
+                        ElfSection(
+                            p_type=PT.LOAD,
+                            vaddr=0,
+                            paddr=phys_offset,
+                            data=data,
+                        ),
+                    ],
+                    bits=32,
+                    e_machine=40,  # EM_ARM
+                )
+            )
+            f.flush()
+            prog.set_core_dump(f.name)
+
+        prog.register_symbol_finder(
+            "test",
+            lambda prog, name, address, one: (
+                [
+                    Symbol(
+                        "_stext",
+                        page_offset + 0x100000,
+                        0,
+                        SymbolBinding.GLOBAL,
+                        SymbolKind.UNKNOWN,
+                    )
+                ]
+                if name == "_stext"
+                else []
+            ),
+        )
+        prog.set_enabled_symbol_finders(["test"])
+        self.assertEqual(prog.read(page_offset, len(expected), False), expected)
 
 
 def make_vmcoreinfo(
