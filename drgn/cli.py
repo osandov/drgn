@@ -132,7 +132,8 @@ def version_header() -> str:
     libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
     lzma = f'with{"" if drgn._with_lzma else "out"} lzma'
     pcre2 = f'with{"" if drgn._with_pcre2 else "out"} pcre2'
-    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {debuginfod}, {json_c}, {libkdumpfile}, {lzma}, {pcre2})"
+    bpf = f'with{"" if drgn._with_libbpf else "out"} libbpf'
+    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {debuginfod}, {json_c}, {libkdumpfile}, {lzma}, {pcre2}, {bpf})"
 
 
 def default_globals(prog: drgn.Program) -> Dict[str, Any]:
