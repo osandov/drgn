@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# (C) Copyright IBM Corp. 2026
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 """
@@ -9,7 +10,8 @@ The ``drgn.helpers.experimental.kmodify`` module provides experimental helpers
 for modifying the state of the running kernel. This works by loading a
 temporary kernel module, so the kernel must support loadable kernel modules
 (``CONFIG_MODULES=y``) and allow loading unsigned modules
-(``CONFIG_MODULE_SIG_FORCE=n``). It is currently only implemented for x86-64.
+(``CONFIG_MODULE_SIG_FORCE=n``). It is currently implemented for x86-64 and
+ppc64le.
 
 .. warning::
     These helpers are powerful but **extremely** dangerous. Use them with care.
@@ -27,6 +29,7 @@ import sys
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     List,
     Mapping,
     NamedTuple,
@@ -155,6 +158,7 @@ def _write_elf(
     sections: Sequence[_ElfSection],
     symbols: Sequence[_ElfSymbol],
     relocations: Mapping[str, Sequence[_ElfRelocation]],
+    flags: int = 0,
 ) -> None:
     endian = "<" if is_little_endian else ">"
     if is_64_bit:
@@ -355,7 +359,7 @@ def _write_elf(
             0,  # e_entry
             0,  # e_phoff
             ehdr_struct.size,  # e_shoff
-            0,  # e_flags
+            flags,  # e_flags
             ehdr_struct.size,  # e_ehsize
             0,  # e_phentsize
             0,  # e_phnum
@@ -450,6 +454,16 @@ _FunctionBodyNode = Union[
 
 class _Function(NamedTuple):
     body: Sequence[_FunctionBodyNode]
+
+
+class _CodeGenResult(NamedTuple):
+    code: bytes
+    code_relocations: Sequence[_ElfRelocation]
+    # Architectures that address their own sections through a Table of Contents
+    # (ppc64le) emit a .toc section and its relocations here. Architectures that
+    # don't (x86-64) leave these empty.
+    toc: bytes = b""
+    toc_relocations: Sequence[_ElfRelocation] = ()
 
 
 class _CodeGen_x86_64:
@@ -710,9 +724,17 @@ class _Arch_X86_64:
     ELF_MACHINE = 62  # EM_X86_64
     RELA = True
     ABSOLUTE_ADDRESS_RELOCATION_TYPE = 1  # R_X86_64_64
+    # x86-64 needs no extra ELF flags, sections, or symbols. These are declared
+    # so that every _Arch exposes the same interface (see _Arch_PPC64, which
+    # overrides them) and callers don't need getattr() with defaults.
+    ELF_FLAGS = 0
+    MODULE_SECTIONS: Sequence[Callable[[], _ElfSection]] = ()
+    MODULE_SYMBOLS: Sequence[_ElfSymbol] = ()
 
     @staticmethod
-    def code_gen(func: _Function) -> Tuple[bytes, Sequence[_ElfRelocation]]:
+    def code_gen(
+        func: _Function, symbol_addresses: Optional[Mapping[str, int]] = None
+    ) -> _CodeGenResult:
         needed_stack_size = 0
         for node in func.body:
             if not isinstance(node, _Call):
@@ -754,7 +776,417 @@ class _Arch_X86_64:
 
         code_gen.leave_frame()
 
-        return code_gen.code, code_gen.relocations
+        return _CodeGenResult(bytes(code_gen.code), code_gen.relocations)
+
+
+class _CodeGen_ppc64le:
+    # ELFv2, little-endian. Instruction encodings mirror the kernel's PPC_RAW_*
+    # macros (arch/powerpc/include/asm/ppc-opcode.h); each 32-bit instruction is
+    # emitted as 4 little-endian bytes. The unit tests pin structure and
+    # composition; the raw encodings are validated end-to-end by the kmodify
+    # integration tests under vmtest on ppc64le.
+
+    _r0 = 0
+    _r1 = 1
+    _r2 = 2
+    _r3 = 3
+    _r4 = 4
+    _r11 = 11
+    _r12 = 12
+    _argument_registers = (3, 4, 5, 6, 7, 8, 9, 10)
+
+    _R_PPC64_ADDR64 = 38
+    _R_PPC64_REL16_HA = 252
+    _R_PPC64_REL16_LO = 250
+    _R_PPC64_TOC16_DS = 63
+
+    _B = 0x48000000
+    _BCTRL = 0x4E800421
+    _BLR = 0x4E800020
+
+    def __init__(self) -> None:
+        self.code = bytearray()
+        self.relocations: List[_ElfRelocation] = []
+        self.toc = bytearray()
+        self.toc_relocations: List[_ElfRelocation] = []
+        self._epilogue_branches: List[int] = []
+        self._frame = 0
+
+    def _emit(self, word: int) -> None:
+        self.code.extend((word & 0xFFFFFFFF).to_bytes(4, "little"))
+
+    @staticmethod
+    def _rt(x: int) -> int:
+        return (x & 0x1F) << 21
+
+    @staticmethod
+    def _ra(x: int) -> int:
+        return (x & 0x1F) << 16
+
+    @staticmethod
+    def _rb(x: int) -> int:
+        return (x & 0x1F) << 11
+
+    def _addi(self, d: int, a: int, i: int) -> int:
+        return 0x38000000 | self._rt(d) | self._ra(a) | (i & 0xFFFF)
+
+    def _addis(self, d: int, a: int, i: int) -> int:
+        return 0x3C000000 | self._rt(d) | self._ra(a) | (i & 0xFFFF)
+
+    def _ori(self, a: int, s: int, i: int) -> int:
+        return 0x60000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _oris(self, a: int, s: int, i: int) -> int:
+        return 0x64000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _rldicr32(self, a: int, s: int) -> int:
+        # rldicr a, s, 32, 31  (SH=32 -> 0x2, ME=31 -> 0x7c0)
+        return 0x78000004 | self._rt(s) | self._ra(a) | 0x2 | 0x7C0
+
+    def _std(self, s: int, a: int, i: int) -> int:
+        return 0xF8000000 | self._rt(s) | self._ra(a) | (i & 0xFFFC)
+
+    def _stdu(self, s: int, a: int, i: int) -> int:
+        return 0xF8000001 | self._rt(s) | self._ra(a) | (i & 0xFFFC)
+
+    def _ld(self, t: int, a: int, i: int) -> int:
+        return 0xE8000000 | self._rt(t) | self._ra(a) | (i & 0xFFFC)
+
+    def _stb(self, s: int, a: int, i: int) -> int:
+        return 0x98000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _sth(self, s: int, a: int, i: int) -> int:
+        return 0xB0000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _stw(self, s: int, a: int, i: int) -> int:
+        return 0x90000000 | self._rt(s) | self._ra(a) | (i & 0xFFFF)
+
+    def _add(self, t: int, a: int, b: int) -> int:
+        return 0x7C000214 | self._rt(t) | self._ra(a) | self._rb(b)
+
+    def _or(self, a: int, s: int, b: int) -> int:
+        return 0x7C000378 | self._rt(s) | self._ra(a) | self._rb(b)
+
+    def _andc(self, a: int, s: int, b: int) -> int:
+        return 0x7C000078 | self._rt(s) | self._ra(a) | self._rb(b)
+
+    def _ldarx(self, t: int, a: int, b: int) -> int:
+        return 0x7C0000A8 | self._rt(t) | self._ra(a) | self._rb(b)
+
+    def _stdcx(self, s: int, a: int, b: int) -> int:
+        return 0x7C0001AD | self._rt(s) | self._ra(a) | self._rb(b)
+
+    def _cmpdi(self, a: int, i: int) -> int:
+        return 0x2C200000 | self._ra(a) | (i & 0xFFFF)
+
+    def _mflr(self, t: int) -> int:
+        return 0x7C0802A6 | self._rt(t)
+
+    def _mtlr(self, t: int) -> int:
+        return 0x7C0803A6 | self._rt(t)
+
+    def _mtctr(self, t: int) -> int:
+        return 0x7C0903A6 | self._rt(t)
+
+    def _load_imm(self, reg: int, value: int) -> None:
+        # Materialize the full 64-bit two's-complement of value (ELFv2 requires
+        # the caller to sign-/zero-extend sub-doubleword arguments to the whole
+        # register, and the callee reads all 64 bits). Never mask to a smaller
+        # width.
+        v = value & 0xFFFFFFFFFFFFFFFF
+        if -0x8000 <= value < 0x8000:
+            self._emit(self._addi(reg, 0, value))  # li (sign-extends)
+            return
+        if -0x80000000 <= value < 0x80000000:
+            self._emit(self._addis(reg, 0, (value >> 16) & 0xFFFF))  # lis
+            if value & 0xFFFF:
+                self._emit(self._ori(reg, reg, value & 0xFFFF))
+            return
+        self._emit(self._addis(reg, 0, (v >> 48) & 0xFFFF))  # lis  -> bits 48-63
+        if (v >> 32) & 0xFFFF:
+            self._emit(self._ori(reg, reg, (v >> 32) & 0xFFFF))  # ori -> bits 32-47
+        self._emit(self._rldicr32(reg, reg))  # << 32
+        if (v >> 16) & 0xFFFF:
+            self._emit(self._oris(reg, reg, (v >> 16) & 0xFFFF))  # oris -> bits 16-31
+        if v & 0xFFFF:
+            self._emit(self._ori(reg, reg, v & 0xFFFF))  # ori -> bits 0-15
+
+    def enter_frame(self, size: int) -> None:
+        if size < 0:
+            raise ValueError("invalid stack frame size")
+        # 32-byte ELFv2 linkage area plus the parameter save area; 16-aligned.
+        self._frame = (max(size, 32) + 15) & ~15
+        # Global-entry prologue: set the module TOC (r2) from r12 using REL16
+        # relocations against .TOC. (the kernel calls init_module with r12 set
+        # to its address). Both the @ha and @l relocations must compute
+        # (.TOC. - entry) relative to the same anchor (the addis); since the
+        # kernel evaluates each as (sym + addend - location), the addi (4 bytes
+        # after the addis) carries an addend of +4 to cancel its location offset.
+        entry = len(self.code)
+        self.relocations.append(
+            _ElfRelocation(
+                offset=entry,
+                type=self._R_PPC64_REL16_HA,
+                symbol_name=".TOC.",
+                section_symbol=False,
+                addend=0,
+            )
+        )
+        self._emit(self._addis(self._r2, self._r12, 0))
+        self.relocations.append(
+            _ElfRelocation(
+                offset=len(self.code),
+                type=self._R_PPC64_REL16_LO,
+                symbol_name=".TOC.",
+                section_symbol=False,
+                addend=len(self.code) - entry,
+            )
+        )
+        self._emit(self._addi(self._r2, self._r2, 0))
+        self._emit(self._mflr(self._r0))
+        # LR save doubleword lives in the caller's frame (offset 16), written
+        # before we allocate our own frame.
+        self._emit(self._std(self._r0, self._r1, 16))
+        self._emit(self._stdu(self._r1, self._r1, -self._frame))
+        # TOC save doubleword lives in our own frame (offset 24), reloaded after
+        # each call clobbers r2.
+        self._emit(self._std(self._r2, self._r1, 24))
+
+    def _restore_toc(self) -> None:
+        self._emit(self._ld(self._r2, self._r1, 24))
+
+    def leave_frame(self) -> None:
+        # Fix up the branches to the (now known) epilogue.
+        target = len(self.code)
+        for offset in self._epilogue_branches:
+            word = int.from_bytes(self.code[offset : offset + 4], "little")
+            disp = target - offset
+            if (word & 0xFC000000) == self._B:  # unconditional b
+                # The LI field is signed 26 bits (scaled by 4).
+                if not -0x2000000 <= disp < 0x2000000:
+                    raise OverflowError(
+                        f"branch displacement {disp} out of range for b "
+                        "(generated helper is too large)"
+                    )
+                word = (word & ~0x03FFFFFC) | (disp & 0x03FFFFFC)
+            else:  # conditional bc
+                # The BD field is signed 14 bits (scaled by 4).
+                if not -0x8000 <= disp < 0x8000:
+                    raise OverflowError(
+                        f"branch displacement {disp} out of range for bc "
+                        "(generated helper is too large)"
+                    )
+                word = (word & ~0xFFFC) | (disp & 0xFFFC)
+            self.code[offset : offset + 4] = (word & 0xFFFFFFFF).to_bytes(4, "little")
+        self._emit(self._addi(self._r1, self._r1, self._frame))
+        self._emit(self._ld(self._r0, self._r1, 16))
+        self._emit(self._mtlr(self._r0))
+        self._emit(self._BLR)
+
+    def _ensure_data_toc_slot(self) -> int:
+        # A single TOC slot holds the .data base, filled by R_PPC64_ADDR64. All
+        # .data references reuse it (offsets are added with addi).
+        if not self.toc:
+            self.toc_relocations.append(
+                _ElfRelocation(
+                    offset=0,
+                    type=self._R_PPC64_ADDR64,
+                    symbol_name=".data",
+                    section_symbol=True,
+                )
+            )
+            self.toc.extend(b"\0" * 8)
+        return 0
+
+    def _load_data_ptr(self, reg: int, offset: int) -> None:
+        slot = self._ensure_data_toc_slot()
+        self.relocations.append(
+            _ElfRelocation(
+                offset=len(self.code),
+                type=self._R_PPC64_TOC16_DS,
+                symbol_name=".toc",
+                section_symbol=True,
+                addend=slot,
+            )
+        )
+        self._emit(self._ld(reg, self._r2, 0))  # ld reg, .data@toc(r2)
+        if offset:
+            self._emit(self._addi(reg, reg, offset))
+
+    def _materialize(self, reg: int, arg: Union[_Integer, _Symbol]) -> None:
+        if isinstance(arg, _Integer):
+            self._load_imm(reg, arg.value)
+        else:
+            # The only symbols passed as arguments are .data references.
+            self._load_data_ptr(reg, arg.offset)
+
+    def call(
+        self, target_address: int, args: Sequence[Union[_Integer, _Symbol]]
+    ) -> None:
+        n_reg = len(self._argument_registers)
+        # Stage stack arguments first, using r11 as scratch so we don't clobber
+        # the argument registers.
+        for i in range(n_reg, len(args)):
+            self._materialize(self._r11, args[i])
+            self._emit(self._std(self._r11, self._r1, 32 + 8 * i))
+        for i in range(min(len(args), n_reg)):
+            self._materialize(self._argument_registers[i], args[i])
+        # Unlike x86-64, which emits a loader-resolved relocation, ppc64le bakes
+        # the target in as an immediate, so it must be a live, stable kallsyms
+        # address (kmodify only ever modifies a running kernel). r12 must also
+        # hold the callee's global entry point, from which the callee computes
+        # its own TOC. Materialize it last so building it can't clobber an
+        # argument register.
+        self._load_imm(self._r12, target_address)
+        self._emit(self._mtctr(self._r12))
+        self._emit(self._BCTRL)
+        self._restore_toc()
+
+    # bne cr0, ... (BO=4 branch-if-false, BI=2 = CR0[EQ]); offset filled later.
+    _BNE_CR0 = 0x40820000
+
+    def store_return_value(self, size: int, dst: _Symbol) -> None:
+        self._load_data_ptr(self._r11, dst.offset)
+        op = {1: self._stb, 2: self._sth, 4: self._stw, 8: self._std}[size]
+        self._emit(op(self._r3, self._r11, 0))
+
+    def return_(self, value: _Integer, last: bool) -> None:
+        self._load_imm(self._r3, value.value)
+        # Jump to the epilogue, unless this is the last node (fall through).
+        if not last:
+            self._epilogue_branches.append(len(self.code))
+            self._emit(self._B)  # b epilogue (fixed up in leave_frame)
+
+    def return_if_last_return_value_nonzero(self, value: _Integer) -> None:
+        # The previous call's result is still in r3; test it before overwriting.
+        self._emit(self._cmpdi(self._r3, 0))
+        self._load_imm(self._r3, value.value)
+        self._epilogue_branches.append(len(self.code))
+        self._emit(self._BNE_CR0)  # bne cr0, epilogue (fixed up in leave_frame)
+
+    def _atomic_bit(self, nr: int, address: int, set_bit: bool) -> None:
+        aligned = address & ~7
+        # Place the bit in the correct little-endian byte lane of the doubleword.
+        mask = (1 << nr) << (8 * (address & 7))
+        self._load_imm(self._r3, aligned)
+        self._load_imm(self._r4, mask)
+        start = len(self.code)
+        self._emit(self._ldarx(self._r0, 0, self._r3))
+        if set_bit:
+            self._emit(self._or(self._r0, self._r0, self._r4))
+        else:
+            self._emit(self._andc(self._r0, self._r0, self._r4))
+        self._emit(self._stdcx(self._r0, 0, self._r3))
+        disp = start - len(self.code)
+        # bne back to ldarx if the reservation was lost (stdcx. cleared CR0[EQ]).
+        # The backward displacement is tiny, so it always fits the 14-bit field.
+        self._emit(self._BNE_CR0 | (disp & 0xFFFC))
+
+    def atomic_set_bit(self, nr: int, address: _Integer) -> None:
+        self._atomic_bit(nr, address.value, True)
+
+    def atomic_clear_bit(self, nr: int, address: _Integer) -> None:
+        self._atomic_bit(nr, address.value, False)
+
+
+def _ppc64_stubs_section() -> _ElfSection:
+    # The ppc64 module loader (arch/powerpc/kernel/module_64.c) rejects any
+    # module that does not contain a .stubs section. We never emit a
+    # stub-needing relocation, so an empty section is enough; the loader sizes
+    # it itself.
+    return _ElfSection(
+        name=".stubs",
+        type=SHT.PROGBITS,
+        flags=SHF.ALLOC | SHF.EXECINSTR,
+        data=b"",
+        addralign=8,
+    )
+
+
+class _Arch_PPC64:
+    ELF_MACHINE = 21  # EM_PPC64
+    RELA = True
+    ABSOLUTE_ADDRESS_RELOCATION_TYPE = 38  # R_PPC64_ADDR64
+    # The ppc64le loader's module_elf_check_arch() requires the ELFv2 ABI level
+    # in e_flags (e_flags & 0x3 == 2); otherwise the module is rejected.
+    ELF_FLAGS = 2
+    MODULE_SECTIONS = (_ppc64_stubs_section,)
+    # The global-entry prologue references the TOC base through the special
+    # ".TOC." symbol. The kernel's dedotify() (arch/powerpc/kernel/module_64.c)
+    # converts a SHN_UNDEF ".TOC." symbol to SHN_ABS and sets its value to the
+    # module's TOC pointer; the symbol must be present for that to happen.
+    MODULE_SYMBOLS = (
+        _ElfSymbol(
+            name=".TOC.",
+            value=0,
+            size=0,
+            type=STT.NOTYPE,
+            binding=STB.GLOBAL,
+            section=SHN.UNDEF,
+        ),
+    )
+
+    @staticmethod
+    def code_gen(
+        func: _Function, symbol_addresses: Optional[Mapping[str, int]] = None
+    ) -> _CodeGenResult:
+        if symbol_addresses is None:
+            raise ValueError("ppc64le code_gen requires symbol_addresses")
+
+        cg = _CodeGen_ppc64le()
+
+        has_call = False
+        max_args = 0
+        for node in func.body:
+            if isinstance(node, _Call):
+                has_call = True
+                for arg in node.args:
+                    if isinstance(arg, _Integer) and arg.size > 8:
+                        raise NotImplementedError(
+                            "passing integers larger than 8 bytes not implemented"
+                        )
+                max_args = max(max_args, len(node.args))
+
+        # A variadic callee spills its argument GPRs (r3-r10, eight doublewords)
+        # into our parameter save area, so it must hold at least eight
+        # doublewords regardless of how many arguments we actually pass;
+        # otherwise the spill overruns the frame and corrupts the saved LR.
+        cg.enter_frame(32 + 8 * max(max_args, 8) if has_call else 0)
+
+        for i, node in enumerate(func.body):
+            if isinstance(node, _Call):
+                target_address = symbol_addresses[node.func.name]
+                if not target_address:
+                    # ppc64le bakes the target into the code as an immediate, so
+                    # a zero address (e.g. an unresolved symbol) can't be fixed
+                    # up by the loader the way an x86-64 relocation would be.
+                    raise ValueError(
+                        f"no address for call target {node.func.name!r} "
+                        "(unresolved kernel symbol)"
+                    )
+                cg.call(target_address, node.args)
+            elif isinstance(node, _StoreReturnValue):
+                cg.store_return_value(node.size, node.dst)
+            elif isinstance(node, _Return):
+                if node.value.size > 8:
+                    raise NotImplementedError(
+                        "return values larger than 8 bytes not implemented"
+                    )
+                cg.return_(node.value, last=i == len(func.body) - 1)
+            elif isinstance(node, _ReturnIfLastReturnValueNonZero):
+                cg.return_if_last_return_value_nonzero(node.value)
+            elif isinstance(node, _AtomicSetBit):
+                cg.atomic_set_bit(node.nr, node.address)
+            elif isinstance(node, _AtomicClearBit):
+                cg.atomic_clear_bit(node.nr, node.address)
+            else:
+                assert_never(node)
+
+        cg.leave_frame()
+
+        return _CodeGenResult(
+            bytes(cg.code), cg.relocations, bytes(cg.toc), cg.toc_relocations
+        )
 
 
 def _find_exported_symbol_in_section(
@@ -864,10 +1296,15 @@ class _Kmodify:
         self.is_little_endian = bool(platform.flags & PlatformFlags.IS_LITTLE_ENDIAN)
         self.is_64_bit = bool(platform.flags & PlatformFlags.IS_64_BIT)
 
+        self.arch: Any
         if platform.arch == Architecture.X86_64:
-            # When we add support for another architecture, we're going to need
-            # an _Arch Protocol.
             self.arch = _Arch_X86_64
+        elif platform.arch == Architecture.PPC64:
+            if not self.is_little_endian:
+                raise NotImplementedError(
+                    "kmodify is only implemented for little-endian ppc64"
+                )
+            self.arch = _Arch_PPC64
         else:
             raise NotImplementedError(
                 f"kmodify not implemented for {platform.arch.name} architecture"
@@ -884,6 +1321,8 @@ class _Kmodify:
         data: bytes,
         data_alignment: int,
         symbols: Sequence[_ElfSymbol],
+        toc: bytes = b"",
+        toc_relocations: Sequence[_ElfRelocation] = (),
     ) -> int:
         struct_module = self.prog.type("struct module")
 
@@ -959,6 +1398,24 @@ class _Kmodify:
         if versions_section is not None:
             sections.append(versions_section)
 
+        # Add any sections the architecture requires unconditionally (e.g. the
+        # mandatory empty .stubs section on ppc64).
+        for section_factory in self.arch.MODULE_SECTIONS:
+            sections.append(section_factory())
+
+        # Add the Table of Contents section if the code generator produced one
+        # (ppc64le addresses .data through it).
+        if toc:
+            sections.append(
+                _ElfSection(
+                    name=".toc",
+                    type=SHT.PROGBITS,
+                    flags=SHF.WRITE | SHF.ALLOC,
+                    data=toc,
+                    addralign=8,
+                )
+            )
+
         symbols = [
             *symbols,
             _ElfSymbol(
@@ -985,6 +1442,9 @@ class _Kmodify:
                 binding=STB.GLOBAL,
                 section=".codetag.alloc_tags",
             ),
+            # Symbols the architecture requires (e.g. ppc64's ".TOC."). These are
+            # global, so they go after the local symbols above.
+            *self.arch.MODULE_SYMBOLS,
         ]
 
         relocations = {
@@ -998,6 +1458,8 @@ class _Kmodify:
                 )
             ],
         }
+        if toc_relocations:
+            relocations[".toc"] = toc_relocations
 
         with open(_memfd_create(module_name.decode() + ".ko"), "wb") as f:
             _write_elf(
@@ -1006,6 +1468,7 @@ class _Kmodify:
                 is_little_endian=self.is_little_endian,
                 is_64_bit=self.is_64_bit,
                 rela=self.arch.RELA,
+                flags=self.arch.ELF_FLAGS,
                 sections=sections,
                 symbols=symbols,
                 relocations=relocations,
@@ -1034,6 +1497,20 @@ _COPY_TO_FROM_KERNEL_NOFAULT_NAMES = (
     # Names briefly used between those two commits.
     ("probe_kernel_write", "probe_kernel_read"),
 )
+
+
+def _kernel_function_address(prog: Program, name: str) -> int:
+    """
+    Return the entry point address of a kernel function by name.
+
+    This uses the symbol table rather than the debug information address
+    (``prog[name].address_``). On kernels that split a function into hot and
+    cold parts (``-freorder-blocks-and-partition``), the debug information may
+    describe the function at a cold fragment's address; calling that fragment
+    runs only part of the function. The symbol table always names the real
+    entry point.
+    """
+    return prog.symbol(name).address
 
 
 @takes_program_or_default
@@ -1065,10 +1542,14 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
         copy_from_kernel_nofault,
     ) in _COPY_TO_FROM_KERNEL_NOFAULT_NAMES:
         try:
-            copy_to_kernel_nofault_address = prog[copy_to_kernel_nofault].address_
-            copy_from_kernel_nofault_address = prog[copy_from_kernel_nofault].address_
+            copy_to_kernel_nofault_address = _kernel_function_address(
+                prog, copy_to_kernel_nofault
+            )
+            copy_from_kernel_nofault_address = _kernel_function_address(
+                prog, copy_from_kernel_nofault
+            )
             break
-        except KeyError:
+        except LookupError:
             pass
     if copy_to_kernel_nofault_address is None:
         raise LookupError("copy_to_kernel_nofault not found")
@@ -1080,7 +1561,7 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
     sizeof_int = sizeof(prog.type("int"))
     sizeof_void_p = sizeof(prog.type("void *"))
     sizeof_size_t = sizeof(prog.type("size_t"))
-    code, code_relocations = kmodify.arch.code_gen(
+    code, code_relocations, toc, toc_relocations = kmodify.arch.code_gen(
         _Function(
             [
                 # copy_to_kernel_nofault() can still fault in some cases; see
@@ -1110,12 +1591,18 @@ def write_memory(prog: Program, address: IntegerLike, value: bytes) -> None:
                 ),
                 _Return(_Integer(sizeof_int, -errno.EINPROGRESS)),
             ]
-        )
+        ),
+        symbol_addresses={
+            copy_from_kernel_nofault: copy_from_kernel_nofault_address,
+            copy_to_kernel_nofault: copy_to_kernel_nofault_address,
+        },
     )
     ret = kmodify.insert(
         name=f"write_{len(value)}",
         code=code,
         code_relocations=code_relocations,
+        toc=toc,
+        toc_relocations=toc_relocations,
         data=value + b"\0",
         # Align generously so that the copy can use larger units and small
         # copies can be slightly less racy.
@@ -1155,9 +1642,11 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
     copy_from_kernel_nofault_address = None
     for _, copy_from_kernel_nofault in _COPY_TO_FROM_KERNEL_NOFAULT_NAMES:
         try:
-            copy_from_kernel_nofault_address = prog[copy_from_kernel_nofault].address_
+            copy_from_kernel_nofault_address = _kernel_function_address(
+                prog, copy_from_kernel_nofault
+            )
             break
-        except KeyError:
+        except LookupError:
             pass
     if copy_from_kernel_nofault_address is None:
         raise LookupError("copy_from_kernel_nofault not found")
@@ -1171,7 +1660,7 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
         # I'm not sure about bit fields. kmodify only supports little-endian
         # architectures at the moment anyways.
         raise NotImplementedError("_modify_bit() is only implemented for little-endian")
-    code, code_relocations = kmodify.arch.code_gen(
+    code, code_relocations, toc, toc_relocations = kmodify.arch.code_gen(
         _Function(
             [
                 _Call(
@@ -1192,12 +1681,15 @@ def _modify_bit(prog: Program, nr: int, address: int, value: bool) -> None:
                 ),
                 _Return(_Integer(sizeof_int, -errno.EINPROGRESS)),
             ]
-        )
+        ),
+        symbol_addresses={copy_from_kernel_nofault: copy_from_kernel_nofault_address},
     )
     ret = kmodify.insert(
         name="set_bit" if value else "clear_bit",
         code=code,
         code_relocations=code_relocations,
+        toc=toc,
+        toc_relocations=toc_relocations,
         data=b"\0",
         data_alignment=1,
         symbols=[
@@ -1509,9 +2001,11 @@ def _insert_call_function(
         "probe_user_write",
     ):
         try:
-            copy_to_user_nofault_address = prog[copy_to_user_nofault].address_
+            copy_to_user_nofault_address = _kernel_function_address(
+                prog, copy_to_user_nofault
+            )
             break
-        except KeyError:
+        except LookupError:
             continue
     if copy_to_user_nofault_address is None:
         raise LookupError("copy_to_user_nofault not found")
@@ -1549,12 +2043,20 @@ def _insert_call_function(
 
     function_body.append(_Return(_Integer(sizeof_int, -errno.EINPROGRESS)))
 
-    code, code_relocations = kmodify.arch.code_gen(_Function(function_body))
+    # ppc64le bakes call-target addresses as immediates, so the code generator
+    # needs each referenced function's address. The symbols (with their values)
+    # are already built above, before this code_gen call.
+    symbol_addresses = {symbol.name: symbol.value for symbol in symbols}
+    code, code_relocations, toc, toc_relocations = kmodify.arch.code_gen(
+        _Function(function_body), symbol_addresses=symbol_addresses
+    )
 
     ret = kmodify.insert(
         name=name,
         code=code,
         code_relocations=code_relocations,
+        toc=toc,
+        toc_relocations=toc_relocations,
         data=data,
         data_alignment=data_alignment,
         symbols=symbols,
