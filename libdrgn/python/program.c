@@ -456,12 +456,9 @@ static void Program_finalize(Program *self)
 	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
 
 	if (PyErr_ResourceWarning((PyObject *)self, 1, "still attached to %R",
-				  self) < 0) {
-		if (PyErr_ExceptionMatches(PyExc_Warning)) {
-			PyErr_FormatUnraisable("Exception ignored while finalizing %R",
-					       self);
-		}
-	}
+				  self) < 0
+	    && PyErr_ExceptionMatches(PyExc_Warning))
+		PyErr_WriteUnraisable((PyObject *)self);
 
 	PyErr_Restore(exc_type, exc_value, exc_traceback);
 }

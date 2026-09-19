@@ -1073,6 +1073,7 @@ static void bypass_breakpoint_resume_done(struct drgn_promise *p)
 	thread->stop_signal = -1;
 	thread->resume_signal = 0;
 	drgn_clear_ref(thread->stop_site);
+	// TODO: what clears this if something else stops?
 	thread->stepping = true;
 
 	prog->bypassing_breakpoint = thread;
@@ -2108,6 +2109,11 @@ drgn_notify_thread_stop_common(struct drgn_thread *thread)
 
 	move_thread(thread, &prog->stopped_threads);
 
+	if (prog->bypassing_breakpoint) {
+		prog->bypassing_breakpoint = NULL;
+		return NULL;
+	}
+
 	if (!prog->all_stop) {
 		emit_thread_stop_event(thread);
 		return NULL;
@@ -2168,8 +2174,11 @@ drgn_notify_thread_stop(struct drgn_thread *thread, int sig, uint64_t pc,
 		if (reason_mask & (1 << DRGN_STOP_REASON_STEP)
 		    && thread->stepping) {
 			thread->stepping = false;
-			if (thread == prog->bypassing_breakpoint)
-				return NULL; // TODO
+			if (thread == prog->bypassing_breakpoint) {
+				// TODO: what if a different thread stops?
+				prog->bypassing_breakpoint = NULL;
+				return NULL;
+			}
 			stop_reason = DRGN_STOP_REASON_STEP;
 		}
 	}
