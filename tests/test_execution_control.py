@@ -779,7 +779,7 @@ class TestLifecycle(ExecutionControlTestCase):
 
 
 class TestAllStop(ExecutionControlTestCase):
-    def test_signal_stop(self):
+    def _test_signal_stop(self, *reasons):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
             self.check_none_stopped()
 
@@ -788,6 +788,7 @@ class TestAllStop(ExecutionControlTestCase):
                 self.prog.thread(1),
                 signal.SIGWINCH,
                 0x1337,
+                *reasons,
             )
             stop_all_threads = Op("stop_all_threads")
             stop_all_threads_return = Return(stop_all_threads, None)
@@ -811,34 +812,11 @@ class TestAllStop(ExecutionControlTestCase):
 
             check_stopped()
 
+    def test_signal_stop(self):
+        self._test_signal_stop()
+
     def test_signal_stop_explicit(self):
-        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-
-            def check_stop_reasons():
-                self.assertEqual(
-                    self.prog.thread(1).stop_reason,
-                    drgn.SignalStopReason(signal.SIGWINCH),
-                )
-                self.assertEqual(
-                    self.prog.thread(2).stop_reason, drgn.SyntheticStopReason()
-                )
-                return True
-
-            with self.expect(
-                ExpectOp(lambda name, args: name == "stop_all_threads"),
-                Barrier,
-                ExpectEvent(
-                    lambda event: event == drgn.ThreadStopEvent(self.prog.thread(1))
-                    and check_stop_reasons()
-                ),
-            ):
-                self.queue_call(
-                    lambda prog: prog.notify_thread_stop(
-                        prog.thread(1), signal.SIGWINCH, 0x1337, drgn.SignalStopReason
-                    )
-                )
-
-            check_stop_reasons()
+        self._test_signal_stop(drgn.SignalStopReason)
 
     def test_signal_cont(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
