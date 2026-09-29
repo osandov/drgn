@@ -1209,7 +1209,22 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 					 prog->in_all_stop_, only);
 	}
 
-	set_resume_signal(thread, sig);
+	if (!thread->stop_event_emitted
+	    && thread->stop_reason != DRGN_STOP_REASON_NONE
+	    && thread->resume_signal < 0) {
+		// TODO: should this be an error instead? The caller can't tell
+		// that the thread has an unreported stop, so they wouldn't be
+		// able to avoid it.
+		if (sig > 0) {
+			char sig_buf[SIGNAL_STR_BUF_LEN];
+			drgn_log_warning(prog,
+					 "couldn't send %s to thread %" PRIu32,
+					 signal_str(sig, sig_buf), thread->tid);
+		}
+	} else if (sig != DRGN_RESUME_DEFAULT_SIGNAL
+		   || thread->resume_signal < 0) {
+		set_resume_signal(thread, sig);
+	}
 	fprintf(stderr, "set thread %u sig to %d\n", thread->tid, thread->resume_signal);
 	if (!thread->stop_event_emitted) {
 		if (list_empty(&thread->node))
@@ -1232,16 +1247,6 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 	}
 
 	if (!list_empty(&prog->stopped_threads)) {
-		thread = list_first_entry(&prog->stopped_threads,
-					  struct drgn_thread, node);
-		if (thread->resume_signal > 0) {
-			char sig_buf[SIGNAL_STR_BUF_LEN];
-			drgn_log_warning(prog,
-					 "couldn't send %s to thread %" PRIu32,
-					 signal_str(thread->resume_signal, sig_buf),
-					 thread->tid);
-		}
-		thread->resume_signal = -1;
 		emit_random_thread_stop_event(prog);
 		return NULL;
 	}
@@ -2108,6 +2113,9 @@ drgn_notify_thread_stop_common(struct drgn_thread *thread)
 	struct drgn_program *prog = drgn_thread_program(thread);
 
 	move_thread(thread, &prog->stopped_threads);
+	// The thread may still have a resume signal if it was stepped to bypass
+	// a breakpoint and the step was interrupted.
+	thread->resume_signal = -1;
 
 	if (prog->bypassing_breakpoint) {
 		prog->bypassing_breakpoint = NULL;
