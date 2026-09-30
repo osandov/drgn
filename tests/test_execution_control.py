@@ -1517,213 +1517,195 @@ class TestAllStop(ExecutionControlTestCase):
 
     def test_simultaneous_breakpoint_cont_signaled(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            with self.complete_ops():
-                site1 = self.prog.set_breakpoint(0x1337).sites[0]
-                site2 = self.prog.set_breakpoint(0xF00D).sites[0]
+            sites = {
+                1: self.prog.set_breakpoint(0x1337).sites[0],
+                2: self.prog.set_breakpoint(0xF00D).sites[0],
+            }
 
-            self.queue_call(
-                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site1)
+            notify_thread_breakpoint1 = ControllerCall(
+                self.prog.notify_thread_breakpoint, self.prog.thread(1), sites[1]
             )
-            self.queue_call(
-                lambda prog: prog.notify_thread_breakpoint(prog.thread(2), site2)
+            stop_all_threads = Op("stop_all_threads")
+            notify_thread_breakpoint2 = ControllerCall(
+                self.prog.notify_thread_breakpoint, self.prog.thread(2), sites[2]
             )
+            stop_all_threads_return = Return(stop_all_threads, None)
 
-            threads = []
-            sites = []
+            def stop_event1(tid):
+                other_tid = 2 if tid == 1 else 1
 
-            def check_stop_reasons1():
+                event1 = Event(drgn.ThreadStopEvent, self.prog.thread(tid))
+                cont1 = Call(self.prog.thread(tid).cont)
+                disable_breakpoint_sites = Op("disable_breakpoint_sites", [sites[tid]])
+                disable_breakpoint_sites_return = Return(disable_breakpoint_sites, None)
+                step_thread = Op(
+                    "resume_threads",
+                    [drgn.StepiResumeAction(self.prog.thread(tid), 0)],
+                )
+                step_thread_return = Return(step_thread, None)
+                notify_thread_stop = ControllerCall(
+                    self.prog.notify_thread_stop,
+                    self.prog.thread(tid),
+                    signal.SIGSEGV,
+                    0xDEAD,
+                )
+                enable_breakpoint_sites = Op("enable_breakpoint_sites", [sites[tid]])
+                enable_breakpoint_sites_return = Return(enable_breakpoint_sites, None)
+                cont1_return = Return(cont1, None)
+
+                event1.on = functools.partial(
+                    check_stopped_thread, tid, drgn.BreakpointStopReason(sites[tid])
+                )
+                event1.next = cont1
+                cont1.next = disable_breakpoint_sites
+                disable_breakpoint_sites.next = disable_breakpoint_sites_return
+                disable_breakpoint_sites_return.next = step_thread
+                step_thread.next = step_thread_return
+                step_thread_return.next = notify_thread_stop
+                notify_thread_stop.next = (
+                    signal_stop_event2(tid, other_tid)
+                    | breakpoint_stop_event2(tid, other_tid)
+                ) & enable_breakpoint_sites
+                enable_breakpoint_sites.next = enable_breakpoint_sites_return
+                enable_breakpoint_sites_return.next = cont1_return
+
+                return event1
+
+            def signal_stop_event2(tid, other_tid):
+                event2 = Event(drgn.ThreadStopEvent, self.prog.thread(tid))
+                cont2 = Call(self.prog.thread(tid).cont)
+                cont2_return = Return(cont2, None)
+                event3 = Event(drgn.ThreadStopEvent, self.prog.thread(other_tid))
+                cont3 = Call(self.prog.thread(other_tid).cont)
+                disable_breakpoint_sites = Op(
+                    "disable_breakpoint_sites", [sites[other_tid]]
+                )
+                disable_breakpoint_sites_return = Return(disable_breakpoint_sites, None)
+                step_thread = Op(
+                    "resume_threads",
+                    [drgn.StepiResumeAction(self.prog.thread(other_tid), 0)],
+                )
+                step_thread_return = Return(step_thread, None)
+                notify_stepped = ControllerCall(
+                    self.prog.notify_thread_stop,
+                    self.prog.thread(other_tid),
+                    signal.SIGTRAP,
+                    sites[other_tid].address + 1,
+                )
+                enable_breakpoint_sites = Op(
+                    "enable_breakpoint_sites", [sites[other_tid]]
+                )
+                enable_breakpoint_sites_return = Return(enable_breakpoint_sites, None)
+                resume_threads = Op(
+                    "resume_threads",
+                    [
+                        drgn.ContinueResumeAction(
+                            self.prog.thread(tid), signal.SIGSEGV
+                        ),
+                        drgn.ContinueResumeAction(None, 0),
+                    ],
+                )
+                resume_threads_return = Return(resume_threads, None)
+                cont3_return = Return(cont3, None)
+
+                event2.on = functools.partial(
+                    check_stopped_thread, tid, drgn.SignalStopReason(signal.SIGSEGV)
+                )
+                event2.next = cont2
+                cont2.next = cont2_return & event3
+                event3.on = functools.partial(
+                    check_stopped_thread,
+                    other_tid,
+                    drgn.BreakpointStopReason(sites[other_tid]),
+                )
+                cont2.next.next = cont3
+                cont3.next = disable_breakpoint_sites
+                disable_breakpoint_sites.next = disable_breakpoint_sites_return
+                disable_breakpoint_sites_return.next = step_thread
+                step_thread.next = step_thread_return
+                step_thread_return.next = notify_stepped
+                notify_stepped.next = enable_breakpoint_sites
+                enable_breakpoint_sites.next = enable_breakpoint_sites_return
+                enable_breakpoint_sites_return.next = resume_threads
+                resume_threads.next = resume_threads_return
+                resume_threads_return.next = cont3_return
+                cont3_return.on = self.check_none_stopped
+
+                return event2
+
+            def breakpoint_stop_event2(tid, other_tid):
+                event2 = Event(drgn.ThreadStopEvent, self.prog.thread(other_tid))
+                cont2 = Call(self.prog.thread(other_tid).cont)
+                disable_breakpoint_sites = Op(
+                    "disable_breakpoint_sites", [sites[other_tid]]
+                )
+                disable_breakpoint_sites_return = Return(disable_breakpoint_sites, None)
+                step_thread = Op(
+                    "resume_threads",
+                    [drgn.StepiResumeAction(self.prog.thread(other_tid), 0)],
+                )
+                step_thread_return = Return(step_thread, None)
+                notify_stepped = ControllerCall(
+                    self.prog.notify_thread_stop,
+                    self.prog.thread(other_tid),
+                    signal.SIGTRAP,
+                    sites[other_tid].address + 1,
+                )
+                event3 = Event(drgn.ThreadStopEvent, self.prog.thread(tid))
+                enable_breakpoint_sites = Op(
+                    "enable_breakpoint_sites", [sites[other_tid]]
+                )
+                enable_breakpoint_sites_return = Return(enable_breakpoint_sites, None)
+                cont2_return = Return(cont2, None)
+                cont3 = Call(self.prog.thread(tid).cont)
+                resume_threads = Op(
+                    "resume_threads",
+                    [
+                        drgn.ContinueResumeAction(
+                            self.prog.thread(tid), signal.SIGSEGV
+                        ),
+                        drgn.ContinueResumeAction(None, 0),
+                    ],
+                )
+                resume_threads_return = Return(resume_threads, None)
+                cont3_return = Return(cont3, None)
+
+                event2.on = functools.partial(
+                    check_stopped_thread,
+                    other_tid,
+                    drgn.BreakpointStopReason(sites[other_tid]),
+                )
+                event2.next = cont2
+                cont2.next = disable_breakpoint_sites
+                disable_breakpoint_sites.next = disable_breakpoint_sites_return
+                disable_breakpoint_sites_return.next = step_thread
+                step_thread.next = step_thread_return
+                step_thread_return.next = notify_stepped
+                event3.on = functools.partial(
+                    check_stopped_thread, tid, drgn.SignalStopReason(signal.SIGSEGV)
+                )
+                notify_stepped.next = event3 & enable_breakpoint_sites
+                enable_breakpoint_sites.next = enable_breakpoint_sites_return
+                enable_breakpoint_sites_return.next = cont2_return
+                notify_stepped.next.next = cont3
+                cont3.next = resume_threads
+                resume_threads.next = resume_threads_return
+                resume_threads_return.next = cont3_return
+                cont3_return.on = self.check_none_stopped
+
+                return event2
+
+            def check_stopped_thread(tid, stop_reason):
                 self.assertEqual(
-                    threads[0].stop_reason, drgn.BreakpointStopReason(sites[0])
-                )
-                self.assertEqual(threads[1].stop_reason, drgn.SyntheticStopReason())
-                self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
-                return True
-
-            def stop_event1(event):
-                if not isinstance(event, drgn.ThreadStopEvent):
-                    return False
-                threads.append(event.thread)
-                if event.thread == self.prog.thread(1):
-                    threads.append(self.prog.thread(2))
-                    sites[:] = [site1, site2]
-                elif event.thread == self.prog.thread(2):
-                    threads.append(self.prog.thread(1))
-                    sites[:] = [site2, site1]
-                else:
-                    return False
-                threads.append(self.prog.thread(3))
-                return check_stop_reasons1()
-
-            with self.expect(ExpectEvent(stop_event1)):
-                self.queue_call(lambda prog: prog.notify_all_stop())
-
-            check_stop_reasons1()
-
-            threads2 = []
-            reasons2 = []
-
-            def check_stop_reasons2():
-                self.assertEqual(threads2[0].stop_reason, reasons2[0])
-                self.assertEqual(threads2[1].stop_reason, drgn.SyntheticStopReason())
-                self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
-                return True
-
-            def stop_event2(event):
-                if not isinstance(event, drgn.ThreadStopEvent):
-                    return False
-                threads2.append(event.thread)
-                if event.thread == threads[0]:
-                    threads2.append(threads[1])
-                    reasons2[:] = [
-                        drgn.SignalStopReason(signal.SIGSEGV),
-                        drgn.BreakpointStopReason(sites[1]),
-                    ]
-                elif event.thread == threads[1]:
-                    threads2.append(threads[0])
-                    reasons2[:] = [
-                        drgn.BreakpointStopReason(sites[1]),
-                        drgn.SignalStopReason(signal.SIGSEGV),
-                    ]
-                else:
-                    return False
-                return check_stop_reasons2()
-
-            with self.expect(
-                ExpectOp(
-                    lambda name, args: name == "disable_breakpoint_sites"
-                    and args == ([sites[0]],)
-                ),
-                Barrier,
-                ExpectOp(
-                    lambda name, args: name == "resume_threads"
-                    and args == ([drgn.StepiResumeAction(threads[0], 0)],)
-                ),
-                Barrier,
-                Call(
-                    lambda prog: prog.notify_thread_stop(
-                        threads[0], signal.SIGSEGV, 0xDEAD
-                    )
-                ),
-                Call(lambda prog: prog.notify_all_stop()),
-                ExpectOp(
-                    lambda name, args: name == "enable_breakpoint_sites"
-                    and args == ([sites[0]],)
-                ),
-                ExpectEvent(stop_event2),
-            ):
-                threads[0].cont()
-
-                check_stop_reasons2()
-
-            def check_stop_reasons3():
-                self.assertEqual(threads2[0].stop_reason, drgn.SyntheticStopReason())
-                self.assertEqual(threads2[1].stop_reason, reasons2[1])
-                self.assertEqual(threads[2].stop_reason, drgn.SyntheticStopReason())
-                return True
-
-            if threads2[0] is threads[0]:
-                msg = "signal first"
-                expected = (
-                    (
-                        ExpectEvent(
-                            lambda event: event == drgn.ThreadStopEvent(threads2[1])
-                            and check_stop_reasons3()
-                        ),
-                    ),
-                    (
-                        ExpectOp(
-                            lambda name, args: name == "disable_breakpoint_sites"
-                            and args == ([sites[1]],)
-                        ),
-                        Barrier,
-                        ExpectOp(
-                            lambda name, args: name == "resume_threads"
-                            and args == ([drgn.StepiResumeAction(threads[1], 0)],)
-                        ),
-                        Barrier,
-                        Call(
-                            lambda prog: prog.notify_thread_stop(
-                                threads2[1], signal.SIGTRAP, 0xF000
-                            )
-                        ),
-                        Call(lambda prog: prog.notify_all_stop()),
-                        ExpectOp(
-                            lambda name, args: name == "enable_breakpoint_sites"
-                            and args == ([sites[1]],)
-                        ),
-                        Barrier,
-                        ExpectOp(
-                            lambda name, args: name == "resume_threads"
-                            and args
-                            == (
-                                [
-                                    drgn.ContinueResumeAction(
-                                        threads2[0], signal.SIGSEGV
-                                    ),
-                                    drgn.ContinueResumeAction(None, 0),
-                                ],
-                            )
-                        ),
-                    ),
-                )
-            else:
-                msg = "breakpoint first"
-                expected = (
-                    (
-                        ExpectOp(
-                            lambda name, args: name == "disable_breakpoint_sites"
-                            and args == ([sites[1]],)
-                        ),
-                        Barrier,
-                        ExpectOp(
-                            lambda name, args: name == "resume_threads"
-                            and args == ([drgn.StepiResumeAction(threads[1], 0)],)
-                        ),
-                        Barrier,
-                        Call(
-                            lambda prog: prog.notify_thread_stop(
-                                threads2[0], signal.SIGTRAP, 0xF000
-                            )
-                        ),
-                        Call(lambda prog: prog.notify_all_stop()),
-                        ExpectOp(
-                            lambda name, args: name == "enable_breakpoint_sites"
-                            and args == ([sites[1]],)
-                        ),
-                        Barrier,
-                        ExpectEvent(
-                            lambda event: event == drgn.ThreadStopEvent(threads2[1])
-                            and check_stop_reasons3()
-                        ),
-                    ),
-                    (
-                        ExpectOp(
-                            lambda name, args: name == "resume_threads"
-                            and args
-                            == (
-                                [
-                                    drgn.ContinueResumeAction(
-                                        threads2[1], signal.SIGSEGV
-                                    ),
-                                    drgn.ContinueResumeAction(None, 0),
-                                ],
-                            )
-                        ),
-                    ),
+                    self.stopped_threads(), {**self.all_stop(), tid: stop_reason}
                 )
 
-            with self.subTest(msg):
-                with self.expect(*expected[0]):
-                    threads2[0].cont()
+            notify_thread_breakpoint1.next = stop_all_threads
+            stop_all_threads.next = notify_thread_breakpoint2
+            notify_thread_breakpoint2.next = stop_all_threads_return
+            stop_all_threads_return.next = stop_event1(1) | stop_event1(2)
 
-                    check_stop_reasons3()
-
-                with self.expect(*expected[1]):
-                    threads2[1].cont()
-
-                    self.assertIsNone(threads[0].stop_reason)
-                    self.assertIsNone(threads[1].stop_reason)
-                    self.assertIsNone(threads[2].stop_reason)
+            self.expect(start=notify_thread_breakpoint1)
 
     def test_breakpoint_cont_with_signal(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
