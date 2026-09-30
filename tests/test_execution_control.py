@@ -1296,7 +1296,7 @@ class TestAllStop(ExecutionControlTestCase):
 
             check_stopped()
 
-    def test_breakpoint_cont(self):
+    def _test_breakpoint_cont(self, step_sig, **kwargs):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
             site = self.prog.set_breakpoint(0x1337).sites[0]
             self.queue_call(
@@ -1305,11 +1305,12 @@ class TestAllStop(ExecutionControlTestCase):
             while self.prog.poll(0):
                 pass
 
-            cont = Call(self.prog.thread(1).cont)
+            cont = Call(self.prog.thread(1).cont, **kwargs)
             disable_breakpoint_sites = Op("disable_breakpoint_sites", [site])
             disable_breakpoint_sites_return = Return(disable_breakpoint_sites, None)
             step_thread = Op(
-                "resume_threads", [drgn.StepiResumeAction(self.prog.thread(1), 0)]
+                "resume_threads",
+                [drgn.StepiResumeAction(self.prog.thread(1), step_sig)],
             )
             step_thread_return = Return(step_thread, None)
             # TODO: queue break?
@@ -1340,6 +1341,12 @@ class TestAllStop(ExecutionControlTestCase):
             cont_return.on = self.check_none_stopped
 
             self.expect(start=cont)
+
+    def test_breakpoint_cont(self):
+        self._test_breakpoint_cont(0)
+
+    def test_breakpoint_cont_with_signal(self):
+        self._test_breakpoint_cont(signal.SIGUSR1, sig=signal.SIGUSR1)
 
     def test_breakpoint_cont_signaled(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
@@ -1706,50 +1713,6 @@ class TestAllStop(ExecutionControlTestCase):
             stop_all_threads_return.next = stop_event1(1) | stop_event1(2)
 
             self.expect(start=notify_thread_breakpoint1)
-
-    def test_breakpoint_cont_with_signal(self):
-        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
-            with self.complete_ops():
-                site = self.prog.set_breakpoint(0x1337).sites[0]
-
-            self.queue_call(
-                lambda prog: prog.notify_thread_breakpoint(prog.thread(1), site)
-            )
-            with self.ignore_events():
-                self.queue_call(lambda prog: prog.notify_all_stop())
-
-            with self.expect(
-                ExpectOp(
-                    lambda name, args: name == "disable_breakpoint_sites"
-                    and args == ([site],)
-                ),
-                Barrier,
-                ExpectOp(
-                    lambda name, args: name == "resume_threads"
-                    and args
-                    == ([drgn.StepiResumeAction(self.prog.thread(1), signal.SIGUSR1)],)
-                ),
-                Barrier,
-                Call(
-                    lambda prog: prog.notify_thread_stop(
-                        prog.thread(1), signal.SIGTRAP, 0x1338
-                    )
-                ),
-                Call(lambda prog: prog.notify_all_stop()),
-                ExpectOp(
-                    lambda name, args: name == "enable_breakpoint_sites"
-                    and args == ([site],)
-                ),
-                Barrier,
-                ExpectOp(
-                    lambda name, args: name == "resume_threads"
-                    and args == ([drgn.ContinueResumeAction(None, 0)],)
-                ),
-            ):
-                self.prog.thread(1).cont(sig=signal.SIGUSR1)
-
-                self.assertIsNone(self.prog.thread(1).stop_reason)
-                self.assertIsNone(self.prog.thread(2).stop_reason)
 
 
 class CaptureBreakpointSite:
