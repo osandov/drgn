@@ -1229,6 +1229,9 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 	if (!thread->stop_event_emitted) {
 		if (list_empty(&thread->node))
 			move_thread(thread, &prog->resumed_threads);
+		// TODO: if a previous call failed in bypass_breakpoint() or
+		// continue_all_threads(), then we're still in all-stop but
+		// stopped_threads may be empty, so this is not a valid thread.
 		thread = list_first_entry(&prog->stopped_threads,
 					  struct drgn_thread, node);
 		assert(thread->stop_event_emitted);

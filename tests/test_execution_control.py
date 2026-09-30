@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import collections
-import contextlib
 import functools
 import os
 import signal
@@ -33,7 +32,7 @@ class SimpleThreadFinder(drgn.ThreadFinder):
         return cache.find_or_create(1, 0)[0]
 
     def thread_object(self, thread):
-        return Object(thread.prog, "void *", thread.tid * 0x1000)
+        return drgn.Object(thread.prog, "void *", thread.tid * 0x1000)
 
     def thread_name(self, thread):
         return f"thread-{thread.tid}"
@@ -476,37 +475,6 @@ class ExecutionControlTestCase(TestCase):
 
     def queue_call(self, fn, *args, **kwargs):
         self._ctrl._queue_call(fn, *args, **kwargs)
-
-    # TODO: get rid of hook_events and hook_ops?
-    @contextlib.contextmanager
-    def hook_events(self, hook):
-        self.poll_all()
-
-        self._event_hooks.append(hook)
-        try:
-            yield
-            self.poll_all()
-        finally:
-            self._event_hooks.pop()
-
-    def ignore_events(self):
-        return self.hook_events(lambda event: True)
-
-    # TODO: use expect as much as possible, and make it not be a per-name
-    # hook?
-    @contextlib.contextmanager
-    def hook_ops(self, hook):
-        self.poll_all()  # TODO: explain
-
-        saved_hook = self._ctrl._op_hook
-        try:
-            self._ctrl._op_hook = hook
-            yield
-        finally:
-            self._ctrl._op_hook = saved_hook
-
-    def complete_ops(self):
-        return self.hook_ops(lambda name, args, promise, result: QUEUE_PROMISE)
 
     def expect(self, *, start):
         self._ctrl._expect(self.prog, start)
