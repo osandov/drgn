@@ -519,13 +519,14 @@ class Program:
         Asynchronously stop an arbitrary thread in this program.
 
         This only guarantees that if a thread is currently running, *some*
-        :class:`ThreadSignalEvent` will eventually be queued (unless a
-        :class:`ProgramExitEvent` is queued first). Nothing has been stopped
-        until that event is queued.
+        :class:`ThreadStopEvent` will eventually be delivered (unless a
+        :class:`ProgramExitEvent` or :class:`ProgramLostEvent` is delivered
+        first). Nothing has been stopped until that event is delivered.
 
         :raises UnsupportedOperation: if interrupting an arbitrary thread is
             not supported
         :raises ProgramExitedError: if program exited
+        :raises ProgramLostError: if program was lost
         :raises NotAttachedError: if not attached to program
         """
         ...
@@ -3057,7 +3058,7 @@ class ExecutionController:
         """Implement :meth:`Thread.interrupt()`."""
         ...
 
-    def interrupt_any_thread(self, prog: Program) -> None:
+    def interrupt_any_thread(self, prog: Program, promise: Promise[None]) -> None:
         """Implement :meth:`Program.interrupt_any_thread()`."""
         ...
 
