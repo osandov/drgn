@@ -39,7 +39,7 @@ static PyObject *ExecutionController_not_implemented(PyObject *self,
 	X(attach)			\
 	X(detach)			\
 	/* X(set_all_stop) */		\
-	/* X(interrupt_thread) */	\
+	X(interrupt_thread)		\
 	X(interrupt_any_thread)		\
 	X(stop_all_threads)		\
 	X(resume_threads)		\
@@ -120,21 +120,25 @@ py_execution_controller_set_all_stop(void *arg, struct drgn_program *prog,
 		return drgn_error_from_python();
 	return NULL;
 }
+#endif
 
-static struct drgn_error *
-py_execution_controller_interrupt_thread(void *arg,
-					 struct drgn_thread *thread)
+static void
+py_execution_controller_interrupt_thread(void *arg, struct drgn_thread *thread,
+					 struct drgn_void_promise *promise)
 {
 	PyGILState_guard();
 
+	_cleanup_pydecref_ Promise *promise_obj = NonePromise_wrap(promise);
+	if (!promise_obj)
+		return;
+
 	_cleanup_pydecref_ PyObject *res =
-		PyObject_CallMethod(arg, "interrupt_thread", "O",
-				    container_of(thread, Thread, thread));
+		PyObject_CallMethod(arg, "interrupt_thread", "OO",
+				    container_of(thread, Thread, thread),
+				    promise_obj);
 	if (!res)
-		return drgn_error_from_python();
-	return NULL;
+		Promise_catch_exception(promise_obj);
 }
-#endif
 
 static void
 py_execution_controller_interrupt_any_thread(void *arg,

@@ -204,7 +204,6 @@ static PyObject *Thread_stack_trace(Thread *self)
 	return ret;
 }
 
-#if 0
 static PyObject *Thread_interrupt(Thread *self)
 {
 	struct drgn_error *err = drgn_thread_interrupt(&self->thread);
@@ -212,7 +211,6 @@ static PyObject *Thread_interrupt(Thread *self)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
-#endif
 
 static PyObject *Thread_cont(Thread *self, PyObject *args, PyObject *kwds)
 {
@@ -249,10 +247,8 @@ static PyMethodDef Thread_methods[] = {
 	 drgn_Thread_register_state_DOC},
 	{"stack_trace", (PyCFunction)Thread_stack_trace, METH_NOARGS,
 	 drgn_Thread_stack_trace_DOC},
-#if 0
 	{"interrupt", (PyCFunction)Thread_interrupt, METH_NOARGS,
 	 drgn_Thread_interrupt_DOC},
-#endif
 	{"cont", (PyCFunction)Thread_cont, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Thread_cont_DOC},
 	{},

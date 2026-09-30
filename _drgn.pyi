@@ -2714,9 +2714,10 @@ class Thread:
         Asynchronously stop this thread.
 
         This only guarantees that if this thread is not already stopped, *some*
-        :class:`ThreadSignalEvent` for it will eventually be queued (unless a
-        :class:`ThreadExitEvent` for it is queued first). The thread has not
-        been stopped until that event is queued.
+        :class:`ThreadStopEvent` for it will eventually be delivered (unless a
+        :class:`ThreadExitEvent` for it, a :class:`ProgramExitEvent`, or a
+        :class:`ProgramLostEvent` is delivered first). The thread has not been
+        stopped until that event is delivered.
 
         If the thread already received a signal, or receives another signal in
         the interim, then there may be an event for that signal *instead of* or
@@ -2725,6 +2726,7 @@ class Thread:
         :raises UnsupportedOperation: if interrupting a specific thread is not
             supported
         :raises ProgramExitedError: if program exited
+        :raises ProgramLostError: if program was lost
         :raises NotAttachedError: if not attached to program
         """
         ...
@@ -3054,7 +3056,7 @@ class ExecutionController:
         """
         ...
 
-    def interrupt_thread(self, thread: Thread) -> None:
+    def interrupt_thread(self, thread: Thread, promise: Promise[None]) -> None:
         """Implement :meth:`Thread.interrupt()`."""
         ...
 

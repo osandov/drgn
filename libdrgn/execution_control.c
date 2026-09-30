@@ -730,7 +730,6 @@ drgn_thread_stop_breakpoint_site(struct drgn_thread *thread)
 	return thread->stop_site;
 }
 
-#if 0
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_thread_interrupt(struct drgn_thread *thread)
 {
@@ -743,9 +742,17 @@ drgn_thread_interrupt(struct drgn_thread *thread)
 		return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
 					 "interrupting specific thread is not supported");
 	}
-	return ctrl->ops.interrupt_thread(ctrl->arg, thread);
+
+	_cleanup_promise_ struct drgn_void_promise *promise =
+		drgn_void_promise_create();
+	if (!promise)
+		return &drgn_enomem;
+	ctrl->ops.interrupt_thread(ctrl->arg, thread,
+				   drgn_promise_share(promise));
+	return wait_for_promise(prog, &promise->promise);
 }
 
+#if 0
 #define resuming_threads_guard(prog)					\
 	if (prog->resuming_threads) {					\
 		return drgn_error_create(DRGN_ERROR_RUNTIME,		\
