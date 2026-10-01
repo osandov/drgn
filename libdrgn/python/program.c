@@ -2535,6 +2535,7 @@ static PyObject *Program_disable_all_breakpoints(Program *self, PyObject *args,
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
+#endif
 
 static BreakpointIterator *Program_breakpoints(Program *self)
 {
@@ -2584,7 +2585,6 @@ static BreakpointSiteIterator *Program_breakpoint_sites(Program *self)
 	ret->it = it;
 	return ret;
 }
-#endif
 
 static PyObject *Program_poll(Program *self, PyObject *args, PyObject *kwds)
 {
@@ -3172,13 +3172,13 @@ static PyMethodDef Program_methods[] = {
 #endif
 	{"set_breakpoint", (PyCFunction)Program_set_breakpoint,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_breakpoint_DOC},
-#if 0
 	{"breakpoints", (PyCFunction)Program_breakpoints, METH_NOARGS,
 	 drgn_Program_breakpoints_DOC},
 	{"find_breakpoint_site", (PyCFunction)Program_find_breakpoint_site,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_find_breakpoint_site_DOC},
 	{"breakpoint_sites", (PyCFunction)Program_breakpoint_sites, METH_NOARGS,
 	 drgn_Program_breakpoint_sites_DOC},
+#if 0
 	{"remove_all_breakpoints", (PyCFunction)Program_remove_all_breakpoints,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_remove_all_breakpoints_DOC},
 	{"enable_all_breakpoints", (PyCFunction)Program_enable_all_breakpoints,
