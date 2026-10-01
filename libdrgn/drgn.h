@@ -5368,16 +5368,13 @@ bool drgn_breakpoint_enabled(const struct drgn_breakpoint *bp);
 bool drgn_breakpoint_removed(const struct drgn_breakpoint *bp);
 
 struct drgn_error *
-drgn_program_remove_all_breakpoints(struct drgn_program *prog,
-				    bool sync_events);
+drgn_program_remove_all_breakpoints(struct drgn_program *prog);
 
 struct drgn_error *
-drgn_program_enable_all_breakpoints(struct drgn_program *prog,
-				    bool sync_events);
+drgn_program_enable_all_breakpoints(struct drgn_program *prog);
 
 struct drgn_error *
-drgn_program_disable_all_breakpoints(struct drgn_program *prog,
-				     bool sync_events);
+drgn_program_disable_all_breakpoints(struct drgn_program *prog);
 
 size_t drgn_breakpoint_num_sites(const struct drgn_breakpoint *bp);
 

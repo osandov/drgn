@@ -2487,55 +2487,32 @@ static Breakpoint *Program_set_breakpoint(Program *self, PyObject *args,
 	return container_of(bp, Breakpoint, bp);
 }
 
-#if 0
-static PyObject *Program_remove_all_breakpoints(Program *self, PyObject *args,
-						PyObject *kwds)
+static PyObject *Program_remove_all_breakpoints(Program *self)
 {
-	static char *keywords[] = {"sync_events", NULL};
-	int sync_events = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds,
-					 "|$p:remove_all_breakpoints",
-					 keywords, &sync_events))
-		return NULL;
 	struct drgn_error *err =
-		drgn_program_remove_all_breakpoints(&self->prog, sync_events);
+		drgn_program_remove_all_breakpoints(&self->prog);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
-static PyObject *Program_enable_all_breakpoints(Program *self, PyObject *args,
-						PyObject *kwds)
+static PyObject *Program_enable_all_breakpoints(Program *self)
 {
-	static char *keywords[] = {"sync_events", NULL};
-	int sync_events = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds,
-					 "|$p:enable_all_breakpoints",
-					 keywords, &sync_events))
-		return NULL;
 	struct drgn_error *err =
-		drgn_program_enable_all_breakpoints(&self->prog, sync_events);
+		drgn_program_enable_all_breakpoints(&self->prog);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
-static PyObject *Program_disable_all_breakpoints(Program *self, PyObject *args,
-						 PyObject *kwds)
+static PyObject *Program_disable_all_breakpoints(Program *self)
 {
-	static char *keywords[] = {"sync_events", NULL};
-	int sync_events = 1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds,
-					 "|$p:disable_all_breakpoints",
-					 keywords, &sync_events))
-		return NULL;
 	struct drgn_error *err =
-		drgn_program_disable_all_breakpoints(&self->prog, sync_events);
+		drgn_program_disable_all_breakpoints(&self->prog);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
-#endif
 
 static BreakpointIterator *Program_breakpoints(Program *self)
 {
@@ -3178,14 +3155,12 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_find_breakpoint_site_DOC},
 	{"breakpoint_sites", (PyCFunction)Program_breakpoint_sites, METH_NOARGS,
 	 drgn_Program_breakpoint_sites_DOC},
-#if 0
 	{"remove_all_breakpoints", (PyCFunction)Program_remove_all_breakpoints,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_remove_all_breakpoints_DOC},
+	 METH_NOARGS, drgn_Program_remove_all_breakpoints_DOC},
 	{"enable_all_breakpoints", (PyCFunction)Program_enable_all_breakpoints,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_enable_all_breakpoints_DOC},
+	 METH_NOARGS, drgn_Program_enable_all_breakpoints_DOC},
 	{"disable_all_breakpoints", (PyCFunction)Program_disable_all_breakpoints,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_disable_all_breakpoints_DOC},
-#endif
+	 METH_NOARGS, drgn_Program_disable_all_breakpoints_DOC},
 	{"poll", (PyCFunction)Program_poll, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_poll_DOC},
 	{"address_size", (PyCFunction)Program_address_size, METH_NOARGS,

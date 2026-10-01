@@ -624,31 +624,16 @@ class Program:
         """Iterate over all currently set breakpoint sites."""
         ...
 
-    def remove_all_breakpoints(self, *, sync_events: bool = True) -> None:
-        """
-        Remove all set breakpoints.
-
-        :param sync_events: Whether to update state using
-            :meth:`Program.sync_events()` first.
-        """
+    def remove_all_breakpoints(self) -> None:
+        """Remove all set breakpoints."""
         ...
 
-    def enable_all_breakpoints(self, *, sync_events: bool = True) -> None:
-        """
-        Enable all set breakpoints.
-
-        :param sync_events: Whether to update state using
-            :meth:`Program.sync_events()` first.
-        """
+    def enable_all_breakpoints(self) -> None:
+        """Enable all set breakpoints."""
         ...
 
-    def disable_all_breakpoints(self, *, sync_events: bool = True) -> None:
-        """
-        Disable all set breakpoints.
-
-        :param sync_events: Whether to update state using
-            :meth:`Program.sync_events()` first.
-        """
+    def disable_all_breakpoints(self) -> None:
+        """Disable all set breakpoints."""
         ...
 
     def poll(self, timeout: Optional[float] = None) -> bool:

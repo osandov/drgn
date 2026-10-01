@@ -634,6 +634,12 @@ drgn_program_detach(struct drgn_program *prog)
 	// (see clear_controlled_threads()), so they still appear stopped after
 	// detaching and can't be stopped again after reattaching. The same
 	// applies to threads that stopped during a failed attach.
+	//
+	// It also doesn't remove breakpoints (see clear_breakpoints()), so
+	// they still appear set and enabled after detaching. The functions
+	// that remove, enable, or disable breakpoints assume that we're
+	// attached if there are any breakpoints, so they will call the
+	// controller while detached.
 	return NULL;
 }
 
@@ -1598,40 +1604,41 @@ LIBDRGN_PUBLIC bool drgn_breakpoint_removed(const struct drgn_breakpoint *bp)
 	return list_empty(&bp->prog_node);
 }
 
-#if 0
 static struct drgn_error *
 drgn_program_disable_all_breakpoints_impl(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 
-	_cleanup_free_ struct drgn_breakpoint_site **sites_to_disable =
-		malloc_array(drgn_breakpoint_site_table_size(&prog->breakpoint_sites),
-			     sizeof(sites_to_disable[0]));
-	if (!sites_to_disable)
+	_cleanup_promise_ struct breakpoint_sites_promise *promise =
+		breakpoint_sites_promise_create(drgn_breakpoint_site_table_size(&prog->breakpoint_sites));
+	if (!promise)
 		return &drgn_enomem;
-	size_t num_sites_to_disable = 0;
 
 	hash_table_for_each(drgn_breakpoint_site_table, it,
 			    &prog->breakpoint_sites) {
 		struct drgn_breakpoint_site *site = *it.entry;
-		if (!list_empty(&site->enabled_breakpoints))
-			sites_to_disable[num_sites_to_disable++] = site;
+		if (!list_empty(&site->enabled_breakpoints)) {
+			drgn_breakpoint_site_incref(site);
+			promise->sites[promise->num_sites++] = site;
+		}
 	}
 
-	if (num_sites_to_disable) {
+	if (promise->num_sites) {
 		struct drgn_execution_controller *ctrl =
 			get_enabled_controller(prog);
-		err = ctrl->ops.disable_breakpoint_sites(ctrl->arg,
-							 sites_to_disable,
-							 num_sites_to_disable);
+
+		ctrl->ops.disable_breakpoint_sites(ctrl->arg, promise->sites,
+						   promise->num_sites,
+						   drgn_promise_share(&promise->promise));
+		err = wait_for_promise(prog, &promise->promise.promise);
 		if (err)
 			return err;
 
-		// sites_to_disable already contains every site with any enabled
+		// promise->sites already contains every site with any enabled
 		// breakpoints, so we don't have to iterate the entire sites
 		// table.
-		for (size_t i = 0; i < num_sites_to_disable; i++) {
-			struct drgn_breakpoint_site *site = sites_to_disable[i];
+		for (size_t i = 0; i < promise->num_sites; i++) {
+			struct drgn_breakpoint_site *site = promise->sites[i];
 			struct drgn_breakpoint_site_node *site_node;
 			list_for_each_entry(site_node,
 					    &site->enabled_breakpoints, node)
@@ -1647,24 +1654,15 @@ drgn_program_disable_all_breakpoints_impl(struct drgn_program *prog)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_remove_all_breakpoints(struct drgn_program *prog, bool sync_events)
+drgn_program_remove_all_breakpoints(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 
-	for (;;) {
-		if (list_empty(&prog->breakpoints))
-			return NULL;
+	if (list_empty(&prog->breakpoints))
+		return NULL;
 
-		if (!sync_events)
-			break;
-		// Breakpoints can only be set while attached to the program, so
-		// we don't need to check.
-		err = drgn_program_sync_events(prog, false);
-		if (err)
-			return err;
-		// queue_events could have removed all breakpoints. Check again.
-		sync_events = false;
-	}
+	// Breakpoints can only be set while attached to the program, so we
+	// don't need to check.
 
 	modifying_breakpoints_guard(prog, "removing");
 
@@ -1679,57 +1677,52 @@ drgn_program_remove_all_breakpoints(struct drgn_program *prog, bool sync_events)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_enable_all_breakpoints(struct drgn_program *prog,
-				    bool sync_events)
+drgn_program_enable_all_breakpoints(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 
-	for (;;) {
-		if (list_empty(&prog->breakpoints))
-			return NULL;
+	if (list_empty(&prog->breakpoints))
+		return NULL;
 
-		if (!sync_events)
-			break;
-		// Breakpoints can only be set while attached to the program, so
-		// we don't need to check.
-		err = drgn_program_sync_events(prog, false);
-		if (err)
-			return err;
-		// queue_events could have removed all breakpoints. Check again.
-		sync_events = false;
-	}
+	// Breakpoints can only be set while attached to the program, so we
+	// don't need to check.
 
 	modifying_breakpoints_guard(prog, "enabling");
 
-	_cleanup_free_ struct drgn_breakpoint_site **sites_to_enable =
-		malloc_array(drgn_breakpoint_site_table_size(&prog->breakpoint_sites),
-			     sizeof(sites_to_enable[0]));
-	if (!sites_to_enable)
+	_cleanup_promise_ struct breakpoint_sites_promise *promise =
+		breakpoint_sites_promise_create(drgn_breakpoint_site_table_size(&prog->breakpoint_sites));
+	if (!promise)
 		return &drgn_enomem;
-	size_t num_sites_to_enable = 0;
 
 	hash_table_for_each(drgn_breakpoint_site_table, it,
 			    &prog->breakpoint_sites) {
 		struct drgn_breakpoint_site *site = *it.entry;
-		if (list_empty(&site->enabled_breakpoints))
-			sites_to_enable[num_sites_to_enable++] = site;
+		if (list_empty(&site->enabled_breakpoints)) {
+			drgn_breakpoint_site_incref(site);
+			promise->sites[promise->num_sites++] = site;
+		}
 	}
 
-	if (num_sites_to_enable) {
+	if (promise->num_sites) {
 		struct drgn_execution_controller *ctrl =
 			get_enabled_controller(prog);
-		err = ctrl->ops.enable_breakpoint_sites(ctrl->arg,
-							sites_to_enable,
-							num_sites_to_enable);
+
+		ctrl->ops.enable_breakpoint_sites(ctrl->arg, promise->sites,
+						  promise->num_sites,
+						  drgn_promise_share(&promise->promise));
+		err = wait_for_promise(prog, &promise->promise.promise);
 		if (err)
 			return err;
 	}
 
-	// sites_to_enable doesn't contain sites with a mix of enabled and
+	// promise->sites doesn't contain sites with a mix of enabled and
 	// disabled breakpoints, so we have to iterate the entire sites table.
 	hash_table_for_each(drgn_breakpoint_site_table, it,
 			    &prog->breakpoint_sites) {
 		struct drgn_breakpoint_site *site = *it.entry;
+		if (list_empty(&site->disabled_breakpoints))
+			continue;
+
 		struct drgn_breakpoint_site_node *site_node;
 		list_for_each_entry(site_node, &site->disabled_breakpoints,
 				    node)
@@ -1743,30 +1736,18 @@ drgn_program_enable_all_breakpoints(struct drgn_program *prog,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_disable_all_breakpoints(struct drgn_program *prog, bool sync_events)
+drgn_program_disable_all_breakpoints(struct drgn_program *prog)
 {
-	struct drgn_error *err;
+	if (list_empty(&prog->breakpoints))
+		return NULL;
 
-	for (;;) {
-		if (list_empty(&prog->breakpoints))
-			return NULL;
-
-		if (!sync_events)
-			break;
-		// Breakpoints can only be set while attached to the program, so
-		// we don't need to check.
-		err = drgn_program_sync_events(prog, false);
-		if (err)
-			return err;
-		// queue_events could have removed all breakpoints. Check again.
-		sync_events = false;
-	}
+	// Breakpoints can only be set while attached to the program, so we
+	// don't need to check.
 
 	modifying_breakpoints_guard(prog, "disabling");
 
 	return drgn_program_disable_all_breakpoints_impl(prog);
 }
-#endif
 
 LIBDRGN_PUBLIC size_t
 drgn_breakpoint_num_sites(const struct drgn_breakpoint *bp)
@@ -2327,6 +2308,7 @@ struct drgn_error *drgn_program_modify_fd(struct drgn_program *prog, int fd,
 	return NULL;
 }
 
+LIBDRGN_PUBLIC
 struct drgn_error *drgn_program_unregister_fd(struct drgn_program *prog, int fd)
 {
 	struct hash_pair hp = fd_handler_table_hash(&fd);
