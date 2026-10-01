@@ -1802,6 +1802,69 @@ class TestBreakpoints(ExecutionControlTestCase):
 
             self.expect(start=set_breakpoint)
 
+    def test_enable(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = self.prog.set_breakpoint(0x1337, enable=False)
+            site = bp.sites[0]
+
+            breakpoint_enable = Call(bp.enable)
+            breakpoint_enable.next = enable_breakpoint_sites = Op(
+                "enable_breakpoint_sites", [site]
+            )
+            enable_breakpoint_sites.next = enable_breakpoint_sites_return = Return(
+                enable_breakpoint_sites, None
+            )
+            enable_breakpoint_sites_return.next = breakpoint_enable_return = Return(
+                breakpoint_enable, None
+            )
+            breakpoint_enable_return.on = lambda: (
+                self.assertTrue(bp.enabled),
+                self.assertTrue(site.enabled),
+            )
+
+            self.expect(start=breakpoint_enable)
+
+    def test_enable_already_enabled(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = self.prog.set_breakpoint(0x1337)
+
+            breakpoint_enable = Call(bp.enable)
+            breakpoint_enable.next = breakpoint_enable_return = Return(
+                breakpoint_enable, None
+            )
+            breakpoint_enable_return.on = lambda: (
+                self.assertTrue(bp.enabled),
+                self.assertTrue(bp.sites[0].enabled),
+            )
+
+            self.expect(start=breakpoint_enable)
+
+    def test_enable_site_already_enabled(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            other_bp = self.prog.set_breakpoint(0x1337)
+            bp = self.prog.set_breakpoint(0x1337, enable=False)
+            self.assertEqual(bp.sites, other_bp.sites)
+
+            breakpoint_enable = Call(bp.enable)
+            breakpoint_enable.next = breakpoint_enable_return = Return(
+                breakpoint_enable, None
+            )
+            breakpoint_enable_return.on = lambda: (
+                self.assertTrue(bp.enabled),
+                self.assertTrue(other_bp.enabled),
+                self.assertTrue(bp.sites[0].enabled),
+            )
+
+            self.expect(start=breakpoint_enable)
+
+    def test_enable_removed(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = self.prog.set_breakpoint(0x1337, enable=False)
+            bp.remove()
+
+            self.assertRaises(ValueError, bp.enable)
+            self.assertFalse(bp.enabled)
+
     def test_disable(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
             bp = self.prog.set_breakpoint(0x1337)
@@ -1823,3 +1886,209 @@ class TestBreakpoints(ExecutionControlTestCase):
             )
 
             self.expect(start=breakpoint_disable)
+
+    def test_remove(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = self.prog.set_breakpoint(0x1337)
+            site = bp.sites[0]
+
+            breakpoint_remove = Call(bp.remove)
+            breakpoint_remove.next = disable_breakpoint_sites = Op(
+                "disable_breakpoint_sites", [site]
+            )
+            disable_breakpoint_sites.on = lambda: (
+                self.assertFalse(bp.removed),
+                self.assertFalse(site.removed),
+            )
+            disable_breakpoint_sites.next = disable_breakpoint_sites_return = Return(
+                disable_breakpoint_sites, None
+            )
+            disable_breakpoint_sites_return.next = breakpoint_remove_return = Return(
+                breakpoint_remove, None
+            )
+            breakpoint_remove_return.on = lambda: (
+                self.assertTrue(bp.removed),
+                self.assertFalse(bp.enabled),
+                self.assertTrue(site.removed),
+                self.assertFalse(site.enabled),
+            )
+
+            self.expect(start=breakpoint_remove)
+
+            # A new breakpoint at the same address must not reuse the removed
+            # site.
+            new_site = self.prog.set_breakpoint(0x1337).sites[0]
+            self.assertNotEqual(new_site, site)
+            self.assertTrue(site.removed)
+
+    def test_remove_disabled(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = self.prog.set_breakpoint(0x1337, enable=False)
+            site = bp.sites[0]
+
+            breakpoint_remove = Call(bp.remove)
+            breakpoint_remove.next = breakpoint_remove_return = Return(
+                breakpoint_remove, None
+            )
+            breakpoint_remove_return.on = lambda: (
+                self.assertTrue(bp.removed),
+                self.assertTrue(site.removed),
+            )
+
+            self.expect(start=breakpoint_remove)
+
+    def test_remove_already_removed(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = self.prog.set_breakpoint(0x1337)
+            site = bp.sites[0]
+            bp.remove()
+            # This gets a new site at the same address.
+            other_bp = self.prog.set_breakpoint(0x1337)
+
+            breakpoint_remove = Call(bp.remove)
+            breakpoint_remove.next = breakpoint_remove_return = Return(
+                breakpoint_remove, None
+            )
+            breakpoint_remove_return.on = lambda: (
+                self.assertTrue(bp.removed),
+                self.assertTrue(site.removed),
+                self.assertFalse(other_bp.removed),
+                self.assertTrue(other_bp.enabled),
+            )
+
+            self.expect(start=breakpoint_remove)
+
+            # The new site must not have been affected.
+            self.assertEqual(self.prog.set_breakpoint(0x1337).sites, other_bp.sites)
+
+    def test_remove_site_still_enabled(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            other_bp = self.prog.set_breakpoint(0x1337)
+            bp = self.prog.set_breakpoint(0x1337)
+            site = bp.sites[0]
+            self.assertEqual(bp.sites, other_bp.sites)
+
+            breakpoint_remove = Call(bp.remove)
+            breakpoint_remove.next = breakpoint_remove_return = Return(
+                breakpoint_remove, None
+            )
+            breakpoint_remove_return.on = lambda: (
+                self.assertTrue(bp.removed),
+                self.assertFalse(other_bp.removed),
+                self.assertTrue(other_bp.enabled),
+                self.assertFalse(site.removed),
+                self.assertTrue(site.enabled),
+            )
+
+            self.expect(start=breakpoint_remove)
+
+    def test_remove_site_still_used(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            other_bp = self.prog.set_breakpoint(0x1337, enable=False)
+            bp = self.prog.set_breakpoint(0x1337)
+            site = bp.sites[0]
+            self.assertEqual(bp.sites, other_bp.sites)
+
+            breakpoint_remove = Call(bp.remove)
+            breakpoint_remove.next = disable_breakpoint_sites = Op(
+                "disable_breakpoint_sites", [site]
+            )
+            disable_breakpoint_sites.next = disable_breakpoint_sites_return = Return(
+                disable_breakpoint_sites, None
+            )
+            disable_breakpoint_sites_return.next = breakpoint_remove_return = Return(
+                breakpoint_remove, None
+            )
+            breakpoint_remove_return.on = lambda: (
+                self.assertTrue(bp.removed),
+                self.assertFalse(other_bp.removed),
+                self.assertFalse(other_bp.enabled),
+                self.assertFalse(site.removed),
+                self.assertFalse(site.enabled),
+            )
+
+            self.expect(start=breakpoint_remove)
+
+            # The site is still there for the other breakpoint.
+            self.assertEqual(self.prog.set_breakpoint(0x1337).sites[0], site)
+
+    def check_site_breakpoints(self, site, enabled, disabled):
+        self.assertCountEqual(site.enabled_breakpoints(), enabled)
+        self.assertCountEqual(site.disabled_breakpoints(), disabled)
+
+    def test_site_breakpoints(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp1 = self.prog.set_breakpoint(0x1337)
+            bp2 = self.prog.set_breakpoint(0x1337, enable=False)
+            bp3 = self.prog.set_breakpoint(0x1337)
+            other_bp1 = self.prog.set_breakpoint(0xDEAD)
+            other_bp2 = self.prog.set_breakpoint(0xF00D, enable=False)
+
+            self.check_site_breakpoints(bp1.sites[0], [bp1, bp3], [bp2])
+            self.check_site_breakpoints(other_bp1.sites[0], [other_bp1], [])
+            self.check_site_breakpoints(other_bp2.sites[0], [], [other_bp2])
+
+    def test_site_breakpoints_enable(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp1 = self.prog.set_breakpoint(0x1337)
+            bp2 = self.prog.set_breakpoint(0x1337, enable=False)
+            site = bp1.sites[0]
+
+            bp2.enable()
+            self.check_site_breakpoints(site, [bp1, bp2], [])
+
+    def test_site_breakpoints_disable(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp1 = self.prog.set_breakpoint(0x1337)
+            bp2 = self.prog.set_breakpoint(0x1337, enable=False)
+            site = bp1.sites[0]
+
+            bp1.disable()
+            self.check_site_breakpoints(site, [], [bp1, bp2])
+
+    def test_site_breakpoints_remove(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp1 = self.prog.set_breakpoint(0x1337)
+            bp2 = self.prog.set_breakpoint(0x1337, enable=False)
+            bp3 = self.prog.set_breakpoint(0x1337)
+            site = bp1.sites[0]
+
+            bp1.remove()
+            self.check_site_breakpoints(site, [bp3], [bp2])
+
+            bp2.remove()
+            self.check_site_breakpoints(site, [bp3], [])
+
+            bp3.remove()
+            self.check_site_breakpoints(site, [], [])
+
+    def test_site_breakpoints_changed_during_iteration(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp1 = self.prog.set_breakpoint(0x1337)
+            bp2 = self.prog.set_breakpoint(0x1337, enable=False)
+            site = bp1.sites[0]
+
+            for name, change in (
+                ("set", lambda: self.prog.set_breakpoint(0x1337)),
+                ("enable", bp2.enable),
+                ("disable", bp2.disable),
+                ("remove", bp2.remove),
+            ):
+                with self.subTest(change=name):
+                    enabled_it = site.enabled_breakpoints()
+                    disabled_it = site.disabled_breakpoints()
+                    change()
+                    self.assertRaises(RuntimeError, next, enabled_it)
+                    self.assertRaises(RuntimeError, next, disabled_it)
+
+    def test_site_breakpoints_other_site_changed_during_iteration(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = self.prog.set_breakpoint(0x1337)
+            site = bp.sites[0]
+
+            it = site.enabled_breakpoints()
+            other_bp = self.prog.set_breakpoint(0xDEAD)
+            other_bp.disable()
+            other_bp.enable()
+            other_bp.remove()
+            self.assertEqual(list(it), [bp])
