@@ -450,6 +450,12 @@ class _ExpectExecutionController(drgn.ExecutionController):
     def detach(self, prog, promise):
         self._op("detach", (), promise, None)
 
+    def interrupt_thread(self, thread, promise):
+        self._op("interrupt_thread", (thread,), promise, None)
+
+    def interrupt_any_thread(self, prog, promise):
+        self._op("interrupt_any_thread", (), promise, None)
+
     def stop_all_threads(self, prog, promise):
         self._op("stop_all_threads", (), promise, None)
 
@@ -1681,6 +1687,180 @@ class TestAllStop(ExecutionControlTestCase):
             stop_all_threads_return.next = stop_event1(1) | stop_event1(2)
 
             self.expect(start=notify_thread_breakpoint1)
+
+
+class TestInterrupt(ExecutionControlTestCase):
+    def _test_interrupt(self, interrupt_call, interrupt_op, tid):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+
+            def check_stopped():
+                self.assertEqual(
+                    self.stopped_threads(),
+                    {
+                        **self.all_stop(),
+                        tid: drgn.SignalStopReason(signal.SIGINT),
+                    },
+                )
+
+            interrupt_call.next = interrupt_op
+            interrupt_op.next = interrupt_op_return = Return(interrupt_op, None)
+            interrupt_op_return.next = interrupt_call_return = Return(
+                interrupt_call, None
+            )
+            # Interrupting is asynchronous: nothing is stopped until the stop
+            # event.
+            interrupt_call_return.on = self.check_none_stopped
+            interrupt_call_return.next = notify_thread_stop = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(tid),
+                signal.SIGINT,
+                0x1337,
+            )
+            notify_thread_stop.next = stop_all_threads = Op("stop_all_threads")
+            stop_all_threads.next = stop_all_threads_return = Return(
+                stop_all_threads, None
+            )
+            stop_all_threads_return.next = stop_event = Event(
+                drgn.ThreadStopEvent, self.prog.thread(tid)
+            )
+            stop_event.on = check_stopped
+
+            self.expect(start=interrupt_call)
+
+            check_stopped()
+
+    def test_interrupt_thread(self):
+        self._test_interrupt(
+            Call(self.prog.thread(2).interrupt),
+            Op("interrupt_thread", self.prog.thread(2)),
+            2,
+        )
+
+    def test_interrupt_any_thread(self):
+        self._test_interrupt(
+            Call(self.prog.interrupt_any_thread), Op("interrupt_any_thread"), 1
+        )
+
+    def _test_interrupt_failure(self, interrupt_call, interrupt_op):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            interrupt_call.next = interrupt_op
+            interrupt_op.next = interrupt_op_raise = Raise(
+                interrupt_op, Exception("foo")
+            )
+            interrupt_op_raise.next = interrupt_call_raise = Raise(
+                interrupt_call, Exception("foo")
+            )
+            interrupt_call_raise.on = lambda: (
+                self.assertEqual(self.prog.attach_state, drgn.AttachState.ATTACHED),
+                self.check_none_stopped(),
+            )
+
+            self.expect(start=interrupt_call)
+
+    def test_interrupt_thread_failure(self):
+        self._test_interrupt_failure(
+            Call(self.prog.thread(2).interrupt),
+            Op("interrupt_thread", self.prog.thread(2)),
+        )
+
+    def test_interrupt_any_thread_failure(self):
+        self._test_interrupt_failure(
+            Call(self.prog.interrupt_any_thread), Op("interrupt_any_thread")
+        )
+
+    def test_interrupt_thread_not_attached(self):
+        self.assertRaises(drgn.NotAttachedError, self.prog.thread(2).interrupt)
+
+    def test_interrupt_any_thread_not_attached(self):
+        self.assertRaises(drgn.NotAttachedError, self.prog.interrupt_any_thread)
+
+    def _test_interrupt_program_exited(self, interrupt):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(self.prog.notify_program_exit, 0)
+            while self.prog.poll(0):
+                pass
+
+            self.assertRaises(drgn.ProgramExitedError, interrupt)
+
+    def test_interrupt_thread_program_exited(self):
+        self._test_interrupt_program_exited(self.prog.thread(2).interrupt)
+
+    def test_interrupt_any_thread_program_exited(self):
+        self._test_interrupt_program_exited(self.prog.interrupt_any_thread)
+
+    def _test_interrupt_program_lost(self, interrupt):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(self.prog.notify_program_lost, BrokenPipeError("bye"))
+            while self.prog.poll(0):
+                pass
+
+            self.assertRaises(drgn.ProgramLostError, interrupt)
+
+    def test_interrupt_thread_program_lost(self):
+        self._test_interrupt_program_lost(self.prog.thread(2).interrupt)
+
+    def test_interrupt_any_thread_program_lost(self):
+        self._test_interrupt_program_lost(self.prog.interrupt_any_thread)
+
+    def _test_interrupt_unsupported(self, name, interrupt):
+        class Controller(_ExpectExecutionController):
+            pass
+
+        # Make it look like the method isn't implemented.
+        setattr(Controller, name, getattr(drgn.ExecutionController, name))
+
+        prog = drgn.Program(platform=drgn.Platform(drgn.Architecture.X86_64))
+        prog.register_thread_finder("test", SimpleThreadFinder(), enable_index=0)
+        prog.register_execution_controller("test", Controller(), enable_index=0)
+
+        with prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.assertRaises(drgn.UnsupportedOperation, interrupt(prog))
+
+    def test_interrupt_thread_unsupported(self):
+        self._test_interrupt_unsupported(
+            "interrupt_thread", lambda prog: prog.thread(2).interrupt
+        )
+
+    def test_interrupt_any_thread_unsupported(self):
+        self._test_interrupt_unsupported(
+            "interrupt_any_thread", lambda prog: prog.interrupt_any_thread
+        )
+
+    def test_attach_interrupt(self):
+        flags = drgn.AttachFlags.ALL_STOP | drgn.AttachFlags.INTERRUPT
+
+        def check_stopped():
+            self.assertEqual(
+                self.stopped_threads(),
+                {
+                    **self.all_stop(),
+                    1: drgn.SignalStopReason(signal.SIGINT),
+                },
+            )
+
+        attach_call = Call(self.prog.attach, flags)
+        attach_call.next = attach_op = Op("attach", flags)
+        attach_op.next = attach_op_return = Return(attach_op, True)
+        attach_op_return.next = attach_call_return = Return(attach_call, ANY)
+        attach_call_return.on = self.check_none_stopped
+        attach_call_return.next = notify_thread_stop = ControllerCall(
+            self.prog.notify_thread_stop,
+            self.prog.thread(1),
+            signal.SIGINT,
+            0x1337,
+        )
+        notify_thread_stop.next = stop_all_threads = Op("stop_all_threads")
+        stop_all_threads.next = stop_all_threads_return = Return(stop_all_threads, None)
+        stop_all_threads_return.next = stop_event = Event(
+            drgn.ThreadStopEvent, self.prog.thread(1)
+        )
+        stop_event.on = check_stopped
+
+        self.expect(start=attach_call)
+
+        check_stopped()
+
+        self.prog.detach()
 
 
 class CaptureBreakpointSite:

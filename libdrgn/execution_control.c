@@ -630,6 +630,10 @@ drgn_program_detach(struct drgn_program *prog)
 
 	prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
 	prog->in_all_stop_ = DRGN_NOT_ALL_STOPPED;
+	// TODO: this doesn't clear the state of stopped and resumed threads
+	// (see clear_controlled_threads()), so they still appear stopped after
+	// detaching and can't be stopped again after reattaching. The same
+	// applies to threads that stopped during a failed attach.
 	return NULL;
 }
 
@@ -2090,6 +2094,13 @@ drgn_notify_program_lost(struct drgn_program *prog, struct drgn_error *_err)
 static struct drgn_error *check_notify_thread_stop(struct drgn_thread *thread)
 {
 	struct drgn_program *prog = drgn_thread_program(thread);
+	// TODO: this doesn't check the attach state. If we're still attaching,
+	// then prog->all_stop isn't set yet (or is left over from a previous
+	// attach), so the stop is handled in the wrong mode. This is the case
+	// even if the controller notifies us immediately after completing the
+	// attach promise. We should either defer the stop until we're done
+	// attaching or return an error. We also shouldn't allow this if we're
+	// detached.
 	if (prog->in_all_stop_ == DRGN_ALL_STOPPED
 	    && !prog->bypassing_breakpoint) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, // TODO: better error code?
