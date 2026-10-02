@@ -1193,6 +1193,22 @@ class Program:
         """TODO"""
         ...
 
+    def notify_thread_exit(self, thread: Thread, status: int) -> None:
+        """
+        Notify the program that a thread exited or was terminated by a signal.
+
+        This is called by an :class:`ExecutionController`. It delivers a
+        :class:`ThreadExitEvent`. It does not stop any other threads.
+
+        :param thread: Thread that exited.
+        :param status: :attr:`ThreadExitEvent.status`
+        :raises ValueError: if the thread already exited
+        :raises ProgramExitedError: if program exited
+        :raises ProgramLostError: if program was lost
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
     def register_fd(
         self,
         fd: int,

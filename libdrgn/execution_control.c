@@ -319,20 +319,27 @@ static void clear_stepping_threads(struct drgn_program *prog)
 	}
 }
 
-static void reset_controlled_threads_list(struct list_head *list)
+// Forget everything about a thread being stopped or resumed.
+static void reset_controlled_thread(struct drgn_thread *thread)
 {
-	struct drgn_thread *thread, *tmp;
-	list_for_each_entry_safe(thread, tmp, list, node) {
-		thread->stop_event_emitted = false;
-		thread->stepping = false;
-		thread->stop_reason = DRGN_STOP_REASON_NONE;
-		thread->stop_signal = -1;
-		drgn_clear_ref(thread->stop_site);
-		thread->resume_signal = -1;
-		thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
+	thread->stop_event_emitted = false;
+	thread->stepping = false;
+	thread->stop_reason = DRGN_STOP_REASON_NONE;
+	thread->stop_signal = -1;
+	drgn_clear_ref(thread->stop_site);
+	thread->resume_signal = -1;
+	thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
+	if (!list_empty(&thread->node)) {
 		list_del_init(&thread->node);
 		drgn_thread_decref(thread);
 	}
+}
+
+static void reset_controlled_threads_list(struct list_head *list)
+{
+	struct drgn_thread *thread, *tmp;
+	list_for_each_entry_safe(thread, tmp, list, node)
+		reset_controlled_thread(thread);
 }
 
 // Forget everything about stopped and resumed threads. This is used when we're
@@ -798,6 +805,8 @@ drgn_program_interrupt_any_thread(struct drgn_program *prog)
 LIBDRGN_PUBLIC
 enum drgn_stop_reason drgn_thread_stop_reason(struct drgn_thread *thread)
 {
+	if (thread->exited)
+		return DRGN_STOP_REASON_NONE;
 	if (thread->stop_event_emitted)
 		return thread->stop_reason;
 	if (drgn_thread_program(thread)->in_all_stop_ == DRGN_ALL_STOPPED)
@@ -2233,6 +2242,10 @@ static struct drgn_error *check_notify_thread_stop(struct drgn_thread *thread,
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, // TODO: better error code?
 					 "thread stop notification on stopped thread");
 	}
+	if (thread->exited) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, // TODO: better error code?
+					 "thread stop notification on exited thread");
+	}
 	return NULL;
 }
 
@@ -2370,6 +2383,49 @@ drgn_notify_thread_breakpoint(struct drgn_thread *thread,
 		return err;
 
 	return drgn_notify_thread_breakpoint_impl(thread, site);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_notify_thread_exit(struct drgn_thread *thread, int status)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_program(thread);
+
+	// Like drgn_notify_program_exit(), a controller can discover that a
+	// thread exited while attaching or detaching.
+	if (prog->attach_state != DRGN_ATTACH_STATE_ATTACHING
+	    && prog->attach_state != DRGN_ATTACH_STATE_DETACHING) {
+		err = check_attached(prog);
+		if (err)
+			return err;
+	}
+	if (thread->exited) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, // TODO: better error code?
+					 "thread exit notification on exited thread");
+	}
+
+	bool was_reported = thread->stop_event_emitted;
+	// The caller has a reference, so this can't free the thread.
+	reset_controlled_thread(thread);
+	thread->exited = true;
+	// The thread won't finish stepping.
+	if (prog->bypassing_breakpoint == thread)
+		prog->bypassing_breakpoint = NULL;
+
+	struct drgn_event event = {
+		.type = DRGN_EVENT_THREAD_EXIT,
+		.thread = thread,
+		.exit_status = status,
+	};
+	emit_event(prog, &event);
+
+	// If this was the thread whose stop was reported, then there's nothing
+	// left to resume in order to get the next one.
+	if (was_reported && prog->attach_state == DRGN_ATTACH_STATE_ATTACHED
+	    && prog->in_all_stop_ == DRGN_ALL_STOPPED
+	    && !list_empty(&prog->stopped_threads))
+		emit_random_thread_stop_event(prog);
+	return NULL;
 }
 
 static inline uint32_t drgn_fd_events_to_epoll(enum drgn_fd_events events)

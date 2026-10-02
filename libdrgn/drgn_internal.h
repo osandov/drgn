@@ -371,6 +371,8 @@ struct drgn_thread {
 	// here. Clean it up.
 	bool stop_event_emitted;
 	bool stepping;
+	// Whether we were notified that the thread exited.
+	bool exited;
 	uint64_t generation;
 	struct drgn_thread_finder *finder;
 	void *finder_data;

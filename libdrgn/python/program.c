@@ -2976,6 +2976,28 @@ static PyObject *Program_notify_thread_stop(Program *self, PyObject *args,
 	Py_RETURN_NONE;
 }
 
+static PyObject *Program_notify_thread_exit(Program *self, PyObject *args,
+					    PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"thread", "status", NULL};
+	Thread *thread;
+	int status;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!i:notify_thread_exit",
+					 keywords, &Thread_type, &thread,
+					 &status))
+		return NULL;
+	if (drgn_thread_program(&thread->thread) != &self->prog) {
+		PyErr_SetString(PyExc_ValueError,
+				"thread is from different program");
+		return NULL;
+	}
+	err = drgn_notify_thread_exit(&thread->thread, status);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_notify_thread_breakpoint(Program *self, PyObject *args,
 						  PyObject *kwds)
 {
@@ -3131,6 +3153,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_event_listener_DOC},
 	{"notify_program_exit", (PyCFunction)Program_notify_program_exit,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_program_exit_DOC},
+	{"notify_thread_exit", (PyCFunction)Program_notify_thread_exit,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_thread_exit_DOC},
 	{"notify_program_lost", (PyCFunction)Program_notify_program_lost,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_notify_program_lost_DOC},
 	{"notify_thread_stop", (PyCFunction)Program_notify_thread_stop,

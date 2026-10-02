@@ -5515,6 +5515,9 @@ struct drgn_error *
 drgn_notify_thread_breakpoint(struct drgn_thread *thread,
 			      struct drgn_breakpoint_site *site);
 
+struct drgn_error *drgn_notify_thread_exit(struct drgn_thread *thread,
+					   int status);
+
 enum drgn_fd_events {
 	DRGN_FD_EVENT_READ = 1 << 0,
 	DRGN_FD_EVENT_WRITE = 1 << 1,
