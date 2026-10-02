@@ -2448,6 +2448,50 @@ class TestAllStop(ExecutionControlTestCase):
 
             self.expect(start=notify_thread_breakpoint)
 
+    def _test_breakpoint_resume_after_disable(self, method, action_type, disable):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = self.prog.set_breakpoint(0x1337)
+            self.queue_call(
+                self.prog.notify_thread_breakpoint, self.prog.thread(1), bp.sites[0]
+            )
+            while self.prog.poll(0):
+                pass
+            getattr(bp, disable)()
+
+            # The breakpoint isn't in the program anymore, so the thread
+            # doesn't need to be stepped past it, and it must not be put
+            # back.
+            resume = Call(getattr(self.prog.thread(1), method))
+            resume.next = resume_threads = Op(
+                "resume_threads",
+                (
+                    [action_type(self.prog.thread(1), 0)]
+                    if action_type is drgn.StepiResumeAction
+                    else []
+                )
+                + [drgn.ContinueResumeAction(None, 0)],
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = resume_return = Return(resume, None)
+            resume_return.on = self.check_none_stopped
+
+            self.expect(start=resume)
+
+    def test_breakpoint_cont_after_disable(self):
+        self._test_breakpoint_resume_after_disable(
+            "cont", drgn.ContinueResumeAction, "disable"
+        )
+
+    def test_breakpoint_cont_after_remove(self):
+        self._test_breakpoint_resume_after_disable(
+            "cont", drgn.ContinueResumeAction, "remove"
+        )
+
+    def test_breakpoint_step_after_disable(self):
+        self._test_breakpoint_resume_after_disable(
+            "step", drgn.StepiResumeAction, "disable"
+        )
+
     def test_breakpoint_cont_other_thread_stops(self):
         # While a thread is being stepped past a breakpoint, the controller
         # notifies us of another thread that had stopped at the same time.
@@ -3159,6 +3203,38 @@ class TestNonStop(ExecutionControlTestCase):
             prog.thread(2).cont()
             self.assertIsNone(prog.thread(2).stop_reason)
 
+    def _test_breakpoint_resume_after_disable(self, method, action_type, disable):
+        bp = self.prog.set_breakpoint(0x1337)
+        self.breakpoint_stop(1, bp.sites[0])
+        getattr(bp, disable)()
+
+        # The breakpoint isn't in the program anymore, so the thread doesn't
+        # need to be stepped past it, and it must not be put back.
+        resume = Call(getattr(self.prog.thread(1), method))
+        resume.next = resume_threads = Op(
+            "resume_threads", [action_type(self.prog.thread(1), 0)]
+        )
+        resume_threads.next = resume_threads_return = Return(resume_threads, None)
+        resume_threads_return.next = resume_return = Return(resume, None)
+        resume_return.on = self.check_none_stopped
+
+        self.expect(start=resume)
+
+    def test_breakpoint_cont_after_disable(self):
+        self._test_breakpoint_resume_after_disable(
+            "cont", drgn.ContinueResumeAction, "disable"
+        )
+
+    def test_breakpoint_cont_after_remove(self):
+        self._test_breakpoint_resume_after_disable(
+            "cont", drgn.ContinueResumeAction, "remove"
+        )
+
+    def test_breakpoint_step_after_disable(self):
+        self._test_breakpoint_resume_after_disable(
+            "step", drgn.StepiResumeAction, "disable"
+        )
+
     def test_breakpoint_step(self):
         site = self.prog.set_breakpoint(0x1337).sites[0]
         self.breakpoint_stop(1, site)
@@ -3450,12 +3526,9 @@ class TestNonStop(ExecutionControlTestCase):
         enable_breakpoint_sites_raise.next = cont1_raise = Raise(
             cont1, Exception("foo")
         )
+        # The site is already disabled in the program.
         cont1_raise.next = disable = Call(bp.disable)
-        disable.next = disable_breakpoint_sites = Op("disable_breakpoint_sites", [site])
-        disable_breakpoint_sites.next = disable_breakpoint_sites_return = Return(
-            disable_breakpoint_sites, None
-        )
-        disable_breakpoint_sites_return.next = disable_return = Return(disable, None)
+        disable.next = disable_return = Return(disable, None)
         # The site is supposed to be disabled now, so it isn't enabled.
         disable_return.next = cont2 = Call(self.prog.thread(1).cont)
         cont2.next = resume_threads = Op(
@@ -3590,6 +3663,84 @@ class TestNonStop(ExecutionControlTestCase):
                     ],
                 )
                 self.assertEqual(stopped, {3: drgn.SignalStopReason(signal.SIGCHLD)})
+
+    def _test_breakpoint_changed_from_listener(self, change, expected_ops):
+        # While thread 1 is being stepped past a breakpoint, thread 3 stops,
+        # and an event listener changes the breakpoint in response.
+        ops = []
+
+        def on_step(ctrl, prog, tid):
+            ctrl._queue_call(
+                prog.notify_thread_stop, prog.thread(3), signal.SIGCHLD, 0xDEAD
+            )
+
+        prog, ctrl = self._nested_test_program(ops, on_step)
+        with prog.attach(drgn.AttachFlags.NON_STOP):
+            bp = prog.set_breakpoint(0x1337)
+            ctrl._queue_call(prog.notify_thread_breakpoint, prog.thread(1), bp.sites[0])
+            while prog.poll(0):
+                pass
+            prog.add_event_listener(lambda prog, event: change(prog, bp))
+            self.record_breakpoints = True
+
+            prog.thread(1).cont()
+
+            self.record_breakpoints = False
+            self.assertEqual(ops, expected_ops)
+
+    def test_breakpoint_disabled_from_listener(self):
+        self._test_breakpoint_changed_from_listener(
+            lambda prog, bp: bp.disable(),
+            [
+                "stop_all_threads",
+                ("disable", [0x1337]),
+                [("Stepi", 1)],
+                # It is already disabled in the program, and it isn't put
+                # back.
+                [("Stop", 3), ("Continue", None)],
+            ],
+        )
+
+    def test_breakpoint_removed_from_listener(self):
+        self._test_breakpoint_changed_from_listener(
+            lambda prog, bp: bp.remove(),
+            [
+                "stop_all_threads",
+                ("disable", [0x1337]),
+                [("Stepi", 1)],
+                [("Stop", 3), ("Continue", None)],
+            ],
+        )
+
+    def test_breakpoint_disabled_and_enabled_from_listener(self):
+        def change(prog, bp):
+            bp.disable()
+            bp.enable()
+
+        self._test_breakpoint_changed_from_listener(
+            change,
+            [
+                "stop_all_threads",
+                ("disable", [0x1337]),
+                [("Stepi", 1)],
+                # It isn't enabled until the thread is past it.
+                ("enable", [0x1337]),
+                [("Stop", 3), ("Continue", None)],
+            ],
+        )
+
+    def test_breakpoint_set_from_listener(self):
+        # Another breakpoint at the same address.
+        self._test_breakpoint_changed_from_listener(
+            lambda prog, bp: prog.set_breakpoint(0x1337),
+            [
+                "stop_all_threads",
+                ("disable", [0x1337]),
+                [("Stepi", 1)],
+                ("enable", [0x1337]),
+                [("Stop", 3), ("Continue", None)],
+            ],
+        )
 
     def test_breakpoint_cont_from_listener(self):
         self._test_breakpoint_resume_from_listener(

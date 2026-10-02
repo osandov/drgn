@@ -1197,6 +1197,24 @@ static void bypass_breakpoint_resume_done(struct drgn_promise *p)
 	prog->num_bypassing_breakpoints++;
 }
 
+// Return whether a site is disabled in the program even if it has enabled
+// breakpoints. If so, then the controller isn't told when its breakpoints are
+// enabled or disabled. Whatever disabled it enables it again if it should be
+// by then.
+static bool site_is_bypassed(const struct drgn_breakpoint_site *site)
+{
+	return site->num_bypassing > 0 || site->enable_failed;
+}
+
+// Return whether a thread is stopped at a breakpoint that it needs to be
+// stepped past before it can be resumed. If the breakpoint was disabled or
+// removed since the thread stopped, then it doesn't.
+static bool thread_needs_bypass(struct drgn_thread *thread)
+{
+	return thread->stop_reason == DRGN_STOP_REASON_BREAKPOINT
+	       && !list_empty(&thread->stop_site->enabled_breakpoints);
+}
+
 // Enable a site that was disabled to bypass it unless it is still being
 // bypassed. If this fails, then no threads can be resumed until
 // retry_enabling_sites() succeeds. Otherwise, they could miss the breakpoint.
@@ -1206,6 +1224,10 @@ bypass_breakpoint_enable_site(struct drgn_program *prog,
 {
 	struct drgn_breakpoint_site *site = site_promise->sites[0];
 	if (--site->num_bypassing > 0)
+		return NULL;
+	// Its breakpoints may have been disabled or removed in the meantime
+	// (e.g., from an event listener).
+	if (list_empty(&site->enabled_breakpoints))
 		return NULL;
 	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
 	// TODO: add a real way to do this?
@@ -1589,7 +1611,7 @@ drgn_thread_resume_non_stop(struct drgn_thread *thread,
 	set_resume_signal(thread, sig);
 	thread->resume_mode = mode;
 
-	if (thread->stop_reason != DRGN_STOP_REASON_BREAKPOINT) {
+	if (!thread_needs_bypass(thread)) {
 		move_thread(thread, &prog->resumed_threads);
 		// If a thread is being stepped past a breakpoint, then no other
 		// threads can run until it is done.
@@ -1727,7 +1749,7 @@ static struct drgn_error *drgn_thread_resume(struct drgn_thread *thread,
 	// Not drgn_thread_stop_reason() because stop_event_emitted was cleared.
 	struct drgn_thread *tmp;
 	list_for_each_entry_safe(thread, tmp, &prog->resumed_threads, node) {
-		if (thread->stop_reason == DRGN_STOP_REASON_BREAKPOINT) {
+		if (thread_needs_bypass(thread)) {
 			err = bypass_breakpoint(thread);
 			if (err)
 				return err;
@@ -1903,7 +1925,8 @@ drgn_program_set_breakpoint(struct drgn_program *prog,
 		site_node->bp = bp;
 		list_add_tail(&site_node->node, &site->disabled_breakpoints);
 		site->lists_generation++;
-		if (enable && list_empty(&site->enabled_breakpoints)) {
+		if (enable && list_empty(&site->enabled_breakpoints)
+		    && !site_is_bypassed(site)) {
 			drgn_breakpoint_site_incref(site);
 			promise->sites[promise->num_sites++] = site;
 		}
@@ -1954,7 +1977,8 @@ drgn_breakpoint_disable_impl(struct drgn_breakpoint *bp)
 			&bp->site_nodes[i];
 		struct drgn_breakpoint_site *site = site_node->site;
 		if (list_is_singular(&site->enabled_breakpoints)
-		    && site->enabled_breakpoints.next == &site_node->node) {
+		    && site->enabled_breakpoints.next == &site_node->node
+		    && !site_is_bypassed(site)) {
 			drgn_breakpoint_site_incref(site);
 			promise->sites[promise->num_sites++] = site;
 		}
@@ -2030,7 +2054,8 @@ struct drgn_error *drgn_breakpoint_enable(struct drgn_breakpoint *bp)
 		struct drgn_breakpoint_site_node *site_node =
 			&bp->site_nodes[i];
 		struct drgn_breakpoint_site *site = site_node->site;
-		if (list_empty(&site->enabled_breakpoints)) {
+		if (list_empty(&site->enabled_breakpoints)
+		    && !site_is_bypassed(site)) {
 			drgn_breakpoint_site_incref(site);
 			promise->sites[promise->num_sites++] = site;
 		}
@@ -2097,7 +2122,8 @@ drgn_program_disable_all_breakpoints_impl(struct drgn_program *prog)
 	hash_table_for_each(drgn_breakpoint_site_table, it,
 			    &prog->breakpoint_sites) {
 		struct drgn_breakpoint_site *site = *it.entry;
-		if (!list_empty(&site->enabled_breakpoints)) {
+		if (!list_empty(&site->enabled_breakpoints)
+		    && !site_is_bypassed(site)) {
 			drgn_breakpoint_site_incref(site);
 			promise->sites[promise->num_sites++] = site;
 		}
@@ -2177,7 +2203,8 @@ drgn_program_enable_all_breakpoints(struct drgn_program *prog)
 	hash_table_for_each(drgn_breakpoint_site_table, it,
 			    &prog->breakpoint_sites) {
 		struct drgn_breakpoint_site *site = *it.entry;
-		if (list_empty(&site->enabled_breakpoints)) {
+		if (list_empty(&site->enabled_breakpoints)
+		    && !site_is_bypassed(site)) {
 			drgn_breakpoint_site_incref(site);
 			promise->sites[promise->num_sites++] = site;
 		}
