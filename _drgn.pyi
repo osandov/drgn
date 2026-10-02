@@ -3041,6 +3041,13 @@ class ExecutionController:
     This defines the backend used to control execution of a program (e.g.,
     :manpage:`ptrace(2)`, `GDB Remote Serial Protocol
     <https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Protocol.html>`_).
+
+    The drgn core does not restrict what can be done while the program is
+    running. For example, breakpoints can be set, enabled, disabled, and
+    removed while no threads are stopped. If the backend cannot do something
+    while the program is running, then how to handle it is up to the
+    controller. For example, it may fail with an exception, or it may
+    temporarily interrupt the program without notifying the drgn core.
     """
 
     def attach(self, prog: Program, flags: AttachFlags, promise: Promise[bool]) -> None:
