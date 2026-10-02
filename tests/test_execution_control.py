@@ -726,6 +726,348 @@ class TestLifecycle(ExecutionControlTestCase):
         self.expect(start=detach_call)
 
 
+class TestStopWhileAttachingOrDetaching(ExecutionControlTestCase):
+    FLAGS = drgn.AttachFlags.ALL_STOP | drgn.AttachFlags.INTERRUPT
+
+    def setUp(self):
+        super().setUp()
+        # Keep the threads alive so that we can tell whether anything about
+        # them is remembered when it shouldn't be.
+        self.threads = list(self.prog.threads())
+
+    def check_stopped_thread(self, tid, sig):
+        self.assertEqual(
+            self.stopped_threads(),
+            {**self.all_stop(), tid: drgn.SignalStopReason(sig)},
+        )
+
+    def test_stop_while_attaching(self):
+        attach_call = Call(self.prog.attach, self.FLAGS)
+        attach_call.next = attach_op = Op("attach", self.FLAGS)
+        attach_op.next = notify_thread_stop = ControllerCall(
+            self.prog.notify_thread_stop,
+            self.prog.thread(1),
+            signal.SIGINT,
+            0x1337,
+        )
+        notify_thread_stop.next = attach_op_return = Return(attach_op, True)
+        # The stop isn't reported until we're done attaching.
+        attach_op_return.on = self.check_none_stopped
+        attach_op_return.next = stop_all_threads = Op("stop_all_threads")
+        stop_all_threads.on = lambda: self.assertEqual(
+            self.prog.attach_state, drgn.AttachState.ATTACHED
+        )
+        stop_all_threads_return = Return(stop_all_threads, None)
+        stop_all_threads.next = Return(attach_call, ANY) & stop_all_threads_return
+        stop_all_threads_return.next = stop_event = Event(
+            drgn.ThreadStopEvent, self.prog.thread(1)
+        )
+        stop_event.on = functools.partial(self.check_stopped_thread, 1, signal.SIGINT)
+
+        self.expect(start=attach_call)
+
+        self.check_stopped_thread(1, signal.SIGINT)
+        self.prog.detach()
+
+    def test_stop_immediately_after_attaching(self):
+        # The controller completes the attach and notifies us of the stop
+        # before Program.attach() has returned.
+        attach_call = Call(self.prog.attach, self.FLAGS)
+        attach_call.next = attach_op = Op("attach", self.FLAGS)
+        attach_op.next = attach_op_return = Return(attach_op, True)
+        attach_op_return.next = notify_thread_stop = ControllerCall(
+            self.prog.notify_thread_stop,
+            self.prog.thread(1),
+            signal.SIGINT,
+            0x1337,
+        )
+        notify_thread_stop.next = stop_all_threads = Op("stop_all_threads")
+        stop_all_threads_return = Return(stop_all_threads, None)
+        stop_all_threads.next = Return(attach_call, ANY) & stop_all_threads_return
+        stop_all_threads_return.next = stop_event = Event(
+            drgn.ThreadStopEvent, self.prog.thread(1)
+        )
+        stop_event.on = functools.partial(self.check_stopped_thread, 1, signal.SIGINT)
+
+        self.expect(start=attach_call)
+
+        self.check_stopped_thread(1, signal.SIGINT)
+        self.prog.detach()
+
+    def test_simultaneous_stop_while_attaching(self):
+        sigs = {1: signal.SIGINT, 2: signal.SIGCHLD}
+
+        def stop_event1(tid):
+            other_tid = 2 if tid == 1 else 1
+
+            event1 = Event(drgn.ThreadStopEvent, self.prog.thread(tid))
+            event1.on = functools.partial(self.check_stopped_thread, tid, sigs[tid])
+            event1.next = cont1 = Call(self.prog.thread(tid).cont, sig=0)
+            cont1_return = Return(cont1, None)
+            event2 = Event(drgn.ThreadStopEvent, self.prog.thread(other_tid))
+            event2.on = functools.partial(
+                self.check_stopped_thread, other_tid, sigs[other_tid]
+            )
+            cont1.next = cont1_return & event2
+            cont1.next.next = cont2 = Call(self.prog.thread(other_tid).cont, sig=0)
+            cont2.next = resume_threads = Op(
+                "resume_threads", [drgn.ContinueResumeAction(None, 0)]
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = cont2_return = Return(cont2, None)
+            cont2_return.on = self.check_none_stopped
+
+            return event1
+
+        attach_call = Call(self.prog.attach, self.FLAGS)
+        attach_call.next = attach_op = Op("attach", self.FLAGS)
+        attach_op.next = notify_thread_stop1 = ControllerCall(
+            self.prog.notify_thread_stop, self.prog.thread(1), sigs[1], 0x1337
+        )
+        notify_thread_stop1.next = notify_thread_stop2 = ControllerCall(
+            self.prog.notify_thread_stop, self.prog.thread(2), sigs[2], 0xDEAD
+        )
+        notify_thread_stop2.next = attach_op_return = Return(attach_op, True)
+        attach_op_return.next = stop_all_threads = Op("stop_all_threads")
+        stop_all_threads_return = Return(stop_all_threads, None)
+        stop_all_threads.next = Return(attach_call, ANY) & stop_all_threads_return
+        stop_all_threads_return.next = stop_event1(1) | stop_event1(2)
+
+        self.expect(start=attach_call)
+
+        self.prog.detach()
+
+    def test_stop_while_attaching_non_stop(self):
+        flags = drgn.AttachFlags.NON_STOP | drgn.AttachFlags.INTERRUPT
+
+        attach_call = Call(self.prog.attach, flags)
+        attach_call.next = attach_op = Op("attach", flags)
+        attach_op.next = notify_thread_stop1 = ControllerCall(
+            self.prog.notify_thread_stop,
+            self.prog.thread(1),
+            signal.SIGINT,
+            0x1337,
+        )
+        notify_thread_stop1.next = notify_thread_stop2 = ControllerCall(
+            self.prog.notify_thread_stop,
+            self.prog.thread(2),
+            signal.SIGCHLD,
+            0xDEAD,
+        )
+        notify_thread_stop2.next = attach_op_return = Return(attach_op, False)
+        attach_op_return.on = self.check_none_stopped
+        # Every stop is reported and the other threads aren't stopped.
+        attach_op_return.next = stop_event1 = Event(
+            drgn.ThreadStopEvent, self.prog.thread(1)
+        )
+        stop_event1.next = stop_event2 = Event(
+            drgn.ThreadStopEvent, self.prog.thread(2)
+        )
+        stop_event2.on = lambda: self.assertEqual(
+            self.stopped_threads(),
+            {
+                1: drgn.SignalStopReason(signal.SIGINT),
+                2: drgn.SignalStopReason(signal.SIGCHLD),
+            },
+        )
+        stop_event2.next = Return(attach_call, ANY)
+
+        self.expect(start=attach_call)
+
+        self.prog.detach()
+
+    def test_stop_while_attaching_failure(self):
+        attach_call = Call(self.prog.attach, self.FLAGS)
+        attach_call.next = attach_op = Op("attach", self.FLAGS)
+        attach_op.next = notify_thread_stop = ControllerCall(
+            self.prog.notify_thread_stop,
+            self.prog.thread(1),
+            signal.SIGINT,
+            0x1337,
+        )
+        notify_thread_stop.next = attach_op_raise = Raise(attach_op, Exception("foo"))
+        attach_op_raise.next = attach_call_raise = Raise(attach_call, Exception("foo"))
+        attach_call_raise.on = lambda: (
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.DETACHED),
+            self.check_none_stopped(),
+        )
+
+        self.expect(start=attach_call)
+
+        # The stop was forgotten, so the thread can stop again.
+        self.test_stop_while_attaching()
+
+    def test_stop_while_attaching_program_exit(self):
+        attach_call = Call(self.prog.attach, self.FLAGS)
+        attach_call.next = attach_op = Op("attach", self.FLAGS)
+        attach_op.next = notify_thread_stop = ControllerCall(
+            self.prog.notify_thread_stop,
+            self.prog.thread(1),
+            signal.SIGINT,
+            0x1337,
+        )
+        notify_thread_stop.next = notify_exit = ControllerCall(
+            self.prog.notify_program_exit, 0
+        )
+        notify_exit.next = exit_event = Event(drgn.ProgramExitEvent, 0)
+        exit_event.next = attach_op_return = Return(attach_op, True)
+        # The stop is never reported.
+        attach_op_return.next = attach_call_return = Return(attach_call, ANY)
+        attach_call_return.on = lambda: (
+            self.assertEqual(self.prog.attach_state, drgn.AttachState.EXITED),
+            self.check_none_stopped(),
+        )
+
+        self.expect(start=attach_call)
+
+        self.prog.detach()
+
+        # The stop was forgotten, so the thread can stop again.
+        self.test_stop_while_attaching()
+
+    def test_stop_while_detaching(self):
+        self.prog.attach(drgn.AttachFlags.ALL_STOP)
+
+        detach_call = Call(self.prog.detach)
+        detach_call.next = detach_op = Op("detach")
+        # This is ignored because detaching resumes all threads.
+        detach_op.next = notify_thread_stop = ControllerCall(
+            self.prog.notify_thread_stop,
+            self.prog.thread(1),
+            signal.SIGINT,
+            0x1337,
+        )
+        notify_thread_stop.next = detach_op_return = Return(detach_op, None)
+        detach_op_return.next = detach_call_return = Return(detach_call, None)
+        detach_call_return.on = self.check_none_stopped
+
+        self.expect(start=detach_call)
+
+        # The thread can stop again.
+        self.test_stop_while_attaching()
+
+    def test_stop_not_attached(self):
+        self.assertRaises(
+            drgn.NotAttachedError,
+            self.prog.notify_thread_stop,
+            self.prog.thread(1),
+            signal.SIGINT,
+            0x1337,
+        )
+        self.check_none_stopped()
+
+    def test_detach_while_stopped(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
+            self.check_stopped_thread(1, signal.SIGWINCH)
+
+        self.check_none_stopped()
+
+        # The thread can stop again.
+        self.test_simultaneous_stop_while_attaching()
+        self.check_none_stopped()
+
+    def test_detach_while_resumed(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            notify_thread_stop1 = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            notify_thread_stop1.next = stop_all_threads = Op("stop_all_threads")
+            stop_all_threads.next = notify_thread_stop2 = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(2),
+                signal.SIGCHLD,
+                0xDEAD,
+            )
+            notify_thread_stop2.next = stop_all_threads_return = Return(
+                stop_all_threads, None
+            )
+            stop_all_threads_return.next = Event(
+                drgn.ThreadStopEvent, self.prog.thread(1)
+            ) | Event(drgn.ThreadStopEvent, self.prog.thread(2))
+
+            self.expect(start=notify_thread_stop1)
+
+            # This resumes the thread that was reported and reports the
+            # other thread, so nothing has actually been resumed yet.
+            self.prog.thread(3).step(sig=signal.SIGUSR1)
+            self.assertNotEqual(self.stopped_threads(), {})
+
+        self.check_none_stopped()
+
+        # Nothing was remembered from before.
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
+            self.check_stopped_thread(1, signal.SIGWINCH)
+
+            # In particular, thread 3 isn't stepped or sent SIGUSR1.
+            cont = Call(self.prog.thread(3).cont)
+            cont.next = resume_threads = Op(
+                "resume_threads",
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = Return(cont, None)
+
+            self.expect(start=cont)
+
+    def test_detach_while_stepping(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
+            self.prog.thread(1).step()
+
+        # The thread is no longer stepping, so this isn't a step.
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGTRAP,
+                0x1338,
+            )
+            while self.prog.poll(0):
+                pass
+            self.check_stopped_thread(1, signal.SIGTRAP)
+
+        # Threads that were stopped synthetically aren't stopped anymore.
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(2),
+                signal.SIGCHLD,
+                0xDEAD,
+            )
+            while self.prog.poll(0):
+                pass
+            self.check_stopped_thread(2, signal.SIGCHLD)
+
+
 class TestAllStop(ExecutionControlTestCase):
     def _test_signal_stop(self, *reasons):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):

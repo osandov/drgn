@@ -319,6 +319,34 @@ static void clear_stepping_threads(struct drgn_program *prog)
 	}
 }
 
+static void reset_controlled_threads_list(struct list_head *list)
+{
+	struct drgn_thread *thread, *tmp;
+	list_for_each_entry_safe(thread, tmp, list, node) {
+		thread->stop_event_emitted = false;
+		thread->stepping = false;
+		thread->stop_reason = DRGN_STOP_REASON_NONE;
+		thread->stop_signal = -1;
+		drgn_clear_ref(thread->stop_site);
+		thread->resume_signal = -1;
+		thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
+		list_del_init(&thread->node);
+		drgn_thread_decref(thread);
+	}
+}
+
+// Forget everything about stopped and resumed threads. This is used when we're
+// no longer attached to the program.
+static void reset_controlled_threads(struct drgn_program *prog)
+{
+	reset_controlled_threads_list(&prog->stopped_threads);
+	reset_controlled_threads_list(&prog->resumed_threads);
+	reset_controlled_threads_list(&prog->running_threads);
+	reset_controlled_threads_list(&prog->stepping_threads);
+	prog->bypassing_breakpoint = NULL;
+	prog->in_all_stop_ = DRGN_NOT_ALL_STOPPED;
+}
+
 static void clear_controlled_threads(struct drgn_program *prog)
 {
 	struct drgn_thread *thread, *tmp;
@@ -560,11 +588,54 @@ static struct drgn_error *wait_for_promise(struct drgn_program *prog,
 	return NULL;
 }
 
+struct attach_promise {
+	struct drgn_bool_promise promise;
+	struct drgn_program *prog;
+};
+
+static struct drgn_error *report_thread_stop(struct drgn_thread *thread);
+
+static void attach_done(struct drgn_promise *p)
+{
+	struct attach_promise *promise =
+		container_of(p, struct attach_promise, promise.promise);
+	struct drgn_program *prog = promise->prog;
+
+	if (p->err) {
+		// Discard any stops that we were notified of while attaching.
+		reset_controlled_threads(prog);
+		prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
+		return;
+	}
+
+	prog->all_stop = promise->promise.result;
+	// The state may have changed to EXITED or LOST while attaching. If so,
+	// any stops that we were notified of are discarded when we detach.
+	if (prog->attach_state != DRGN_ATTACH_STATE_ATTACHING)
+		return;
+	prog->attach_state = DRGN_ATTACH_STATE_ATTACHED;
+
+	// Report any stops that we were notified of while attaching.
+	struct drgn_thread *thread, *tmp;
+	list_for_each_entry_safe(thread, tmp, &prog->stopped_threads, node) {
+		struct drgn_error *err = report_thread_stop(thread);
+		if (err) {
+			// TODO: there's no way to return this.
+			drgn_error_log_warning(prog, err,
+					       "couldn't report stop of thread %" PRIu32 ": ",
+					       thread->tid);
+			drgn_error_destroy(err);
+		}
+		// In all-stop mode, this stopped all threads, and the rest are
+		// reported as threads are resumed.
+		if (prog->all_stop)
+			break;
+	}
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_attach(struct drgn_program *prog, enum drgn_attach_flags flags)
 {
-	struct drgn_error *err;
-
 	if (flags & ~(DRGN_ATTACH_NON_STOP | DRGN_ATTACH_ALL_STOP
 		      | DRGN_ATTACH_INTERRUPT)) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -586,25 +657,22 @@ drgn_program_attach(struct drgn_program *prog, enum drgn_attach_flags flags)
 					 "no execution controller is enabled");
 	}
 
-	_cleanup_promise_ struct drgn_bool_promise *promise =
-		drgn_bool_promise_create();
+	_cleanup_promise_ struct attach_promise *promise =
+		malloc(sizeof(*promise));
 	if (!promise)
 		return &drgn_enomem;
+	drgn_promise_init(&promise->promise.promise, NULL);
+	promise->prog = prog;
+	// The attach state is updated as soon as the controller is done
+	// attaching so that it is correct if the controller notifies us of
+	// anything immediately afterwards.
+	promise->promise.promise.then = attach_done;
 
 	prog->attach_state = DRGN_ATTACH_STATE_ATTACHING;
 
-	ctrl->ops.attach(ctrl->arg, prog, flags, drgn_promise_share(promise));
-	err = wait_for_promise(prog, &promise->promise);
-	if (err) {
-		prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
-		return err;
-	}
-
-	// The state may have changed to EXITED or LOST while attaching.
-	if (prog->attach_state == DRGN_ATTACH_STATE_ATTACHING)
-		prog->attach_state = DRGN_ATTACH_STATE_ATTACHED;
-	prog->all_stop = promise->result;
-	return NULL;
+	ctrl->ops.attach(ctrl->arg, prog, flags,
+			 drgn_promise_share(&promise->promise));
+	return wait_for_promise(prog, &promise->promise.promise);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -646,13 +714,9 @@ drgn_program_detach(struct drgn_program *prog)
 	}
 
 	prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
-	prog->in_all_stop_ = DRGN_NOT_ALL_STOPPED;
-	// TODO: this doesn't clear the state of stopped and resumed threads
-	// (see clear_controlled_threads()), so they still appear stopped after
-	// detaching and can't be stopped again after reattaching. The same
-	// applies to threads that stopped during a failed attach.
-	//
-	// It also doesn't remove breakpoints (see clear_breakpoints()), so
+	prog->all_stop = false;
+	reset_controlled_threads(prog);
+	// TODO: this doesn't remove breakpoints (see clear_breakpoints()), so
 	// they still appear set and enabled after detaching. The functions
 	// that remove, enable, or disable breakpoints assume that we're
 	// attached if there are any breakpoints, so they will call the
@@ -2117,16 +2181,26 @@ drgn_notify_program_lost(struct drgn_program *prog, struct drgn_error *_err)
 	return NULL;
 }
 
-static struct drgn_error *check_notify_thread_stop(struct drgn_thread *thread)
+static struct drgn_error *check_notify_thread_stop(struct drgn_thread *thread,
+						   bool *ignore_ret)
 {
 	struct drgn_program *prog = drgn_thread_program(thread);
-	// TODO: this doesn't check the attach state. If we're still attaching,
-	// then prog->all_stop isn't set yet (or is left over from a previous
-	// attach), so the stop is handled in the wrong mode. This is the case
-	// even if the controller notifies us immediately after completing the
-	// attach promise. We should either defer the stop until we're done
-	// attaching or return an error. We also shouldn't allow this if we're
-	// detached.
+	*ignore_ret = false;
+	SWITCH_ENUM(prog->attach_state) {
+	case DRGN_ATTACH_STATE_ATTACHING:
+	case DRGN_ATTACH_STATE_ATTACHED:
+		break;
+	case DRGN_ATTACH_STATE_DETACHING:
+		// Detaching resumes all threads.
+		*ignore_ret = true;
+		return NULL;
+	case DRGN_ATTACH_STATE_DETACHED:
+	case DRGN_ATTACH_STATE_EXITED:
+	case DRGN_ATTACH_STATE_LOST:
+		return check_attached(prog);
+	default:
+		UNREACHABLE();
+	}
 	if (prog->in_all_stop_ == DRGN_ALL_STOPPED
 	    && !prog->bypassing_breakpoint) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, // TODO: better error code?
@@ -2165,10 +2239,22 @@ drgn_notify_thread_stop_common(struct drgn_thread *thread)
 	thread->resume_signal = -1;
 	thread->stepping = false;
 
+	// attach_done() will report it once we know whether we're in all-stop
+	// mode.
+	if (prog->attach_state == DRGN_ATTACH_STATE_ATTACHING)
+		return NULL;
+
 	if (prog->bypassing_breakpoint) {
 		prog->bypassing_breakpoint = NULL;
 		return NULL;
 	}
+
+	return report_thread_stop(thread);
+}
+
+static struct drgn_error *report_thread_stop(struct drgn_thread *thread)
+{
+	struct drgn_program *prog = drgn_thread_program(thread);
 
 	if (!prog->all_stop) {
 		emit_thread_stop_event(thread);
@@ -2212,8 +2298,9 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_notify_thread_stop(struct drgn_thread *thread, int sig, uint64_t pc,
 			uint64_t reason_mask)
 {
-	struct drgn_error *err = check_notify_thread_stop(thread);
-	if (err)
+	bool ignore;
+	struct drgn_error *err = check_notify_thread_stop(thread, &ignore);
+	if (err || ignore)
 		return err;
 
 	enum drgn_stop_reason stop_reason = DRGN_STOP_REASON_SIGNAL;
@@ -2254,8 +2341,9 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_notify_thread_breakpoint(struct drgn_thread *thread,
 			      struct drgn_breakpoint_site *site)
 {
-	struct drgn_error *err = check_notify_thread_stop(thread);
-	if (err)
+	bool ignore;
+	struct drgn_error *err = check_notify_thread_stop(thread, &ignore);
+	if (err || ignore)
 		return err;
 
 	return drgn_notify_thread_breakpoint_impl(thread, site);
