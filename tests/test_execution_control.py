@@ -3090,6 +3090,111 @@ class TestBreakpoints(ExecutionControlTestCase):
 
             self.expect(start=remove_all)
 
+    def _attach_and_set_breakpoints(self):
+        self.prog.attach(drgn.AttachFlags.ALL_STOP)
+        bps = [
+            self.prog.set_breakpoint(0x1337),
+            self.prog.set_breakpoint(0x1337),
+            self.prog.set_breakpoint(0x1337, enable=False),
+            self.prog.set_breakpoint(0xDEAD),
+            self.prog.set_breakpoint(0xF00D, enable=False),
+        ]
+        sites = [bps[0].sites[0], bps[3].sites[0], bps[4].sites[0]]
+        return bps, sites
+
+    def test_detach(self):
+        bps, sites = self._attach_and_set_breakpoints()
+
+        detach_call = Call(self.prog.detach)
+        detach_call.next = detach_op = Op("detach")
+        detach_op.on = lambda: self.check_breakpoints(
+            enabled=[bps[0], bps[1], bps[3]], disabled=[bps[2], bps[4]]
+        )
+        # The controller is responsible for disabling the breakpoint sites
+        # when it detaches, so it's not asked to separately.
+        detach_op.next = detach_op_return = Return(detach_op, None)
+        detach_op_return.next = detach_call_return = Return(detach_call, None)
+        detach_call_return.on = lambda: self.check_breakpoints(
+            removed=bps, removed_sites=sites
+        )
+
+        self.expect(start=detach_call)
+
+        self.assertRaises(ValueError, bps[0].enable)
+        # Nothing is left over the next time we attach.
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.check_breakpoints(removed=bps, removed_sites=sites)
+            bp = self.prog.set_breakpoint(0x1337)
+            self.check_breakpoints(enabled=[bp], removed=bps, removed_sites=sites)
+
+    def test_detach_failure(self):
+        bps, sites = self._attach_and_set_breakpoints()
+
+        detach_call = Call(self.prog.detach)
+        detach_call.next = detach_op = Op("detach")
+        detach_op.next = detach_op_raise = Raise(detach_op, Exception("foo"))
+        detach_op_raise.next = detach_call_raise = Raise(detach_call, Exception("foo"))
+        detach_call_raise.on = lambda: self.check_breakpoints(
+            enabled=[bps[0], bps[1], bps[3]], disabled=[bps[2], bps[4]]
+        )
+
+        self.expect(start=detach_call)
+
+        self.prog.detach()
+
+    def test_detach_remove_all(self):
+        bps, sites = self._attach_and_set_breakpoints()
+
+        # The controller may remove the breakpoints itself in order to
+        # disable the breakpoint sites.
+        detach_call = Call(self.prog.detach)
+        detach_call.next = detach_op = Op("detach")
+        detach_op.next = remove_all = ControllerCall(self.prog.remove_all_breakpoints)
+        remove_all.next = disable_breakpoint_sites = Op(
+            "disable_breakpoint_sites", [sites[0], sites[1]]
+        )
+        disable_breakpoint_sites.next = disable_breakpoint_sites_return = Return(
+            disable_breakpoint_sites, None
+        )
+        disable_breakpoint_sites_return.next = detach_op_return = Return(
+            detach_op, None
+        )
+        detach_op_return.next = detach_call_return = Return(detach_call, None)
+        detach_call_return.on = lambda: self.check_breakpoints(
+            removed=bps, removed_sites=sites
+        )
+
+        self.expect(start=detach_call)
+
+    def test_detach_while_stopped_at_breakpoint(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            bp = self.prog.set_breakpoint(0x1337)
+            site = bp.sites[0]
+            thread = self.prog.thread(1)
+            self.queue_call(self.prog.notify_thread_breakpoint, thread, site)
+            while self.prog.poll(0):
+                pass
+            self.assertEqual(
+                self.stopped_threads(),
+                {**self.all_stop(), 1: drgn.BreakpointStopReason(site)},
+            )
+
+        self.check_none_stopped()
+        self.check_breakpoints(removed=[bp], removed_sites=[site])
+
+    def test_detach_during_iteration(self):
+        bps, sites = self._attach_and_set_breakpoints()
+
+        its = [
+            self.prog.breakpoints(),
+            self.prog.breakpoint_sites(),
+            sites[0].enabled_breakpoints(),
+            sites[0].disabled_breakpoints(),
+        ]
+        self.prog.detach()
+        for it in its:
+            self.assertRaises(RuntimeError, next, it)
+
     def check_site_breakpoints(self, site, enabled, disabled):
         self.assertCountEqual(site.enabled_breakpoints(), enabled)
         self.assertCountEqual(site.disabled_breakpoints(), disabled)

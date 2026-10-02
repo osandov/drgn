@@ -396,8 +396,8 @@ static void clear_breakpoints(struct drgn_program *prog)
 {
 	struct drgn_breakpoint *bp, *tmp;
 	list_for_each_entry_safe(bp, tmp, &prog->breakpoints, prog_node) {
-		// Detach implicitly disables all remaining breakpoints. At
-		// deinit, we don't care anymore.
+		// Detaching disables all remaining breakpoint sites. At deinit,
+		// we don't care anymore.
 		bp->enabled = false;
 		drgn_breakpoint_remove_impl(bp);
 	}
@@ -716,11 +716,8 @@ drgn_program_detach(struct drgn_program *prog)
 	prog->attach_state = DRGN_ATTACH_STATE_DETACHED;
 	prog->all_stop = false;
 	reset_controlled_threads(prog);
-	// TODO: this doesn't remove breakpoints (see clear_breakpoints()), so
-	// they still appear set and enabled after detaching. The functions
-	// that remove, enable, or disable breakpoints assume that we're
-	// attached if there are any breakpoints, so they will call the
-	// controller while detached.
+	// The controller disabled any breakpoint sites that were still enabled.
+	clear_breakpoints(prog);
 	return NULL;
 }
 
