@@ -2736,6 +2736,13 @@ class Thread:
         """
         Resume this stopped thread.
 
+        If the thread is stopped at a breakpoint, then it is first stepped
+        past the breakpoint with the breakpoint disabled. No other threads run
+        while the breakpoint is disabled, so they can't miss it. In non-stop
+        mode, this means that all other threads are stopped temporarily. Any
+        threads that are resumed in the meantime (e.g., from an event
+        listener) don't start running until then, either.
+
         :param sig: Signal to forward on resume. A positive value forwards that
             signal. 0 suppresses any signal. -1 (the default) suppresses
             ``SIGINT`` and ``SIGTRAP`` and forwards the signal that stopped the
@@ -3015,7 +3022,9 @@ class Promise(Generic[T]):
     def set_result(self, result: T, /) -> None: ...
     def set_exception(self, exception: BaseException, /) -> None: ...
 
-ResumeAction: TypeAlias = Union[ContinueResumeAction, StepiResumeAction]
+ResumeAction: TypeAlias = Union[
+    ContinueResumeAction, StepiResumeAction, StopResumeAction
+]
 """TODO"""
 
 class ContinueResumeAction:
@@ -3033,6 +3042,17 @@ class StepiResumeAction:
     """TODO"""
     sig: Final[int]
     """TODO"""
+
+class StopResumeAction:
+    """
+    Leave a thread stopped.
+
+    This excludes a thread from the default action (the action with no
+    thread).
+    """
+
+    thread: Final[Thread]
+    """Thread to leave stopped."""
 
 class ExecutionController:
     """
@@ -3096,13 +3116,38 @@ class ExecutionController:
         ...
 
     def stop_all_threads(self, prog: Program, promise: Promise[None]) -> None:
-        """TODO"""
+        """
+        Stop all threads that are running.
+
+        This must not notify the program of stops that it causes. If a thread
+        stops for another reason in the meantime, then the program must be
+        notified of that as usual.
+
+        In all-stop mode, this is called when the program is notified that a
+        thread stopped. This must be implemented in order to support all-stop
+        mode.
+
+        In non-stop mode, this is called before a thread is stepped past a
+        breakpoint that it is stopped at so that no other thread can miss the
+        breakpoint while it is disabled. The threads are resumed with
+        :meth:`resume_threads()` afterwards. This must be implemented in order
+        to resume threads that are stopped at a breakpoint in non-stop mode.
+        """
         ...
 
     def resume_threads(
         self, prog: Program, actions: Sequence[ResumeAction], promise: Promise[None]
     ) -> None:
-        """TODO"""
+        """
+        Resume threads.
+
+        :param actions: What to do with each thread. There is at most one
+            action per thread. If the last action has no thread, then it is
+            the default action, which applies to every stopped thread without
+            an action of its own, including threads that were stopped by
+            :meth:`stop_all_threads()`. If there is no default action, then
+            threads without an action are left as they are.
+        """
         ...
 
     def enable_breakpoint_sites(

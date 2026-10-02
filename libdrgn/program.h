@@ -177,8 +177,22 @@ struct drgn_program {
 	// yet. This holds a reference on them so that we remember that they
 	// were stepping when they stop.
 	struct list_head stepping_threads;
-	// TODO: explain lifetime of this
-	struct drgn_thread *bypassing_breakpoint;
+	// Whether any sites may have drgn_breakpoint_site::enable_failed set.
+	bool enable_failed_sites;
+	// Number of threads with drgn_thread::bypassing_breakpoint set.
+	size_t num_bypassing_breakpoints;
+	// In non-stop mode, whether all threads are stopped so that a thread
+	// can be stepped past a breakpoint without any other threads missing
+	// the breakpoint while it is disabled.
+	enum {
+		DRGN_STEP_OVER_NOT_STOPPED,
+		DRGN_STEP_OVER_STOPPING,
+		DRGN_STEP_OVER_STOPPED,
+	} step_over_state;
+	// In non-stop mode, number of threads that are in the middle of being
+	// stepped past a breakpoint. While this is non-zero, threads that are
+	// resumed are queued on resumed_threads.
+	size_t step_over_depth;
 	const char *modifying_breakpoints;
 	uint64_t breakpoint_sites_generation;
 	uint64_t breakpoints_generation;

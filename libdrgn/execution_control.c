@@ -320,8 +320,17 @@ static void clear_stepping_threads(struct drgn_program *prog)
 }
 
 // Forget everything about a thread being stopped or resumed.
+static void end_bypassing_breakpoint(struct drgn_thread *thread)
+{
+	if (thread->bypassing_breakpoint) {
+		thread->bypassing_breakpoint = false;
+		drgn_thread_program(thread)->num_bypassing_breakpoints--;
+	}
+}
+
 static void reset_controlled_thread(struct drgn_thread *thread)
 {
+	end_bypassing_breakpoint(thread);
 	thread->stop_event_emitted = false;
 	thread->stepping = false;
 	thread->stop_reason = DRGN_STOP_REASON_NONE;
@@ -350,8 +359,11 @@ static void reset_controlled_threads(struct drgn_program *prog)
 	reset_controlled_threads_list(&prog->resumed_threads);
 	reset_controlled_threads_list(&prog->running_threads);
 	reset_controlled_threads_list(&prog->stepping_threads);
-	prog->bypassing_breakpoint = NULL;
 	prog->in_all_stop_ = DRGN_NOT_ALL_STOPPED;
+	prog->step_over_state = DRGN_STEP_OVER_NOT_STOPPED;
+	prog->step_over_depth = 0;
+	// Detaching disables all breakpoint sites.
+	prog->enable_failed_sites = false;
 }
 
 static void clear_controlled_threads(struct drgn_program *prog)
@@ -1173,15 +1185,88 @@ static void bypass_breakpoint_resume_done(struct drgn_promise *p)
 	struct drgn_thread *thread = promise->actions[0].thread;
 	struct drgn_program *prog = drgn_thread_program(thread);
 
+	// In non-stop mode, the stop is still reported.
+	thread->stop_event_emitted = false;
 	thread->stop_reason = DRGN_STOP_REASON_NONE;
 	thread->stop_signal = -1;
 	thread->resume_signal = 0;
 	drgn_clear_ref(thread->stop_site);
 	thread->stepping = true;
 
-	prog->bypassing_breakpoint = thread;
+	thread->bypassing_breakpoint = true;
+	prog->num_bypassing_breakpoints++;
 }
 
+// Enable a site that was disabled to bypass it unless it is still being
+// bypassed. If this fails, then no threads can be resumed until
+// retry_enabling_sites() succeeds. Otherwise, they could miss the breakpoint.
+static struct drgn_error *
+bypass_breakpoint_enable_site(struct drgn_program *prog,
+			      struct breakpoint_sites_promise *site_promise)
+{
+	struct drgn_breakpoint_site *site = site_promise->sites[0];
+	if (--site->num_bypassing > 0)
+		return NULL;
+	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
+	// TODO: add a real way to do this?
+	site_promise->promise.promise.err = &promise_new;
+	ctrl->ops.enable_breakpoint_sites(ctrl->arg, site_promise->sites, 1,
+					  drgn_promise_share(&site_promise->promise));
+	struct drgn_error *err =
+		wait_for_promise(prog, &site_promise->promise.promise);
+	if (err) {
+		site->enable_failed = true;
+		prog->enable_failed_sites = true;
+	}
+	return err;
+}
+
+// Enable any sites that we failed to enable after bypassing them.
+static struct drgn_error *retry_enabling_sites(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+	if (!prog->enable_failed_sites)
+		return NULL;
+
+	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
+	hash_table_for_each(drgn_breakpoint_site_table, it,
+			    &prog->breakpoint_sites) {
+		struct drgn_breakpoint_site *site = *it.entry;
+		if (!site->enable_failed)
+			continue;
+		// If its breakpoints were disabled or removed in the meantime,
+		// then it is supposed to be disabled.
+		if (list_empty(&site->enabled_breakpoints)) {
+			site->enable_failed = false;
+			continue;
+		}
+		_cleanup_promise_ struct breakpoint_sites_promise *promise =
+			breakpoint_sites_promise_create(1);
+		if (!promise)
+			return &drgn_enomem;
+		drgn_breakpoint_site_incref(site);
+		promise->sites[0] = site;
+		promise->num_sites = 1;
+		ctrl->ops.enable_breakpoint_sites(ctrl->arg, promise->sites, 1,
+						  drgn_promise_share(&promise->promise));
+		err = wait_for_promise(prog, &promise->promise.promise);
+		if (err)
+			return err;
+		site->enable_failed = false;
+	}
+	prog->enable_failed_sites = false;
+	return NULL;
+}
+
+// Step a thread that is stopped at a breakpoint past it with the breakpoint
+// disabled. This returns once the thread has stopped again. If it stopped only
+// because it finished stepping and it wasn't resumed with drgn_thread_step(),
+// then its stop reason is DRGN_STOP_REASON_NONE. Otherwise, it has a stop that
+// hasn't been reported yet.
+//
+// No other threads may be running while this is called. Otherwise, they could
+// go past the breakpoint without stopping while it is disabled.
 static struct drgn_error *bypass_breakpoint(struct drgn_thread *thread)
 {
 	struct drgn_error *err;
@@ -1209,11 +1294,17 @@ static struct drgn_error *bypass_breakpoint(struct drgn_thread *thread)
 	step_promise->promise.promise.then = bypass_breakpoint_resume_done;
 
 	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
-	ctrl->ops.disable_breakpoint_sites(ctrl->arg, site_promise->sites, 1,
-					   drgn_promise_share(&site_promise->promise));
-	err = wait_for_promise(prog, &site_promise->promise.promise);
-	if (err)
-		return err;
+	// The site is already disabled if another thread is bypassing it.
+	if (site->num_bypassing++ == 0) {
+		ctrl->ops.disable_breakpoint_sites(ctrl->arg,
+						   site_promise->sites, 1,
+						   drgn_promise_share(&site_promise->promise));
+		err = wait_for_promise(prog, &site_promise->promise.promise);
+		if (err) {
+			site->num_bypassing--;
+			return err;
+		}
+	}
 
 	ctrl->ops.resume_threads(ctrl->arg, prog, step_promise->actions,
 				 step_promise->num_actions,
@@ -1221,13 +1312,8 @@ static struct drgn_error *bypass_breakpoint(struct drgn_thread *thread)
 	err = wait_for_promise(prog, &step_promise->promise.promise);
 	if (err) {
 		// The thread is still at the breakpoint, so put it back.
-		// TODO: add a real way to do this?
-		site_promise->promise.promise.err = &promise_new;
-		ctrl->ops.enable_breakpoint_sites(ctrl->arg,
-						  site_promise->sites, 1,
-						  drgn_promise_share(&site_promise->promise));
 		struct drgn_error *enable_err =
-			wait_for_promise(prog, &site_promise->promise.promise);
+			bypass_breakpoint_enable_site(prog, site_promise);
 		if (enable_err) {
 			drgn_error_log_warning(prog, enable_err,
 					       "couldn't re-enable breakpoint site: ");
@@ -1236,19 +1322,13 @@ static struct drgn_error *bypass_breakpoint(struct drgn_thread *thread)
 		return err;
 	}
 
-	while (prog->bypassing_breakpoint) {
+	while (thread->bypassing_breakpoint) {
 		err = drgn_program_poll(prog, -1, NULL);
 		if (err)
 			return err;
 	}
 
-	// TODO: add a real way to do this?
-	site_promise->promise.promise.err = &promise_new;
-	ctrl->ops.enable_breakpoint_sites(ctrl->arg, site_promise->sites, 1,
-					  drgn_promise_share(&site_promise->promise));
-	// TODO: if this fails, then the site is disabled in the program, but we
-	// still consider it enabled.
-	return wait_for_promise(prog, &site_promise->promise.promise);
+	return bypass_breakpoint_enable_site(prog, site_promise);
 }
 
 static struct drgn_error *continue_all_threads(struct drgn_program *prog)
@@ -1311,6 +1391,256 @@ static struct drgn_error *continue_all_threads(struct drgn_program *prog)
 	return NULL;
 }
 
+// Update the state of the threads on drgn_program::resumed_threads after they
+// were resumed.
+static void finish_resuming_threads(struct drgn_program *prog)
+{
+	struct drgn_thread *thread, *tmp;
+	list_for_each_entry_safe(thread, tmp, &prog->resumed_threads, node) {
+		thread->stop_event_emitted = false;
+		thread->stop_reason = DRGN_STOP_REASON_NONE;
+		thread->stop_signal = -1;
+		thread->resume_signal = -1;
+		drgn_clear_ref(thread->stop_site);
+		if (thread->resume_mode == DRGN_RESUME_MODE_STEPI) {
+			thread->stepping = true;
+			move_thread(thread, &prog->stepping_threads);
+		} else {
+			unleash_thread(thread);
+		}
+	}
+}
+
+// In non-stop mode, make the threads on drgn_program::resumed_threads look
+// stopped again because we couldn't resume them. If we stopped other threads,
+// then they are resumed when one of these threads is resumed again.
+static void unqueue_resumed_threads(struct drgn_program *prog)
+{
+	struct drgn_thread *thread, *tmp;
+	list_for_each_entry_safe(thread, tmp, &prog->resumed_threads, node) {
+		// If the thread was stepped past a breakpoint, then it isn't
+		// stopped for any reason that we can report anymore.
+		if (thread->stop_reason == DRGN_STOP_REASON_NONE)
+			thread->stop_reason = DRGN_STOP_REASON_SYNTHETIC;
+		thread->stop_event_emitted = true;
+		thread->resume_signal = -1;
+		thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
+		move_thread(thread, &prog->stopped_threads);
+	}
+}
+
+// In non-stop mode, resume the threads on drgn_program::resumed_threads and
+// any threads that we stopped in order to step past a breakpoint.
+static struct drgn_error *resume_threads_non_stop(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+	_cleanup_promise_ struct resume_threads_promise *promise =
+		resume_threads_promise_create(1);
+	if (!promise)
+		return &drgn_enomem;
+
+	bool resume_all = prog->step_over_state != DRGN_STEP_OVER_NOT_STOPPED;
+	struct drgn_thread *thread;
+	list_for_each_entry(thread, &prog->resumed_threads, node) {
+		// This is covered by the default action.
+		if (resume_all
+		    && thread->resume_mode == DRGN_RESUME_MODE_CONTINUE
+		    && thread->resume_signal == 0)
+			continue;
+		struct drgn_resume_action action = {
+			.thread = thread,
+			.mode = thread->resume_mode,
+			.sig = thread->resume_signal,
+		};
+		if (!resume_threads_promise_append_action(&promise, &action)) {
+			err = &drgn_enomem;
+			goto err;
+		}
+	}
+	if (resume_all) {
+		// The threads that we stopped are covered by the default
+		// action. The threads that stopped by themselves aren't.
+		list_for_each_entry(thread, &prog->stopped_threads, node) {
+			struct drgn_resume_action action = {
+				.thread = thread,
+				.mode = DRGN_RESUME_MODE_STOP,
+			};
+			if (!resume_threads_promise_append_action(&promise,
+								  &action)) {
+				err = &drgn_enomem;
+				goto err;
+			}
+		}
+		struct drgn_resume_action action = {
+			.mode = DRGN_RESUME_MODE_CONTINUE,
+		};
+		if (!resume_threads_promise_append_action(&promise, &action)) {
+			err = &drgn_enomem;
+			goto err;
+		}
+	}
+
+	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
+	ctrl->ops.resume_threads(ctrl->arg, prog, promise->actions,
+				 promise->num_actions,
+				 drgn_promise_share(&promise->promise));
+	err = wait_for_promise(prog, &promise->promise.promise);
+	if (err)
+		goto err;
+
+	finish_resuming_threads(prog);
+	prog->step_over_state = DRGN_STEP_OVER_NOT_STOPPED;
+	return NULL;
+
+err:
+	unqueue_resumed_threads(prog);
+	return err;
+}
+
+struct step_over_promise {
+	struct drgn_void_promise promise;
+	struct drgn_program *prog;
+};
+
+static void step_over_stop_done(struct drgn_promise *p)
+{
+	struct step_over_promise *promise =
+		container_of(p, struct step_over_promise, promise.promise);
+	promise->prog->step_over_state =
+		p->err ? DRGN_STEP_OVER_NOT_STOPPED : DRGN_STEP_OVER_STOPPED;
+}
+
+static struct drgn_error *step_over_end(struct drgn_program *prog);
+
+// In non-stop mode, stop all threads so that a thread can be stepped past a
+// breakpoint. This must be paired with step_over_end() if it succeeds.
+static struct drgn_error *step_over_begin(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
+	if (!ctrl->ops.stop_all_threads) {
+		return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
+					 "resuming thread stopped at breakpoint in non-stop mode requires stopping all threads, which is not supported");
+	}
+
+	prog->step_over_depth++;
+	// This may be called recursively from an event listener or from the
+	// controller while we're waiting.
+	while (prog->step_over_state != DRGN_STEP_OVER_STOPPED) {
+		if (prog->step_over_state == DRGN_STEP_OVER_STOPPING) {
+			// Someone else is doing it.
+			err = drgn_program_poll(prog, -1, NULL);
+		} else {
+			_cleanup_promise_ struct step_over_promise *promise =
+				malloc(sizeof(*promise));
+			if (!promise) {
+				err = &drgn_enomem;
+			} else {
+				drgn_promise_init(&promise->promise.promise,
+						  NULL);
+				promise->prog = prog;
+				promise->promise.promise.then =
+					step_over_stop_done;
+				prog->step_over_state = DRGN_STEP_OVER_STOPPING;
+				ctrl->ops.stop_all_threads(ctrl->arg, prog,
+							   drgn_promise_share(&promise->promise));
+				err = wait_for_promise(prog,
+						       &promise->promise.promise);
+			}
+		}
+		if (err) {
+			struct drgn_error *end_err = step_over_end(prog);
+			if (end_err) {
+				drgn_error_log_warning(prog, end_err,
+						       "couldn't resume threads: ");
+				drgn_error_destroy(end_err);
+			}
+			return err;
+		}
+	}
+	return NULL;
+}
+
+static struct drgn_error *step_over_end(struct drgn_program *prog)
+{
+	if (--prog->step_over_depth > 0)
+		return NULL;
+	// If a breakpoint is disabled when it shouldn't be, then we can't
+	// resume anything.
+	if (prog->enable_failed_sites) {
+		unqueue_resumed_threads(prog);
+		return NULL;
+	}
+	if (prog->step_over_state == DRGN_STEP_OVER_NOT_STOPPED
+	    && list_empty(&prog->resumed_threads))
+		return NULL;
+	return resume_threads_non_stop(prog);
+}
+
+static struct drgn_error *
+drgn_thread_resume_non_stop(struct drgn_thread *thread,
+			    enum drgn_resume_mode mode, int sig)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_thread_program(thread);
+
+	set_resume_signal(thread, sig);
+	thread->resume_mode = mode;
+
+	if (thread->stop_reason != DRGN_STOP_REASON_BREAKPOINT) {
+		move_thread(thread, &prog->resumed_threads);
+		// If a thread is being stepped past a breakpoint, then no other
+		// threads can run until it is done.
+		if (prog->step_over_depth > 0) {
+			thread->stop_event_emitted = false;
+			return NULL;
+		}
+		return resume_threads_non_stop(prog);
+	}
+
+	err = step_over_begin(prog);
+	if (err)
+		return err;
+
+	err = bypass_breakpoint(thread);
+	bool report = false;
+	if (thread->exited) {
+		// There's nothing left to resume.
+	} else if (thread->stop_reason == DRGN_STOP_REASON_BREAKPOINT
+		   && thread->stop_event_emitted) {
+		// We failed before stepping the thread, so it is still stopped
+		// at the breakpoint.
+	} else if (thread->stop_reason != DRGN_STOP_REASON_NONE) {
+		// The thread stopped for another reason before it finished
+		// stepping, or it was resumed with drgn_thread_step(), in
+		// which case stepping past the breakpoint was the step.
+		report = true;
+	} else {
+		// The signal was delivered when the thread was stepped.
+		thread->resume_signal = 0;
+		move_thread(thread, &prog->resumed_threads);
+	}
+
+	struct drgn_error *end_err = step_over_end(prog);
+	if (end_err) {
+		if (err) {
+			drgn_error_log_warning(prog, end_err,
+					       "couldn't resume threads: ");
+			drgn_error_destroy(end_err);
+		} else {
+			err = end_err;
+		}
+	}
+	// Report this once the other threads are running again.
+	if (report && !thread->exited
+	    && thread->stop_reason != DRGN_STOP_REASON_NONE
+	    && !thread->stop_event_emitted)
+		emit_thread_stop_event(thread);
+	return err;
+}
+
 static struct drgn_error *drgn_thread_resume(struct drgn_thread *thread,
 					     enum drgn_resume_mode mode,
 					     int sig, bool only)
@@ -1334,9 +1664,18 @@ static struct drgn_error *drgn_thread_resume(struct drgn_thread *thread,
 	if (err)
 		return err;
 
-	if (prog->in_all_stop_ != DRGN_ALL_STOPPED || only) {
-		return drgn_error_format(DRGN_ERROR_OTHER, "TODO %d %d",
-					 prog->in_all_stop_, only);
+	err = retry_enabling_sites(prog);
+	if (err)
+		return err;
+
+	// In non-stop mode, only is always implied.
+	if (!prog->all_stop)
+		return drgn_thread_resume_non_stop(thread, mode, sig);
+
+	// TODO: implement this.
+	if (only) {
+		return drgn_error_create(DRGN_ERROR_UNSUPPORTED_OPERATION,
+					 "resuming only one thread in all-stop mode is not supported");
 	}
 
 	// The thread has a stop that hasn't been reported yet, so it stays
@@ -2234,7 +2573,7 @@ static struct drgn_error *check_notify_thread_stop(struct drgn_thread *thread,
 		UNREACHABLE();
 	}
 	if (prog->in_all_stop_ == DRGN_ALL_STOPPED
-	    && !prog->bypassing_breakpoint) {
+	    && !prog->num_bypassing_breakpoints) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, // TODO: better error code?
 					 "thread stop notification while in all-stop");
 	}
@@ -2280,8 +2619,10 @@ drgn_notify_thread_stop_common(struct drgn_thread *thread)
 	if (prog->attach_state == DRGN_ATTACH_STATE_ATTACHING)
 		return NULL;
 
-	if (prog->bypassing_breakpoint) {
-		prog->bypassing_breakpoint = NULL;
+	// bypass_breakpoint() was waiting for this. Whoever called it will
+	// report the stop.
+	if (thread->bypassing_breakpoint) {
+		end_bypassing_breakpoint(thread);
 		return NULL;
 	}
 
@@ -2296,7 +2637,12 @@ static struct drgn_error *report_thread_stop(struct drgn_thread *thread)
 		emit_thread_stop_event(thread);
 		return NULL;
 	}
-	if (prog->in_all_stop_ == DRGN_ALL_STOPPING)
+	// If we're already stopping all threads, then the stop is reported with
+	// the others once we're done. If all threads were already stopped, then
+	// this is another thread stopping while a breakpoint is being bypassed,
+	// and it is reported once the thread bypassing the breakpoint is
+	// resumed.
+	if (prog->in_all_stop_ != DRGN_NOT_ALL_STOPPED)
 		return NULL;
 
 	struct drgn_execution_controller *ctrl = get_enabled_controller(prog);
@@ -2357,10 +2703,9 @@ drgn_notify_thread_stop(struct drgn_thread *thread, int sig, uint64_t pc,
 			// breakpoint, then it is still being resumed. If it
 			// was stepped with drgn_thread_step(), then bypassing
 			// the breakpoint was the step.
-			if (thread == prog->bypassing_breakpoint
+			if (thread->bypassing_breakpoint
 			    && thread->resume_mode != DRGN_RESUME_MODE_STEPI) {
-				// TODO: what if a different thread stops?
-				prog->bypassing_breakpoint = NULL;
+				end_bypassing_breakpoint(thread);
 				return NULL;
 			}
 			stop_reason = DRGN_STOP_REASON_STEP;
@@ -2405,12 +2750,11 @@ drgn_notify_thread_exit(struct drgn_thread *thread, int status)
 	}
 
 	bool was_reported = thread->stop_event_emitted;
-	// The caller has a reference, so this can't free the thread.
+	// The caller has a reference, so this can't free the thread. If the
+	// thread was bypassing a breakpoint, then this also ends that because
+	// it won't finish stepping.
 	reset_controlled_thread(thread);
 	thread->exited = true;
-	// The thread won't finish stepping.
-	if (prog->bypassing_breakpoint == thread)
-		prog->bypassing_breakpoint = NULL;
 
 	struct drgn_event event = {
 		.type = DRGN_EVENT_THREAD_EXIT,

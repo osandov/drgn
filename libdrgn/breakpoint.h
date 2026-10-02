@@ -49,6 +49,15 @@ struct drgn_breakpoint_site {
 	struct list_head enabled_breakpoints;
 	struct list_head disabled_breakpoints;
 	uint64_t lists_generation;
+	// Number of calls to bypass_breakpoint() in progress for this site. In
+	// non-stop mode, a thread can be resumed from a breakpoint while
+	// another thread is still bypassing the same breakpoint (e.g., from an
+	// event listener). The site is disabled while this is non-zero.
+	size_t num_bypassing;
+	// Whether the site was disabled to bypass it and enabling it again
+	// failed. It is disabled in the program even though it has enabled
+	// breakpoints.
+	bool enable_failed;
 	void *controller_data;
 	void (*destroy_controller_data)(void *);
 };

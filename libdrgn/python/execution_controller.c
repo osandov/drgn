@@ -13,6 +13,10 @@ static PyObject *ResumeAction_wrap(const struct drgn_resume_action *action)
 	case DRGN_RESUME_MODE_STEPI:
 		type = StepiResumeAction_class;
 		break;
+	case DRGN_RESUME_MODE_STOP:
+		return PyObject_CallFunction(StopResumeAction_class, "O",
+					     container_of(action->thread,
+							  Thread, thread));
 	default:
 		UNREACHABLE();
 	}

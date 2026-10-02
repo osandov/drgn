@@ -429,6 +429,7 @@ static int add_stdlib_types(PyObject *m)
 
 	add_namedtuple_type(ContinueResumeAction, "thread sig");
 	add_namedtuple_type(StepiResumeAction, "thread sig");
+	add_namedtuple_type(StopResumeAction, "thread");
 
 	add_namedtuple_type(SyntheticStopReason, "");
 	add_namedtuple_type(SignalStopReason, "sig");

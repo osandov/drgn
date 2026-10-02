@@ -487,7 +487,8 @@ extern PyObject *NoEventsError;
 
 #define RESUME_ACTION_TYPES					\
 	X(ContinueResumeAction, DRGN_RESUME_MODE_CONTINUE)	\
-	X(StepiResumeAction, DRGN_RESUME_MODE_STEPI)
+	X(StepiResumeAction, DRGN_RESUME_MODE_STEPI)		\
+	X(StopResumeAction, DRGN_RESUME_MODE_STOP)
 
 #define STOP_REASON_TYPES					\
 	X(SyntheticStopReason, DRGN_STOP_REASON_SYNTHETIC)	\

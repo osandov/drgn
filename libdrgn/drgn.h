@@ -5577,6 +5577,9 @@ enum drgn_resume_mode {
 	// 0 is reserved. TODO: is this still necessary?
 	DRGN_RESUME_MODE_CONTINUE = 1,
 	DRGN_RESUME_MODE_STEPI,
+	// Leave the thread stopped. This excludes a thread from the default
+	// action. The signal is not used.
+	DRGN_RESUME_MODE_STOP,
 };
 
 struct drgn_resume_action {
