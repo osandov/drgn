@@ -1210,8 +1210,22 @@ static struct drgn_error *bypass_breakpoint(struct drgn_thread *thread)
 				 step_promise->num_actions,
 				 drgn_promise_share(&step_promise->promise));
 	err = wait_for_promise(prog, &step_promise->promise.promise);
-	if (err)
+	if (err) {
+		// The thread is still at the breakpoint, so put it back.
+		// TODO: add a real way to do this?
+		site_promise->promise.promise.err = &promise_new;
+		ctrl->ops.enable_breakpoint_sites(ctrl->arg,
+						  site_promise->sites, 1,
+						  drgn_promise_share(&site_promise->promise));
+		struct drgn_error *enable_err =
+			wait_for_promise(prog, &site_promise->promise.promise);
+		if (enable_err) {
+			drgn_error_log_warning(prog, enable_err,
+					       "couldn't re-enable breakpoint site: ");
+			drgn_error_destroy(enable_err);
+		}
 		return err;
+	}
 
 	while (prog->bypassing_breakpoint) {
 		err = drgn_program_poll(prog, -1, NULL);
@@ -1223,6 +1237,8 @@ static struct drgn_error *bypass_breakpoint(struct drgn_thread *thread)
 	site_promise->promise.promise.err = &promise_new;
 	ctrl->ops.enable_breakpoint_sites(ctrl->arg, site_promise->sites, 1,
 					  drgn_promise_share(&site_promise->promise));
+	// TODO: if this fails, then the site is disabled in the program, but we
+	// still consider it enabled.
 	return wait_for_promise(prog, &site_promise->promise.promise);
 }
 
@@ -1339,25 +1355,35 @@ static struct drgn_error *drgn_thread_resume(struct drgn_thread *thread,
 	if (!thread->stop_event_emitted) {
 		if (!pending)
 			move_thread(thread, &prog->resumed_threads);
-		// TODO: if a previous call failed in bypass_breakpoint() or
-		// continue_all_threads(), then we're still in all-stop but
-		// stopped_threads may be empty, so this is not a valid thread.
-		thread = list_first_entry(&prog->stopped_threads,
-					  struct drgn_thread, node);
-		assert(thread->stop_event_emitted);
-		set_resume_signal(thread, DRGN_RESUME_DEFAULT_SIGNAL);
-		thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
-		fprintf(stderr, "set stopped thread %u sig to default (%d)\n", thread->tid, thread->resume_signal);
+		// Resume the thread whose stop was reported. There isn't one
+		// if a previous attempt to resume failed after it was resumed.
+		thread = list_first_entry_or_null(&prog->stopped_threads,
+						  struct drgn_thread, node);
+		if (thread && !thread->stop_event_emitted)
+			thread = NULL;
+		if (thread) {
+			set_resume_signal(thread, DRGN_RESUME_DEFAULT_SIGNAL);
+			thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
+			fprintf(stderr, "set stopped thread %u sig to default (%d)\n", thread->tid, thread->resume_signal);
+		}
 	}
-	move_thread(thread, &prog->resumed_threads);
-	thread->stop_event_emitted = false;
+	if (thread) {
+		move_thread(thread, &prog->resumed_threads);
+		thread->stop_event_emitted = false;
+	}
 
-	// Not drgn_thread_stop_reason() because we just cleared
-	// stop_event_emitted.
-	if (thread->stop_reason == DRGN_STOP_REASON_BREAKPOINT) {
-		err = bypass_breakpoint(thread);
-		if (err)
-			return err;
+	// Normally, only the thread that we just resumed can still be at a
+	// breakpoint. If a previous attempt to bypass a breakpoint failed,
+	// then others may be, too.
+	//
+	// Not drgn_thread_stop_reason() because stop_event_emitted was cleared.
+	struct drgn_thread *tmp;
+	list_for_each_entry_safe(thread, tmp, &prog->resumed_threads, node) {
+		if (thread->stop_reason == DRGN_STOP_REASON_BREAKPOINT) {
+			err = bypass_breakpoint(thread);
+			if (err)
+				return err;
+		}
 	}
 
 	if (!list_empty(&prog->stopped_threads)) {
