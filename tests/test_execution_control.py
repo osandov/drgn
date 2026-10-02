@@ -3,6 +3,7 @@
 
 import collections
 import functools
+import gc
 import os
 import signal
 import time
@@ -186,9 +187,11 @@ class Op(_ExpectNode):
         if self._name != "resume_threads" or not self._args or not self._args[0]:
             return self._args
 
-        actions = self._args[0]
+        # Resume actions are named tuples, so actions of different types with
+        # the same fields compare equal. Compare their types, too.
+        actions = [(type(action), action) for action in self._args[0]]
         default_action = None
-        if actions[-1].thread is None:
+        if actions[-1][1].thread is None:
             default_action = actions[-1]
             actions = actions[:-1]
         else:
@@ -488,6 +491,18 @@ class ExecutionControlTestCase(TestCase):
         self._ctrl = _ExpectExecutionController()
         self.prog.add_event_listener(self._ctrl._event_listener)
         self.prog.register_execution_controller("test", self._ctrl, enable_index=0)
+
+        self.addTypeEqualityFunc(dict, self._assert_stopped_threads_equal)
+
+    def _assert_stopped_threads_equal(self, first, second, msg=None):
+        self.assertDictEqual(first, second, msg)
+        # Stop reasons are named tuples, so stop reasons of different types
+        # with the same fields compare equal. Compare their types, too.
+        self.assertDictEqual(
+            {key: type(value) for key, value in first.items()},
+            {key: type(value) for key, value in second.items()},
+            msg,
+        )
 
     def queue_call(self, fn, *args, **kwargs):
         self._ctrl._queue_call(fn, *args, **kwargs)
@@ -917,28 +932,271 @@ class TestAllStop(ExecutionControlTestCase):
 
             self.expect(start=cont)
 
+    def _test_step(self, step_sig, reasons=(), **kwargs):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
+
+            def check_stopped():
+                self.assertEqual(
+                    self.stopped_threads(),
+                    {**self.all_stop(), 1: drgn.StepStopReason()},
+                )
+
+            step = Call(self.prog.thread(1).step, **kwargs)
+            step.next = step_thread = Op(
+                "resume_threads",
+                [
+                    drgn.StepiResumeAction(self.prog.thread(1), step_sig),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+            step_thread.next = step_thread_return = Return(step_thread, None)
+            step_thread_return.next = step_return = Return(step, None)
+            step_return.on = self.check_none_stopped
+            step_return.next = notify_stepped = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGTRAP,
+                0x1338,
+                *reasons,
+            )
+            notify_stepped.next = stop_all_threads = Op("stop_all_threads")
+            stop_all_threads.next = stop_all_threads_return = Return(
+                stop_all_threads, None
+            )
+            stop_all_threads_return.next = stop_event = Event(
+                drgn.ThreadStopEvent, self.prog.thread(1)
+            )
+            stop_event.on = check_stopped
+            stop_event.next = cont = Call(self.prog.thread(1).cont)
+            # The SIGTRAP from the step isn't forwarded.
+            cont.next = resume_threads = Op(
+                "resume_threads", [drgn.ContinueResumeAction(None, 0)]
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = cont_return = Return(cont, None)
+            cont_return.on = self.check_none_stopped
+
+            self.expect(start=step)
+
+    def test_step(self):
+        self._test_step(signal.SIGWINCH)
+
+    def test_step_explicit(self):
+        self._test_step(signal.SIGWINCH, reasons=(drgn.StepStopReason,))
+
+    def test_step_suppress(self):
+        self._test_step(0, sig=0)
+
+    def test_step_different_signal(self):
+        self._test_step(signal.SIGUSR1, sig=signal.SIGUSR1)
+
+    def test_step_unrelated_thread(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
+
+            step = Call(self.prog.thread(2).step)
+            step.next = resume_threads = Op(
+                "resume_threads",
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.StepiResumeAction(self.prog.thread(2), 0),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = step_return = Return(step, None)
+            step_return.on = self.check_none_stopped
+            step_return.next = notify_stepped = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(2),
+                signal.SIGTRAP,
+                0x1338,
+            )
+            notify_stepped.next = stop_all_threads = Op("stop_all_threads")
+            stop_all_threads.next = stop_all_threads_return = Return(
+                stop_all_threads, None
+            )
+            stop_all_threads_return.next = stop_event = Event(
+                drgn.ThreadStopEvent, self.prog.thread(2)
+            )
+            stop_event.on = lambda: self.assertEqual(
+                self.stopped_threads(),
+                {**self.all_stop(), 2: drgn.StepStopReason()},
+            )
+
+            self.expect(start=step)
+
+    def _test_step_then_signal_stop(self, tid, sig):
+        # Step thread 1, then have the given thread stop with the given signal
+        # before thread 1 reports that it stepped.
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
+
+            step = Call(self.prog.thread(1).step, sig=0)
+            step.next = step_thread = Op(
+                "resume_threads",
+                [
+                    drgn.StepiResumeAction(self.prog.thread(1), 0),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+            step_thread.next = step_thread_return = Return(step_thread, None)
+            step_thread_return.next = step_return = Return(step, None)
+            step_return.next = notify_thread_stop = ControllerCall(
+                self.prog.notify_thread_stop, self.prog.thread(tid), sig, 0x1337
+            )
+            notify_thread_stop.next = stop_all_threads1 = Op("stop_all_threads")
+            stop_all_threads1.next = stop_all_threads1_return = Return(
+                stop_all_threads1, None
+            )
+            stop_all_threads1_return.next = stop_event1 = Event(
+                drgn.ThreadStopEvent, self.prog.thread(tid)
+            )
+            stop_event1.on = lambda: self.assertEqual(
+                self.stopped_threads(),
+                {**self.all_stop(), tid: drgn.SignalStopReason(sig)},
+            )
+            stop_event1.next = cont = Call(self.prog.thread(tid).cont, sig=0)
+            cont.next = resume_threads = Op(
+                "resume_threads", [drgn.ContinueResumeAction(None, 0)]
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = cont_return = Return(cont, None)
+            # Thread 1 is no longer stepping, so this isn't a step.
+            cont_return.next = notify_trap = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGTRAP,
+                0x1338,
+            )
+            notify_trap.next = stop_all_threads2 = Op("stop_all_threads")
+            stop_all_threads2.next = stop_all_threads2_return = Return(
+                stop_all_threads2, None
+            )
+            stop_all_threads2_return.next = stop_event2 = Event(
+                drgn.ThreadStopEvent, self.prog.thread(1)
+            )
+            stop_event2.on = lambda: self.assertEqual(
+                self.stopped_threads(),
+                {**self.all_stop(), 1: drgn.SignalStopReason(signal.SIGTRAP)},
+            )
+
+            self.expect(start=step)
+
+    def test_step_signaled(self):
+        self._test_step_then_signal_stop(1, signal.SIGSEGV)
+
+    def test_step_interrupted(self):
+        self._test_step_then_signal_stop(2, signal.SIGCHLD)
+
+    def test_step_thread_not_referenced(self):
+        # The thread must be remembered as stepping even if nothing else has a
+        # reference to it.
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                lambda: self.prog.notify_thread_stop(
+                    self.prog.thread(1), signal.SIGWINCH, 0x1337
+                )
+            )
+            while self.prog.poll(0):
+                pass
+
+            self.prog.thread(1).step()
+            gc.collect()
+
+            self.queue_call(
+                lambda: self.prog.notify_thread_stop(
+                    self.prog.thread(1), signal.SIGTRAP, 0x1338
+                )
+            )
+            while self.prog.poll(0):
+                pass
+            self.assertEqual(
+                self.stopped_threads(),
+                {**self.all_stop(), 1: drgn.StepStopReason()},
+            )
+
+    def test_step_interrupted_cont_with_signal(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGWINCH,
+                0x1337,
+            )
+            while self.prog.poll(0):
+                pass
+            self.prog.thread(1).step(sig=0)
+            # Thread 1 hasn't finished stepping when thread 2 stops.
+            self.queue_call(
+                self.prog.notify_thread_stop,
+                self.prog.thread(2),
+                signal.SIGCHLD,
+                0xDEAD,
+            )
+            while self.prog.poll(0):
+                pass
+
+            cont = Call(self.prog.thread(1).cont, sig=signal.SIGUSR1)
+            cont.next = resume_threads = Op(
+                "resume_threads",
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGUSR1),
+                    drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = cont_return = Return(cont, None)
+            cont_return.on = self.check_none_stopped
+
+            self.expect(start=cont)
+
+    def test_step_not_stopped(self):
+        self.assertRaises(drgn.NotStoppedError, self.prog.thread(1).step)
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            self.assertRaises(drgn.NotStoppedError, self.prog.thread(1).step)
+
     def _test_simultaneous_stop(self, conts_and_resume_actions):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
 
             def stop_event1(tid):
                 other_tid = 2 if tid == 1 else 1
-                (cont1_tid, cont1_sig), (cont2_tid, cont2_sig), resume_actions = (
-                    conts_and_resume_actions(tid, other_tid)
+                resume1, resume2, resume_actions = conts_and_resume_actions(
+                    tid, other_tid
                 )
 
                 event1 = Event(drgn.ThreadStopEvent, self.prog.thread(tid))
                 event1.on = functools.partial(check_stopped_thread, tid)
-                event1.next = cont1 = Call(
-                    self.prog.thread(cont1_tid).cont, sig=cont1_sig
-                )
+                event1.next = cont1 = resume_call(*resume1)
                 cont1_return = Return(cont1, None)
                 event2 = Event(drgn.ThreadStopEvent, self.prog.thread(other_tid))
                 cont1.next = cont1_return & event2
                 cont1_return.on = functools.partial(check_stopped_thread, other_tid)
                 event2.on = functools.partial(check_stopped_thread, other_tid)
-                cont1.next.next = cont2 = Call(
-                    self.prog.thread(cont2_tid).cont, sig=cont2_sig
-                )
+                cont1.next.next = cont2 = resume_call(*resume2)
                 cont2.next = resume_threads = Op("resume_threads", resume_actions)
                 resume_threads.next = resume_threads_return = Return(
                     resume_threads, None
@@ -947,6 +1205,9 @@ class TestAllStop(ExecutionControlTestCase):
                 cont2_return.on = self.check_none_stopped
 
                 return event1
+
+            def resume_call(tid, sig, method="cont"):
+                return Call(getattr(self.prog.thread(tid), method), sig=sig)
 
             def check_stopped_thread(tid):
                 self.assertEqual(
@@ -1090,6 +1351,84 @@ class TestAllStop(ExecutionControlTestCase):
                     drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
                     drgn.ContinueResumeAction(self.prog.thread(3), signal.SIGUSR1),
                     drgn.ContinueResumeAction(self.prog.thread(4), signal.SIGUSR2),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+        )
+
+    def test_simultaneous_stop_step(self):
+        self._test_simultaneous_stop(
+            lambda tid, other_tid: (
+                (tid, -1, "step"),
+                (other_tid, -1),
+                [
+                    drgn.StepiResumeAction(
+                        self.prog.thread(tid),
+                        signal.SIGWINCH if tid == 1 else signal.SIGCHLD,
+                    ),
+                    drgn.ContinueResumeAction(
+                        self.prog.thread(other_tid),
+                        signal.SIGWINCH if other_tid == 1 else signal.SIGCHLD,
+                    ),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+        )
+
+    def test_simultaneous_stop_step_pending_thread(self):
+        self._test_simultaneous_stop(
+            lambda tid, other_tid: (
+                # The pending thread isn't stepped because it's stopped
+                # again.
+                (other_tid, -1, "step"),
+                (other_tid, -1),
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+        )
+
+    def test_simultaneous_stop_step_pending_thread_cont_unrelated_thread(self):
+        self._test_simultaneous_stop(
+            lambda tid, other_tid: (
+                (other_tid, -1, "step"),
+                # This continues the pending thread, which shouldn't remember
+                # the step.
+                (3, -1),
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+        )
+
+    def test_simultaneous_stop_step_then_cont(self):
+        self._test_simultaneous_stop(
+            lambda tid, other_tid: (
+                (3, -1, "step"),
+                # This overrides the step.
+                (3, -1),
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+        )
+
+    def test_simultaneous_stop_cont_then_step(self):
+        self._test_simultaneous_stop(
+            lambda tid, other_tid: (
+                (3, -1),
+                # This overrides the continue.
+                (3, -1, "step"),
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGWINCH),
+                    drgn.ContinueResumeAction(self.prog.thread(2), signal.SIGCHLD),
+                    drgn.StepiResumeAction(self.prog.thread(3), 0),
                     drgn.ContinueResumeAction(None, 0),
                 ],
             )
@@ -1308,6 +1647,126 @@ class TestAllStop(ExecutionControlTestCase):
             cont2_return.on = self.check_none_stopped
 
             self.expect(start=cont1)
+
+    def _test_breakpoint_step(self, step_sig, **kwargs):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            site = self.prog.set_breakpoint(0x1337).sites[0]
+            self.queue_call(
+                self.prog.notify_thread_breakpoint, self.prog.thread(1), site
+            )
+            while self.prog.poll(0):
+                pass
+
+            def check_stopped():
+                self.assertEqual(
+                    self.stopped_threads(),
+                    {**self.all_stop(), 1: drgn.StepStopReason()},
+                )
+
+            step = Call(self.prog.thread(1).step, **kwargs)
+            step.next = disable_breakpoint_sites = Op(
+                "disable_breakpoint_sites", [site]
+            )
+            disable_breakpoint_sites.next = disable_breakpoint_sites_return = Return(
+                disable_breakpoint_sites, None
+            )
+            # Bypassing the breakpoint is the step, so nothing else is
+            # resumed.
+            disable_breakpoint_sites_return.next = step_thread = Op(
+                "resume_threads",
+                [drgn.StepiResumeAction(self.prog.thread(1), step_sig)],
+            )
+            step_thread.next = step_thread_return = Return(step_thread, None)
+            step_thread_return.next = notify_stepped = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGTRAP,
+                0x1338,
+            )
+            stop_event = Event(drgn.ThreadStopEvent, self.prog.thread(1))
+            stop_event.on = check_stopped
+            enable_breakpoint_sites = Op("enable_breakpoint_sites", [site])
+            notify_stepped.next = stop_event & enable_breakpoint_sites
+            enable_breakpoint_sites.next = enable_breakpoint_sites_return = Return(
+                enable_breakpoint_sites, None
+            )
+            enable_breakpoint_sites_return.next = Return(step, None)
+            notify_stepped.next.on = check_stopped
+            notify_stepped.next.next = cont = Call(self.prog.thread(1).cont)
+            cont.next = resume_threads = Op(
+                "resume_threads", [drgn.ContinueResumeAction(None, 0)]
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = cont_return = Return(cont, None)
+            cont_return.on = self.check_none_stopped
+
+            self.expect(start=step)
+
+    def test_breakpoint_step(self):
+        self._test_breakpoint_step(0)
+
+    def test_breakpoint_step_with_signal(self):
+        self._test_breakpoint_step(signal.SIGUSR1, sig=signal.SIGUSR1)
+
+    def test_breakpoint_step_signaled(self):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            site = self.prog.set_breakpoint(0x1337).sites[0]
+            self.queue_call(
+                self.prog.notify_thread_breakpoint, self.prog.thread(1), site
+            )
+            while self.prog.poll(0):
+                pass
+
+            def check_stopped():
+                self.assertEqual(
+                    self.stopped_threads(),
+                    {
+                        **self.all_stop(),
+                        1: drgn.SignalStopReason(signal.SIGSEGV),
+                    },
+                )
+
+            step = Call(self.prog.thread(1).step)
+            step.next = disable_breakpoint_sites = Op(
+                "disable_breakpoint_sites", [site]
+            )
+            disable_breakpoint_sites.next = disable_breakpoint_sites_return = Return(
+                disable_breakpoint_sites, None
+            )
+            disable_breakpoint_sites_return.next = step_thread = Op(
+                "resume_threads", [drgn.StepiResumeAction(self.prog.thread(1), 0)]
+            )
+            step_thread.next = step_thread_return = Return(step_thread, None)
+            step_thread_return.next = notify_thread_stop = ControllerCall(
+                self.prog.notify_thread_stop,
+                self.prog.thread(1),
+                signal.SIGSEGV,
+                0x1337,
+            )
+            stop_event = Event(drgn.ThreadStopEvent, self.prog.thread(1))
+            stop_event.on = check_stopped
+            enable_breakpoint_sites = Op("enable_breakpoint_sites", [site])
+            notify_thread_stop.next = stop_event & enable_breakpoint_sites
+            enable_breakpoint_sites.next = enable_breakpoint_sites_return = Return(
+                enable_breakpoint_sites, None
+            )
+            enable_breakpoint_sites_return.next = Return(step, None)
+            notify_thread_stop.next.on = check_stopped
+            # The step was interrupted, so the thread is continued, not
+            # stepped.
+            notify_thread_stop.next.next = cont = Call(self.prog.thread(1).cont)
+            cont.next = resume_threads = Op(
+                "resume_threads",
+                [
+                    drgn.ContinueResumeAction(self.prog.thread(1), signal.SIGSEGV),
+                    drgn.ContinueResumeAction(None, 0),
+                ],
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = cont_return = Return(cont, None)
+            cont_return.on = self.check_none_stopped
+
+            self.expect(start=step)
 
     def test_simultaneous_breakpoint(self):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):

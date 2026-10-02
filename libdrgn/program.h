@@ -173,6 +173,10 @@ struct drgn_program {
 	struct list_head stopped_threads;
 	struct list_head resumed_threads;
 	struct list_head running_threads;
+	// Threads that were resumed with drgn_thread_step() and haven't stopped
+	// yet. This holds a reference on them so that we remember that they
+	// were stepping when they stop.
+	struct list_head stepping_threads;
 	// TODO: explain lifetime of this
 	struct drgn_thread *bypassing_breakpoint;
 	const char *modifying_breakpoints;

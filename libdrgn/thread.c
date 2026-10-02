@@ -254,6 +254,7 @@ drgn_thread_cache_find_or_create(struct drgn_thread_cache *cache, uint32_t tid,
 	drgn_object_init(&thread->object, cache->prog);
 	INIT_LIST_HEAD(&thread->node);
 	thread->resume_signal = -1;
+	thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
 	thread->tid = tid;
 	thread->generation = generation;
 	thread->finder = finder;

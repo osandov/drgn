@@ -292,6 +292,7 @@ void drgn_program_init_execution_control(struct drgn_program *prog)
 	INIT_LIST_HEAD(&prog->stopped_threads);
 	INIT_LIST_HEAD(&prog->resumed_threads);
 	INIT_LIST_HEAD(&prog->running_threads);
+	INIT_LIST_HEAD(&prog->stepping_threads);
 	INIT_LIST_HEAD(&prog->event_listeners);
 	fd_handler_table_init(&prog->fd_handlers);
 	prog->epoll_fd = -1;
@@ -303,6 +304,16 @@ static void clear_running_threads(struct drgn_program *prog)
 {
 	struct drgn_thread *thread, *tmp;
 	list_for_each_entry_safe(thread, tmp, &prog->running_threads, node) {
+		list_del_init(&thread->node);
+		drgn_thread_decref(thread);
+	}
+}
+
+static void clear_stepping_threads(struct drgn_program *prog)
+{
+	struct drgn_thread *thread, *tmp;
+	list_for_each_entry_safe(thread, tmp, &prog->stepping_threads, node) {
+		thread->stepping = false;
 		list_del_init(&thread->node);
 		drgn_thread_decref(thread);
 	}
@@ -323,6 +334,7 @@ static void clear_controlled_threads(struct drgn_program *prog)
 		drgn_thread_decref(thread);
 	}
 	clear_running_threads(prog);
+	clear_stepping_threads(prog);
 }
 
 static void drgn_breakpoint_remove_impl(struct drgn_breakpoint *bp)
@@ -388,6 +400,11 @@ int drgn_program_traverse_execution_control(struct drgn_program *prog,
 			return ret;
 	}
 	list_for_each_entry(thread, &prog->running_threads, node) {
+		ret = visit_thread(thread, arg);
+		if (ret)
+			return ret;
+	}
+	list_for_each_entry(thread, &prog->stepping_threads, node) {
 		ret = visit_thread(thread, arg);
 		if (ret)
 			return ret;
@@ -1090,7 +1107,6 @@ static void bypass_breakpoint_resume_done(struct drgn_promise *p)
 	thread->stop_signal = -1;
 	thread->resume_signal = 0;
 	drgn_clear_ref(thread->stop_site);
-	// TODO: what clears this if something else stops?
 	thread->stepping = true;
 
 	prog->bypassing_breakpoint = thread;
@@ -1160,11 +1176,13 @@ static struct drgn_error *continue_all_threads(struct drgn_program *prog)
 
 	struct drgn_thread *thread, *tmp;
 	list_for_each_entry(thread, &prog->resumed_threads, node) {
-		if (thread->resume_signal == 0)
+		// This is covered by the default action.
+		if (thread->resume_mode == DRGN_RESUME_MODE_CONTINUE
+		    && thread->resume_signal == 0)
 			continue;
 		struct drgn_resume_action action = {
 			.thread = thread,
-			.mode = DRGN_RESUME_MODE_CONTINUE,
+			.mode = thread->resume_mode,
 			.sig = thread->resume_signal,
 		};
 		if (!resume_threads_promise_append_action(&promise, &action))
@@ -1185,12 +1203,20 @@ static struct drgn_error *continue_all_threads(struct drgn_program *prog)
 	if (err)
 		return err;
 
+	// Any threads that were still stepping were interrupted and have now
+	// been continued.
+	clear_stepping_threads(prog);
 	list_for_each_entry_safe(thread, tmp, &prog->resumed_threads, node) {
 		thread->stop_reason = DRGN_STOP_REASON_NONE;
 		thread->stop_signal = -1;
 		thread->resume_signal = -1;
 		drgn_clear_ref(thread->stop_site);
-		unleash_thread(thread);
+		if (thread->resume_mode == DRGN_RESUME_MODE_STEPI) {
+			thread->stepping = true;
+			move_thread(thread, &prog->stepping_threads);
+		} else {
+			unleash_thread(thread);
+		}
 	}
 #if 0
 	clear_running_threads(prog);
@@ -1199,8 +1225,9 @@ static struct drgn_error *continue_all_threads(struct drgn_program *prog)
 	return NULL;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
+static struct drgn_error *drgn_thread_resume(struct drgn_thread *thread,
+					     enum drgn_resume_mode mode,
+					     int sig, bool only)
 {
 	struct drgn_error *err;
 
@@ -1226,9 +1253,12 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 					 prog->in_all_stop_, only);
 	}
 
-	if (!thread->stop_event_emitted
-	    && thread->stop_reason != DRGN_STOP_REASON_NONE
-	    && thread->resume_signal < 0) {
+	// The thread has a stop that hasn't been reported yet, so it stays
+	// stopped until its stop is reported and it is resumed again.
+	bool pending = !thread->stop_event_emitted
+		       && thread->stop_reason != DRGN_STOP_REASON_NONE
+		       && thread->resume_signal < 0;
+	if (pending) {
 		// TODO: should this be an error instead? The caller can't tell
 		// that the thread has an unreported stop, so they wouldn't be
 		// able to avoid it.
@@ -1238,13 +1268,15 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 					 "couldn't send %s to thread %" PRIu32,
 					 signal_str(sig, sig_buf), thread->tid);
 		}
-	} else if (sig != DRGN_RESUME_DEFAULT_SIGNAL
-		   || thread->resume_signal < 0) {
-		set_resume_signal(thread, sig);
+	} else {
+		if (sig != DRGN_RESUME_DEFAULT_SIGNAL
+		    || thread->resume_signal < 0)
+			set_resume_signal(thread, sig);
+		thread->resume_mode = mode;
 	}
 	fprintf(stderr, "set thread %u sig to %d\n", thread->tid, thread->resume_signal);
 	if (!thread->stop_event_emitted) {
-		if (list_empty(&thread->node))
+		if (!pending)
 			move_thread(thread, &prog->resumed_threads);
 		// TODO: if a previous call failed in bypass_breakpoint() or
 		// continue_all_threads(), then we're still in all-stop but
@@ -1253,6 +1285,7 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 					  struct drgn_thread, node);
 		assert(thread->stop_event_emitted);
 		set_resume_signal(thread, DRGN_RESUME_DEFAULT_SIGNAL);
+		thread->resume_mode = DRGN_RESUME_MODE_CONTINUE;
 		fprintf(stderr, "set stopped thread %u sig to default (%d)\n", thread->tid, thread->resume_signal);
 	}
 	move_thread(thread, &prog->resumed_threads);
@@ -1271,6 +1304,18 @@ drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
 		return NULL;
 	}
 	return continue_all_threads(prog);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_thread_continue(struct drgn_thread *thread, int sig, bool only)
+{
+	return drgn_thread_resume(thread, DRGN_RESUME_MODE_CONTINUE, sig, only);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_thread_step(struct drgn_thread *thread, int sig, bool only)
+{
+	return drgn_thread_resume(thread, DRGN_RESUME_MODE_STEPI, sig, only);
 }
 
 void drgn_breakpoint_deinit(struct drgn_breakpoint *bp)
@@ -2115,9 +2160,10 @@ drgn_notify_thread_stop_common(struct drgn_thread *thread)
 	struct drgn_program *prog = drgn_thread_program(thread);
 
 	move_thread(thread, &prog->stopped_threads);
-	// The thread may still have a resume signal if it was stepped to bypass
-	// a breakpoint and the step was interrupted.
+	// The thread may still have these set if it was stepped to bypass a
+	// breakpoint or the step was interrupted.
 	thread->resume_signal = -1;
+	thread->stepping = false;
 
 	if (prog->bypassing_breakpoint) {
 		prog->bypassing_breakpoint = NULL;
@@ -2184,7 +2230,12 @@ drgn_notify_thread_stop(struct drgn_thread *thread, int sig, uint64_t pc,
 		if (reason_mask & (1 << DRGN_STOP_REASON_STEP)
 		    && thread->stepping) {
 			thread->stepping = false;
-			if (thread == prog->bypassing_breakpoint) {
+			// If the thread was stepped only to bypass a
+			// breakpoint, then it is still being resumed. If it
+			// was stepped with drgn_thread_step(), then bypassing
+			// the breakpoint was the step.
+			if (thread == prog->bypassing_breakpoint
+			    && thread->resume_mode != DRGN_RESUME_MODE_STEPI) {
 				// TODO: what if a different thread stops?
 				prog->bypassing_breakpoint = NULL;
 				return NULL;

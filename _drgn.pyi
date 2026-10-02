@@ -2748,6 +2748,29 @@ class Thread:
         """
         ...
 
+    def step(self, sig: IntegerLike = -1, *, only: bool = False) -> None:
+        """
+        Resume this stopped thread for a single instruction.
+
+        Once the thread has executed one instruction, it stops again and a
+        :class:`ThreadStopEvent` is delivered for it. Its
+        :attr:`~Thread.stop_reason` is then a :class:`StepStopReason`, unless
+        it stopped for another reason first (e.g., it received a signal).
+
+        This is otherwise the same as :meth:`cont()`. In particular, in
+        all-stop mode, all other threads are resumed normally.
+
+        :param sig: Signal to forward on resume. See :meth:`cont()`.
+        :param only: If ``True``, resume only this thread. See :meth:`cont()`.
+        :raises UnsupportedOperation: if resuming threads with the given *only*
+            argument is not supported
+        :raises NotStoppedError: if the thread is not stopped
+        :raises ProgramExitedError: if program exited
+        :raises ProgramLostError: if program was lost
+        :raises NotAttachedError: if not attached to program
+        """
+        ...
+
 class ThreadFinder:
     """
     Base class for finding threads in a program.

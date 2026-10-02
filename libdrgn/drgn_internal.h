@@ -375,12 +375,14 @@ struct drgn_thread {
 	struct drgn_thread_finder *finder;
 	void *finder_data;
 	// Node on drgn_program::stopped_threads, drgn_program::resumed_threads,
-	// or drgn_program::running_threads.
+	// drgn_program::running_threads, or drgn_program::stepping_threads.
 	struct list_head node;
 	enum drgn_stop_reason stop_reason;
 	int stop_signal;
 	struct drgn_breakpoint_site *stop_site;
 	int resume_signal;
+	// How to resume the thread if it is on drgn_program::resumed_threads.
+	enum drgn_resume_mode resume_mode;
 };
 
 DRGN_ACCESSOR_LINKAGE

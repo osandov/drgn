@@ -212,6 +212,22 @@ static PyObject *Thread_interrupt(Thread *self)
 	Py_RETURN_NONE;
 }
 
+static PyObject *Thread_step(Thread *self, PyObject *args, PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = { "sig", "only", NULL };
+	int sig = -1;
+	int only = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|i$p:step", keywords,
+					 &sig, &only))
+	    return NULL;
+
+	err = drgn_thread_step(&self->thread, sig, only);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Thread_cont(Thread *self, PyObject *args, PyObject *kwds)
 {
 	struct drgn_error *err;
@@ -251,6 +267,8 @@ static PyMethodDef Thread_methods[] = {
 	 drgn_Thread_interrupt_DOC},
 	{"cont", (PyCFunction)Thread_cont, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Thread_cont_DOC},
+	{"step", (PyCFunction)Thread_step, METH_VARARGS | METH_KEYWORDS,
+	 drgn_Thread_step_DOC},
 	{},
 };
 
