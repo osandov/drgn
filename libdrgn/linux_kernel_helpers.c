@@ -449,6 +449,11 @@ linux_helper_xa_load(struct drgn_object *res,
 			return err;
 		// node_type = typeof(xa->rnode)
 		node_type = drgn_object_qualified_type(&entry);
+		node_type.type = drgn_underlying_type(node_type.type);
+		if (drgn_type_kind(node_type.type) != DRGN_TYPE_POINTER) {
+			return drgn_error_create(DRGN_ERROR_TYPE,
+						 "struct radix_tree_root rnode member is not a pointer");
+		}
 		struct drgn_qualified_type voidp_type;
 		err = drgn_program_find_type(drgn_object_program(res), "void *",
 					     NULL, &voidp_type);
