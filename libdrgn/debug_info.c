@@ -1887,6 +1887,15 @@ drgn_module_try_supplementary_debug_file_log(struct drgn_module *module,
 		       debugaltlink_build_id_str, debug_file_path);
 }
 
+static bool
+drgn_module_wanted_supplementary_debug_file_is_new(struct drgn_module *module,
+						   uint64_t orig_supplementary_file_generation)
+{
+	return module->wanted_supplementary_debug_file
+	       && module->wanted_supplementary_debug_file->generation
+		  > orig_supplementary_file_generation;
+}
+
 static struct drgn_error *
 drgn_module_try_standard_supplementary_files(struct drgn_module *module,
 					     const struct drgn_debug_info_options *options)
@@ -1908,6 +1917,12 @@ drgn_module_try_standard_supplementary_files(struct drgn_module *module,
 	drgn_module_try_supplementary_debug_file_log(module,
 						     "trying standard paths for");
 
+	// debug_file_path and debugaltlink_path are borrowed from the wanted
+	// supplementary debug file, which is freed if we try a file that
+	// replaces it. If that happens, we can't use them.
+	uint64_t orig_supplementary_file_generation =
+		module->prog->dbinfo.supplementary_file_generation;
+
 	STRING_BUILDER(sb);
 	const char *slash;
 	if (debugaltlink_path[0] == '/'
@@ -1928,7 +1943,9 @@ drgn_module_try_standard_supplementary_files(struct drgn_module *module,
 						    NULL);
 	}
 	if (err
-	    || module->debug_file_status != DRGN_MODULE_FILE_WANT_SUPPLEMENTARY)
+	    || module->debug_file_status != DRGN_MODULE_FILE_WANT_SUPPLEMENTARY
+	    || drgn_module_wanted_supplementary_debug_file_is_new(module,
+					orig_supplementary_file_generation))
 		return err;
 
 	// All of the Linux distributions that use gnu_debugaltlink that I'm
@@ -1964,20 +1981,13 @@ drgn_module_try_standard_supplementary_files(struct drgn_module *module,
 							    true, NULL);
 			if (err
 			    || module->debug_file_status
-			       != DRGN_MODULE_FILE_WANT_SUPPLEMENTARY)
+			       != DRGN_MODULE_FILE_WANT_SUPPLEMENTARY
+			    || drgn_module_wanted_supplementary_debug_file_is_new(module,
+						orig_supplementary_file_generation))
 				return err;
 		}
 	}
 	return NULL;
-}
-
-static bool
-drgn_module_wanted_supplementary_debug_file_is_new(struct drgn_module *module,
-						   uint64_t orig_supplementary_file_generation)
-{
-	return module->wanted_supplementary_debug_file
-	       && module->wanted_supplementary_debug_file->generation
-		  > orig_supplementary_file_generation;
 }
 
 struct drgn_error *
