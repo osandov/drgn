@@ -1034,6 +1034,14 @@ class TestIntegerPromotion(MockProgramTestCase):
             Object(self.prog, "unsigned long", value=1, bit_field_size=40),
         )
 
+    def test_bool_bit_field_bogus_int(self):
+        # A boolean bit field must be promoted even if the program has a bogus
+        # definition of int that can't represent it.
+        self.types.append(self.prog.int_type("int", 0, True))
+        self.types.append(self.prog.int_type("unsigned int", 0, False))
+        obj = Object(self.prog, "_Bool", value=1, bit_field_size=1)
+        self.assertRaises(Exception, operator.add, obj, obj)
+
     def test_enum(self):
         # Enums should be converted to their compatible type and then promoted.
         self.assertIdentical(

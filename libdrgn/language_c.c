@@ -3009,9 +3009,10 @@ static struct drgn_error *c_integer_promotions(struct drgn_program *prog,
 						       &int_type);
 		if (err)
 			return err;
-		if (c_can_represent_all_values(int_type, 0,
-					       type->underlying_type,
-					       type->bit_field_size)) {
+		if (drgn_type_kind(type->underlying_type) == DRGN_TYPE_BOOL
+		    || c_can_represent_all_values(int_type, 0,
+						  type->underlying_type,
+						  type->bit_field_size)) {
 			type->type = type->underlying_type = int_type;
 			type->bit_field_size = 0;
 			return NULL;
