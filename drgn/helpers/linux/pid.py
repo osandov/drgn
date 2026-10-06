@@ -18,6 +18,7 @@ from _drgn import (
 )
 from drgn import IntegerLike, Object, Program, cast, container_of
 from drgn.helpers.common.prog import takes_object_or_program_or_default
+from drgn.helpers.linux._bpfwalk_accel import bpfwalk_objects
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.idr import idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
@@ -105,6 +106,12 @@ def for_each_task(
     if idle:
         for cpu in for_each_online_cpu(prog):
             yield idle_task(prog, cpu)
+
+    if ns is None:  # in-kernel offload (bpfwalk); None => fall through
+        fast = bpfwalk_objects(prog, "task", "struct task_struct *")
+        if fast is not None:
+            yield from fast
+            return
 
     PIDTYPE_PID = prog["PIDTYPE_PID"].value_()
     for pid in for_each_pid(prog if ns is None else ns):
