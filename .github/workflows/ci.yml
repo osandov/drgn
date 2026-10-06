@@ -61,7 +61,7 @@ jobs:
           if [[ "${{ matrix.python-version }}" =~ ^3\.[678]$ ]]; then
               pyroute2_version="<0.9.1"
           fi
-          pip install "pyroute2$pyroute2_version" setuptools pre-commit
+          pip install capstone "pyroute2$pyroute2_version" setuptools pre-commit
       # Upstream defaults to world-read-writeable /dev/kvm. Debian/Ubuntu
       # override this; see
       # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=892945. We want the
