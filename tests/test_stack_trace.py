@@ -36,6 +36,10 @@ class TestLinuxUserspaceCoreDump(TestCase):
         self.assertIn("cm", self.trace[0])
         self.assertNotIn("foo", self.trace[0])
         self.assertNotIn(1, self.trace[0])
+        # Make sure that calling the method directly also works.
+        self.assertIs(self.trace[0].__contains__("cm"), True)
+        self.assertIs(self.trace[0].__contains__("foo"), False)
+        self.assertIs(self.trace[0].__contains__(1), False)
 
     def test_stack_trace_type_error(self):
         self.assertRaises(
