@@ -1099,6 +1099,16 @@ class TestObjects(MockProgramTestCase):
         )
         self.assertTrue("counter" in self.prog)
 
+    def test_contains(self):
+        self.objects.append(
+            MockObject(
+                "counter", self.prog.int_type("int", 4, True), address=0xFFFF0000
+            )
+        )
+        self.assertIn("counter", self.prog)
+        self.assertNotIn("foo", self.prog)
+        self.assertNotIn(1, self.prog)
+
 
 class TestCoreDump(TestCase):
     def test_not_core_dump(self):

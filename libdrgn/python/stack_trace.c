@@ -181,10 +181,8 @@ static DrgnObject *StackFrame_subscript(StackFrame *self, PyObject *key)
 static int StackFrame_contains(StackFrame *self, PyObject *key)
 {
 	struct drgn_error *err;
-	if (!PyUnicode_Check(key)) {
-		PyErr_SetObject(PyExc_KeyError, key);
-		return -1;
-	}
+	if (!PyUnicode_Check(key))
+		return 0;
 	const char *name = PyUnicode_AsUTF8(key);
 	if (!name)
 		return -1;

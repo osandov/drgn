@@ -2195,10 +2195,8 @@ static int Program_contains(Program *self, PyObject *key)
 {
 	struct drgn_error *err;
 
-	if (!PyUnicode_Check(key)) {
-		PyErr_SetObject(PyExc_KeyError, key);
+	if (!PyUnicode_Check(key))
 		return 0;
-	}
 
 	const char *name = PyUnicode_AsUTF8(key);
 	if (!name)

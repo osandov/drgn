@@ -32,6 +32,11 @@ class TestLinuxUserspaceCoreDump(TestCase):
         self.assertIsNone(self.trace[7].function_name)
         self.assertIsNone(self.trace[8].function_name)
 
+    def test_stack_frame_contains(self):
+        self.assertIn("cm", self.trace[0])
+        self.assertNotIn("foo", self.trace[0])
+        self.assertNotIn(1, self.trace[0])
+
     def test_stack_trace_type_error(self):
         self.assertRaises(
             TypeError,
