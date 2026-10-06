@@ -15,6 +15,11 @@ static inline int omp_get_thread_num(void)
 	return 0;
 }
 
+static inline int omp_get_num_threads(void)
+{
+	return 1;
+}
+
 #define drgn_num_threads 1
 static inline void drgn_init_num_threads(void)
 {
