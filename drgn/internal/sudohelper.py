@@ -54,6 +54,7 @@ def open_via_sudo(
                     "-p",
                     f"[sudo] password for %p to open {path}: ",
                     sys.executable,
+                    "-I",
                     "-B",
                     "-c",
                     _OPEN_VIA_SUDO_COMMAND,
