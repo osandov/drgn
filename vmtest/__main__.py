@@ -100,6 +100,7 @@ class _TestRunner:
         jobs: Optional[int] = None,
         use_host_rootfs: bool = True,
         skip_build: bool = False,
+        pytest_local_args: Optional[str] = None,
         pytest_kernel_args: Optional[str] = None,
         skip_kdump: bool = False,
     ) -> None:
@@ -137,6 +138,7 @@ class _TestRunner:
         except (AttributeError, OSError):
             self._color = False
 
+        self._pytest_local_args = pytest_local_args
         self._pytest_kernel_args = pytest_kernel_args
         self._skip_kdump = skip_kdump
 
@@ -415,15 +417,19 @@ class _TestRunner:
         self, arch: Architecture, *, outfile: Optional[TextIO] = None
     ) -> bool:
         rootfs = self._rootfs(arch)
+        pytest_args = "--ignore=tests/linux_kernel"
+        if self._pytest_local_args is not None:
+            pytest_args += " " + self._pytest_local_args
         if rootfs == Path("/"):
             args = [
                 sys.executable,
                 "-m",
                 "pytest",
                 "-v",
-                "--ignore=tests/linux_kernel",
+                *shlex.split(pytest_args),
             ]
         else:
+            pytest_command = f"cd /mnt && pytest -v {pytest_args}"
             args = [
                 "unshare",
                 "--map-root-user",
@@ -437,7 +443,7 @@ class _TestRunner:
 set -e
 
 mount --bind . "$1/mnt"
-{chroot_sh_cmd('"$1"')} 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
+{chroot_sh_cmd('"$1"')} {shlex.quote(pytest_command)}
 """,
                 "sh",
                 str(rootfs),
@@ -580,6 +586,10 @@ if __name__ == "__main__":
         help="don't rebuild drgn even if it's out of date",
     )
     parser.add_argument(
+        "--local-pytest-args",
+        help="a string of args passed to pytest for local tests",
+    )
+    parser.add_argument(
         "--pytest-args",
         help="a string of args passed to pytest for kernel tests",
     )
@@ -641,6 +651,7 @@ if __name__ == "__main__":
         jobs=args.jobs,
         use_host_rootfs=args.use_host_rootfs == "auto",
         skip_build=args.skip_build,
+        pytest_local_args=args.local_pytest_args,
         pytest_kernel_args=args.pytest_args,
         skip_kdump=args.skip_kdump,
     )
