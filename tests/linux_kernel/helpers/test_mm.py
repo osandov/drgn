@@ -394,11 +394,11 @@ class TestMm(MmTestCase):
 
     @skip_unless_have_full_mm_support
     def test_access_remote_vm_init_mm(self):
-        data = self.prog["UTS_RELEASE"].string_()
+        data = b"Linux version " + self.prog["UTS_RELEASE"].string_()
         self.assertEqual(
             access_remote_vm(
                 self.prog["init_mm"].address_of_(),
-                self.prog["init_uts_ns"].name.release + 0,
+                self.prog["linux_banner"].address_,
                 len(data),
             ),
             data,
