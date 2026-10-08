@@ -117,6 +117,11 @@ int u64_converter(PyObject *o, void *p)
 	return PyLong_AsUInt64(o, p) == 0;
 }
 
+int optional_u64_converter(PyObject *o, void *p)
+{
+	return o == Py_None || PyLong_AsUInt64(o, p) == 0;
+}
+
 int path_converter(PyObject *o, void *p)
 {
 	if (o == NULL) {

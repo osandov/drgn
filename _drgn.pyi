@@ -84,6 +84,7 @@ class Program:
         platform: Optional[Platform] = None,
         *,
         vmcoreinfo: Union[bytes, str, None] = None,
+        aarch64_insn_pac_mask: Optional[int] = None,
     ) -> Self:
         """
         Create a ``Program`` with no target program. It is usually more
@@ -95,6 +96,8 @@ class Program:
         :param vmcoreinfo: Optionally provide the ``VMCOREINFO`` note data for
             Linux kernel core dumps, which will override any detected data. When
             not provided or ``None``, automatically detect the info.
+        :param aarch64_insn_pac_mask: Optionally, provide the pointer
+            authentication bit mask used for aarch64 stack unwinding.
         """
         ...
     flags: ProgramFlags

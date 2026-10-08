@@ -959,6 +959,11 @@ const struct drgn_language *drgn_program_language(struct drgn_program *prog);
 void drgn_program_set_language(struct drgn_program *prog,
 			       const struct drgn_language *lang);
 
+/** Set the aarch64 pointer authentication mask of a @ref drgn_program. */
+struct drgn_error *
+drgn_program_set_aarch64_insn_pac_mask(struct drgn_program *prog,
+					uint64_t pac_mask);
+
 /**
  * Read from a program's memory.
  *

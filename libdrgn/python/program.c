@@ -355,13 +355,17 @@ static Program *Program_new_impl(const struct drgn_platform *platform)
 static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 			    PyObject *kwds)
 {
-	static char *keywords[] = { "platform", "vmcoreinfo", NULL };
+	static char *keywords[] = {
+		"platform", "vmcoreinfo", "aarch64_insn_pac_mask", NULL
+	};
 	PyObject *platform_obj = NULL;
 	const char *vmcoreinfo = NULL;
 	Py_ssize_t vmcoreinfo_size;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O$z#:Program", keywords,
+	uint64_t pac_mask = 0;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O$z#O&:Program", keywords,
 					 &platform_obj, &vmcoreinfo,
-					 &vmcoreinfo_size))
+					 &vmcoreinfo_size, optional_u64_converter,
+					 &pac_mask))
 		return NULL;
 
 	struct drgn_platform *platform;
@@ -380,6 +384,13 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 	if (vmcoreinfo) {
 		struct drgn_error *err = drgn_program_parse_vmcoreinfo(
 			&prog->prog, vmcoreinfo, vmcoreinfo_size);
+		if (err)
+			return set_drgn_error(err);
+	}
+	if (pac_mask) {
+		struct drgn_error *err =
+			drgn_program_set_aarch64_insn_pac_mask(
+				&prog->prog, pac_mask);
 		if (err)
 			return set_drgn_error(err);
 	}
