@@ -1849,6 +1849,40 @@ drgn_module_try_vdso_in_core(struct drgn_module *module,
 		drgn_log_debug(prog, "couldn't read vDSO: %s", elf_errmsg(-1));
 		return NULL;
 	}
+
+	// The Linux kernel maps the entire vDSO file. However, before QEMU
+	// commit 6e9dcfb906f7 ("linux-user: Fix GDB complaining about
+	// system-supplied DSO string table index") (in v9.2.0), QEMU user-mode
+	// emulation only mapped the loadable segment, which doesn't include the
+	// section headers. As a result, section headers are read as zeroes,
+	// which causes failures later. Detect this and hack around it by
+	// clobbering the ELF header so that libelf ignores sections.
+	size_t shstrndx;
+	if (elf_nextscn(elf, NULL)
+	    && (elf_getshdrstrndx(elf, &shstrndx)
+		|| !elf_strptr(elf, shstrndx, 0))) {
+		drgn_log_debug(prog,
+			       "vDSO has invalid section headers; ignoring them");
+		elf_end(elf);
+		if (image[EI_CLASS] == ELFCLASS64) {
+			Elf64_Ehdr *ehdr = (Elf64_Ehdr *)image;
+			ehdr->e_shoff = 0;
+			ehdr->e_shnum = 0;
+			ehdr->e_shstrndx = 0;
+		} else {
+			Elf32_Ehdr *ehdr = (Elf32_Ehdr *)image;
+			ehdr->e_shoff = 0;
+			ehdr->e_shnum = 0;
+			ehdr->e_shstrndx = 0;
+		}
+		elf = elf_memory(image, size);
+		if (!elf) {
+			drgn_log_debug(prog, "couldn't read vDSO: %s",
+				       elf_errmsg(-1));
+			return NULL;
+		}
+	}
+
 	struct drgn_elf_file *file;
 	err = drgn_elf_file_create(module, "[vdso]", -1, image, elf, &file);
 	if (err) {
