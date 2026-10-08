@@ -23,6 +23,7 @@ from drgn import (
     Qualifiers,
     TypeKind,
     TypeMember,
+    _with_libbpf,
     get_default_prog,
     host_platform,
     set_default_prog,
@@ -497,19 +498,26 @@ class TestTypeFinder(TestCase):
     def test_register(self):
         prog = Program(MOCK_PLATFORM)
 
+        if _with_libbpf:
+            expected_reg = {"dwarf", "btf"}
+            expected_enabled = ["dwarf", "btf"]
+        else:
+            expected_reg = {"dwarf"}
+            expected_enabled = ["dwarf"]
+
         # We don't test every corner case because the symbol finder tests cover
         # the shared part.
-        self.assertEqual(prog.registered_type_finders(), {"dwarf"})
-        self.assertEqual(prog.enabled_type_finders(), ["dwarf"])
+        self.assertEqual(prog.registered_type_finders(), expected_reg)
+        self.assertEqual(prog.enabled_type_finders(), expected_enabled)
 
         prog.register_type_finder(
             "foo", lambda prog, kinds, name, filename: None, enable_index=-1
         )
-        self.assertEqual(prog.registered_type_finders(), {"dwarf", "foo"})
-        self.assertEqual(prog.enabled_type_finders(), ["dwarf", "foo"])
+        self.assertEqual(prog.registered_type_finders(), expected_reg | {"foo"})
+        self.assertEqual(prog.enabled_type_finders(), expected_enabled + ["foo"])
 
         prog.set_enabled_type_finders(["foo"])
-        self.assertEqual(prog.registered_type_finders(), {"dwarf", "foo"})
+        self.assertEqual(prog.registered_type_finders(), expected_reg | {"foo"})
         self.assertEqual(prog.enabled_type_finders(), ["foo"])
 
     def test_add_type_finder(self):
@@ -605,19 +613,26 @@ class TestObjectFinder(TestCase):
     def test_register(self):
         prog = Program(MOCK_PLATFORM)
 
+        if _with_libbpf:
+            expected_reg = {"dwarf", "btf", "btf_symbol"}
+            expected_enabled = ["dwarf", "btf"]
+        else:
+            expected_reg = {"dwarf"}
+            expected_enabled = ["dwarf"]
+
         # We don't test every corner case because the symbol finder tests cover
         # the shared part.
-        self.assertEqual(prog.registered_object_finders(), {"dwarf"})
-        self.assertEqual(prog.enabled_object_finders(), ["dwarf"])
+        self.assertEqual(prog.registered_object_finders(), expected_reg)
+        self.assertEqual(prog.enabled_object_finders(), expected_enabled)
 
         prog.register_object_finder(
             "foo", lambda prog, name, flags, filename: None, enable_index=-1
         )
-        self.assertEqual(prog.registered_object_finders(), {"dwarf", "foo"})
-        self.assertEqual(prog.enabled_object_finders(), ["dwarf", "foo"])
+        self.assertEqual(prog.registered_object_finders(), expected_reg | {"foo"})
+        self.assertEqual(prog.enabled_object_finders(), expected_enabled + ["foo"])
 
         prog.set_enabled_object_finders(["foo"])
-        self.assertEqual(prog.registered_object_finders(), {"dwarf", "foo"})
+        self.assertEqual(prog.registered_object_finders(), expected_reg | {"foo"})
         self.assertEqual(prog.enabled_object_finders(), ["foo"])
 
     def test_add_object_finder(self):
