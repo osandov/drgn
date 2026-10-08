@@ -56,7 +56,7 @@ curl -L "$libkdumpfile_url" | tar -xz --strip-components=1
 make -j$(($(nproc) + 1))
 make install
 
-pcre2_version=10.47
+pcre2_version=10.49
 pcre2_url=https://github.com/PCRE2Project/pcre2/releases/download/pcre2-$pcre2_version/pcre2-$pcre2_version.tar.gz
 mkdir /tmp/pcre2
 cd /tmp/pcre2
