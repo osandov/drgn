@@ -1081,10 +1081,10 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 		}
 		SWITCH_ENUM(obj->kind) {
 		case DRGN_OBJECT_VALUE: {
-			const char *buf;
+			const char *buf, *p;
 			uint64_t value_size;
 			size_t len;
-			char *p, *str;
+			char *str;
 
 			buf = drgn_object_buffer(obj);
 			value_size = drgn_object_size(obj);
