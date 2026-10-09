@@ -1,0 +1,70 @@
+0.3.0 (Released October 9th, 2026)
+===================================
+
+These are some of the highlights of drgn 0.3.0. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.3.0>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+.. program:: drgn
+
+Hardening
+---------
+
+The main focus of this release was hardening drgn against malformed or
+malicious inputs. drgn's threat model is:
+
+* Debugging information (ELF, DWARF, etc.) is **not** trusted.
+* The target (e.g., core dump) is **not** trusted.
+* Python code executed and imported by the user is trusted (but we do our best
+  to protect against misuse).
+
+Many bugs that could be triggered by crafted inputs were fixed, including:
+
+* Memory safety bugs: buffer overflows, out-of-bounds reads, null pointer
+  dereferences, use-after-frees, double-frees, and uninitialized memory reads.
+* Undefined behavior: integer overflows and invalid arithmetic operations.
+* Unbounded recursion on deeply nested or cyclic types and namespaces.
+* Missing error checks and memory leaks.
+
+A number of similar bugs that could only be triggered by pathological Python
+code were also fixed.
+
+Faster QEMU Guest Debugging
+---------------------------
+
+drgn 0.2.0 added support for debugging QEMU guests over the QEMU Machine
+Protocol (QMP) with :option:`--qemu`/:meth:`drgn.Program.set_qemu_qmp()`.
+However, reading guest memory through QMP is very slow.
+
+drgn now speeds this up substantially by finding the QEMU process and reading
+guest memory directly from it as long as:
+
+1. The QMP connection is over a Unix domain socket, and
+2. drgn has permission to read the QEMU process's memory
+   (``PTRACE_MODE_ATTACH_REALCREDS``; see :manpage:`ptrace(2)`).
+
+Linux 7.2 and 7.3 Support
+-------------------------
+
+This release contains several updates to handle changes in Linux 7.2 and 7.3.
+
+A change in Linux 7.2 broke the crash ``irq`` command. This error is fixed in
+this release::
+
+    _drgn.ObjectNotFoundError: could not find 'nr_irqs'
+
+The new :func:`~drgn.helpers.linux.irq.irq_get_nr_irqs()` helper gets the
+number of IRQs on any kernel version.
+
+A change in Linux 7.3 broke :func:`~drgn.helpers.linux.fs.path_lookup()` so
+that lookups fail when using the default root directory.
+
+A change in Linux 7.3 made
+:func:`~drgn.helpers.linux.sched.cfs_rq_for_each_entity()` return every task at
+depth 0 and no task groups.
+
+A change in Linux 7.3 made ``tools/fsrefs.py`` silently stop checking
+``binfmt_misc``.
+
+These are fixed in this release.
