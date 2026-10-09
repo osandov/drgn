@@ -2163,8 +2163,8 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 	{
 		struct drgn_error *thread_err = NULL;
 		int thread_num = omp_get_thread_num();
-		#pragma omp master
-		num_threads = omp_get_num_threads();
+		if (thread_num == 0)
+			num_threads = omp_get_num_threads();
 
 		// Enumerate CUs in new modules.
 		struct drgn_dwarf_index_cu_vector *cus, *partial_units;
@@ -2201,8 +2201,7 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 		// Merge the per-thread CUs into dbinfo (and free them). Partial
 		// units are placed at the end and excluded from new_cus_size so
 		// that they are not indexed.
-		#pragma omp master
-		{
+		if (thread_num == 0) {
 			if (!err) {
 				size_t cus_pos = new_cus_size =
 					drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus);
@@ -2254,8 +2253,8 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 
 		// Update the CU lookup table. This can be done by one thread in
 		// parallel with reading CUs.
-		#pragma omp master
-		if (drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus)
+		if (thread_num == 0
+		    && drgn_dwarf_index_cu_vector_size(&dbinfo->dwarf.index_cus)
 		    > dbinfo->dwarf.global.cus_indexed) {
 			struct drgn_dwarf_index_cu_lookup *lookup =
 				realloc_array(dbinfo->dwarf.index_cu_lookup,
@@ -2348,8 +2347,7 @@ drgn_dwarf_index_update(struct drgn_debug_info *dbinfo)
 
 		// Merge the per-thread specification maps into dbinfo (and free
 		// them).
-		#pragma omp master
-		{
+		if (thread_num == 0) {
 			for (int i = 0; i < num_threads - 1; i++) {
 				err = drgn_dwarf_specification_map_merge(&dbinfo->dwarf.specifications,
 									 &threads[i].specifications,
@@ -2489,9 +2487,8 @@ static struct drgn_error *index_namespace_impl(struct drgn_namespace_dwarf_index
 		struct drgn_error *thread_err = NULL;
 		struct drgn_dwarf_index_die_map *map;
 		int thread_num = omp_get_thread_num();
-		#pragma omp master
-		num_threads = omp_get_num_threads();
 		if (thread_num == 0) {
+			num_threads = omp_get_num_threads();
 			map = ns->map;
 		} else {
 			array_for_each(tag_map, maps[thread_num - 1])
