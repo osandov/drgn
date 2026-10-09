@@ -4,11 +4,13 @@
 #ifdef _OPENMP
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "cleanup.h"
 #include "hash_table.h"
+#include "minmax.h"
 #include "openmp.h"
 #include "util.h"
 
@@ -93,6 +95,11 @@ void drgn_init_num_threads(void)
 		int num_cores = drgn_num_online_cpu_cores();
 		if (num_cores > 0 && num_cores < num_threads)
 			num_threads = num_cores;
+#if SIZE_MAX <= 0xffffffff
+		// Limit the number of threads on 32-bit so that we don't use
+		// too much address space for thread stacks.
+		num_threads = min(num_threads, 8);
+#endif
 	}
 
 	// Multiple threads may be initializing this at the same time, and
