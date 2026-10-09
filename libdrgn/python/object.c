@@ -1,10 +1,11 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include "drgnpy.h"
+
 #include <inttypes.h>
 #include <math.h>
 
-#include "drgnpy.h"
 #include "../error.h"
 #include "../object.h"
 #include "../serialize.h"

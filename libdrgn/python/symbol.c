@@ -1,9 +1,9 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-#include <inttypes.h>
-
 #include "drgnpy.h"
+
+#include <inttypes.h>
 
 PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj)
 {

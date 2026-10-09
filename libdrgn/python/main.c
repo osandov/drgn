@@ -1,13 +1,14 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include "drgnpy.h"
+
 #include <elfutils/libdwfl.h>
 #ifdef WITH_PCRE2
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
 #endif
 
-#include "drgnpy.h"
 #include "../debug_info.h"
 #include "../error.h"
 #include "../path.h"

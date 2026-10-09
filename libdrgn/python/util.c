@@ -1,10 +1,11 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include "drgnpy.h"
+
 #include <inttypes.h>
 #include <stdarg.h>
 
-#include "drgnpy.h"
 #include "../util.h"
 #include "../vector.h"
 

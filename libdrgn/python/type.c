@@ -1,9 +1,10 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include "drgnpy.h"
+
 #include <stdarg.h>
 
-#include "drgnpy.h"
 #include "../lazy_object.h"
 #include "../platform.h"
 #include "../program.h"
