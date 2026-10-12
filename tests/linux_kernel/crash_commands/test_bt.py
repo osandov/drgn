@@ -92,3 +92,20 @@ class TestBt(CrashCommandTestCase):
         task = self.prog["drgn_test_kthread"]
         cmd = self.check_crash_command(f"bt -V 0x{task.value_():x}")
         self.assertIn("a = (volatile int)1", cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_symbol_offset(self):
+        task = self.prog["drgn_test_kthread"]
+        cmd = self.check_crash_command(f"bt -s 0x{task.value_():x}")
+        self.assertIn("drgn_test_kthread_fn+", cmd.stdout)
+        self.assertIn("drgn_test_kthread_fn2+", cmd.stdout)
+        self.assertIn("drgn_test_kthread_fn3+", cmd.stdout)
+
+    @skip_unless_have_test_kmod
+    def test_symbol_offset_drgn_style(self):
+        task = self.prog["drgn_test_kthread"]
+        cmd = self.check_crash_command(f"bt -s -d 0x{task.value_():x}")
+        self.assertIn("drgn_test_kthread_fn+", cmd.stdout)
+        self.assertIn("drgn_test_kthread_fn2+", cmd.stdout)
+        self.assertIn("drgn_test_kthread_fn3+", cmd.stdout)
+
