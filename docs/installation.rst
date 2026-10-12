@@ -23,6 +23,8 @@ It optionally depends on:
   expressions.
 - `json-c <https://github.com/json-c/json-c>`_ for QEMU Machine Protocol
   support
+- `libbpf <https://docs.kernel.org/bpf/libbpf/libbpf_overview.html>`_ 1.0.0 or
+  newer, for using BPF Type Format (BTF)
 
 The build requires:
 
