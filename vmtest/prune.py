@@ -16,7 +16,8 @@ from typing import Any, Awaitable, Callable, Dict, Iterable, List, Tuple, TypeVa
 import aiohttp
 
 from util import KernelVersion
-from vmtest.download import VMTEST_GITHUB_RELEASE
+from vmtest.config import ARCHITECTURES
+from vmtest.download import github_release_cache, vmtest_github_release
 from vmtest.githubapi import AioGitHubApi
 
 logger = logging.getLogger(__name__)
@@ -180,19 +181,24 @@ async def main() -> None:
         async with aiohttp.ClientSession(trust_env=True) as session:
             gh = AioGitHubApi(session, GITHUB_TOKEN)
 
-            github_release = await gh.get_release_by_tag(
-                *VMTEST_GITHUB_RELEASE, cache=args.directory / "github_release.json"
-            )
-
             kernels = []
-            for asset in github_release["assets"]:
-                match = re.fullmatch(
-                    r"kernel-(?P<release>.*)\.(?P<arch>[^.]+)\.tar\.zst", asset["name"]
+            for arch in ARCHITECTURES.values():
+                cache = github_release_cache(args.directory, arch)
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                github_release = await gh.get_release_by_tag(
+                    *vmtest_github_release(arch), cache=cache
                 )
-                if match:
-                    kernels.append((match.group("release"), match.group("arch"), asset))
-                elif asset["name"].startswith("kernel-"):
-                    logger.warning("ignoring unrecognized kernel: %s", asset["name"])
+                for asset in github_release["assets"]:
+                    match = re.fullmatch(
+                        rf"kernel-(?P<release>.*)\.{re.escape(arch.name)}\.tar\.zst",
+                        asset["name"],
+                    )
+                    if match:
+                        kernels.append((match.group("release"), arch.name, asset))
+                    elif asset["name"].startswith("kernel-"):
+                        logger.warning(
+                            "ignoring unrecognized kernel: %s", asset["name"]
+                        )
 
             async def _delete_remote_asset(asset: Dict[str, Any]) -> None:
                 await gh.delete(asset["url"])

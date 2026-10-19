@@ -27,7 +27,7 @@ from typing import (
     Iterator,
     List,
     NamedTuple,
-    Optional,
+    Tuple,
     TypeVar,
     Union,
     cast,
@@ -52,25 +52,27 @@ from vmtest.githubapi import GitHubApi
 
 logger = logging.getLogger(__name__)
 
-VMTEST_GITHUB_RELEASE = ("osandov", "drgn", "vmtest-assets")
+
+def vmtest_github_release(arch: Architecture) -> Tuple[str, str, str]:
+    return ("osandov", "drgn", "vmtest-kernels-" + arch.name)
+
+
+def github_release_cache(download_dir: Path, arch: Architecture) -> Path:
+    return download_dir / arch.name / "github_release.json"
 
 
 GitHubAsset = Dict[str, Any]
 
 
 def available_kernel_releases(
-    github_release: Dict[str, Any]
-) -> Dict[str, Dict[str, GitHubAsset]]:
-    releases: Dict[str, Dict[str, GitHubAsset]] = {}
-    pattern = re.compile(r"kernel-(?P<release>.*)\.(?P<arch>\w+)\.tar\.zst")
+    github_release: Dict[str, Any], arch: Architecture
+) -> Dict[str, GitHubAsset]:
+    releases = {}
+    pattern = re.compile(rf"kernel-(.*)\.{re.escape(arch.name)}\.tar\.zst")
     for asset in github_release["assets"]:
         match = pattern.fullmatch(asset["name"])
         if match:
-            try:
-                arch_releases = releases[match.group("arch")]
-            except KeyError:
-                arch_releases = releases[match.group("arch")] = {}
-            arch_releases[match.group("release")] = asset
+            releases[match.group(1)] = asset
     return releases
 
 
@@ -147,20 +149,30 @@ class Downloader:
     def __init__(self, directory: Path) -> None:
         self._directory = directory
         self._gh = GitHubApi(os.getenv("GITHUB_TOKEN"))
-        self._cached_kernel_releases: Optional[Dict[str, Dict[str, GitHubAsset]]] = None
+        self._cached_kernel_releases: Dict[str, Dict[str, GitHubAsset]] = {}
 
     @_retry_download
-    def _available_kernel_releases(self) -> Dict[str, Dict[str, GitHubAsset]]:
-        if self._cached_kernel_releases is None:
-            logger.info("getting available kernel releases")
-            self._directory.mkdir(parents=True, exist_ok=True)
-            self._cached_kernel_releases = available_kernel_releases(
-                self._gh.get_release_by_tag(
-                    *VMTEST_GITHUB_RELEASE,
-                    cache=self._directory / "github_release.json",
-                ),
+    def _available_kernel_releases(self, arch: Architecture) -> Dict[str, GitHubAsset]:
+        try:
+            return self._cached_kernel_releases[arch.name]
+        except KeyError:
+            pass
+        logger.info("getting available kernel releases for %s", arch.name)
+        cache = github_release_cache(self._directory, arch)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            github_release = self._gh.get_release_by_tag(
+                *vmtest_github_release(arch), cache=cache
             )
-        return self._cached_kernel_releases
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            raise DownloadNotFoundError(
+                f"no kernel releases available for {arch.name}"
+            ) from None
+        releases = available_kernel_releases(github_release, arch)
+        self._cached_kernel_releases[arch.name] = releases
+        return releases
 
     def resolve_kernel(self, arch: Architecture, pattern: str) -> Kernel:
         if pattern.startswith(".") or pattern.startswith("/"):
@@ -172,7 +184,7 @@ class Downloader:
                 release = max(
                     (
                         available
-                        for available in self._available_kernel_releases()[arch.name]
+                        for available in self._available_kernel_releases(arch)
                         if fnmatch.fnmatch(available, pattern)
                     ),
                     key=KernelVersion,
@@ -189,9 +201,8 @@ class Downloader:
                     arch.name,
                 )
         kernel_dir = self._directory / arch.name / ("kernel-" + release)
-        if (
-            not kernel_dir.exists()
-            and release not in self._available_kernel_releases()[arch.name]
+        if not kernel_dir.exists() and release not in self._available_kernel_releases(
+            arch
         ):
             raise DownloadNotFoundError(
                 f"kernel release {release} not found on {arch.name}"
@@ -211,7 +222,7 @@ class Downloader:
             )
             return kernel
 
-        url = self._available_kernel_releases()[kernel.arch.name][kernel.release]["url"]
+        url = self._available_kernel_releases(kernel.arch)[kernel.release]["url"]
         logger.info(
             "downloading kernel release %s for %s to %s from %s",
             kernel.release,
