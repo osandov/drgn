@@ -1083,6 +1083,10 @@ phys_addr_t drgn_test_pa;
 unsigned long drgn_test_pfn;
 struct page *drgn_test_page;
 struct page *drgn_test_compound_page;
+#ifdef page_folio
+struct folio *drgn_test_folio;
+struct folio *drgn_test_compound_folio;
+#endif
 void *drgn_test_vmalloc_va;
 phys_addr_t drgn_test_vmalloc_pa;
 unsigned long drgn_test_vmalloc_pfn;
@@ -1179,6 +1183,10 @@ static int drgn_test_mm_init(void)
 	drgn_test_compound_page = alloc_pages(GFP_KERNEL | __GFP_COMP, 1);
 	if (!drgn_test_compound_page)
 		return -ENOMEM;
+#ifdef page_folio
+	drgn_test_folio = page_folio(drgn_test_page);
+	drgn_test_compound_folio = page_folio(drgn_test_compound_page);
+#endif
 	drgn_test_va = page_address(drgn_test_page);
 	// Fill the page with a PRNG sequence.
 	fill = drgn_test_prng32_seed("PAGE");
