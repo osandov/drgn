@@ -39,9 +39,10 @@ This infrastructure is all generic. The drgn-specific parts are:
    `vmtest-kernels-x86_64
    <https://github.com/osandov/drgn/releases/tag/vmtest-kernels-x86_64>`_)
    which are managed via the GitHub API by the `vmtest.manage <manage.py>`_
-   CLI. New kernel releases are built and uploaded by a `GitHub Actions
-   workflow <../.github/workflows/vmtest-build.yml>`_. The packages are
-   downloaded by the `vmtest.download <download.py>`_ module.
+   and `vmtest.prune <prune.py>`_ CLIs. New kernel releases are built and
+   uploaded and old ones are deleted by a `GitHub Actions workflow
+   <../.github/workflows/vmtest-build.yml>`_. The packages are downloaded by
+   the `vmtest.download <download.py>`_ module.
 2. A `kernel module <../tests/linux_kernel/kmod>`_ for testing drgn
    functionality that cannot be tested through userspace APIs.
 3. The test command itself. This is just some ``setup.py`` glue to build the

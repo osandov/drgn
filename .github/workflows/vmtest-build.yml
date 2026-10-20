@@ -27,6 +27,9 @@ jobs:
           pip install aiohttp uritemplate
       - name: Build and upload ${{ matrix.arch }} ${{ matrix.flavor }} kernels
         run: python3 -m vmtest.manage --kernel-directory build/vmtest/linux.git --build-directory build/vmtest/kbuild -K -a ${{ matrix.arch }} -f ${{ matrix.flavor }}
+      - name: Prune old ${{ matrix.arch }} ${{ matrix.flavor }} kernels
+        if: always()
+        run: python3 -m vmtest.prune --remote --yes --keep 4 -a ${{ matrix.arch }} -f ${{ matrix.flavor }}
       - name: Upload kernel build logs
         if: always()
         uses: actions/upload-artifact@v7
