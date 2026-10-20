@@ -61,9 +61,13 @@ from drgn.helpers.linux.rbtree import rb_find
 __all__ = (
     "PFN_PHYS",
     "PHYS_PFN",
+    "PageAnon",
+    "PageBuddy",
     "PageCompound",
     "PageHead",
+    "PageKsm",
     "PageSlab",
+    "PageSwapCache",
     "PageTail",
     "access_process_vm",
     "access_remote_vm",
@@ -91,6 +95,7 @@ __all__ = (
     "mm_cmdline",
     "mm_environ",
     "page_flags",
+    "page_folio",
     "page_index",
     "page_size",
     "page_to_pfn",
@@ -695,6 +700,42 @@ def PageSlab(page: Object) -> bool:
     return _get_PageSlab_impl(page.prog_)(page)
 
 
+def _get_PageBuddy_impl(prog: Program) -> Callable[[Object], bool]:
+    # Like PageSlab, buddy pages are identified by a page type stored in the
+    # page_type field (which is in a union with _mapcount). The correct
+    # _mapcount comparison value is exported to VMCOREINFO as
+    # PAGE_BUDDY_MAPCOUNT_VALUE (since Linux kernel commit 8d67091ec6ae
+    # ("kexec: add the values related to buddy system for filtering free
+    # pages.") (in v3.9)). Unlike slab, buddy was never indicated by a page
+    # flag, so there is no flag fallback.
+    try:
+        return prog.cache["PageBuddy"]
+    except KeyError:
+        pass
+    vmcoreinfo = prog["VMCOREINFO"].string_()
+    match = re.search(
+        rb"^NUMBER\(PAGE_BUDDY_MAPCOUNT_VALUE\)=(-?[0-9]+)$", vmcoreinfo, flags=re.M
+    )
+    if not match:
+        raise LookupError("PAGE_BUDDY_MAPCOUNT_VALUE not found in VMCOREINFO")
+    PAGE_BUDDY_MAPCOUNT_VALUE = int(match.group(1))
+
+    def PageBuddy(page: Object) -> bool:
+        return page._mapcount.counter.value_() == PAGE_BUDDY_MAPCOUNT_VALUE
+
+    prog.cache["PageBuddy"] = PageBuddy
+    return PageBuddy
+
+
+def PageBuddy(page: Object) -> bool:
+    """
+    Return whether a page is free and in the buddy allocator.
+
+    :param page: ``struct page *``
+    """
+    return _get_PageBuddy_impl(page.prog_)(page)
+
+
 # Handle the rename in Linux kernel commit d50569612c29 ("mm: rename the
 # 'compound_head' field in the 'struct page' to 'compound_info'") (in v7.1).
 def _compound_info_member(prog: Program) -> Optional[str]:
@@ -914,6 +955,59 @@ def page_size(page: Object) -> Object:
     :return: ``unsigned long``
     """
     return page.prog_["PAGE_SIZE"] << compound_order(page)
+
+
+# Low bits of page->mapping (folio->mapping) that encode the page type for
+# anonymous and KSM folios. See include/linux/page-flags.h.
+_FOLIO_MAPPING_ANON = 0x1
+_FOLIO_MAPPING_ANON_KSM = 0x2
+_FOLIO_MAPPING_KSM = _FOLIO_MAPPING_ANON | _FOLIO_MAPPING_ANON_KSM
+_FOLIO_MAPPING_FLAGS = _FOLIO_MAPPING_ANON | _FOLIO_MAPPING_ANON_KSM
+
+
+def PageAnon(page: Object) -> bool:
+    """
+    Return whether a page is anonymous.
+
+    .. note::
+
+        This is not reliable for slab pages; callers that need to distinguish
+        slab pages should check :func:`PageSlab()` first. KSM pages are also
+        considered anonymous; use :func:`PageKsm()` to distinguish them.
+
+    :param page: ``struct page *``
+    """
+    return bool(compound_head(page).mapping.value_() & _FOLIO_MAPPING_ANON)
+
+
+def PageKsm(page: Object) -> bool:
+    """
+    Return whether a page is a KSM page (merged by Kernel Samepage Merging).
+
+    .. note::
+
+        This is not reliable for slab pages; callers that need to distinguish
+        slab pages should check :func:`PageSlab()` first.
+
+    :param page: ``struct page *``
+    """
+    mapping = compound_head(page).mapping.value_()
+    return (mapping & _FOLIO_MAPPING_FLAGS) == _FOLIO_MAPPING_KSM
+
+
+def PageSwapCache(page: Object) -> bool:
+    """
+    Return whether a page is in the swap cache.
+
+    :param page: ``struct page *``
+    """
+    try:
+        swapbacked_flag = page.prog_["PG_swapbacked"]
+        swapcache_flag = page.prog_["PG_swapcache"]
+    except KeyError:
+        return False
+    flags = (1 << swapbacked_flag) | (1 << swapcache_flag)
+    return (page_flags(compound_head(page)) & flags) == flags
 
 
 def decode_page_flags(page: Object) -> str:
@@ -1160,6 +1254,21 @@ def PHYS_PFN(prog: Program, addr: IntegerLike) -> Object:
     :return: ``unsigned long``
     """
     return Object(prog, "unsigned long", addr) >> prog["PAGE_SHIFT"]
+
+
+def page_folio(page: Object) -> Object:
+    """
+    Get the folio containing a page.
+
+    If *page* is a tail page, this returns the head folio of the `compound
+    page`_ it belongs to. Otherwise, it returns the folio containing *page*.
+
+    This is only supported on kernels with folios (introduced in Linux 5.16).
+
+    :param page: ``struct page *``
+    :return: ``struct folio *``
+    """
+    return cast("struct folio *", compound_head(page))
 
 
 def page_to_pfn(page: Object) -> Object:

@@ -19,9 +19,13 @@ from drgn.helpers.linux.device import dev_name
 from drgn.helpers.linux.mm import (
     PFN_PHYS,
     PHYS_PFN,
+    PageAnon,
+    PageBuddy,
     PageCompound,
     PageHead,
+    PageKsm,
     PageSwapBacked,
+    PageSwapCache,
     PageTail,
     PageWriteback,
     access_process_vm,
@@ -43,6 +47,7 @@ from drgn.helpers.linux.mm import (
     for_each_vma,
     for_each_vmap_area,
     memory_block_size_bytes,
+    page_folio,
     page_index,
     page_size,
     page_to_pfn,
@@ -175,6 +180,54 @@ class TestMm(MmTestCase):
         self.assertEqual(
             page_size(self.prog["drgn_test_compound_page"]), 2 * self.prog["PAGE_SIZE"]
         )
+
+    @skip_unless_have_test_kmod
+    def test_page_folio(self):
+        try:
+            drgn_test_folio = self.prog["drgn_test_folio"]
+            drgn_test_compound_folio = self.prog["drgn_test_compound_folio"]
+        except LookupError:
+            self.skipTest("struct folio not available")
+        self.assertEqual(
+            page_folio(self.prog["drgn_test_page"]).value_(),
+            drgn_test_folio.value_(),
+        )
+        self.assertEqual(
+            page_folio(self.prog["drgn_test_compound_page"]).value_(),
+            drgn_test_compound_folio.value_(),
+        )
+        self.assertEqual(
+            page_folio(self.prog["drgn_test_compound_page"] + 1).value_(),
+            drgn_test_compound_folio.value_(),
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_if_highmem
+    def test_PageAnon(self):
+        with mmap.mmap(
+            -1, mmap.PAGESIZE, mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS
+        ) as anon_map:
+            address = ctypes.addressof(ctypes.c_char.from_buffer(anon_map))
+            mlock(address, mmap.PAGESIZE)
+            task = find_task(self.prog, os.getpid())
+            self.assertTrue(PageAnon(follow_page(task.mm, address)))
+        with self.map_pages() as (_, _, pfns):
+            self.assertFalse(PageAnon(pfn_to_page(self.prog, pfns[0])))
+
+    @skip_unless_have_test_kmod
+    def test_PageBuddy(self):
+        self.assertFalse(PageBuddy(self.prog["drgn_test_page"]))
+
+    @skip_unless_have_test_kmod
+    def test_PageKsm(self):
+        self.assertFalse(PageKsm(self.prog["drgn_test_page"]))
+
+    @skip_unless_have_full_mm_support
+    def test_PageSwapCache(self):
+        with self.map_pages() as (_, _, pfns):
+            page = pfn_to_page(self.prog, pfns[0])
+            self.assertTrue(PageSwapBacked(page))
+            self.assertFalse(PageSwapCache(page))
 
     @skip_unless_have_full_mm_support
     def test_decode_page_flags(self):
