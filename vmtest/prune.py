@@ -62,6 +62,7 @@ async def _prune(
     kmods: Iterable[Tuple[str, str, _AssetT]] = (),
     keep: int,
     flavors: Optional[Container[str]],
+    yes: bool,
     asset_name: Callable[[_AssetT], str],
     delete_asset: Callable[[_AssetT], Awaitable[None]],
 ) -> int:
@@ -124,7 +125,7 @@ async def _prune(
     if not kernels_to_delete and not kmods_to_delete:
         return 0
 
-    if not _prompt_yes_no("Continue?", default=False):
+    if not yes and not _prompt_yes_no("Continue?", default=False):
         return 1
 
     to_delete = kernels_to_delete + kmods_to_delete
@@ -189,6 +190,9 @@ async def main() -> None:
         default=argparse.SUPPRESS,
         help="only prune given flavor; may be given multiple times (default: all)",
     )
+    parser.add_argument(
+        "-y", "--yes", action="store_true", help="don't ask for confirmation"
+    )
     args = parser.parse_args()
 
     if args.keep <= 0:
@@ -215,6 +219,7 @@ async def main() -> None:
             ),
             keep=args.keep,
             flavors=flavors,
+            yes=args.yes,
             asset_name=str,
             delete_asset=_delete_local_asset,
         )
@@ -251,6 +256,7 @@ async def main() -> None:
                 kernels=kernels,
                 keep=args.keep,
                 flavors=flavors,
+                yes=args.yes,
                 asset_name=operator.itemgetter("name"),
                 delete_asset=_delete_remote_asset,
             )
