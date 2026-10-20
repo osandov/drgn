@@ -11,12 +11,23 @@ from pathlib import Path
 import re
 import shutil
 import sys
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Tuple, TypeVar
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Container,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+)
 
 import aiohttp
 
 from util import KernelVersion
-from vmtest.config import ARCHITECTURES
+from vmtest.config import ARCHITECTURES, KERNEL_FLAVORS
 from vmtest.download import github_release_cache, vmtest_github_release
 from vmtest.githubapi import AioGitHubApi
 
@@ -50,6 +61,7 @@ async def _prune(
     kernels: Iterable[Tuple[str, str, _AssetT]],
     kmods: Iterable[Tuple[str, str, _AssetT]] = (),
     keep: int,
+    flavors: Optional[Container[str]],
     asset_name: Callable[[_AssetT], str],
     delete_asset: Callable[[_AssetT], Awaitable[None]],
 ) -> int:
@@ -76,12 +88,16 @@ async def _prune(
 
     kernels_to_keep = {(release, arch) for release, arch, _ in unrecognized_kernels}
     kernels_to_delete: List[Tuple[str, str, _AssetT]] = []
-    for (_, _, arch), kernel_group in grouped_kernels.items():
+    for (_, flavor, arch), kernel_group in grouped_kernels.items():
         kernel_group.sort(key=lambda x: KernelVersion(x[0]), reverse=True)
-        for release, _ in kernel_group[:keep]:
+        if flavors is None or flavor in flavors:
+            group_keep = keep
+        else:
+            group_keep = len(kernel_group)
+        for release, _ in kernel_group[:group_keep]:
             kernels_to_keep.add((release, arch))
         kernels_to_delete.extend(
-            (release, arch, asset) for release, asset in kernel_group[keep:]
+            (release, arch, asset) for release, asset in kernel_group[group_keep:]
         )
     kernels_to_delete.sort(key=_kernel_asset_sort_key)
 
@@ -155,22 +171,50 @@ async def main() -> None:
     parser.add_argument(
         "-k", "--keep", type=int, default=1, help="number of latest kernels to keep"
     )
+    parser.add_argument(
+        "-a",
+        "--architecture",
+        dest="architectures",
+        choices=sorted(ARCHITECTURES),
+        action="append",
+        default=argparse.SUPPRESS,
+        help="only prune given architecture; may be given multiple times (default: all)",
+    )
+    parser.add_argument(
+        "-f",
+        "--flavor",
+        dest="flavors",
+        choices=list(KERNEL_FLAVORS),
+        action="append",
+        default=argparse.SUPPRESS,
+        help="only prune given flavor; may be given multiple times (default: all)",
+    )
     args = parser.parse_args()
 
     if args.keep <= 0:
         sys.exit("keep must be >= 1")
 
+    architectures = [
+        arch
+        for arch in ARCHITECTURES.values()
+        if arch.name in getattr(args, "architectures", ARCHITECTURES)
+    ]
+    flavors = getattr(args, "flavors", None)
+
     if args.local:
         status = await _prune(
             kernels=(
-                (kernel.name[len("kernel-") :], kernel.parent.name, kernel)
-                for kernel in args.directory.glob("*/kernel-*")
+                (kernel.name[len("kernel-") :], arch.name, kernel)
+                for arch in architectures
+                for kernel in (args.directory / arch.name).glob("kernel-*")
             ),
             kmods=(
-                (kmod.name[len("drgn_test-") : -len(".ko")], kmod.parent.name, kmod)
-                for kmod in args.directory.glob("*/drgn_test-*.ko")
+                (kmod.name[len("drgn_test-") : -len(".ko")], arch.name, kmod)
+                for arch in architectures
+                for kmod in (args.directory / arch.name).glob("drgn_test-*.ko")
             ),
             keep=args.keep,
+            flavors=flavors,
             asset_name=str,
             delete_asset=_delete_local_asset,
         )
@@ -182,7 +226,7 @@ async def main() -> None:
             gh = AioGitHubApi(session, GITHUB_TOKEN)
 
             kernels = []
-            for arch in ARCHITECTURES.values():
+            for arch in architectures:
                 cache = github_release_cache(args.directory, arch)
                 cache.parent.mkdir(parents=True, exist_ok=True)
                 github_release = await gh.get_release_by_tag(
@@ -206,6 +250,7 @@ async def main() -> None:
             status = await _prune(
                 kernels=kernels,
                 keep=args.keep,
+                flavors=flavors,
                 asset_name=operator.itemgetter("name"),
                 delete_asset=_delete_remote_asset,
             )
