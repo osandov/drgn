@@ -1093,6 +1093,15 @@ unsigned long drgn_test_vmalloc_pfn;
 struct page *drgn_test_vmalloc_page;
 
 #ifdef CONFIG_SPARSEMEM
+// Before Linux kernel commit b78c6d9e5f07 ("mm/sparse: remove
+// SECTION_MARKED_PRESENT") (in v7.3), section presence was indicated by
+// SECTION_MARKED_PRESENT and iterated via present_section_nr().
+#ifdef SECTION_MARKED_PRESENT
+#define early_section_nr present_section_nr
+#else
+#define SECTION_MARKED_PRESENT SECTION_IS_EARLY
+#endif
+
 unsigned long drgn_test_section_nr;
 unsigned long drgn_test_section_pfn;
 struct mem_section *drgn_test_mem_section;
@@ -1158,7 +1167,7 @@ static unsigned long drgn_test_highest_present_section_nr(void)
 
 	nr = pfn_to_section_nr(max_pfn - 1);
 	for (;;) {
-		if (present_section_nr(nr))
+		if (early_section_nr(nr))
 			return nr;
 		if (nr == 0)
 			break;
@@ -1217,7 +1226,7 @@ static int drgn_test_mm_init(void)
 	highest_present_section_nr = drgn_test_highest_present_section_nr();
 
 	for (i = 0, n = 0; i <= highest_present_section_nr; i++) {
-		if (present_section_nr(i))
+		if (early_section_nr(i))
 			n++;
 	}
 
@@ -1228,7 +1237,7 @@ static int drgn_test_mm_init(void)
 		return -ENOMEM;
 
 	for (i = 0; i <= highest_present_section_nr; i++) {
-		if (present_section_nr(i)) {
+		if (early_section_nr(i)) {
 			drgn_test_present_sections[drgn_test_num_present_sections].nr = i;
 			drgn_test_present_sections[drgn_test_num_present_sections].section =
 				__nr_to_section(i);
