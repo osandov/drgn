@@ -1,5 +1,7 @@
 import ipaddress
+import os
 import re
+import socket
 
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.net import (
@@ -13,6 +15,22 @@ from tests.linux_kernel.crash_commands import CrashCommandTestCase
 
 
 class TestNet(CrashCommandTestCase):
+    def test_net_sockets(self):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM):
+            cmd = self.check_crash_command(f"net -s {os.getpid()}", mode="capture")
+
+        self.assertFalse(cmd.stderr)
+        self.assertRegex(
+            cmd.stdout,
+            r"(?m)^PID:\s+\d+\s+TASK:\s+[0-9a-f]+\s+CPU:\s+\d+\s+COMMAND:",
+        )
+        self.assertRegex(
+            cmd.stdout,
+            r"(?m)^FD\s+SOCKET\s+SOCK\s+FAMILY:TYPE\s+SOURCE-PORT\s+DESTINATION-PORT$",
+        )
+        self.assertIn("for_each_file(task)", cmd.drgn_option.stdout)
+        self.assertIn("SOCKET_I", cmd.drgn_option.stdout)
+
     def test_net(self):
         cmd = self.check_crash_command("net")
 
