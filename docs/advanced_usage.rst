@@ -267,6 +267,63 @@ program "memory":
     print(drgn.Object(prog, "struct btrfs_super_block", address=65536))
     run_interactive(prog, banner_func=lambda _: "BTRFS debugger")
 
+Custom Linux Kernel Dumps
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The custom kernel target API can also read Linux kernel dumps which are split
+across raw physical memory files. Register each file as a physical memory
+segment, then provide the kernel's VMCOREINFO and load its debug information:
+
+.. code-block:: python3
+
+    import os
+    from pathlib import Path
+
+    import drgn
+
+    vmcoreinfo = Path("VMCOREINFO").read_bytes()
+    prog = drgn.Program(
+        drgn.Platform(drgn.Architecture.AARCH64), vmcoreinfo=vmcoreinfo
+    )
+
+    def file_reader(file):
+        def read(address, count, offset, physical):
+            return os.pread(file.fileno(), count, offset)
+
+        return read
+
+    segment_files = []
+    for address, path in [
+        (0x80000000, "DDRCS0.BIN"),
+        (0x100000000, "DDRCS1.BIN"),
+    ]:
+        file = open(path, "rb")
+        segment_files.append(file)  # Keep the files open while using prog.
+        prog.add_memory_segment(
+            address,
+            os.fstat(file.fileno()).st_size,
+            file_reader(file),
+            physical=True,
+        )
+
+    prog.set_linux_kernel_custom(vmcoreinfo, is_live=False)
+    prog.load_debug_info(["vmlinux"])
+    print(prog["init_task"].comm)
+
+The VMCOREINFO must contain ``OSRELEASE``, ``PAGESIZE``, and
+``SYMBOL(swapper_pg_dir)``. For AArch64, page-table walking also needs
+``NUMBER(VA_BITS)`` or, with 4 KiB or 16 KiB pages, ``NUMBER(TCR_EL1_T1SZ)``.
+With 64 KiB pages, ``NUMBER(VA_BITS)`` is required. On AArch64,
+``NUMBER(kimage_voffset)`` lets drgn read ``swapper_pg_dir`` directly from
+the physical segments. Without it, reading the page-table root may recurse if
+the supplied segments contain only physical memory.
+
+The caller is responsible for supplying every physical range present in the
+dump and for matching each range to its physical start address. Unlike an ELF
+vmcore, the raw files do not provide segment addresses or VMCOREINFO
+automatically. The example uses ``os.pread()`` so each read is independent of
+the file's current offset.
+
 :meth:`drgn.Program.register_type_finder()` and
 :meth:`drgn.Program.register_object_finder()` are the equivalent methods for
 plugging in types and objects.
