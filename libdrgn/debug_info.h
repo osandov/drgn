@@ -319,6 +319,7 @@ struct depmod_index {
 	char *path;
 	void *addr;
 	size_t len;
+	size_t kernel_dir_idx;
 };
 
 DEFINE_VECTOR_TYPE(char_p_vector, char *);

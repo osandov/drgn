@@ -1108,13 +1108,14 @@ drgn_open_modules_dep(struct drgn_program *prog,
 		      struct depmod_index *modules_dep)
 {
 	struct drgn_error *err;
+	size_t i;
 
 	if (modules_dep->addr)
 		return NULL;
 
 	STRING_BUILDER(sb);
 	_cleanup_close_ int fd = -1;
-	for (size_t i = 0; options->kernel_directories[i]; i++) {
+	for (i = 0; options->kernel_directories[i]; i++) {
 		const char *kernel_dir = options->kernel_directories[i];
 
 		sb.len = 0;
@@ -1153,6 +1154,7 @@ fail:
 		drgn_error_destroy(err);
 		goto fail;
 	}
+	modules_dep->kernel_dir_idx = i;
 	drgn_log_debug(prog, "found depmod index %s", modules_dep->path);
 	return NULL;
 }
@@ -1247,6 +1249,9 @@ drgn_module_try_linux_kmod_depmod(struct drgn_module *module,
 	STRING_BUILDER(sb);
 	for (size_t i = 0; options->kernel_directories[i]; i++) {
 		const char *kernel_dir = options->kernel_directories[i];
+
+		if (i != state->modules_dep.kernel_dir_idx)
+			continue;
 
 		if (kernel_dir[0]) {
 			sb.len = 0;
