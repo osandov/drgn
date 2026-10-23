@@ -219,6 +219,17 @@ def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
     while current_idx != next_idx:
         logp = cast(printk_logp_type, log_buf + current_idx)
         log = logp[0].read_()
+        log_len = log.len.read_()
+        if not log_len:
+            # Zero means the buffer wrapped around. This is just a marker,
+            # not a record.
+            if current_idx < next_idx:
+                # Avoid getting into an infinite loop if the buffer is
+                # corrupted.
+                break
+            current_idx -= current_idx
+            continue
+
         text_len = log.text_len.value_()
         dict_len = log.dict_len.value_()
         text_dict = prog.read(logp + 1, text_len + dict_len)
@@ -247,16 +258,7 @@ def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
                 context=context,
             )
         )
-        log_len = log.len.read_()
-        if log_len:
-            current_idx += log_len
-        else:
-            # Zero means the buffer wrapped around.
-            if current_idx < next_idx:
-                # Avoid getting into an infinite loop if the buffer is
-                # corrupted.
-                break
-            current_idx -= current_idx
+        current_idx += log_len
         seq += 1
     return result
 
