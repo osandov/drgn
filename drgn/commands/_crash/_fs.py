@@ -7,9 +7,9 @@ import argparse
 import operator
 import os
 import sys
-from typing import Any, List
+from typing import Any, Iterator, List, Tuple
 
-from drgn import Object, Program
+from drgn import FaultError, Object, Program
 from drgn.commands import _repr_black, argument, drgn_argument, mutually_exclusive_group
 from drgn.commands._crash._kmem import _print_pages_default_members
 from drgn.commands._crash.common import (
@@ -20,7 +20,13 @@ from drgn.commands._crash.common import (
     crash_get_context,
     print_task_header,
 )
-from drgn.helpers.common.format import CellFormat, escape_ascii_string, print_table
+from drgn.helpers.common.format import (
+    CellFormat,
+    double_quote_ascii_string,
+    escape_ascii_string,
+    print_table,
+)
+from drgn.helpers.linux._fsrefs import for_each_task_file_reference
 from drgn.helpers.linux.fs import (
     address_space_for_each_page,
     d_path,
@@ -30,7 +36,9 @@ from drgn.helpers.linux.fs import (
     mount_dst,
     mount_fstype,
     mount_src,
+    path_lookup,
 )
+from drgn.helpers.linux.pid import for_each_task
 
 
 def _print_dentry(prog: Program, address: int, drgn_arg: bool) -> None:
@@ -410,6 +418,102 @@ def _crash_cmd_files(
     if not args.tasks:
         args.tasks.append(None)
     return _crash_foreach_files(_TaskSelector(prog, args.tasks), args)
+
+
+def _fuser_task_usages(
+    prog: Program, inode: Object
+) -> Iterator[Tuple[Object, List[str]]]:
+    for task in for_each_task(prog):
+        usages = []
+        try:
+            for reference in for_each_task_file_reference(task):
+                try:
+                    if reference.is_path:
+                        ref_inode = reference.object.dentry.d_inode
+                    else:
+                        ref_inode = reference.object.f_inode
+                    if reference.usage == "exe":
+                        continue
+                    if ref_inode == inode:
+                        usage = (
+                            "mmap"
+                            if reference.usage.startswith("vma ")
+                            else reference.usage
+                        )
+                        if usage not in usages:
+                            usages.append(usage)
+                except FaultError:
+                    continue
+        except FaultError:
+            print(
+                "warning: fault while checking a task, possibly due to race; "
+                "results may be incomplete",
+                file=sys.stderr,
+            )
+
+        if usages:
+            yield task, usages
+
+
+def _print_fuser(prog: Program, inode: Object) -> None:
+    rows = [(CellFormat("PID", ">"), CellFormat("TASK", "^"), "COMM", "USAGE")]
+    for task, usages in _fuser_task_usages(prog, inode):
+        rows.append(
+            (
+                task.pid.value_(),
+                CellFormat(task.value_(), "^x"),
+                double_quote_ascii_string(task.comm.string_()),
+                ", ".join(usages),
+            )
+        )
+    print_table(rows)
+
+
+@crash_command(
+    description="file users",
+    long_description="""
+    Display tasks using a file as their root directory, current working
+    directory, an open file descriptor, or memory mapping.
+    The argument is a pathname in the initial mount namespace or a hexadecimal
+    inode address.
+    """,
+    arguments=(
+        argument("file", metavar="pathname|inode"),
+        drgn_argument,
+    ),
+)
+def _crash_cmd_fuser(
+    prog: Program,
+    name: str,
+    args: argparse.Namespace,
+    *,
+    parser: argparse.ArgumentParser,
+    **kwargs: Any,
+) -> None:
+    try:
+        inode_address = int(args.file, 16)
+    except ValueError:
+        try:
+            path = path_lookup(prog, args.file)
+            inode = path.dentry.d_inode.read_()
+        except Exception as e:
+            parser.error(f"could not resolve {args.file!r}: {e}")
+        if not inode:
+            parser.error(f"{args.file!r} does not refer to an inode")
+    else:
+        inode = Object(prog, "struct inode *", inode_address)
+
+    if args.drgn:
+        code = CrashDrgnCodeBuilder(prog)
+        code.add_from_import("drgn", "Object")
+        code.add_from_import("drgn.commands._crash._fs", "_print_fuser")
+        code.append(
+            f'inode = Object(prog, "struct inode *", {hex(inode.value_())})\n'
+            "_print_fuser(prog, inode)\n"
+        )
+        return code.print()
+
+    return _print_fuser(prog, inode)
 
 
 @crash_command(
