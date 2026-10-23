@@ -70,6 +70,40 @@ bool drgn_memory_reader_empty(struct drgn_memory_reader *reader);
 bool drgn_memory_reader_empty_virtual(struct drgn_memory_reader *reader);
 
 /**
+ * Get the callback that a @ref drgn_memory_reader would use to read an address.
+ *
+ * This can be used to determine how an address would be read before actually
+ * reading it, for example to detect that a read would recurse.
+ *
+ * @param[in] reader Memory reader.
+ * @param[in] address Address to look up.
+ * @param[in] physical Whether @p address is physical.
+ * @return Callback registered for the segment containing @p address, or @c NULL
+ * if no segment contains it.
+ */
+drgn_memory_read_fn
+drgn_memory_reader_segment_read_fn(struct drgn_memory_reader *reader,
+				   uint64_t address, bool physical);
+
+/**
+ * Get the lowest physical address of any core file segment in a
+ * @ref drgn_memory_reader.
+ *
+ * Only physical segments read by @ref drgn_read_memory_file() are considered.
+ * These represent individual ELF core PT_LOAD ranges. Some backends (e.g.
+ * libkdumpfile) instead register a physical catch-all segment spanning the
+ * whole address space, whose start is not the lowest saved physical address.
+ * Such segments are ignored.
+ *
+ * @param[in] reader Memory reader.
+ * @param[out] ret Returned lowest physical address.
+ * @return @c true if there is at least one physical core file segment (in which
+ * case @p ret is set), @c false otherwise.
+ */
+bool drgn_memory_reader_min_file_segment_physical_address(
+	struct drgn_memory_reader *reader, uint64_t *ret);
+
+/**
  * Add a segment to a @ref drgn_memory_reader.
  *
  * @param[in] reader Memory reader.
