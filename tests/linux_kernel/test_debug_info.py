@@ -28,6 +28,16 @@ def iter_proc_modules():
             yield tokens[0], int(tokens[5], 16)
 
 
+def module_path_in_depmod_index(path, module_name):
+    for line in path.read_text().splitlines():
+        module_path = line.partition(":")[0]
+        filename = Path(module_path).name
+        ko_suffix = filename.find(".ko")
+        if ko_suffix >= 0 and filename[:ko_suffix].replace("-", "_") == module_name:
+            return module_path[: module_path.find(".ko") + len(".ko")]
+    return None
+
+
 class TestDebugInfo(LinuxKernelTestCase):
     def test_debug_info(self):
         # This is actually two test cases squished into one to avoid indexing
@@ -73,6 +83,56 @@ class TestDebugInfo(LinuxKernelTestCase):
             for module in modules:
                 with self.subTest(module=module.name):
                     self.assertIsNotNone(module.debug_file_path)
+
+    def test_kmod_depmod_multiple_kernel_directories(self):
+        modules_dir = Path("/lib/modules") / os.uname().release
+        modules_dep = modules_dir / "modules.dep"
+        modules_dep_bin = modules_dir / "modules.dep.bin"
+        if not modules_dep.is_file() or not modules_dep_bin.is_file():
+            self.skipTest("modules.dep and modules.dep.bin are not installed")
+
+        prog = Program()
+        prog.set_kernel()
+        loaded_modules = {module.name: module for module, _ in prog.loaded_modules()}
+        source_module = next(
+            (
+                module
+                for module in self.prog.modules()
+                if isinstance(module, RelocatableModule)
+                and module.debug_file_path
+                and module.name in loaded_modules
+            ),
+            None,
+        )
+        if source_module is None:
+            self.skipTest("no loaded kernel module with debug information")
+
+        module_path = module_path_in_depmod_index(modules_dep, source_module.name)
+        if module_path is None:
+            self.skipTest(f"{source_module.name} is not listed in modules.dep")
+
+        module = loaded_modules[source_module.name]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first_kernel_dir = Path(temp_dir) / "first"
+            second_kernel_dir = Path(temp_dir) / "second"
+            first_kernel_dir.mkdir()
+            second_kernel_dir.mkdir()
+            (first_kernel_dir / "modules.dep.bin").symlink_to(modules_dep_bin)
+
+            module_file = second_kernel_dir / module_path
+            module_file.parent.mkdir(parents=True)
+            module_file.symlink_to(source_module.debug_file_path)
+
+            prog.find_standard_debug_info(
+                [module],
+                options=DebugInfoOptions(
+                    directories=(),
+                    kernel_directories=(str(first_kernel_dir), str(second_kernel_dir)),
+                    try_kmod=KmodSearchMethod.DEPMOD,
+                ),
+            )
+            self.assertIsNone(module.debug_file_path)
 
 
 class TestModule(LinuxKernelTestCase):
