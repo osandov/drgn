@@ -4941,6 +4941,52 @@ class TestObjects(TestCase):
             ),
         )
 
+    def test_incomplete_array_with_symbol_size(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                *labeled_int_die,
+                DwarfLabel("array_die"),
+                DwarfDie(
+                    DW_TAG.array_type,
+                    (DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),),
+                ),
+                DwarfDie(
+                    DW_TAG.variable,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "my_array"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "array_die"),
+                        DwarfAttrib(
+                            DW_AT.location,
+                            DW_FORM.exprloc,
+                            b"\x03\x00\x10\x00\x00\xff\xff\xff\xff",
+                        ),
+                    ),
+                ),
+            ),
+            symbols=(
+                ElfSymbol(
+                    name="my_array",
+                    value=0xFFFFFFFF00001000,
+                    size=16,
+                    type=STT.OBJECT,
+                    binding=STB.GLOBAL,
+                    shindex=1,
+                ),
+            ),
+            segments=[
+                MockMemorySegment(b"\x01\x02\x03\x04" * 4, virt_addr=0xFFFFFFFF00001000)
+            ],
+        )
+        self.assertIdentical(
+            prog["my_array"],
+            Object(
+                prog,
+                prog.array_type(prog.int_type("int", 4, True), 4),
+                address=0xFFFFFFFF00001000,
+            ),
+        )
+        self.assertEqual(prog["my_array"].to_bytes_(), b"\x01\x02\x03\x04" * 4)
+
     def test_variable_no_address(self):
         prog = dwarf_program(
             wrap_test_type_dies(
