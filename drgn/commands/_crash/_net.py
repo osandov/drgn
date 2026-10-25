@@ -5,18 +5,26 @@
 
 import argparse
 import ipaddress
+import socket as socketlib
 from typing import Any, List, Sequence
 
-from drgn import Program
-from drgn.commands import argument, drgn_argument
-from drgn.commands._crash.common import CrashDrgnCodeBuilder, crash_command
+from drgn import Object, PlatformFlags, Program
+from drgn.commands import argument, drgn_argument, mutually_exclusive_group
+from drgn.commands._crash.common import (
+    CrashDrgnCodeBuilder,
+    _TaskSelector,
+    crash_command,
+    print_task_header,
+)
 from drgn.helpers.common.format import (
     CellFormat,
     decode_flags,
     escape_ascii_string,
     print_table,
 )
+from drgn.helpers.linux.fs import for_each_file
 from drgn.helpers.linux.net import (
+    SOCKET_I,
     for_each_netdev,
     neigh_table_for_each_neighbor,
     netdev_ipv4_addrs,
@@ -146,14 +154,128 @@ for neigh in neigh_table_for_each_neighbor(prog["arp_tbl"].nht):
     code.print()
 
 
+sockfamily_dict = {
+    0: "AF_UNSPEC",
+    1: "AF_UNIX",
+    2: "AF_INET",
+    10: "AF_INET6",
+    16: "AF_NETLINK/ROUTE",
+}
+
+socktype_dict = {
+    1: "SOCK_STREAM",
+    2: "SOCK_DGRAM",
+    3: "SOCK_RAW",
+    4: "SOCK_RDM",
+    5: "SOCK_SEQPACKET",
+    6: "SOCK_DCCP",
+    10: "SOCK_PACKET",
+}
+
+
+def print_task_sockets(prog: Program, task: Object) -> None:
+    print_task_header(task)
+    platform = prog.platform
+    if platform is None:
+        raise RuntimeError("program platform is unknown")
+    rows: List[Sequence[Any]] = [
+        [
+            "FD",
+            "SOCKET",
+            "SOCK",
+            "FAMILY:TYPE",
+            "SOURCE-PORT",
+            "DESTINATION-PORT",
+        ]
+    ]
+
+    for fd, file in for_each_file(task):
+        if not file:
+            continue
+        try:
+            socket = SOCKET_I(file.f_inode)
+        except ValueError:
+            continue
+
+        sock = socket.sk
+        family = sockfamily_dict.get(int(sock.__sk_common.skc_family), "AF_")[3:]
+        sock_type = socktype_dict.get(int(socket.type), "SOCK_")[5:]
+
+        if family == "INET":
+            skc = sock.__sk_common
+            saddr = ipaddress.IPv4Address(prog.read(skc.skc_rcv_saddr.address_of_(), 4))
+            daddr = ipaddress.IPv4Address(prog.read(skc.skc_daddr.address_of_(), 4))
+            sport = int(skc.skc_num)
+            dport = int(skc.skc_dport)
+            if platform.flags & PlatformFlags.IS_LITTLE_ENDIAN:
+                dport = socketlib.ntohs(dport)
+            source = f"{saddr}:{sport}"
+            destination = f"{daddr}:{dport}"
+        elif family == "INET6":
+            skc = sock.__sk_common
+            source_addr = bytes(int(b) for b in skc.skc_v6_rcv_saddr.in6_u.u6_addr8)
+            destination_addr = bytes(int(b) for b in skc.skc_v6_daddr.in6_u.u6_addr8)
+            sport = int(skc.skc_num)
+            dport = int(skc.skc_dport)
+            if platform.flags & PlatformFlags.IS_LITTLE_ENDIAN:
+                dport = socketlib.ntohs(dport)
+            source = f"{ipaddress.IPv6Address(source_addr)}:{sport}"
+            destination = f"{ipaddress.IPv6Address(destination_addr)}:{dport}"
+        else:
+            source = destination = ""
+
+        rows.append(
+            [
+                fd,
+                f"{socket.value_():x}",
+                f"{sock.value_():x}",
+                f"{family}:{sock_type}",
+                source,
+                destination,
+            ]
+        )
+
+    print_table(rows)
+
+
+def print_task_sockets_drgn(prog: Program, task_selector: _TaskSelector) -> None:
+    code = CrashDrgnCodeBuilder(prog)
+    code.add_from_import("drgn.helpers.linux.fs", "for_each_file")
+    code.add_from_import("drgn.helpers.linux.net", "SOCKET_I")
+    with task_selector.begin_task_loop(code):
+        code.append_task_header()
+        code.append("for fd, file in for_each_file(task):\n")
+        code.append(
+            "    try:\n"
+            "        socket = SOCKET_I(file.f_inode)\n"
+            "    except ValueError:\n"
+            "        continue\n"
+            "    sock = socket.sk\n"
+            "    family = sock.__sk_common.skc_family\n"
+            "    socket_type = socket.type\n"
+        )
+    code.print()
+
+
 @crash_command(
     description="provides net command output",
     arguments=(
-        argument(
-            "-a",
-            dest="arp",
-            action="store_true",
-            help="Displays the ARP table",
+        mutually_exclusive_group(
+            argument(
+                "-a",
+                dest="arp",
+                action="store_true",
+                help="Displays the ARP table",
+            ),
+            argument(
+                "-s",
+                dest="socket_task",
+                metavar="pid|task",
+                nargs="?",
+                const=True,
+                type="pid_or_task",
+                help="Displays open sockets for a task",
+            ),
         ),
         drgn_argument,
     ),
@@ -166,6 +288,14 @@ def _crash_cmd_net(
             print_arp_cache_drgn(prog)
         else:
             print_arp_cache(prog)
+    elif args.socket_task is not None:
+        task_arg = None if args.socket_task is True else args.socket_task
+        task_selector = _TaskSelector(prog, [task_arg])
+        if args.drgn:
+            print_task_sockets_drgn(prog, task_selector)
+        else:
+            for task in task_selector.tasks():
+                print_task_sockets(prog, task)
     else:
         if args.drgn:
             print_net_devices_drgn(prog)
