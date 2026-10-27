@@ -22,6 +22,7 @@ from drgn import (
     PlatformFlags,
     PrimitiveType,
     Program,
+    SymbolIndex,
     Type,
     TypeEnumerator,
     TypeKind,
@@ -41,6 +42,15 @@ except ImportError:
 
 else:
     slow_test = pytest.mark.slow
+
+try:
+    import capstone  # noqa: F401
+
+    have_capstone = True
+except ImportError:
+    have_capstone = False
+
+skip_unless_have_capstone = unittest.skipUnless(have_capstone, "Capstone not found")
 
 
 DEFAULT_LANGUAGE = Language.C
@@ -96,7 +106,9 @@ class MockObject(NamedTuple):
     value: Any = None
 
 
-def mock_program(platform=MOCK_PLATFORM, *, segments=None, types=None, objects=None):
+def mock_program(
+    platform=MOCK_PLATFORM, *, segments=None, types=None, objects=None, symbols=None
+):
     def mock_find_type(prog, kinds, name, filename):
         if filename:
             return None
@@ -137,6 +149,8 @@ def mock_program(platform=MOCK_PLATFORM, *, segments=None, types=None, objects=N
         prog.register_type_finder("mock", mock_find_type, enable_index=0)
     if objects is not None:
         prog.register_object_finder("mock", mock_object_find, enable_index=0)
+    if symbols is not None:
+        prog.register_symbol_finder("mock", SymbolIndex(symbols), enable_index=0)
     return prog
 
 
