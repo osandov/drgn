@@ -107,7 +107,7 @@ class TestPrintMemory(TestCase):
         self.assertEqual(
             result,
             """\
-        ffff0008:  test_sym+0       0f0e0d0c0b0a0908
+        ffff0008:  test_sym         0f0e0d0c0b0a0908
 """,
         )
 
