@@ -58,7 +58,9 @@ class CrashCommandTestCaseBase:
 
         if mode == "exec":
             ret.globals = {"prog": self.prog}
-            with with_default_prog(self.prog):
+            with with_default_prog(self.prog), contextlib.redirect_stdout(
+                io.StringIO()
+            ):
                 exec(ret.stdout, ret.globals)
 
         return ret
