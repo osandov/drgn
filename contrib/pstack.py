@@ -652,7 +652,7 @@ def pstack_print_process(
             print(
                 "    " + str(prog.stack_trace(thread)).replace("\n", "\n    ")
             )
-            regs = task_saved_pt_regs(task)
+            regs = task_saved_pt_regs(thread)
         else:
             # CPU was in user-mode, print that instead:
             print("    <running in user mode>")
