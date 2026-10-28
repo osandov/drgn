@@ -5,7 +5,7 @@
 
 import argparse
 from datetime import datetime
-from typing import Any, List, Optional, Sequence
+from typing import Any, Iterable, List, Optional, Sequence
 
 from drgn import Object, Program
 from drgn.commands import argument, drgn_argument
@@ -225,8 +225,8 @@ def _print_map_verbose(bpf_map: Object) -> None:
             dest="show_struct",
             action="store_true",
             default=False,
-            help="display the full struct bpf_map (with -m) or struct bpf_prog and "
-            "struct bpf_prog_aux (with -p); combine with -x or -d to control "
+            help="display the full struct bpf_map (with -m or -M) or struct bpf_prog "
+            "and struct bpf_prog_aux (with -p or -P); combine with -x or -d to control "
             "integer formatting in the struct dump",
         ),
         argument(
@@ -282,61 +282,51 @@ for bpf_map in bpf_map_for_each(prog):
         code.print()
         return
 
-    if args.prog_id is not None:
+    bpf_progs: Iterable[Object] = ()
+    if args.all_progs_verbose:
+        bpf_progs = bpf_prog_for_each(prog)
+    elif args.prog_id is not None:
         bpf_prog = bpf_prog_by_id(prog, args.prog_id)
         if not bpf_prog:
             print(f"invalid BPF program ID: {args.prog_id}")
             return
+        bpf_progs = (bpf_prog,)
 
-        _print_prog_verbose(prog, bpf_prog)
-
-        if args.show_struct:
-            aux = bpf_prog.aux
-            print()
-            format_options = _object_format_options(prog, args.integer_base)
-            print(bpf_prog[0].format_(**format_options))
-            print()
-            print(aux[0].format_(**format_options))
-
-        return
-
-    if args.map_id is not None:
+    bpf_maps: Iterable[Object] = ()
+    if args.all_maps_verbose:
+        bpf_maps = bpf_map_for_each(prog)
+    elif args.map_id is not None:
         bpf_map = bpf_map_by_id(prog, args.map_id)
         if not bpf_map:
             print(f"invalid BPF map ID: {args.map_id}")
             return
+        bpf_maps = (bpf_map,)
 
-        _print_map_verbose(bpf_map)
-
-        if args.show_struct:
-            print()
-            format_options = _object_format_options(prog, args.integer_base)
-            print(bpf_map[0].format_(**format_options))
-
-        return
-
-    if args.all_progs_verbose:
+    if bpf_progs or bpf_maps:
+        format_options = _object_format_options(prog, args.integer_base)
         first = True
-        for bpf_prog in bpf_prog_for_each(prog):
+
+        for bpf_prog in bpf_progs:
             if first:
                 first = False
             else:
                 print()
             _print_prog_verbose(prog, bpf_prog)
+            if args.show_struct:
+                print()
+                print(bpf_prog[0].format_(**format_options))
+                print()
+                print(bpf_prog.aux[0].format_(**format_options))
 
-        if not args.all_maps_verbose:
-            return
-
-    if args.all_maps_verbose:
-        if args.all_progs_verbose:
-            print()
-        first = True
-        for bpf_map in bpf_map_for_each(prog):
+        for bpf_map in bpf_maps:
             if first:
                 first = False
             else:
                 print()
             _print_map_verbose(bpf_map)
+            if args.show_struct:
+                print()
+                print(bpf_map[0].format_(**format_options))
 
         return
 
