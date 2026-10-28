@@ -182,8 +182,7 @@ def _print_map_verbose(bpf_map: Object) -> None:
     max_entries = bpf_map.max_entries.value_()
 
     print(
-        f"     KEY_SIZE: {key_size}  VALUE_SIZE: {value_size}  MAX_ENTRIES: {max_entries}",
-        end="",
+        f"     KEY_SIZE: {key_size}  VALUE_SIZE: {value_size}  MAX_ENTRIES: {max_entries}"
     )
 
     map_name = _get_map_name(bpf_map)
