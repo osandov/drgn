@@ -150,6 +150,22 @@ static int BreakpointSite_set_controller_data(BreakpointSite *self,
 	return 0;
 }
 
+static PyObject *BreakpointSite_get_needs_step_over(BreakpointSite *self)
+{
+	Py_RETURN_BOOL(drgn_breakpoint_site_needs_step_over(&self->site));
+}
+
+static int BreakpointSite_set_needs_step_over(BreakpointSite *self,
+					      PyObject *value)
+{
+	SETTER_NO_DELETE("needs_step_over", value);
+	int r = PyObject_IsTrue(value);
+	if (r < 0)
+		return r;
+	drgn_breakpoint_site_set_needs_step_over(&self->site, r);
+	return 0;
+}
+
 static PyGetSetDef BreakpointSite_getset[] = {
 	{"prog", (getter)BreakpointSite_get_prog, NULL,
 	 drgn_BreakpointSite_prog_DOC},
@@ -161,6 +177,9 @@ static PyGetSetDef BreakpointSite_getset[] = {
 	 drgn_BreakpointSite_enabled_DOC},
 	{"removed", (getter)BreakpointSite_get_removed, NULL,
 	 drgn_BreakpointSite_removed_DOC},
+	{"needs_step_over", (getter)BreakpointSite_get_needs_step_over,
+	 (setter)BreakpointSite_set_needs_step_over,
+	 drgn_BreakpointSite_needs_step_over_DOC},
 	{"_controller_data", (getter)BreakpointSite_get_controller_data,
 	 (setter)BreakpointSite_set_controller_data,
 	 drgn_BreakpointSite__controller_data_DOC},

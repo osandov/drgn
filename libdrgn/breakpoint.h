@@ -54,6 +54,9 @@ struct drgn_breakpoint_site {
 	// another thread is still bypassing the same breakpoint (e.g., from an
 	// event listener). The site is disabled while this is non-zero.
 	size_t num_bypassing;
+	// Whether a thread that is stopped at the site can be resumed without
+	// stepping it past the site with the site disabled first.
+	bool no_step_over;
 	// Whether the site was disabled to bypass it and enabling it again
 	// failed. It is disabled in the program even though it has enabled
 	// breakpoints.

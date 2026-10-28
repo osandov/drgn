@@ -3294,6 +3294,20 @@ class BreakpointSite:
     def disabled_breakpoints(self) -> Iterator[Breakpoint]:
         """Iterate over the disabled :class:`Breakpoint`\\ s at this site."""
         ...
+    needs_step_over: bool
+    """
+    Whether a thread that is stopped at this breakpoint site needs to be
+    stepped past it with the site disabled before the thread can be resumed.
+
+    If this is ``True`` (the default), then the drgn core does that whenever
+    such a thread is resumed.
+
+    This may only be set by the :class:`ExecutionController`, which should set
+    it to ``False`` when it enables the site if resuming a thread that is
+    stopped at the site takes care of that by itself (e.g., because the
+    breakpoint is implemented without replacing the instruction, or because
+    the backend steps past it internally).
+    """
     _controller_data: Any
     """
     Opaque attribute for use only by the :class:`ExecutionController` that

@@ -64,6 +64,7 @@ from typing import (
 )
 
 import drgn
+from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.sched import cpu_curr, idle_task, task_cpu
 
 logger = logging.getLogger("drgn.gdb_rsp")
@@ -882,7 +883,60 @@ class GdbRspExecutionController(drgn.ExecutionController):
 
 
 class QemuGdbExecutionController(GdbRspExecutionController):
-    """Execution controller for QEMU's GDB stub."""
+    """
+    Execution controller for QEMU's GDB stub.
+
+    QEMU stops and resumes CPUs, not threads. A thread that is stopped is the
+    one that was running on a CPU when the CPU stopped.
+
+    :meth:`hold()` keeps a CPU stopped while the rest of the guest runs. This
+    is for holding a thread in the middle of a race. To the guest, that CPU
+    stops responding, so anything that waits for it or for every CPU (e.g., an
+    RCU grace period or a call on every CPU) doesn't finish until it is
+    released. The drgn core doesn't know about this: it considers the thread
+    to be running like any other.
+    """
+
+    def __init__(self, prog: drgn.Program, address: str) -> None:
+        super().__init__(prog, address)
+        self._held_cpus: Set[int] = set()
+
+    def _close(self) -> None:
+        super()._close()
+        self._held_cpus.clear()
+
+    @property
+    def held_cpus(self) -> Set[int]:
+        """CPUs that stay stopped when the program is resumed."""
+        return set(self._held_cpus)
+
+    def hold(self, thread: drgn.Thread) -> int:
+        """
+        Keep the CPU that a thread is running on stopped when the program is
+        resumed, until :meth:`release()`. The program must be stopped.
+
+        If the thread is stopped at a breakpoint that is still enabled when it
+        is released, then it hits the breakpoint again.
+
+        :return: The CPU.
+        """
+        self._check_stopped()
+        cpu = self._thread_cpu(thread)
+        if cpu is None:
+            raise ValueError(f"thread {thread.tid} is not running on a CPU")
+        self._held_cpus.add(cpu)
+        return cpu
+
+    def release(self, cpu: Optional[int] = None) -> None:
+        """
+        Let a CPU run the next time that the program is resumed.
+
+        :param cpu: The CPU, or ``None`` for all of them.
+        """
+        if cpu is None:
+            self._held_cpus.clear()
+        else:
+            self._held_cpus.discard(cpu)
 
     def _stub_thread(self, thread_id: int) -> drgn.Thread:
         # QEMU has one process whose threads are the CPUs numbered from 1.
@@ -923,23 +977,34 @@ class QemuGdbExecutionController(GdbRspExecutionController):
         self, actions: Sequence[drgn.ResumeAction]
     ) -> Tuple[bytes, bool]:
         resume_all = any(action.thread is None for action in actions)
+        held = {cpu + 1 for cpu in self._held_cpus}
         vcont: List[bytes] = []
+        named = set()
         step = False
         for action in actions:
             if action.thread is None:
                 continue
             thread_id = self._stub_thread_id(action.thread)
+            if thread_id in held:
+                continue
             if isinstance(action, drgn.StepiResumeAction):
                 if thread_id is None:
                     raise ValueError(
                         f"thread {action.thread.tid} is not running on a CPU"
                     )
                 vcont.append(b"s:" + self._format_thread_id(thread_id))
+                named.add(thread_id)
                 step = True
             elif not resume_all and thread_id is not None:
                 vcont.append(b"c:" + self._format_thread_id(thread_id))
         if resume_all:
-            vcont.append(b"c")
+            if held:
+                # The default action would resume the CPUs that are held, too.
+                for cpu in for_each_online_cpu(self._prog):
+                    if cpu + 1 not in held and cpu + 1 not in named:
+                        vcont.append(b"c:" + self._format_thread_id(cpu + 1))
+            else:
+                vcont.append(b"c")
         if not vcont:
             return b"", False
         return b"vCont;" + b";".join(vcont), step

@@ -2448,6 +2448,59 @@ class TestAllStop(ExecutionControlTestCase):
 
             self.expect(start=notify_thread_breakpoint)
 
+    def _test_breakpoint_resume_no_step_over(self, method, action_type):
+        with self.prog.attach(drgn.AttachFlags.ALL_STOP):
+            site = self.prog.set_breakpoint(0x1337).sites[0]
+            self.assertIs(site.needs_step_over, True)
+            # The controller normally does this when it enables the site.
+            site.needs_step_over = False
+            self.assertIs(site.needs_step_over, False)
+            self.queue_call(
+                self.prog.notify_thread_breakpoint, self.prog.thread(1), site
+            )
+            while self.prog.poll(0):
+                pass
+
+            # The controller handles getting past the breakpoint.
+            resume = Call(getattr(self.prog.thread(1), method))
+            resume.next = resume_threads = Op(
+                "resume_threads",
+                (
+                    [action_type(self.prog.thread(1), 0)]
+                    if action_type is drgn.StepiResumeAction
+                    else []
+                )
+                + [drgn.ContinueResumeAction(None, 0)],
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = resume_return = Return(resume, None)
+            resume_return.on = self.check_none_stopped
+
+            self.expect(start=resume)
+
+            # It can be changed back.
+            site.needs_step_over = True
+            self.queue_call(
+                self.prog.notify_thread_breakpoint, self.prog.thread(1), site
+            )
+            while self.prog.poll(0):
+                pass
+            cont = Call(self.prog.thread(1).cont)
+            cont.next, bypass_done = self._bypass_breakpoint(1, site)
+            bypass_done.next = resume_threads = Op(
+                "resume_threads", [drgn.ContinueResumeAction(None, 0)]
+            )
+            resume_threads.next = resume_threads_return = Return(resume_threads, None)
+            resume_threads_return.next = Return(cont, None)
+
+            self.expect(start=cont)
+
+    def test_breakpoint_cont_no_step_over(self):
+        self._test_breakpoint_resume_no_step_over("cont", drgn.ContinueResumeAction)
+
+    def test_breakpoint_step_no_step_over(self):
+        self._test_breakpoint_resume_no_step_over("step", drgn.StepiResumeAction)
+
     def _test_breakpoint_resume_after_disable(self, method, action_type, disable):
         with self.prog.attach(drgn.AttachFlags.ALL_STOP):
             bp = self.prog.set_breakpoint(0x1337)
@@ -3202,6 +3255,33 @@ class TestNonStop(ExecutionControlTestCase):
             )
             prog.thread(2).cont()
             self.assertIsNone(prog.thread(2).stop_reason)
+
+    def _test_breakpoint_resume_no_step_over(self, method, action_type):
+        site = self.prog.set_breakpoint(0x1337).sites[0]
+        # The controller normally does this when it enables the site.
+        site.needs_step_over = False
+        self.breakpoint_stop(1, site)
+        self.breakpoint_stop(2, site)
+
+        # The controller handles getting past the breakpoint, so no other
+        # threads are stopped.
+        resume = Call(getattr(self.prog.thread(1), method))
+        resume.next = resume_threads = Op(
+            "resume_threads", [action_type(self.prog.thread(1), 0)]
+        )
+        resume_threads.next = resume_threads_return = Return(resume_threads, None)
+        resume_threads_return.next = resume_return = Return(resume, None)
+        resume_return.on = lambda: self.assertEqual(
+            self.stopped_threads(), {2: drgn.BreakpointStopReason(site)}
+        )
+
+        self.expect(start=resume)
+
+    def test_breakpoint_cont_no_step_over(self):
+        self._test_breakpoint_resume_no_step_over("cont", drgn.ContinueResumeAction)
+
+    def test_breakpoint_step_no_step_over(self):
+        self._test_breakpoint_resume_no_step_over("step", drgn.StepiResumeAction)
 
     def _test_breakpoint_resume_after_disable(self, method, action_type, disable):
         bp = self.prog.set_breakpoint(0x1337)

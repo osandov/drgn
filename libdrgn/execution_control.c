@@ -1208,11 +1208,13 @@ static bool site_is_bypassed(const struct drgn_breakpoint_site *site)
 
 // Return whether a thread is stopped at a breakpoint that it needs to be
 // stepped past before it can be resumed. If the breakpoint was disabled or
-// removed since the thread stopped, then it doesn't.
+// removed since the thread stopped, then it doesn't. It also doesn't if the
+// controller takes care of that.
 static bool thread_needs_bypass(struct drgn_thread *thread)
 {
 	return thread->stop_reason == DRGN_STOP_REASON_BREAKPOINT
-	       && !list_empty(&thread->stop_site->enabled_breakpoints);
+	       && !list_empty(&thread->stop_site->enabled_breakpoints)
+	       && !thread->stop_site->no_step_over;
 }
 
 // Enable a site that was disabled to bypass it unless it is still being
@@ -2319,6 +2321,19 @@ LIBDRGN_PUBLIC
 bool drgn_breakpoint_site_hardware(const struct drgn_breakpoint_site *site)
 {
 	return site->hardware;
+}
+
+LIBDRGN_PUBLIC bool
+drgn_breakpoint_site_needs_step_over(const struct drgn_breakpoint_site *site)
+{
+	return !site->no_step_over;
+}
+
+LIBDRGN_PUBLIC void
+drgn_breakpoint_site_set_needs_step_over(struct drgn_breakpoint_site *site,
+					 bool needs_step_over)
+{
+	site->no_step_over = !needs_step_over;
 }
 
 LIBDRGN_PUBLIC

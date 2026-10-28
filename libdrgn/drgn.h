@@ -5397,6 +5397,23 @@ uint64_t drgn_breakpoint_site_address(const struct drgn_breakpoint_site *site);
 
 bool drgn_breakpoint_site_hardware(const struct drgn_breakpoint_site *site);
 
+/**
+ * Get whether a thread that is stopped at a breakpoint site needs to be
+ * stepped past the site with the site disabled before it can be resumed.
+ */
+bool drgn_breakpoint_site_needs_step_over(const struct drgn_breakpoint_site *site);
+
+/**
+ * Set whether a thread that is stopped at a breakpoint site needs to be
+ * stepped past the site with the site disabled before it can be resumed.
+ *
+ * This is true by default. This may only be called by the execution
+ * controller. It should be set to false if resuming a thread that is stopped
+ * at the site takes care of that by itself.
+ */
+void drgn_breakpoint_site_set_needs_step_over(struct drgn_breakpoint_site *site,
+					      bool needs_step_over);
+
 struct drgn_error *
 drgn_breakpoint_site_enabled_breakpoints(struct drgn_breakpoint_site *site,
 					 struct drgn_breakpoint_iterator **ret);
