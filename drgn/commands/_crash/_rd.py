@@ -30,8 +30,10 @@ def _crash_annotate(
         return None
     for identified in identify_address_all(prog, addr, cache=cache):
         if isinstance(identified, IdentifiedSymbol):
-            fmt = str if prog.config.get("crash_radix", 10) == 10 else hex
             symbol = identified.symbol
+            if addr == symbol.address:
+                return symbol.name
+            fmt = str if prog.config.get("crash_radix", 10) == 10 else hex
             return f"{symbol.name}+{fmt(addr - symbol.address)}"
         elif isinstance(identified, IdentifiedSlabObject) and level in (
             "slab",

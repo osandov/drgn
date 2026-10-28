@@ -114,7 +114,7 @@ class TestRd(CrashCommandTestCase):
     def test_annotate_symbols(self):
         address = self.prog["slab_caches"].prev.value_()
         cmd = self.check_crash_command(f"rd -s {address:x} 2")
-        self.assertRegex(cmd.stdout, rf"^{address:{self.w}x}:  slab_caches\+0")
+        self.assertRegex(cmd.stdout, rf"^{address:{self.w}x}:  slab_caches\s")
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
