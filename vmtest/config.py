@@ -56,6 +56,7 @@ SUPPORTED_KERNEL_VERSIONS = (
 )
 
 KERNEL_ORG_COMPILER_VERSION = "12.5.0"
+PAHOLE_VERSION = "1.32"
 
 
 BASE_KCONFIG = """
@@ -556,6 +557,14 @@ def compiler_name(host_name: str, target_name: str) -> str:
 
 def compiler_url(host_name: str, target_name: str) -> str:
     return f"https://github.com/osandov/drgn/releases/download/vmtest-compilers/{compiler_name(host_name, target_name)}.tar.xz"
+
+
+def pahole_name(host_name: str) -> str:
+    return f"{host_name}-pahole-{PAHOLE_VERSION}"
+
+
+def pahole_url(host_name: str) -> str:
+    return f"https://github.com/osandov/drgn/releases/download/vmtest-compilers/{pahole_name(host_name)}.tar.xz"
 
 
 def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str) -> str:

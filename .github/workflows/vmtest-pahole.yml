@@ -1,0 +1,37 @@
+name: vmtest pahole Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - {host: x86_64, platform: amd64}
+          - {host: arm64, platform: arm64}
+          - {host: ppc64le, platform: ppc64le}
+      fail-fast: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v4
+      - name: Build and upload pahole for ${{ matrix.host }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(python3 -c 'from vmtest.config import PAHOLE_VERSION; print(PAHOLE_VERSION)')"
+          name="$(python3 -c 'from vmtest.config import pahole_name; print(pahole_name("${{ matrix.host }}"))')"
+          if [ "$(gh release view vmtest-compilers --json assets --jq "any(.assets[]; .name == \"$name.tar.xz\")")" = true ]; then
+              echo "$name.tar.xz is already available"
+              exit 0
+          fi
+
+          git clone --branch "v$version" --depth 1 --recurse-submodules --shallow-submodules https://git.kernel.org/pub/scm/devel/pahole/pahole.git
+          # Build on the same version of Ubuntu as the vmtest kernels so that
+          # pahole has the same glibc requirement as the kernel build tools.
+          docker run --rm --platform "linux/${{ matrix.platform }}" -v "$PWD:/io" -w /io ubuntu:22.04 ./scripts/build_pahole_in_docker.sh pahole "$name"
+          tar -cJf "$name.tar.xz" "$name"
+          gh release upload vmtest-compilers "$name.tar.xz"
