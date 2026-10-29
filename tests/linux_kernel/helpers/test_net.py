@@ -13,11 +13,13 @@ from drgn.helpers.linux.net import (
     _S_IFSOCK,
     SOCK_INODE,
     SOCKET_I,
+    arp_table,
     for_each_net,
     for_each_netdev,
     get_net_ns_by_fd,
     is_pp_page,
-    neigh_table_for_each_neighbor,
+    nd_table,
+    neigh_for_each,
     netdev_for_each_tx_queue,
     netdev_get_by_index,
     netdev_get_by_name,
@@ -185,12 +187,21 @@ class TestNet(LinuxKernelTestCase):
             expected,
         )
 
+    def test_arp_table(self):
+        self.assertEqual(arp_table(self.prog).family, socket.AF_INET)
+        self.assertEqual(arp_table(self.net).family, socket.AF_INET)
+
+    def test_nd_table(self):
+        self.assertEqual(nd_table(self.prog).family, socket.AF_INET6)
+        self.assertEqual(nd_table(self.net).family, socket.AF_INET6)
+
+    # This also tests neigh_table_for_each_neighbor().
     @skip_unless_have_pyroute2
-    def test_neigh_table_for_each_neighbor(self):
+    def test_neigh_for_each(self):
         import pyroute2
         import pyroute2.netlink.rtnl.ndmsg
 
-        with temp_netns() as (_, ns):
+        with temp_netns() as (name, ns):
             try:
                 ns.link("add", ifname="dummy0", kind="dummy")
             except pyroute2.NetlinkError:
@@ -198,19 +209,36 @@ class TestNet(LinuxKernelTestCase):
 
             try:
                 idx = ns.link_lookup(ifname="dummy0")[0]
-                # Add a permanent neighbor entry so there's something to find
-                ns.neigh(
-                    "add",
-                    dst="192.0.2.1",
-                    lladdr="00:11:22:33:44:55",
-                    ifindex=idx,
-                    state=pyroute2.netlink.rtnl.ndmsg.states["permanent"],
+                # Add permanent neighbor entries so there's something to find
+                for family, dst in (
+                    (socket.AF_INET, "192.0.2.1"),
+                    (socket.AF_INET6, "2001:db8::1"),
+                ):
+                    ns.neigh(
+                        "add",
+                        family=family,
+                        dst=dst,
+                        lladdr="00:11:22:33:44:55",
+                        ifindex=idx,
+                        state=pyroute2.netlink.rtnl.ndmsg.states["permanent"],
+                    )
+                with open(f"/var/run/netns/{name}") as file:
+                    net = get_net_ns_by_fd(self.task, file.fileno())
+                self.assertIn(
+                    ipaddress.IPv4Address("192.0.2.1"),
+                    [
+                        ipaddress.IPv4Address(self.prog.read(n.primary_key.address_, 4))
+                        for n in neigh_for_each(arp_table(net))
+                    ],
                 )
-                nht = self.prog["arp_tbl"].nht.read_()
-                neighbor_addrs = [
-                    ipaddress.IPv4Address(self.prog.read(n.primary_key.address_, 4))
-                    for n in neigh_table_for_each_neighbor(nht)
-                ]
-                self.assertIn(ipaddress.IPv4Address("192.0.2.1"), neighbor_addrs)
+                self.assertIn(
+                    ipaddress.IPv6Address("2001:db8::1"),
+                    [
+                        ipaddress.IPv6Address(
+                            self.prog.read(n.primary_key.address_, 16)
+                        )
+                        for n in neigh_for_each(nd_table(net))
+                    ],
+                )
             finally:
                 ns.link("delete", ifname="dummy0")

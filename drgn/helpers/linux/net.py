@@ -23,24 +23,27 @@ from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 from drgn.helpers.linux.list_nulls import hlist_nulls_for_each_entry
 
 __all__ = (
-    "SOCK_INODE",
     "SOCKET_I",
+    "SOCK_INODE",
+    "arp_table",
     "for_each_net",
     "for_each_netdev",
-    "get_net_ns_by_inode",
     "get_net_ns_by_fd",
+    "get_net_ns_by_inode",
+    "is_pp_page",
+    "nd_table",
+    "neigh_for_each",
+    "neigh_table_for_each_neighbor",
     "netdev_for_each_tx_queue",
     "netdev_get_by_index",
     "netdev_get_by_name",
+    "netdev_ipv4_addrs",
+    "netdev_ipv6_addrs",
     "netdev_name",
     "netdev_priv",
     "sk_fullsock",
     "sk_nulls_for_each",
     "skb_shinfo",
-    "is_pp_page",
-    "netdev_ipv4_addrs",
-    "netdev_ipv6_addrs",
-    "neigh_table_for_each_neighbor",
 )
 
 
@@ -389,9 +392,12 @@ def netdev_ipv6_addrs(dev: Object) -> List[ipaddress.IPv6Address]:
 
 def neigh_table_for_each_neighbor(table: Object) -> Iterator[Object]:
     """
-    Get the neighbour object from the neighbour hash table
+    Iterate over all neighbors in a neighbor hash table.
 
-    :param dev: ``struct neigh_hash_table *``
+    To iterate over a ``struct neigh_table *``, use :func:`neigh_for_each()`.
+
+    :param table: ``struct neigh_hash_table *``
+    :return: Iterator of ``struct neighbour *`` objects.
     """
     n_buckets = 1 << table.hash_shift.value_()
     # Since Linux kernel commit 41b3caa7c076 ("neighbour: Add hlist_node to
@@ -410,3 +416,69 @@ def neigh_table_for_each_neighbor(table: Object) -> Iterator[Object]:
             yield from hlist_for_each_entry(
                 "struct neighbour", head.address_of_(), "hash"
             )
+
+
+def _neigh_table(
+    prog: Program, net: Optional[Object], index: str, global_name: str
+) -> Object:
+    if net is None:
+        net = prog["init_net"]
+    # Linux kernel commit b4f0115efd7f ("neighbour: Store arp_tbl and nd_tbl in
+    # net->neigh_tables[].") (in v7.4) added struct net::neigh_tables, and
+    # Linux kernel commit cda2962b6e2b ("neighbour: Namespacify neigh_tables.")
+    # (in v7.4) made the tables per-namespace. Before that, they are global
+    # variables.
+    try:
+        neigh_tables = net.neigh_tables
+    except AttributeError:
+        return prog[global_name].address_of_()
+    return neigh_tables[prog[index]].read_()
+
+
+@takes_object_or_program_or_default
+def arp_table(prog: Program, net: Optional[Object]) -> Object:
+    """
+    Get the ARP (IPv4 neighbor) table of a network namespace.
+
+    .. note::
+
+        Before Linux 7.4, all network namespaces share one table, so this
+        returns the same table regardless of *net*.
+
+    :param net: ``struct net *``. Defaults to the initial network namespace if
+        given a :class:`~drgn.Program` or :ref:`omitted <default-program>`.
+    :return: ``struct neigh_table *``
+    """
+    return _neigh_table(prog, net, "NEIGH_ARP_TABLE", "arp_tbl")
+
+
+@takes_object_or_program_or_default
+def nd_table(prog: Program, net: Optional[Object]) -> Object:
+    """
+    Get the NDISC (IPv6 neighbor) table of a network namespace.
+
+    .. note::
+
+        Before Linux 7.4, all network namespaces share one table, so this
+        returns the same table regardless of *net*.
+
+    :param net: ``struct net *``. Defaults to the initial network namespace if
+        given a :class:`~drgn.Program` or :ref:`omitted <default-program>`.
+    :return: ``struct neigh_table *``
+    """
+    return _neigh_table(prog, net, "NEIGH_ND_TABLE", "nd_tbl")
+
+
+def neigh_for_each(tbl: Object) -> Iterator[Object]:
+    """
+    Iterate over all neighbors in a neighbor table.
+
+    >>> for neigh in neigh_for_each(arp_table()):
+    ...     print(netdev_name(neigh.dev))
+    ...
+    b'eth0'
+
+    :param tbl: ``struct neigh_table *``
+    :return: Iterator of ``struct neighbour *`` objects.
+    """
+    return neigh_table_for_each_neighbor(tbl.nht.read_())
