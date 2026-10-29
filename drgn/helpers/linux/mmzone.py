@@ -414,7 +414,7 @@ def _highest_present_section_nr(prog: Program) -> int:
     # we have to loop all the way up to NR_MEM_SECTIONS.
     # NR_MEM_SECTIONS = 1 << SECTIONS_SHIFT
     # SECTIONS_SHIFT = MAX_PHYSMEM_BITS - SECTION_SIZE_BITS
-    return 1 << (prog["MAX_PHYSMEM_BITS"] - prog["SECTION_SIZE_BITS"]).value_()
+    return (1 << (prog["MAX_PHYSMEM_BITS"] - prog["SECTION_SIZE_BITS"]).value_()) - 1
 
 
 @takes_program_or_default
