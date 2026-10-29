@@ -380,7 +380,6 @@ linux_kernel_get_vmcoreinfo(struct drgn_program *prog, struct drgn_object *ret)
 static struct drgn_error *
 linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 {
-	static const uint64_t SECTION_HAS_MEM_MAP = 0x2;
 	static const uint64_t SECTION_MAP_MASK = ~((UINT64_C(1) << 6) - 1);
 	struct drgn_error *err;
 
@@ -395,6 +394,30 @@ linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 			// !CONFIG_SPARSEMEM_VMEMMAP
 			err = &drgn_not_found;
 		}
+		return err;
+	}
+
+	// Since Linux kernel commit ed7802dd48f7 ("mm: memory_hotplug: enumerate
+	// all supported section flags") (in v6.0), the section flags are an
+	// anonymous enum. Before that, they were macros. SECTION_HAS_MEM_MAP
+	// didn't change until Linux kernel commit da7acb8982ed ("mm/sparse:
+	// remove SECTION_MARKED_PRESENT") (in v7.4).
+	uint64_t SECTION_HAS_MEM_MAP;
+	err = drgn_program_find_object(prog, "SECTION_HAS_MEM_MAP_BIT", NULL,
+				       DRGN_FIND_OBJECT_CONSTANT, &section);
+	if (!err) {
+		union drgn_value bit;
+		err = drgn_object_read_integer(&section, &bit);
+		if (err)
+			return err;
+		if (bit.uvalue >= 64) {
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
+						 "invalid SECTION_HAS_MEM_MAP_BIT");
+		}
+		SECTION_HAS_MEM_MAP = UINT64_C(1) << bit.uvalue;
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+		SECTION_HAS_MEM_MAP = 0x2;
+	} else {
 		return err;
 	}
 
