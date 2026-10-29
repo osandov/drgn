@@ -162,25 +162,8 @@ fallback_unwind_try_pt_regs(struct drgn_program *prog, uint64_t fp,
 		}
 		method = "frame metadata";
 	} else {
-		// Before this, it's still possible that this stack frame is
-		// embedded within a pt_regs. However, there's no reliable way
-		// to detect it. We can guess what that pt_regs pointer would
-		// be, and check whether any CPU has a __irq_regs value matching
-		// it. If so, we're guaranteed to be in the pt_regs for an IRQ.
-		// If not, it's still possible that this is a pt_regs, but the
-		// __irq_regs accounting has not yet happened (or has been
-		// cleaned up already). So this heuristic shouldn't have any
-		// false positives, but could have some false negatives.
-		bool is_irq_regs;
-		err = drgn_program_is_irq_regs(prog, pt_regs_addr, &is_irq_regs);
-		if (err)
-			return err;
-
-		if (!is_irq_regs) {
-			*found_ret = false;
-			return NULL;
-		}
-		method = "__irq_regs";
+		*found_ret = false;
+		return NULL;
 	}
 
 	// Now that we're reasonably confident that there's a pt_regs here, read
