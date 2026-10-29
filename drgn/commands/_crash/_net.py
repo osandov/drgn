@@ -17,8 +17,9 @@ from drgn.helpers.common.format import (
     print_table,
 )
 from drgn.helpers.linux.net import (
+    arp_table,
     for_each_netdev,
-    neigh_table_for_each_neighbor,
+    neigh_for_each,
     netdev_ipv4_addrs,
     netdev_ipv6_addrs,
     netdev_name,
@@ -63,9 +64,7 @@ def print_arp_cache(prog: Program) -> None:
         ["NEIGHBOUR", "IP ADDRESS", "HW TYPE", "HW ADDRESS", "DEVICE", "STATE"]
     ]
 
-    nht = prog["arp_tbl"].nht
-
-    for neigh in neigh_table_for_each_neighbor(nht):
+    for neigh in neigh_for_each(arp_table(prog)):
         ip_bytes = prog.read(neigh.primary_key.address_of_(), 4)
         ip_addr = str(ipaddress.IPv4Address(ip_bytes))
         addr_len = neigh.dev.addr_len
@@ -129,12 +128,13 @@ def print_arp_cache_drgn(prog: Program) -> None:
     code.add_import("ipaddress")
     code.add_from_import(
         "drgn.helpers.linux.net",
-        "neigh_table_for_each_neighbor",
+        "arp_table",
+        "neigh_for_each",
         "netdev_name",
     )
     code.append(
         """\
-for neigh in neigh_table_for_each_neighbor(prog["arp_tbl"].nht):
+for neigh in neigh_for_each(arp_table()):
     ip_bytes = prog.read(neigh.primary_key.address_of_(), 4)
     ip_addr = ipaddress.IPv4Address(ip_bytes)
     mac_bytes = prog.read(neigh.ha.address_of_(), neigh.dev.addr_len)

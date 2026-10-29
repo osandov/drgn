@@ -3,8 +3,9 @@ import re
 
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.net import (
+    arp_table,
     for_each_netdev,
-    neigh_table_for_each_neighbor,
+    neigh_for_each,
     netdev_ipv4_addrs,
     netdev_ipv6_addrs,
     netdev_name,
@@ -35,7 +36,7 @@ class TestNet(CrashCommandTestCase):
         )
 
     def test_net_arp(self):
-        neighbors = list(neigh_table_for_each_neighbor(self.prog["arp_tbl"].nht))
+        neighbors = list(neigh_for_each(arp_table(self.prog)))
         if not neighbors:
             self.skipTest("no ARP entries in neighbor cache")
 
@@ -46,7 +47,7 @@ class TestNet(CrashCommandTestCase):
             cmd.stdout,
             r"(?m)^\s*NEIGHBOUR\s+IP ADDRESS\s+HW TYPE\s+HW ADDRESS\s+DEVICE\s+STATE$",
         )
-        self.assertIn("neigh_table_for_each_neighbor(", cmd.drgn_option.stdout)
+        self.assertIn("neigh_for_each(", cmd.drgn_option.stdout)
 
         neigh = neighbors[0]
         ip_addr = str(
