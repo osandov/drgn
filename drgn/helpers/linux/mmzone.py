@@ -405,10 +405,14 @@ def decode_section_flags(section: Object) -> str:
 
 
 def _highest_present_section_nr(prog: Program) -> int:
-    try:
-        return prog["__highest_present_section_nr"].value_()
-    except ObjectNotFoundError:
-        pass
+    # Linux kernel commit a8c5020eeb96 ("mm/sparse: rename
+    # __highest_present_section_nr to __highest_used_section_nr") (in v7.4)
+    # renamed the variable.
+    for name in ("__highest_used_section_nr", "__highest_present_section_nr"):
+        try:
+            return prog[name].value_()
+        except ObjectNotFoundError:
+            pass
     # Before Linux kernel commit c4e1be9ec113 ("mm, sparsemem: break out of
     # loops early") (in v4.13), __highest_present_section_nr didn't exist, so
     # we have to loop all the way up to NR_MEM_SECTIONS.
