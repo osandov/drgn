@@ -145,12 +145,6 @@ struct drgn_program {
 	struct drgn_thread *main_thread;
 	struct drgn_thread *crashed_thread;
 	/*
-	 * Cached offsetof(struct pt_regs, stackframe) for aarch64, or 0 if not
-	 * yet cached.
-	 */
-	uint64_t aarch64_stackframe_offset_cached;
-
-	/*
 	 * AArch64 instruction pointer authentication code mask, parsed either
 	 * from NT_ARM_PAC_MASK or VMCOREINFO.
 	 */
@@ -276,6 +270,25 @@ struct drgn_program {
 			uint64_t direct_mapping_offset;
 			/** Cached value of `MOD_TEXT` in the kernel. */
 			uint64_t mod_text;
+			/**
+			 * Cached layout information of pt_regs on aarch64. We
+			 * use the size to signal whether the information has
+			 * been cached, since it must be non-zero.
+			 */
+			uint64_t aarch64_pt_regs_stackframe_offset;
+			uint64_t aarch64_pt_regs_size;
+			/** Cached AArch64 legacy exception entry text boundaries. */
+			uint64_t aarch64_entry_text_start;
+			uint64_t aarch64_entry_text_end;
+
+			/** Whether pt_regs.stackframe is a struct frame_record_meta. */
+			bool aarch64_pt_regs_have_frame_meta;
+
+			/**
+			 * Whether @ref drgn_program::aarch64_entry_text_start and
+			 * @ref drgn_program::arch_entry_text_end have been cached.
+			 */
+			bool aarch64_entry_text_cached;
 			/**
 			 * Whether @ref drgn_program::arch_pfn_offset has been
 			 * cached.

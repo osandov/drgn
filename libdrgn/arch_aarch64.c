@@ -14,6 +14,7 @@
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
 #include "register_state.h"
+#include "symbol.h"
 #include "util.h"
 
 /*
@@ -102,9 +103,9 @@ get_initial_registers_from_struct_aarch64(struct drgn_program *prog,
 
 
 static struct drgn_error *
-get_stackframe_offset(struct drgn_program *prog, uint64_t *ret)
+cache_pt_regs_layout(struct drgn_program *prog)
 {
-	if (!prog->aarch64_stackframe_offset_cached) {
+	if (!prog->aarch64_pt_regs_size) {
 		struct drgn_error *err;
 		struct drgn_qualified_type pt_regs_type;
 
@@ -119,13 +120,115 @@ get_stackframe_offset(struct drgn_program *prog, uint64_t *ret)
 		if (err)
 			return err;
 
-		prog->aarch64_stackframe_offset_cached = bit_offset / 8;
+		struct drgn_qualified_type stackframe_type;
+		err = drgn_member_type(stackframe_member, &stackframe_type, NULL);
+		if (err)
+			return err;
+
+		struct drgn_type *type = drgn_underlying_type(stackframe_type.type);
+		const char *tag = drgn_type_has_tag(type) ? drgn_type_tag(type) : NULL;
+		prog->aarch64_pt_regs_have_frame_meta =
+			tag && strcmp(tag, "frame_record_meta") == 0;
+		prog->aarch64_pt_regs_size = drgn_type_size(pt_regs_type.type);
+		prog->aarch64_pt_regs_stackframe_offset = bit_offset / 8;
 	}
 
-	*ret = prog->aarch64_stackframe_offset_cached;
 	return NULL;
 }
 
+static struct drgn_error *
+is_legacy_exception_entry(struct drgn_program *prog,
+			  struct drgn_register_state *regs, bool *ret)
+{
+	struct drgn_error *err;
+	struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+
+	*ret = false;
+	if (!pc.has_value || regs->interrupted)
+		return NULL;
+
+	if (!prog->aarch64_entry_text_cached) {
+		static const char * const names[] = {
+			"__entry_text_start", "__entry_text_end",
+		};
+		uint64_t addresses[2];
+		for (size_t i = 0; i < array_size(names); i++) {
+			_cleanup_symbol_ struct drgn_symbol *sym = NULL;
+			err = drgn_program_find_symbol_by_name(prog, names[i], &sym);
+			if (err) {
+				if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+					// Cache missing boundaries as an empty range.
+					prog->aarch64_entry_text_cached = true;
+					return NULL;
+				}
+				return err;
+			}
+			addresses[i] = sym->address;
+		}
+		prog->aarch64_entry_text_start = addresses[0];
+		prog->aarch64_entry_text_end = addresses[1];
+		prog->aarch64_entry_text_cached = true;
+	}
+
+	// This includes syscall and return-to-user helpers as well as the
+	// exception handlers. Range membership only identifies a candidate;
+	// validate_legacy_pt_regs() must check the saved register layout.
+	*ret = pc.value >= prog->aarch64_entry_text_start &&
+	       pc.value < prog->aarch64_entry_text_end;
+	return NULL;
+}
+
+static bool
+validate_legacy_pt_regs(struct drgn_program *prog, uint64_t pt_regs_addr,
+			uint64_t frame[2], uint64_t pt_regs[34])
+{
+	bool bswap = drgn_platform_bswap(&prog->platform);
+	uint64_t pstate = bswap ? bswap_64(pt_regs[33]) : pt_regs[33];
+
+	// This function is only called if the interrupted PC is within the
+	// kernel's entry text section, which almost exclusively contains the
+	// assembly vector handlers. This condition alone eliminates the vast
+	// majority of potential false positives. However, we still need further
+	// validation to increase our confidence that what we think is a
+	// pt_regs, actually is.
+
+	// Validate the processor mode bits in the saved PSTATE.
+	switch (pstate & 0x1f) {
+	case 0x0: // EL0t
+	case 0x10: // AArch32 user mode
+		// Exception entry from userspace explicitly sets both frame
+		// values to zero. So this pt_regs could only be valid if (and
+		// only if) both are set to zero.
+		return !frame[0] && !frame[1];
+	case 0x4: // EL1t
+	case 0x5: // EL1h
+	case 0x8: // EL2t
+	case 0x9: // EL2h
+		// Exception entry from EL1 will preserve the interrupted FP and
+		// PC. Perform additional validation below.
+		break;
+	default:
+		return false;
+	}
+
+	// Exception entry stores saves the interrupted X29 (FP) register into
+	// both x29 and the synthetic frame record, so they should be equal.
+	// This, on its own, is a pretty weak condition, because pointers within
+	// the stack are quite common.
+	if (pt_regs[29] != frame[0])
+		return false;
+
+	// It is tempting to assert that the PC from the pt_regs should match
+	// the interrupted PC register in the synthetic frame record (i.e.
+	// frame[1]). After all, exception entry sets this as well. However,
+	// during synchronous fault handling, the kernel may adjust the PC in
+	// the pt_regs, so we can't rely on it.
+
+	// EL1 entry saves the SP from before allocating pt_regs. This checks
+	// the allocation's layout without having to find the task or stack.
+	uint64_t sp = bswap ? bswap_64(pt_regs[31]) : pt_regs[31];
+	return sp == pt_regs_addr + prog->aarch64_pt_regs_size;
+}
 
 static struct drgn_error *
 fallback_unwind_try_pt_regs(struct drgn_program *prog, uint64_t fp,
@@ -135,44 +238,65 @@ fallback_unwind_try_pt_regs(struct drgn_program *prog, uint64_t fp,
 			    bool *found_ret)
 {
 	struct drgn_error *err;
-	uint64_t stackframe_offset;
 	const char *method;
+	*found_ret = false;
 
-	err = get_stackframe_offset(prog, &stackframe_offset);
+	err = cache_pt_regs_layout(prog);
 	if (err)
 		return err;
 
-	uint64_t pt_regs_addr = fp - stackframe_offset;
-
-	if (!frame[0] && !frame[1]) {
+	uint64_t pt_regs_addr = fp - prog->aarch64_pt_regs_stackframe_offset;
+	if (prog->aarch64_pt_regs_have_frame_meta) {
 		// Since c2c6b27b5aa14 ("arm64: stacktrace: unwind exception
 		// boundaries") - v6.13, a frame record with fp and lr both zero
 		// indicates that we can read the next word on the stack for
 		// "metadata" which tells us whether a pt_regs is pushed to the
 		// stack.
+		// When we detect that the pt_regs has the metadata word, we can
+		// skip the heuristics below. A non-zero fp or lr means that
+		// this must be a regular frame, so we should continue with the
+		// standard FP unwind.
+		if (frame[0] || frame[1])
+			return NULL;
+
 		uint64_t frame_meta_type;
 		err = drgn_program_read_u64(prog, fp + 16, false, &frame_meta_type);
 		if (err)
 			return err;
 
-		// FRAME_META_TYPE_PT_REGS == 2 indicates a pt_regs
-		if (frame_meta_type != 2) {
-			*found_ret = false;
+		// FRAME_META_TYPE_PT_REGS == 2 indicates a pt_regs.
+		if (frame_meta_type != 2)
 			return NULL;
-		}
 		method = "frame metadata";
 	} else {
-		*found_ret = false;
-		return NULL;
+		// Compatibility heuristic for kernels before frame_record_meta.
+		// If the return PC is in the entry text, then it's very likely
+		// that there is a pt_regs dumped to the stack. However, we'll
+                // need to validate the pt_regs prior to blindly accepting it.
+		bool is_entry;
+		err = is_legacy_exception_entry(prog, regs, &is_entry);
+		if (err)
+			return err;
+		if (!is_entry)
+			return NULL;
+		method = "legacy exception entry range";
 	}
 
-	// Now that we're reasonably confident that there's a pt_regs here, read
-	// it and use it.
-	char pt_regs[272];
+	uint64_t pt_regs[34];
 	err = drgn_program_read_memory(prog, &pt_regs, pt_regs_addr,
 				       sizeof(pt_regs), false);
 	if (err)
 		return err;
+
+	// If we don't have frame metadata, do some checks to make sure this
+	// looks like a valid pt_regs. It's posssible that an entry function was
+	// interrupted -- or that we're unwinding a helper function in the entry
+	// text section.
+	if (!prog->aarch64_pt_regs_have_frame_meta &&
+	    !validate_legacy_pt_regs(prog, pt_regs_addr, frame, pt_regs))
+		return NULL;
+
+	// Now that we're reasonably confident in the pt_regs, use it.
 	err = get_initial_registers_from_struct_aarch64(prog, &pt_regs,
 							sizeof(pt_regs), regs_ret);
 	if (err)
