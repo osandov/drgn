@@ -47,6 +47,8 @@ from vmtest.config import (
     compiler_name,
     compiler_url,
     local_kernel,
+    pahole_name,
+    pahole_url,
 )
 from vmtest.githubapi import GitHubApi
 
@@ -113,6 +115,7 @@ def downloaded_compiler(download_dir: Path, target: Architecture) -> Compiler:
         )
         / "bin",
         prefix=target.kernel_org_compiler_target_name + "-",
+        pahole_bin=download_dir / pahole_name(_KERNEL_ORG_COMPILER_HOST_NAME) / "bin",
     )
 
 
@@ -292,6 +295,17 @@ class Downloader:
             )
             dir.parent.mkdir(parents=True, exist_ok=True)
             self._download_and_extract_compiler(dir, url, archive_subdir)
+        dir = compiler.pahole_bin.parent
+        if dir.exists():
+            logger.info("pahole already downloaded to %s", dir)
+        else:
+            assert _KERNEL_ORG_COMPILER_HOST_NAME is not None
+            url = pahole_url(_KERNEL_ORG_COMPILER_HOST_NAME)
+            logger.info("downloading pahole from %s to %s", url, dir)
+            dir.parent.mkdir(parents=True, exist_ok=True)
+            self._download_and_extract_compiler(
+                dir, url, Path(pahole_name(_KERNEL_ORG_COMPILER_HOST_NAME))
+            )
         return compiler
 
     @_retry_download

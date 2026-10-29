@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install dwarves libelf-dev
+          sudo apt-get install libdw1 libelf-dev
           pip install aiohttp uritemplate
       - name: Build and upload ${{ matrix.arch }} ${{ matrix.flavor }} kernels
         run: python3 -m vmtest.manage --kernel-directory build/vmtest/linux.git --build-directory build/vmtest/kbuild -K -a ${{ matrix.arch }} -f ${{ matrix.flavor }}

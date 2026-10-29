@@ -538,9 +538,10 @@ class Compiler(NamedTuple):
     target: Architecture
     bin: Path
     prefix: str
+    pahole_bin: Path
 
     def env(self) -> Dict[str, str]:
-        path = str(self.bin.resolve())
+        path = str(self.bin.resolve()) + ":" + str(self.pahole_bin.resolve())
         try:
             path += ":" + os.environ["PATH"]
         except KeyError:
