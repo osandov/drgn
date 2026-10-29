@@ -206,15 +206,14 @@ def _section_flags(prog: Program) -> Mapping[str, int]:
     # all supported section flags") (in v6.0), the section flags are an
     # anonymous enum. Before that, they were macros.
     try:
-        flags_type = prog["SECTION_MARKED_PRESENT_BIT"].type_
+        flags_type = prog["SECTION_HAS_MEM_MAP_BIT"].type_
     except ObjectNotFoundError:
         flags = {
-            # These haven't changed since they were introduced in Linux kernel
-            # commit 29751f6991e8 ("[PATCH] sparsemem hotplug base") (in
-            # v2.6.13).
+            # Introduced in Linux kernel commit 29751f6991e8 ("[PATCH]
+            # sparsemem hotplug base") (in v2.6.13).
             "SECTION_MARKED_PRESENT": 0x1,
             "SECTION_HAS_MEM_MAP": 0x2,
-            # Strictly speaking, the remaining flags didn't exit in older
+            # Strictly speaking, the remaining flags didn't exist in older
             # kernel versions, but the bits won't be set before they were
             # introduced anyways.
             # Introduced in Linux kernel commit 2d070eab2e82 ("mm: consider
@@ -242,6 +241,18 @@ def _section_flags(prog: Program) -> Mapping[str, int]:
 
     prog.cache["section_flags"] = flags
     return flags
+
+
+def _section_present_mask(prog: Program) -> int:
+    flags = _section_flags(prog)
+    # SECTION_MARKED_PRESENT was removed in Linux kernel commit da7acb8982ed
+    # ("mm/sparse: remove SECTION_MARKED_PRESENT") (in v7.4). Before that, it
+    # was set on early (SECTION_IS_EARLY) and hotplugged (SECTION_HAS_MEM_MAP)
+    # sections.
+    try:
+        return flags["SECTION_MARKED_PRESENT"]
+    except KeyError:
+        return flags["SECTION_IS_EARLY"] | flags["SECTION_HAS_MEM_MAP"]
 
 
 def section_mem_map_addr(section: Object) -> Object:
@@ -280,15 +291,15 @@ def present_section(section: Object) -> bool:
     """
     Return whether a SPARSEMEM section is present.
 
+    Linux 7.4 removed the present flag. Since then, this is equivalent to
+    ``early_section(section) or valid_section(section)``.
+
     :param section: ``struct mem_section *``
     """
     section = section.read_()
     if not section:
         return False
-    return bool(
-        section.section_mem_map.value_()
-        & _section_flags(section.prog_)["SECTION_MARKED_PRESENT"]
-    )
+    return bool(section.section_mem_map.value_() & _section_present_mask(section.prog_))
 
 
 @takes_program_or_default
@@ -430,7 +441,7 @@ def for_each_present_section(prog: Program) -> Iterator[Tuple[int, Object]]:
         tuples.
     """
     SECTIONS_PER_ROOT = prog["SECTIONS_PER_ROOT"].value_()
-    SECTION_MARKED_PRESENT = _section_flags(prog)["SECTION_MARKED_PRESENT"]
+    present_mask = _section_present_mask(prog)
 
     highest_present_section_nr = _highest_present_section_nr(prog)
     nr_roots = highest_present_section_nr // SECTIONS_PER_ROOT + 1
@@ -458,6 +469,6 @@ def for_each_present_section(prog: Program) -> Iterator[Tuple[int, Object]]:
             nr_sections = SECTIONS_PER_ROOT
         for section in root[:nr_sections]:
             # Open-coded present_section() to avoid some overhead.
-            if section.section_mem_map.value_() & SECTION_MARKED_PRESENT:
+            if section.section_mem_map.value_() & present_mask:
                 yield nr, section.address_of_()
             nr += 1

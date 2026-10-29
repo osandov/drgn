@@ -19,6 +19,7 @@ from drgn.helpers.linux.mmzone import (
     nr_to_section,
     pfn_to_section,
     pfn_to_section_nr,
+    present_section,
     section_decode_mem_map,
     section_mem_map_addr,
     section_nr_to_pfn,
@@ -159,11 +160,13 @@ class TestMmzone(LinuxKernelTestCase):
         # means we have to monkey patch nr_to_section() to test the
         # foo_section_nr() helpers.
         prev_section = self.prog["drgn_test_valid_section"]
+        # valid_section is last so that it's not compared to itself if
+        # present_section is skipped.
         for name in (
             "present_section",
-            "valid_section",
             "online_section",
             "early_section",
+            "valid_section",
         ):
             with self.subTest(helper=name):
                 try:
@@ -190,9 +193,18 @@ class TestMmzone(LinuxKernelTestCase):
 
     @skip_unless_have_test_kmod
     @skip_unless_sparsemem
+    def test_present_section_without_flag(self):
+        if "drgn_test_present_section" in self.prog:
+            self.skipTest("SECTION_MARKED_PRESENT is defined")
+        self.assertTrue(present_section(self.prog["drgn_test_early_section"]))
+        self.assertTrue(present_section(self.prog["drgn_test_valid_section"]))
+        self.assertFalse(present_section(self.prog["drgn_test_online_section"]))
+
+    @skip_unless_have_test_kmod
+    @skip_unless_sparsemem
     def test_decode_section_flags(self):
         self.assertIn(
-            "SECTION_MARKED_PRESENT",
+            "SECTION_HAS_MEM_MAP",
             decode_section_flags(self.prog["drgn_test_mem_section"]).split("|"),
         )
 

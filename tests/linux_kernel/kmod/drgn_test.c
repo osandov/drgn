@@ -1099,10 +1099,14 @@ struct mem_section *drgn_test_mem_section;
 struct page *drgn_test_section_mem_map;
 struct page *drgn_test_section_decoded_mem_map;
 
+#ifdef SECTION_MARKED_PRESENT
 unsigned long drgn_test_SECTION_MARKED_PRESENT = SECTION_MARKED_PRESENT;
 struct mem_section *drgn_test_present_section = &(struct mem_section){
 	.section_mem_map = SECTION_MARKED_PRESENT,
 };
+#else
+#define present_section_nr(nr) (early_section_nr(nr) || valid_section_nr(nr))
+#endif
 
 unsigned long drgn_test_SECTION_HAS_MEM_MAP = SECTION_HAS_MEM_MAP;
 struct mem_section *drgn_test_valid_section = &(struct mem_section){
