@@ -13,6 +13,7 @@
 #include <linux/blkdev.h>
 #include <linux/blk-mq.h>
 #include <linux/completion.h>
+#include <linux/fs.h>
 #include <linux/hrtimer.h>
 #include <linux/io.h>
 #include <linux/irq_work.h>
@@ -30,6 +31,7 @@
 #include <linux/memory.h>
 #include <linux/mm.h>
 #include <linux/mmzone.h>
+#include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/netdevice.h>
@@ -49,6 +51,7 @@
 #include <linux/sysfs.h>
 #include <linux/timekeeping.h>
 #include <linux/timer.h>
+#include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
 #include <linux/swait.h>
@@ -2066,6 +2069,157 @@ static int drgn_test_stack_trace_init(void)
 	return kthread_park(drgn_test_kthread);
 }
 
+// Sleeping page fault for exception stack traces. vm_fault_t was introduced
+// in v4.17; this fixture is only needed on v4.19 and later.
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+#define HAVE_FAULT_STACK_TRACE 1
+
+struct drgn_test_fault_context {
+	wait_queue_head_t wait;
+	bool entered;
+	bool release;
+};
+
+static int drgn_test_fault_open(struct inode *inode, struct file *file)
+{
+	struct drgn_test_fault_context *ctx;
+
+	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
+		return -ENOMEM;
+	init_waitqueue_head(&ctx->wait);
+	file->private_data = ctx;
+	return 0;
+}
+
+static int drgn_test_fault_release(struct inode *inode, struct file *file)
+{
+	// The mapping holds a file reference, keeping its context alive too.
+	kfree(file->private_data);
+	return 0;
+}
+
+__attribute__((__noipa__))
+static vm_fault_t drgn_test_fault(struct vm_fault *vmf)
+{
+	struct drgn_test_fault_context *ctx = vmf->vma->vm_private_data;
+
+	WRITE_ONCE(ctx->entered, true);
+	(void)wait_event_interruptible(ctx->wait, READ_ONCE(ctx->release));
+	// Let get_user() recover with -EFAULT after the stack has been examined.
+	return VM_FAULT_SIGBUS;
+}
+
+static const struct vm_operations_struct drgn_test_fault_vm_ops = {
+	.fault = drgn_test_fault,
+};
+
+static int drgn_test_fault_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	if (vma->vm_end - vma->vm_start != PAGE_SIZE || vma->vm_pgoff)
+		return -EINVAL;
+	vma->vm_ops = &drgn_test_fault_vm_ops;
+	vma->vm_private_data = file->private_data;
+	return 0;
+}
+
+__attribute__((__noipa__))
+static void drgn_test_fault_prepare(void)
+{
+	barrier();
+}
+
+__attribute__((__noipa__))
+static int drgn_test_faulting_access(const char __user *buf)
+{
+	char value;
+	int ret;
+
+	// Force a non-leaf function so FP unwinding can find our caller even
+	// when the architecture omits frame records for leaf functions.
+	drgn_test_fault_prepare();
+	ret = get_user(value, buf);
+	(void)value;
+	barrier(); // Prevent tail call optimization.
+	return ret;
+}
+
+__attribute__((__noipa__))
+static ssize_t drgn_test_fault_write(struct file *file, const char __user *buf,
+				   size_t count, loff_t *pos)
+{
+	int ret;
+
+	if (count != 1)
+		return -EINVAL;
+	ret = drgn_test_faulting_access(buf);
+	barrier(); // Prevent tail call optimization.
+	if (ret)
+		return ret;
+	return count;
+}
+
+// Keep these in sync with test_page_fault() in test_stack_trace.py.
+#define DRGN_TEST_FAULT_ENTERED _IO('d', 0)
+#define DRGN_TEST_FAULT_RELEASE _IO('d', 1)
+
+static long drgn_test_fault_ioctl(struct file *file, unsigned int cmd,
+				  unsigned long arg)
+{
+	struct drgn_test_fault_context *ctx = file->private_data;
+
+	switch (cmd) {
+	case DRGN_TEST_FAULT_ENTERED:
+		return READ_ONCE(ctx->entered);
+	case DRGN_TEST_FAULT_RELEASE:
+		WRITE_ONCE(ctx->release, true);
+		wake_up_interruptible(&ctx->wait);
+		return 0;
+	default:
+		return -ENOTTY;
+	}
+}
+
+static const struct file_operations drgn_test_fault_fops = {
+	.owner = THIS_MODULE,
+	.open = drgn_test_fault_open,
+	.release = drgn_test_fault_release,
+	.mmap = drgn_test_fault_mmap,
+	.write = drgn_test_fault_write,
+	.unlocked_ioctl = drgn_test_fault_ioctl,
+};
+
+static struct miscdevice drgn_test_fault_device = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = "drgn_test_fault",
+	.fops = &drgn_test_fault_fops,
+	.mode = 0600,
+};
+
+static bool drgn_test_fault_registered;
+
+static int drgn_test_fault_init(void)
+{
+	int ret = misc_register(&drgn_test_fault_device);
+
+	if (!ret)
+		drgn_test_fault_registered = true;
+	return ret;
+}
+
+static void drgn_test_fault_exit(void)
+{
+	if (drgn_test_fault_registered)
+		misc_deregister(&drgn_test_fault_device);
+}
+#else
+#define HAVE_FAULT_STACK_TRACE 0
+static inline int drgn_test_fault_init(void) { return 0; }
+static inline void drgn_test_fault_exit(void) {}
+#endif
+
+const int drgn_test_have_fault_stack_trace = HAVE_FAULT_STACK_TRACE;
+
 // radixtree
 
 RADIX_TREE(drgn_test_radix_tree_empty, GFP_KERNEL);
@@ -2804,6 +2958,7 @@ drgn_test_anonymous_union drgn_test_anonymous_union_var;
 
 static void drgn_test_exit(void)
 {
+	drgn_test_fault_exit();
 	drgn_test_sysfs_exit();
 	drgn_test_slab_exit();
 	drgn_test_search_exit();
@@ -2895,6 +3050,9 @@ static int __init drgn_test_init(void)
 		goto out;
 
 	ret = drgn_test_completion_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_fault_init();
 out:
 	if (ret)
 		drgn_test_exit();
