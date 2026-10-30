@@ -154,7 +154,7 @@ def nr_to_section(prog: Program, nr: IntegerLike) -> Object:
         if not mem_section_root:
             return mem_section_root
 
-    return mem_section_root + (nr & (SECTIONS_PER_ROOT - 1))
+    return mem_section_root + nr % SECTIONS_PER_ROOT
 
 
 @takes_program_or_default

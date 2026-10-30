@@ -575,7 +575,7 @@ linux_kernel_get_sections_per_root_impl(struct drgn_program *prog, uint64_t *ret
 			       &sizeof_mem_section);
 	if (err)
 		return err;
-	if (!is_power_of_two(sizeof_mem_section)
+	if (sizeof_mem_section == 0
 	    || sizeof_mem_section > prog->vmcoreinfo.page_size) {
 		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "struct mem_section has invalid size");
@@ -648,7 +648,8 @@ linux_kernel_get_max_physmem_bits_impl(struct drgn_program *prog, int64_t *ret)
 		//                       + SECTION_SIZE_BITS
 		//
 		// (NR_SECTION_ROOTS and SECTIONS_PER_ROOT are always powers of
-		// two.)
+		// two before Linux kernel commit 48070b721a60 ("mm/sparse:
+		// relax struct mem_section size constraints") (in v7.4).)
 		//
 		// => MAX_PHYSMEM_BITS = log2(NR_SECTION_ROOTS)
 		//                       + log2(SECTIONS_PER_ROOT)
