@@ -401,14 +401,25 @@ def PagePinned(page: Object) -> bool:
 
 def PagePrivate(page: Object) -> bool:
     """
-    Return whether the ``PG_private`` flag is set on a page.
+    Return whether a page has private data.
+
+    Before Linux 7.4, this checks the ``PG_private`` flag. Since then, it
+    checks ``page->private``.
+
+    .. note::
+
+        This is only meaningful for the head page of a folio in a filesystem's
+        page cache (except hugetlbfs and shmem). In other pages, the flag and
+        field may be used for other purposes.
 
     :param page: ``struct page *``
     """
+    # Linux kernel commit b26c65bedbff ("mm/page-flags: remove PG_private") (in
+    # v7.4) removed the flag.
     try:
         flag = page.prog_["PG_private"]
     except KeyError:
-        return False
+        return bool(page.private)
     return bool(page_flags(page) & (1 << flag))
 
 
