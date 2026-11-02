@@ -128,6 +128,8 @@ async def build_kernels(
     ],
     compilers: Mapping[str, Compiler],
     keep_builds: bool,
+    keep_going: bool,
+    failed_builds: List[str],
 ) -> AsyncIterator[Tuple[Architecture, Path]]:
     build_dir.mkdir(parents=True, exist_ok=True)
     for rev, arches in kernel_revs:
@@ -154,8 +156,17 @@ async def build_kernels(
                         env=env,
                         build_log_file=build_log_file,
                     )
-                    await kbuild.build()
-                    yield arch, await kbuild.package("tar.zst", build_dir)
+                    try:
+                        await kbuild.build()
+                        kernel_package = await kbuild.package("tar.zst", build_dir)
+                    except Exception:
+                        if not keep_going:
+                            raise
+                        failed_build = f"{rev} {arch.name} {flavor.name}"
+                        logger.exception("building %s failed", failed_build)
+                        failed_builds.append(failed_build)
+                    else:
+                        yield arch, kernel_package
                     if not keep_builds:
                         logger.info("deleting %s", flavor_rev_build_dir)
                         # Shell out instead of using, e.g., shutil.rmtree(), to
@@ -268,6 +279,11 @@ async def main() -> None:
         action="store_true",
         help="keep kernel builds after packaging (default if not uploading)",
         default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--keep-going",
+        action="store_true",
+        help="continue with remaining kernels if a build fails, then exit with an error",
     )
     parser.add_argument(
         "--download-directory",
@@ -411,12 +427,15 @@ async def main() -> None:
                     args.kernel_directory, [tag for tag, _ in to_build]
                 )
 
+                failed_builds: List[str] = []
                 async for arch, kernel_package in build_kernels(
                     args.kernel_directory,
                     args.build_directory,
                     to_build,
                     compilers,
                     args.keep_builds,
+                    args.keep_going,
+                    failed_builds,
                 ):
                     if args.upload:
                         await upload_queue.put(
@@ -430,11 +449,16 @@ async def main() -> None:
                     else:
                         logger.info("would upload %s", kernel_package)
 
+                errors = []
+                if failed_builds:
+                    errors.append(f"some builds failed: {', '.join(failed_builds)}")
                 if args.upload:
                     await upload_queue.put(None)
                     await upload_queue.join()
                     if not await uploader:
-                        sys.exit("some uploads failed")
+                        errors.append("some uploads failed")
+                if errors:
+                    sys.exit("\n".join(errors))
         else:
             logger.info("nothing to build")
 
