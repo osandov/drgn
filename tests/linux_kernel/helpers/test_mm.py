@@ -77,6 +77,7 @@ from tests.linux_kernel import (
     iter_maps,
     meminfo_field_in_pages,
     mlock,
+    mprotect,
     prctl_set_vma_anon_name,
     prng32,
     skip_if_highmem,
@@ -424,6 +425,21 @@ class TestMm(MmTestCase):
         self.assertEqual(access_process_vm(task, address, len(data)), data)
         self.assertEqual(access_remote_vm(task.mm, address, len(data)), data)
         self.assertRaises(FaultError, access_process_vm, task, 0, 8)
+
+    @unittest.skipUnless(NORMALIZED_MACHINE_NAME == "x86_64", "machine is not x86_64")
+    @skip_unless_have_full_mm_support
+    def test_access_process_vm_prot_none(self):
+        task = find_task(self.prog, os.getpid())
+        data = bytes(range(256)) * (mmap.PAGESIZE // 256)
+        with mmap.mmap(
+            -1, mmap.PAGESIZE, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS
+        ) as map:
+            map[:] = data
+            address = ctypes.addressof(ctypes.c_char.from_buffer(map))
+            mlock(address, mmap.PAGESIZE)
+            mprotect(address, mmap.PAGESIZE, 0)  # PROT_NONE
+            self.assertEqual(access_process_vm(task, address, len(data)), data)
+            self.assertEqual(access_remote_vm(task.mm, address, len(data)), data)
 
     @skip_unless_have_full_mm_support
     @skip_if_highmem

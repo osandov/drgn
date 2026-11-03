@@ -603,6 +603,7 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 	static const int PGTABLE_MASK = (1 << PGTABLE_SHIFT) - 1;
 	static const uint64_t PRESENT = 0x1;
 	static const uint64_t PSE = 0x80; // a.k.a. huge page
+	static const uint64_t PROTNONE = 0x100;
 	static const uint64_t ADDRESS_MASK = UINT64_C(0xffffffffff000);
 	struct drgn_error *err;
 	bool bswap = drgn_platform_bswap(&prog->platform);
@@ -657,6 +658,13 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 				*virt_addr_ret = virt_addr & ~mask;
 				if (entry & PRESENT)
 					*phys_addr_ret = table & ~mask;
+				else if ((entry & PROTNONE) &&
+					 (level == 0 ||
+					  (level <= 2 && (entry & PSE))))
+					// Linux inverts the PFN in PROT_NONE
+					// mappings to prevent speculative access.
+					*phys_addr_ret = ~entry & ADDRESS_MASK & ~mask &
+							 ((UINT64_C(1) << (levels == 5 ? 52 : 46)) - 1);
 				else
 					*phys_addr_ret = UINT64_MAX;
 				it->virt_addr = (virt_addr | mask) + 1;

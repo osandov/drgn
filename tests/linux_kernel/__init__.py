@@ -498,6 +498,15 @@ def mlock(addr, len):
     _check_ctypes_syscall(_mlock(addr, len))
 
 
+_mprotect = _c.mprotect
+_mprotect.restype = ctypes.c_int
+_mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+
+
+def mprotect(addr, len, prot):
+    _check_ctypes_syscall(_mprotect(addr, len, prot))
+
+
 _prctl = _c.prctl
 _prctl.argtypes = [ctypes.c_int]
 _prctl.restype = ctypes.c_int
