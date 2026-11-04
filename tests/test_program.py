@@ -1288,6 +1288,55 @@ class TestSetLinuxKernelCustom(TestCase):
         self.assertTrue(prog.flags & ProgramFlags.IS_LINUX_KERNEL)
         self.assertEqual(prog.read(0x1000, len(data), physical=True), data)
 
+    def test_aarch64_custom_linux_kernel_virtual_memory(self):
+        # Model a four-level AArch64 page table backed by discontiguous physical
+        # memory segments, as a split/raw ramdump reader would provide.
+        virtual_base = 0xFFFF800000000000
+        root, level1, level2, level3, data_page = (
+            0x1000,
+            0x3000,
+            0x7000,
+            0xB000,
+            0xD000,
+        )
+        pages = {
+            address: bytearray(4096)
+            for address in (root, level1, level2, level3, data_page)
+        }
+        indices = [(virtual_base >> shift) & 0x1FF for shift in (39, 30, 21, 12)]
+
+        def write_entry(table, index, value):
+            offset = index * 8
+            pages[table][offset : offset + 8] = value.to_bytes(8, "little")
+
+        for table, index, next_table in zip(
+            (root, level1, level2), indices, (level1, level2, level3)
+        ):
+            write_entry(table, index, next_table | 0b11)
+        write_entry(level3, indices[3], data_page | 0b11)
+
+        data = b"split ramdump contents"
+        data_offset = 0x40
+        pages[data_page][data_offset : data_offset + len(data)] = data
+
+        vmcoreinfo = make_vmcoreinfo(
+            swapper_pg_dir=virtual_base + root,
+            extra_lines=[
+                "NUMBER(VA_BITS)=48",
+                f"NUMBER(kimage_voffset)=0x{virtual_base:x}",
+            ],
+        )
+        prog = Program(Platform(Architecture.AARCH64), vmcoreinfo=vmcoreinfo)
+        for address, page in pages.items():
+
+            def read_page(addr, count, offset, physical, page=page):
+                return page[offset : offset + count]
+
+            prog.add_memory_segment(address, len(page), read_page, physical=True)
+        prog.set_linux_kernel_custom(vmcoreinfo, is_live=False)
+
+        self.assertEqual(prog.read(virtual_base + data_offset, len(data)), data)
+
     def test_with_virtual_memory_segment(self):
         prog = Program(MOCK_PLATFORM)
         data = b"test data"
