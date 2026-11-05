@@ -1,0 +1,53 @@
+From: Stephen Brennan <stephen.s.brennan@oracle.com>
+Date: Wed, 04 Nov 2026 15:40:43 -0800
+Subject: [PATCH] libbpf: Accept zero-filled BTF header extensions with swapped
+ endianness
+
+Pahole 1.32 emits a 32-byte BTF header even when the optional layout
+section is disabled and both additional header fields are zero.
+The libbpf bundled with Linux 5.10 through 7.0 rejects this header when
+its endianness differs from the host, causing s390x kernel and external
+module builds with a newer pahole to fail with:
+
+  unsupported header length 32
+
+Allow unknown header fields when they are all zero, since those bytes
+need no byte swapping and can be preserved without interpreting them.
+Validate the header length before checking the extension, and continue
+to reject nonzero unknown fields.
+
+This is a compatibility workaround for Linux 5.10 through 7.0. Linux 7.1
+adds full layout header support in commit 087f3964f4b3 ("libbpf: Support
+layout section handling in BTF").
+
+Signed-off-by: Stephen Brennan <stephen.s.brennan@oracle.com>
+---
+ tools/lib/bpf/btf.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/tools/lib/bpf/btf.c b/tools/lib/bpf/btf.c
+index 83fe79ffcb8fb..a770495dca6ac 100644
+--- a/tools/lib/bpf/btf.c
++++ b/tools/lib/bpf/btf.c
+@@ -237,8 +237,20 @@ static int btf_parse_hdr(struct btf *btf)
+ 	}
+ 
+ 	if (hdr->magic == bswap_16(BTF_MAGIC)) {
++		__u32 hdr_len = bswap_32(hdr->hdr_len), i;
++
+ 		btf->swapped_endian = true;
+-		if (bswap_32(hdr->hdr_len) != sizeof(struct btf_header)) {
++		if (hdr_len < sizeof(*hdr) || hdr_len > btf->raw_size) {
++			pr_debug("Invalid BTF header length %u\n", hdr_len);
++			return -EINVAL;
++		}
++		/*
++		 * Unknown header fields need no byte swapping if they are zero.
++		 * Reject non-zero extensions which we cannot interpret.
++		 */
++		for (i = sizeof(*hdr); i < hdr_len; i++) {
++			if (!((const char *)hdr)[i])
++				continue;
+ 			pr_warn("Can't load BTF with non-native endianness due to unsupported header length %u\n",
+ 				bswap_32(hdr->hdr_len));
+ 			return -ENOTSUP;

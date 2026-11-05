@@ -580,6 +580,10 @@ def kconfig_localversion(arch: Architecture, flavor: KernelFlavor, version: str)
     patch_level = 0
     # If only specific architecture/flavor/version combinations need to be
     # rebuilt, conditionally increment the patch level here.
+    if arch.name == "s390x" and (
+        KernelVersion("5.10") <= KernelVersion(version) < KernelVersion("7.1")
+    ):
+        patch_level = 1
     if patch_level:
         vmtest_kernel_version.append(patch_level)
 
