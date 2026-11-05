@@ -47,6 +47,10 @@ class _Patch(NamedTuple):
 
 _PATCHES = (
     _Patch(
+        name="libbpf-Accept-zero-filled-BTF-header-extensions-with.patch",
+        versions=((KernelVersion("5.10"), KernelVersion("7.1")),),
+    ),
+    _Patch(
         name="proc-kcore-allow-enabling-CONFIG_PROC_KCORE-on-ARM.patch",
         versions=((None, None),),
     ),
