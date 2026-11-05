@@ -3077,19 +3077,21 @@ struct drgn_error *drgn_module_find_dwarf_scopes(struct drgn_module *module,
 	 * over all of its children until we find a more specific DIE, then we
 	 * descend into that one.
 	 *
-	 * We only want to descend into children DIEs when the last DIE
-	 * contained the PC, which is when size(it.dies) == subtree.
+	 * Descend into children DIEs when the last DIE contained the PC or is
+	 * a namespace. Namespaces may have no address range even when their
+	 * children contain the PC.
 	 */
-	while (!(err = drgn_dwarf_die_iterator_next(&it,
-						    dwarf_die_vector_size(&it.dies)
-						    == subtree,
+	bool children = true;
+	while (!(err = drgn_dwarf_die_iterator_next(&it, children,
 						    subtree))) {
-		int r = dwarf_haspc(dwarf_die_vector_last(&it.dies), pc);
+		Dwarf_Die *die = dwarf_die_vector_last(&it.dies);
+		int r = dwarf_haspc(die, pc);
 		if (r > 0) {
 			subtree = dwarf_die_vector_size(&it.dies);
 		} else if (r < 0) {
 			return drgn_error_libdw();
 		}
+		children = r > 0 || dwarf_tag(die) == DW_TAG_namespace;
 	}
 	if (err != &drgn_stop)
 		return err;
