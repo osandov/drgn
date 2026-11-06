@@ -344,7 +344,6 @@ def _download_thread(
     download_dir: Path,
     downloads: Iterable[Download],
     q: "queue.Queue[Union[Downloaded, Exception]]",
-    sem: threading.Semaphore,
     stop: threading.Event,
 ) -> None:
     try:
@@ -364,8 +363,6 @@ def _download_thread(
                 assert False
 
         for resolved in resolved_downloads:
-            if isinstance(resolved, Kernel):
-                sem.acquire()
             if stop.is_set():
                 return
             if isinstance(resolved, Kernel):
@@ -380,12 +377,9 @@ def _download_thread(
 
 @contextmanager
 def download_in_thread(
-    download_dir: Path, downloads: Iterable[Download], max_pending_kernels: int = 0
+    download_dir: Path, downloads: Iterable[Download]
 ) -> Generator[Iterator[Downloaded], None, None]:
     q: "queue.Queue[Union[Downloaded, Exception]]" = queue.Queue()
-    sem = threading.Semaphore(
-        max_pending_kernels or 1000000  # Default to an arbitrary high limit.
-    )
     stop = threading.Event()
 
     def aux() -> Iterator[Downloaded]:
@@ -395,15 +389,13 @@ def download_in_thread(
                 break
             elif isinstance(obj, Exception):
                 raise obj
-            elif isinstance(obj, Kernel):
-                sem.release()
             yield obj
 
     thread = None
     try:
         thread = threading.Thread(
             target=_download_thread,
-            args=(download_dir, downloads, q, sem, stop),
+            args=(download_dir, downloads, q, stop),
             daemon=True,
         )
         thread.start()
@@ -411,8 +403,6 @@ def download_in_thread(
     finally:
         if thread:
             stop.set()
-            # Unblock the download thread if it's blocked on the semaphore.
-            sem.release()
             thread.join()
 
 
