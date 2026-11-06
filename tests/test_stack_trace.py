@@ -79,3 +79,27 @@ class TestStackTraceFromPcs(TestCase):
             ).stack_trace_from_pcs,
             [0xDEADBEEF],
         )
+
+
+class TestRustNamespaceCoreDump(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.prog = Program()
+        cls.prog.set_enabled_debug_info_finders([])
+        cls.prog.set_core_dump(get_resource("rust_namespace.core"))
+        cls.prog.create_loaded_modules()
+        cls.prog.main_module().try_file(get_resource("rust_namespace"))
+        cls.prog.load_debug_info()
+        cls.trace = cls.prog.main_thread().stack_trace()
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.trace
+        del cls.prog
+
+    def test_namespace_local(self):
+        frame = next(f for f in self.trace if f.function_name == "scope_probe")
+        self.assertIn("point", frame.locals())
+        point = frame["point"]
+        self.assertEqual(point.bar.value_(), 10)
+        self.assertEqual(point.foo.value_(), 20)
