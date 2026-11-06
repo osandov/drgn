@@ -839,6 +839,26 @@ class Program:
         """
         ...
 
+    def set_userspace_custom(
+        self,
+        *,
+        is_live: bool = False,
+        aarch64_insn_pac_mask: int = 0,
+    ) -> None:
+        """
+        Set the program to a custom userspace target.
+
+        This enables debugging a userspace program via custom memory segments.
+        Currently, allows specifying some configuration parameters which drgn
+        would normally detect at runtime for core dumps or live processes. Prior
+        to calling this, users must register at least one memory segment.
+
+        :param is_live: Whether the program is currently running.
+        :param aarch64_insn_pac_mask: The aarch64 Pointer Authentication Code
+            (PAC) mask.
+        """
+        ...
+
     def set_pid(self, pid: int) -> None:
         """
         Set the program to a running process.

@@ -815,6 +815,36 @@ out_vmcoreinfo:
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_userspace_custom(struct drgn_program *prog, bool is_live,
+                                  uint64_t aarch64_insn_pac_mask)
+{
+	// To prevent users from calling this after another drgn_program_set,
+	// check for initialization. Check core_fd to ensure this may not be
+	// called after initializing a standard user/kernel program. Check flags
+	// to ensure this may not be called after initializing a QMP / custom
+	// kernel program.
+	if (prog->core_fd != -1 || prog->flags || prog->aarch64_insn_pac_mask)
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+		                         "program has already been initialized");
+
+	// To prevent users from calling another drgn_program_set method after
+	// calling this one, require that the user has created at least one
+	// memory region before this. (Thus ensuring
+	// drgn_program_check_initialized() would raise an error on the second
+	// initialization attempt.) This is a reasonable ordering constraint,
+	// given that it is already what set_linux_kernel_custom() already
+	// expects.
+	if (drgn_memory_reader_empty(&prog->reader))
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+		                         "at least one memory region must be added prior to calling set_userspace_custom()");
+
+	prog->aarch64_insn_pac_mask = aarch64_insn_pac_mask;
+	if (is_live)
+		prog->flags |= DRGN_PROGRAM_IS_LIVE;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 {
 	struct drgn_error *err;

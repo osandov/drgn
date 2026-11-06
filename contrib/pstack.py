@@ -23,7 +23,6 @@ binaries, as well as ".gnu_debugdata" sections for address to symbol resolution.
 import argparse
 import ctypes.util
 import fnmatch
-import functools
 import logging
 import os
 import struct
@@ -43,7 +42,6 @@ from typing import Union
 
 from drgn import Architecture
 from drgn import FaultError
-from drgn import host_platform
 from drgn import Object
 from drgn import Program
 from drgn import ProgramFlags
@@ -103,16 +101,6 @@ def vmcoreinfo_data(prog: Program) -> Dict[str, str]:
         .strip()
         .split("\n")
     )
-
-
-@functools.lru_cache(maxsize=1)
-def drgn_supports_pac_mask() -> bool:
-    try:
-        Program(platform=host_platform, aarch64_insn_pac_mask=1234)
-    except TypeError:
-        return False
-    else:
-        return True
 
 
 def build_id_from_first_bytes(data: bytes) -> Optional[bytes]:
@@ -486,26 +474,13 @@ def demangle(mangled: str) -> str:
         return mangled
 
 
-def print_user_stack_trace(
-    regs: Object, pac_mask: Optional[int] = None
-) -> None:
+def print_user_stack_trace(regs: Object) -> None:
     """
     Prints the userspace stack trace for regs, with the module name included
     for each frame. Including the module name is pretty important for userspace.
     """
     prog = regs.prog_
     trace = prog.stack_trace(regs)
-    if pac_mask and not drgn_supports_pac_mask():
-        # Fallback for when setting pac_mask is not supported:
-        pcs = []
-        for frame in trace:
-            try:
-                pcs.append(frame.pc & ~pac_mask)
-            except LookupError:
-                # Sometimes stack frames have unknown PCs. These are usually at
-                # the end or beginning of the trace. Skip them.
-                continue
-        trace = prog.stack_trace_from_pcs(pcs)
     print("    ------ userspace ---------")
     for i, frame in enumerate(trace):
         name = demangle(frame.name)
@@ -544,15 +519,16 @@ def build_prog_from_mm(mm: Object, pac_mask: Optional[int]) -> Program:
     :returns: a Program which can be debugged like a userspace process
     """
     prog = mm.prog_
-    if pac_mask and drgn_supports_pac_mask():
-        up = Program(prog.platform, aarch64_insn_pac_mask=pac_mask)
-    else:
-        up = Program(prog.platform)
+    up = Program(prog.platform)
 
     def read_fn(_, count, offset, __):
         return access_remote_vm(mm, offset, count)
 
     up.add_memory_segment(0, 0xFFFFFFFFFFFFFFFF, read_fn, False)
+    up.set_userspace_custom(
+        is_live=bool(prog.flags & ProgramFlags.IS_LIVE),
+        aarch64_insn_pac_mask=pac_mask or 0,
+    )
 
     page_size = int(mm.prog_["PAGE_SIZE"])
     for dso in task_dsos(mm):
@@ -658,21 +634,13 @@ def pstack_print_process(
             print("    <running in user mode>")
             regs = task_running_pt_regs(kstack)
         fake_regs = make_fake_pt_regs(user_prog, regs.to_bytes_())
-        print_user_stack_trace(fake_regs, pac_mask)
+        print_user_stack_trace(fake_regs)
 
 
 def aarch64_user_pac_mask(prog: Program) -> Optional[int]:
     """
     Return the pointer mask to remove pointer authentication bits from userspace
-    return addresses, so that that drgn can recognize the memory addresses. When
-    PAC is present, our approach is to have drgn unwind the stack, then mask the
-    bits for each PC, and then create a new stack trace from those masked PCs.
-
-    This is a bit of a hack: it only works if frame pointers are used, because
-    drgn needs to unwind the stack with PAC unmasked, which means that it cannot
-    refer to any .eh_frame data. In practice, this is not really a problem on
-    aarch64 in Oracle Linux but to be more general, it would be best to
-    generalize drgn's PAC support so custom programs can specify the mask.
+    return addresses, so that that drgn can recognize the memory addresses.
     """
     if prog.platform.arch != Architecture.AARCH64:
         return None
