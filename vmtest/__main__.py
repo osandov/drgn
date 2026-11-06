@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import sysconfig
 import time
 import traceback
 from typing import (
@@ -420,7 +421,18 @@ class _TestRunner:
         pytest_args = "--ignore=tests/linux_kernel"
         if self._pytest_local_args is not None:
             pytest_args += " " + self._pytest_local_args
+        success = True
         if rootfs == Path("/"):
+            # make check rebuilds.
+            if not self._skip_build:
+                # Keep this in sync with setup.py.
+                build_temp = "build/temp" + sysconfig.get_config_var("EXT_SUFFIX")[:-3]
+                if subprocess.call(
+                    ["make", "-C", build_temp, f"-j{nproc() + 1}", "check"],
+                    stdout=outfile,
+                    stderr=outfile,
+                ):
+                    success = False
             args = [
                 sys.executable,
                 "-m",
@@ -448,7 +460,7 @@ mount --bind . "$1/mnt"
                 "sh",
                 str(rootfs),
             ]
-        return subprocess.call(args, stdout=outfile, stderr=outfile) == 0
+        return subprocess.call(args, stdout=outfile, stderr=outfile) == 0 and success
 
     def _test_kernel(self, kernel: Kernel, *, outfile: Optional[TextIO] = None) -> bool:
         rootfs = self._rootfs(kernel.arch)
