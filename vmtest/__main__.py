@@ -146,6 +146,7 @@ class _TestRunner:
 
         self._downloader = Downloader(directory)
         self._download_queue: Deque[Union[Compiler, Kernel]] = deque()
+        self._downloads_paused = False
 
         self._test_queue: Deque[Tuple[str, str, _TestFunction]] = deque()
         self._tests_running: Dict[Tuple[str, str], float] = {}
@@ -361,7 +362,12 @@ class _TestRunner:
 
     def _submit_next_download(self) -> bool:
         if self._download_queue:
-            self._submit(self._download, self._download_queue[0])
+            # GitHub Actions has limited disk space, so don't download too far
+            # ahead of the tests. The limit is arbitrary but works well enough.
+            if _IN_GITHUB_ACTIONS and len(self._test_queue) >= 5:
+                self._downloads_paused = True
+            else:
+                self._submit(self._download, self._download_queue[0])
         return not self._foreground
 
     def _download(self, download: Union[Compiler, Kernel]) -> Callable[[], bool]:
@@ -374,9 +380,9 @@ class _TestRunner:
     def _download_done(self, download: Union[Compiler, Kernel]) -> bool:
         popped = self._download_queue.popleft()
         assert popped is download
-        self._submit_next_download()
         if isinstance(download, Kernel):
             self._queue_kernel_test(download)
+        self._submit_next_download()
         return not self._foreground
 
     def _queue_local_test(self, arch: Architecture) -> None:
@@ -404,6 +410,9 @@ class _TestRunner:
             self._tests_running[(category_name, test_name)] = time.monotonic()
             logger.info("%s %s test started", category_name, test_name)
             self._submit(self._test_wrapper, category_name, test_name, fn)
+        if self._downloads_paused:
+            self._downloads_paused = False
+            self._submit_next_download()
 
     def _test_wrapper(
         self, category_name: str, test_name: str, fn: _TestFunction
@@ -548,6 +557,11 @@ fi
         ) as e:
             print(e, file=sys.stderr if outfile is None else outfile)
             return False
+        finally:
+            # We won't use the kernel again, so free up disk space.
+            if _IN_GITHUB_ACTIONS:
+                logger.info("deleting kernel %s", kernel.release)
+                shutil.rmtree(kernel.path)
 
 
 if __name__ == "__main__":
