@@ -19,6 +19,7 @@ from typing import (
     Callable,
     Deque,
     Dict,
+    Iterator,
     List,
     Optional,
     Protocol,
@@ -51,6 +52,23 @@ if TYPE_CHECKING:
     else:
         from typing import ParamSpec  # novermin
     _P = ParamSpec("_P")
+
+
+_IN_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
+
+
+@contextlib.contextmanager
+def _github_workflow_group(title: str) -> Iterator[None]:
+    if not _IN_GITHUB_ACTIONS:
+        yield
+        return
+    sys.stdout.flush()
+    print("::group::" + title, file=sys.stderr, flush=True)
+    try:
+        yield
+    finally:
+        sys.stdout.flush()
+        print("::endgroup::", file=sys.stderr, flush=True)
 
 
 class _TestFunction(Protocol):
@@ -303,6 +321,9 @@ class _TestRunner:
         with contextlib.ExitStack() as exit_stack:
             if self._foreground:
                 outfile = None
+                exit_stack.enter_context(
+                    _github_workflow_group(f"Build drgn for {arch.name}")
+                )
             else:
                 outfile = exit_stack.enter_context(
                     (self._directory / "log" / f"{arch.name}-build.log").open("w")
@@ -390,6 +411,9 @@ class _TestRunner:
         with contextlib.ExitStack() as exit_stack:
             if self._foreground:
                 outfile = None
+                exit_stack.enter_context(
+                    _github_workflow_group(f"Test {category_name} {test_name}")
+                )
             else:
                 outfile = exit_stack.enter_context(
                     (self._directory / "log" / f"{category_name}-{test_name}.log").open(
