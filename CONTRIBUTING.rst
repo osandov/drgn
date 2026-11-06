@@ -33,10 +33,12 @@ drgn's test suite can be run with:
 
 .. code-block:: console
 
-    $ python3 setup.py test
+    $ python3 -m vmtest -l
+
+This requires `pytest <https://docs.pytest.org/>`_.
 
 To run Linux kernel helper tests in a virtual machine on all supported kernels,
-add ``-K``. See `vmtest <vmtest/README.rst>`_ for more details.
+add ``-k default``. See `vmtest <vmtest/README.rst>`_ for more details.
 
 Tests can also be run manually with `unittest
 <https://docs.python.org/3/library/unittest.html#command-line-interface>`_

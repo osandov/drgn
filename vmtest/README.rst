@@ -4,12 +4,12 @@ drgn VM Testing
 drgn has a significant amount of code (both core and in helpers) which is
 dependent on the Linux kernel version. This code is tested on multiple Linux
 kernel versions in a virtual machine. These tests can be run on all supported
-kernels with ``python3 setup.py test -K``. This requires QEMU and zstd to be
-installed.
+kernels with ``python3 -m vmtest -k default``. This requires QEMU, zstd, and
+pytest to be installed.
 
-Tests can also be run on specific kernels with ``-k``. This takes a
-comma-separated list of kernels which are wildcard patterns (e.g., ``5.6.*``)
-matching a kernel release hosted on GitHub (see below).
+Tests can also be run on specific kernels by passing a wildcard pattern (e.g.,
+``5.6.*``) matching a kernel release hosted on GitHub (see below) to ``-k``. It
+may be given multiple times.
 
 Architecture
 ------------
@@ -45,10 +45,9 @@ This infrastructure is all generic. The drgn-specific parts are:
    the `vmtest.download <download.py>`_ module.
 2. A `kernel module <../tests/linux_kernel/kmod>`_ for testing drgn
    functionality that cannot be tested through userspace APIs.
-3. The test command itself. This is just some ``setup.py`` glue to build the
-   test kernel module and run the VM with the proper invocation of the Python
-   `unittest command line interface
-   <https://docs.python.org/3/library/unittest.html#test-discovery>`_.
+3. The `test command <__main__.py>`_ itself. This is just some glue to build
+   drgn and the test kernel module and run the VM with the proper invocation of
+   `pytest <https://docs.pytest.org/>`_.
 
 The ``vmtest.vm`` and ``vmtest.download`` modules also have CLIs for testing
 purposes. These are subject to change.
