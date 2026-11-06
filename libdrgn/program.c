@@ -186,7 +186,6 @@ void drgn_program_deinit(struct drgn_program *prog)
 
 	free(prog->file_segments);
 	free(prog->vmcoreinfo.raw);
-	free(prog->irq_regs_cached);
 
 	drgn_qmp_conn_deinit(&prog->qmp_conn);
 #ifdef WITH_LIBKDUMPFILE

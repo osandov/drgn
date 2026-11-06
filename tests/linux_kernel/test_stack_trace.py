@@ -1,21 +1,101 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import errno
+from fcntl import ioctl
 import logging
+import mmap
 import os
+from pathlib import Path
 import re
+import signal
 import unittest
 
-from _drgn_util.platform import NORMALIZED_MACHINE_NAME
+from _drgn_util.platform import _IO, NORMALIZED_MACHINE_NAME
 from drgn import Object, Program, TypeMember, reinterpret
 from drgn.helpers.linux import load_module_kallsyms, load_vmlinux_kallsyms
 from tests import assertReprPrettyEqualsStr, drgn_log_level, modifyenv
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     fork_and_stop,
+    proc_state,
     skip_unless_have_stack_tracing,
     skip_unless_have_test_kmod,
+    wait_until,
 )
+
+
+class PageFaultThread:
+    """
+    A reusable test fixture that creates thread sleeping in a page fault on a
+    kernel task thread. This allows us to test unwinding through exceptions
+    without actually entering the kdump environment.
+
+    We do this through the drgn_test_fault device. We open the file and mmap a
+    page. Then we use write() to write a 1-byte pointer into the FD. Crucially,
+    the pointer is a pointer into the mapped region, which we haven't faulted in
+    yet. As a result, our write handler must fault the page, eventually calling
+    our fault handler, which  will then go to sleep. We use ioctl() operations
+    to determine when the thread is ready for unwind, and to signal it to exit.
+    """
+
+    def __init__(self):
+        self.fd = os.open("/dev/drgn_test_fault", os.O_RDWR)
+        self.pid = None
+        # Keep these in sync with drgn_test.c.
+        self._entered = _IO(ord("d"), 0)
+        self._release = _IO(ord("d"), 1)
+
+    def _child(self):
+        status = 1
+        try:
+            with mmap.mmap(
+                self.fd, mmap.PAGESIZE, flags=mmap.MAP_SHARED, prot=mmap.PROT_READ
+            ) as mapping:
+                # A memoryview slice does not fault in the mapping. The first
+                # access must be get_user() in the drgn_test module.
+                with memoryview(mapping)[:1] as buf:
+                    try:
+                        os.write(self.fd, buf)
+                    except OSError as e:
+                        if e.errno == errno.EFAULT:
+                            status = 0
+        finally:
+            os._exit(status)
+
+    def _child_sleeping_in_fault(self):
+        if proc_state(self.pid) == "Z":
+            raise RuntimeError("faulting child exited")
+        return (
+            ioctl(self.fd, self._entered) == 1
+            and proc_state(self.pid) == "S"
+            and Path(f"/proc/{self.pid}/syscall").read_text() != "running\n"
+        )
+
+    def __enter__(self):
+        self.pid = os.fork()
+        if self.pid == 0:
+            self._child()  # no return
+        wait_until(self._child_sleeping_in_fault)
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        try:
+            ioctl(self.fd, self._release)
+        except Exception:
+            if self.pid is not None:
+                os.kill(self.pid, signal.SIGKILL)
+        finally:
+            os.close(self.fd)
+            if self.pid is not None:
+                _, status = os.waitpid(self.pid, 0)
+                # Raise an error during normal exit if the child doesn't exit
+                # cleanly. If we already have an exception, swallow it because it's
+                # probably related.
+                if exc_type is None and (
+                    not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0
+                ):
+                    raise RuntimeError("faulting child did not exit cleanly")
 
 
 @skip_unless_have_stack_tracing
@@ -41,6 +121,33 @@ class LinuxKernelStackTraceTestCase(LinuxKernelTestCase):
 
 
 class TestStackTrace(LinuxKernelStackTraceTestCase):
+    @skip_unless_have_test_kmod
+    def test_unwind_through_page_fault(self):
+        if not self.prog["drgn_test_have_fault_stack_trace"]:
+            self.skipTest("test requires Linux 4.19 or later")
+
+        # Full support: x86_64, aarch64, s390x
+        CANNOT_UNWIND = ("arm",)
+        CANNOT_RECOVER_REGS = ("ppc64",)
+        if NORMALIZED_MACHINE_NAME in CANNOT_UNWIND:
+            self.skipTest("reliable unwinding through exceptions not available")
+
+        with PageFaultThread() as thread:
+            trace = self.prog.stack_trace(thread.pid)
+            names = [frame.name for frame in trace]
+            fault_index = names.index("drgn_test_fault")
+            write_index = names.index("drgn_test_fault_write")
+            self.assertLess(fault_index, write_index)
+            self.assertGreater(trace[write_index].sp, 0)
+            if NORMALIZED_MACHINE_NAME not in CANNOT_RECOVER_REGS:
+                interrupted = [
+                    frame
+                    for frame in list(trace)[fault_index + 1 : write_index]
+                    if frame.interrupted and not frame.is_inline
+                ]
+                self.assertEqual(len(interrupted), 1)
+                self.assertGreater(interrupted[0].sp, 0)
+
     @skip_unless_have_test_kmod
     def test_by_task_struct(self):
         self._test_drgn_test_kthread_trace(
