@@ -61,7 +61,8 @@ jobs:
           if [[ "${{ matrix.python-version }}" =~ ^3\.[678]$ ]]; then
               pyroute2_version="<0.9.1"
           fi
-          pip install capstone "pyroute2$pyroute2_version" setuptools pre-commit
+          # pytest-subtests was merged into pytest 9, which requires Python >= 3.10.
+          pip install capstone "pyroute2$pyroute2_version" setuptools pre-commit pytest "pytest-subtests; python_version < '3.10'"
       # Upstream defaults to world-read-writeable /dev/kvm. Debian/Ubuntu
       # override this; see
       # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=892945. We want the
@@ -79,7 +80,7 @@ jobs:
         # We link to libgcc_s on Python 3.8 to work around
         # https://github.com/python/cpython/issues/88600 (which for us
         # manifested as spurious crashes in test cases that fork).
-        run: CONFIGURE_FLAGS="--enable-compiler-warnings=error ${{ matrix.python-version == '3.8' && 'LIBS=-lgcc_s' || '' }}" python setup.py test -K ${{ inputs.test_all_kernel_flavors && '-F' || '' }}
+        run: CONFIGURE_FLAGS="--enable-compiler-warnings=error ${{ matrix.python-version == '3.8' && 'LIBS=-lgcc_s' || '' }}" python -m vmtest -l -k ${{ inputs.test_all_kernel_flavors && 'all' || 'default' }}
 
   lint:
     runs-on: ubuntu-latest
