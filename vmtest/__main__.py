@@ -28,6 +28,7 @@ from typing import (
     Tuple,
     Union,
 )
+import urllib.error
 
 from util import KernelVersion, nproc
 from vmtest.chroot import chroot_sh_cmd
@@ -200,8 +201,11 @@ class _TestRunner:
                     update_progress |= callback()
                 if update_progress:
                     self._print_progress()
-        except Exception:
+        except Exception as e:
             traceback.print_exc()
+            if isinstance(e, urllib.error.HTTPError) and e.code == 403:
+                print("Headers:", e.headers, file=sys.stderr)
+                print("Body:", e.read().decode(), file=sys.stderr)
             return False
         finally:
             for future in self._futures:
