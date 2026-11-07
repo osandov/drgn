@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "switch_enum.h" // IWYU pragma: export
+
 #define _unused_ __attribute__((__unused__))
 
 #ifndef LIBDRGN_PUBLIC
@@ -37,22 +39,6 @@
 #endif
 
 #define HOST_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
-
-/**
- * Switch statement with an enum controlling expression that must have a case
- * for every enumeration value and a default case.
- *
- * m4/my_c_switch_enum.m4 checks whether this works and defines a stub version
- * if not. Keep this definition in sync with the check.
- */
-#ifndef SWITCH_ENUM
-#define SWITCH_ENUM(expr)					\
-	_Pragma("GCC diagnostic push")				\
-	_Pragma("GCC diagnostic error \"-Wswitch-enum\"")	\
-	_Pragma("GCC diagnostic error \"-Wswitch-default\"")	\
-	switch (expr)						\
-	_Pragma("GCC diagnostic pop")
-#endif
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)

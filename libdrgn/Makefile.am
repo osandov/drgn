@@ -133,6 +133,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    stack_trace.h \
 			    string_builder.c \
 			    string_builder.h \
+			    switch_enum.h \
 			    symbol.c \
 			    symbol.h \
 			    type.c \
