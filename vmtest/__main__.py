@@ -155,7 +155,7 @@ class _TestRunner:
 
     def _submit(
         self,
-        fn: Callable["_P", Callable[[], bool]],
+        fn: "Callable[_P, Callable[[], bool]]",
         *args: "_P.args",
         **kwargs: "_P.kwargs",
     ) -> None:
