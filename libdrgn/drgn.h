@@ -847,6 +847,24 @@ drgn_program_set_linux_kernel_custom(struct drgn_program *prog,
 				     const char *vmcoreinfo,
 				     size_t vmcoreinfo_size, bool is_live);
 
+
+/**
+ * Set a @ref drgn_program to a custom userspace target.
+ *
+ * This enables debugging a userspace program via custom memory segments.
+ * Currently, it allows specifying a few configuration parameters which
+ * drgn would normally detect at runtime for core dumps or live processes.
+ * Prior to calling this, users must register at least one memory segment.
+ *
+ * @param[in] is_live Whether the program is currently running.
+ * @param[in] aarch64_insn_pac_mask The aarch64 Pointer Authentication Code
+ * (PAC) mask.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_program_set_userspace_custom(struct drgn_program *prog, bool is_live,
+                                  uint64_t aarch64_insn_pac_mask);
+
 /**
  * Set a @ref drgn_program to a running process.
  *
