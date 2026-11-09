@@ -449,6 +449,7 @@ def compile_dwarf(
     use_dw_form_indirect=False,
     compress=None,
     split=None,
+    elf_type=ET.EXEC,
     sections=(),
     little_endian=True,
     bits=64,
@@ -532,7 +533,7 @@ def compile_dwarf(
 
     return DwarfResult(
         data=create_elf_file(
-            ET.EXEC,
+            elf_type,
             sections=[*sections, *dwarf_sections],
             little_endian=little_endian,
             bits=bits,
