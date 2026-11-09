@@ -8,7 +8,7 @@ import os.path
 import re
 import tempfile
 
-from _drgn_util.elf import PT, SHF, SHT, STB, STT
+from _drgn_util.elf import ET, PT, SHF, SHT, STB, STT
 import drgn
 from drgn import (
     AbsenceReason,
@@ -7250,6 +7250,30 @@ class TestCompressedDebugSections(TestCase):
 
     def test_zlib_gabi(self):
         prog = dwarf_program(wrap_test_type_dies(self.int_die), compress="zlib-gabi")
+        self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
+    def test_zlib_gabi_relocatable(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(self.int_die),
+            compress="zlib-gabi",
+            elf_type=ET.REL,
+            sections=(
+                ElfSection(
+                    name=".symtab",
+                    sh_type=SHT.SYMTAB,
+                    data=bytes(24),
+                    sh_entsize=24,
+                ),
+                ElfSection(
+                    name=".rela.debug_info",
+                    sh_type=SHT.RELA,
+                    data=bytes(24),  # R_X86_64_NONE
+                    sh_link=1,  # .symtab
+                    sh_info=4,  # .debug_info
+                    sh_entsize=24,
+                ),
+            ),
+        )
         self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
 
 

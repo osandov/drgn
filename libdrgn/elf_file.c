@@ -555,6 +555,12 @@ struct drgn_error *drgn_elf_file_read_section(struct drgn_elf_file *file,
 {
 	struct drgn_error *err;
 
+	if (apply_relocations) {
+		err = drgn_elf_file_apply_relocations(file);
+		if (err)
+			return err;
+	}
+
 	GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
 	if (!shdr)
 		return drgn_error_libelf();
@@ -562,12 +568,6 @@ struct drgn_error *drgn_elf_file_read_section(struct drgn_elf_file *file,
 	if (shdr->sh_type == SHT_NOBITS) {
 		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "section has no data");
-	}
-
-	if (apply_relocations) {
-		err = drgn_elf_file_apply_relocations(file);
-		if (err)
-			return err;
 	}
 
 	if (file->gnu_compressed_sections
