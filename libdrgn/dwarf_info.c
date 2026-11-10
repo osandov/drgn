@@ -5416,6 +5416,13 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 					 "DW_TAG_base_type has missing or invalid DW_AT_byte_size");
 	}
 
+	/* Rust's unit type, (), is a zero-sized base type. Represent it as an empty structure. */
+	if (size == 0) {
+		_cleanup_(drgn_compound_type_builder_deinit) struct drgn_compound_type_builder builder;
+		drgn_compound_type_builder_init(&builder, dbinfo->prog, DRGN_TYPE_STRUCT);
+		return drgn_compound_type_create(&builder, name, 0, true, lang, ret);
+	}
+
 	enum drgn_byte_order byte_order;
 	err = dwarf_die_byte_order(die, true, &byte_order);
 	if (err)
