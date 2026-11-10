@@ -7268,8 +7268,8 @@ class TestCompressedDebugSections(TestCase):
                     name=".rela.debug_info",
                     sh_type=SHT.RELA,
                     data=bytes(24),  # R_X86_64_NONE
-                    sh_link=1,  # .symtab
-                    sh_info=4,  # .debug_info
+                    sh_link=".symtab",
+                    sh_info=".debug_info",
                     sh_entsize=24,
                 ),
             ),

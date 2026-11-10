@@ -22,8 +22,8 @@ class ElfSection:
         paddr: int = 0,
         memsz: Optional[int] = None,
         p_align: int = 0,
-        sh_link: int = 0,
-        sh_info: int = 0,
+        sh_link: Union[int, str] = 0,
+        sh_info: Union[int, str] = 0,
         sh_entsize: int = 0,
         sh_flags: SHF = SHF(0),
     ):
@@ -119,7 +119,7 @@ def _create_symtab(
             name=symtab_name,
             sh_type=SHT.DYNSYM if dynamic else SHT.SYMTAB,
             data=symtab_data,
-            sh_link=sum((1 for section in sections if section.name is not None), 2),
+            sh_link=strtab_name,
             sh_info=sh_info,
             sh_entsize=symbol_struct.size,
         )
@@ -224,16 +224,23 @@ def create_elf_file(
 
     shnum = 0
     phnum = 0
+    section_indices = {}
     for section in sections:
         if section.name is not None:
             add_to_shstrtab(section.name)
             shnum += 1
+            section_indices.setdefault(section.name, shnum)
         if section.p_type is not None:
             phnum += 1
     if shnum > 0:
         shnum += 2  # One for the SHT_NULL section, one for .shstrtab.
         add_to_shstrtab(".shstrtab")
         sections.append(ElfSection(name=".shstrtab", sh_type=SHT.STRTAB, data=shstrtab))
+
+    def section_index(index_or_name):
+        if isinstance(index_or_name, str):
+            return section_indices[index_or_name]
+        return index_or_name
 
     shdr_offset = ehdr_struct.size
     phdr_offset = shdr_offset + shdr_struct.size * shnum
@@ -301,8 +308,8 @@ def create_elf_file(
                 section.vaddr,  # sh_addr
                 len(buf),  # sh_offset
                 sh_size,  # sh_size
-                section.sh_link,  # sh_link
-                section.sh_info,  # sh_info
+                section_index(section.sh_link),  # sh_link
+                section_index(section.sh_info),  # sh_info
                 sh_addralign,  # sh_addralign
                 section.sh_entsize,  # sh_entsize
             )
