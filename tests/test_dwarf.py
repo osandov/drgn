@@ -9049,6 +9049,106 @@ class TestSourceLocation(TestCase):
         self.assertEqual(tuple(locs[1]), ("/usr/src/main.c", 2, 2))
         self.assertEqual(locs[1].name(), "caller")
 
+    def test_function_in_namespace(self):
+        prog = self.dwarf_lnp_program(
+            dies=(
+                *labeled_int_die,
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "moho"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.namespace,
+                            (DwarfAttrib(DW_AT.name, DW_FORM.string, "eve"),),
+                            (
+                                DwarfDie(
+                                    DW_TAG.subprogram,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.name, DW_FORM.string, "caller"
+                                        ),
+                                        DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, 0x100),
+                                        DwarfAttrib(DW_AT.high_pc, DW_FORM.addr, 0x108),
+                                    ),
+                                    (
+                                        DwarfDie(
+                                            DW_TAG.variable,
+                                            (
+                                                DwarfAttrib(
+                                                    DW_AT.name, DW_FORM.string, "x"
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.type, DW_FORM.ref4, "int_die"
+                                                ),
+                                            ),
+                                        ),
+                                        DwarfDie(
+                                            DW_TAG.inlined_subroutine,
+                                            (
+                                                DwarfAttrib(
+                                                    DW_AT.abstract_origin,
+                                                    DW_FORM.ref4,
+                                                    "callee_die",
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.low_pc, DW_FORM.addr, 0x104
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.high_pc, DW_FORM.addr, 0x108
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.call_file,
+                                                    DW_FORM.udata,
+                                                    "main.c",
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.call_line, DW_FORM.udata, 2
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.call_column, DW_FORM.udata, 2
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                                DwarfLabel("callee_die"),
+                                DwarfDie(
+                                    DW_TAG.subprogram,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.name, DW_FORM.string, "callee"
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            lnp=create_dwarf_lnp(
+                (
+                    (0x100, "main.c", 1, 1),
+                    (0x104, "main.c", 6, 4),
+                    (0x108, "main.c", 10, 1),
+                    (0x10C, None, None, None),
+                ),
+                comp_dir="/usr/src",
+                file_name="main.c",
+            ),
+            low_pc=0x100,
+            high_pc=0x10C,
+        )
+        locs = prog.source_location(0x104)
+        self.assertEqual(len(locs), 2)
+        self.assertEqual(tuple(locs[0]), ("/usr/src/main.c", 6, 4))
+        self.assertEqual(locs[0].name(), "callee")
+        self.assertEqual(tuple(locs[1]), ("/usr/src/main.c", 2, 2))
+        self.assertEqual(locs[1].name(), "caller")
+
+        trace = prog.stack_trace_from_pcs([0x105])
+        self.assertEqual([frame.function_name for frame in trace], ["callee", "caller"])
+        self.assertEqual(trace[1].locals(), ["x"])
+
     def test_assembly(self):
         prog = self.dwarf_lnp_program(
             lnp=create_dwarf_lnp(
