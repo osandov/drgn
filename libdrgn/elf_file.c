@@ -263,6 +263,7 @@ static int should_apply_relocation_section(Elf *elf, size_t shstrndx,
 		scnname += sizeof(".rel.") - 1;
 	}
 	return (strstartswith(scnname, "debug_")
+		|| strstartswith(scnname, "zdebug_")
 		|| strstartswith(scnname, "orc_"));
 }
 
