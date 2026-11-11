@@ -1352,10 +1352,14 @@ class Program:
         template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
+        discriminants: Optional[Sequence[Optional[IntegerLike]]] = None,
     ) -> Type:
         """
         Create a new union type. It has kind :attr:`TypeKind.UNION`. Otherwise,
         this is the same as as :meth:`struct_type()`.
+
+        :param discriminants: :attr:`Type.discriminants`. If not ``None``,
+            the first member must have an integer type.
         """
         ...
 
@@ -3606,6 +3610,21 @@ class Type:
     """
     List of members of this type, or ``None`` if this is an incomplete type.
     This is present for structure, union, and class types.
+    """
+
+    discriminants: Final[Optional[Sequence[Optional[int]]]]
+    """
+    List of discriminant values of the variants of this type, or ``None`` if
+    this is not a discriminated union. This is only present for union types.
+
+    A discriminated union is a union whose first member is the discriminant
+    and whose other members are variants. The value of the discriminant
+    selects the active variant. Rust enums are represented this way.
+
+    There is one discriminant value for each variant: ``discriminants[i]`` is
+    the value for ``members[i + 1]``. A variant whose discriminant value is
+    ``None`` is the default variant, which is active when the discriminant
+    doesn't match any other variant.
     """
 
     enumerators: Final[Optional[Sequence[TypeEnumerator]]]

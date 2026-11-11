@@ -3503,6 +3503,18 @@ struct drgn_type_enumerator {
 	};
 };
 
+/**
+ * Discriminant value of a variant of a discriminated union type.
+ *
+ * @sa drgn_type_discrs()
+ */
+union drgn_type_discr {
+	/** Discriminant value if the discriminant is signed. */
+	int64_t svalue;
+	/** Discriminant value if the discriminant is unsigned. */
+	uint64_t uvalue;
+};
+
 /** Parameter of a function type. */
 struct drgn_type_parameter {
 	/**
@@ -3701,6 +3713,41 @@ struct drgn_type_member *drgn_type_members(struct drgn_type *type);
  */
 DRGN_ACCESSOR_LINKAGE
 size_t drgn_type_num_members(struct drgn_type *type);
+
+/**
+ * Get whether a type is a discriminated union.
+ *
+ * A discriminated union is a union type whose first member is the discriminant
+ * and whose other members are variants. The value of the discriminant selects
+ * the active variant. Rust enums are represented this way.
+ */
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_is_discr_union(struct drgn_type *type);
+/**
+ * Get whether the discriminant of a type is signed. @ref
+ * drgn_type_is_discr_union() must be true for this type.
+ */
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_discr_is_signed(struct drgn_type *type);
+/**
+ * Get the discriminant values of the variants of a type. @ref
+ * drgn_type_is_discr_union() must be true for this type.
+ *
+ * There is one entry for each variant (@ref drgn_type_num_members() - 1
+ * entries): entry @c i is for member <tt>i + 1</tt>. The entry for the default
+ * variant (@ref drgn_type_default_discr()) is unused.
+ */
+DRGN_ACCESSOR_LINKAGE
+union drgn_type_discr *drgn_type_discrs(struct drgn_type *type);
+/**
+ * Get the member index of the default variant of a type, or 0 if it doesn't
+ * have one. @ref drgn_type_is_discr_union() must be true for this type.
+ *
+ * The default variant is active when the discriminant doesn't match any other
+ * variant.
+ */
+DRGN_ACCESSOR_LINKAGE
+size_t drgn_type_default_discr(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has a wrapped type. This is true for enumerated,
