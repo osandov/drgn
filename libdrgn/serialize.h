@@ -102,6 +102,28 @@ static inline void copy_lsbytes(void *dst, size_t dst_size,
 }
 
 /**
+ * Deserialize a @p size-byte integer as a 64-bit integer.
+ *
+ * @param[in] size Size of the integer in bytes. Must not be zero.
+ * @param[in] is_signed Whether the integer is signed. If so, the result is
+ * sign-extended.
+ * @param[out] ret Returned value.
+ * @return Whether the integer fits in 64 bits.
+ */
+static inline bool deserialize_int64(const void *buf, size_t size, bool little_endian, bool is_signed, uint64_t *ret)
+{
+	const unsigned char *p = buf;
+	unsigned char msb = little_endian ? p[size - 1] : p[0];
+	int fill = is_signed && (msb & 0x80) ? 0xff : 0;
+	copy_lsbytes_fill(ret, sizeof(*ret), HOST_LITTLE_ENDIAN, buf, size, little_endian, fill);
+	for (size_t i = sizeof(*ret); i < size; i++) {
+		if ((little_endian ? p[i] : p[size - 1 - i]) != fill)
+			return false;
+	}
+	return size <= sizeof(*ret) || !is_signed || ((int64_t)*ret < 0) == (fill != 0);
+}
+
+/**
  * Return a bit mask with bits `[bit_offset, 7]` set.
  *
  * @param[in] lsb0 See @ref copy_bits().
