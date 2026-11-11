@@ -697,6 +697,53 @@ const union foo {
 }""",
         )
 
+    def test_discr_union(self):
+        u32 = self.prog.int_type("u32", 4, False)
+        self.assertPrettyPrint(
+            self.prog.union_type(
+                "Option",
+                8,
+                (
+                    TypeMember(u32),
+                    TypeMember(self.prog.struct_type("None", 8, ()), "None"),
+                    TypeMember(
+                        self.prog.struct_type("Some", 8, (TypeMember(u32, "__0", 32),)),
+                        "Some",
+                    ),
+                    TypeMember(self.prog.struct_type("Other", 8, ()), "Other"),
+                ),
+                discriminants=(0, 0xFFFFFFFF, None),
+            ),
+            """\
+union Option {
+	u32; /* discriminant */
+	struct None None; /* 0 */
+	struct Some Some; /* 4294967295 */
+	struct Other Other; /* default */
+}""",
+        )
+
+    def test_discr_union_signed(self):
+        i8 = self.prog.int_type("i8", 1, True)
+        self.assertPrettyPrint(
+            self.prog.union_type(
+                "S",
+                2,
+                (
+                    TypeMember(i8),
+                    TypeMember(self.prog.struct_type("A", 2, ()), "A"),
+                    TypeMember(self.prog.struct_type("B", 2, ()), "B"),
+                ),
+                discriminants=(-1, 1),
+            ),
+            """\
+union S {
+	i8; /* discriminant */
+	struct A A; /* -1 */
+	struct B B; /* 1 */
+}""",
+        )
+
     def test_class(self):
         self.assertPrettyPrint(
             self.coord_type,

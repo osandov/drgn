@@ -388,6 +388,18 @@ c_declare_variable(struct drgn_qualified_type qualified_type,
 	}
 }
 
+static bool c_append_discr_comment(struct drgn_type *type, size_t i, struct string_builder *sb)
+{
+	if (i == 0)
+		return string_builder_append(sb, " /* discriminant */");
+	if (i == drgn_type_default_discr(type))
+		return string_builder_append(sb, " /* default */");
+	union drgn_type_discr *discr = &drgn_type_discrs(type)[i - 1];
+	if (drgn_type_discr_is_signed(type))
+		return string_builder_appendf(sb, " /* %" PRId64 " */", discr->svalue);
+	return string_builder_appendf(sb, " /* %" PRIu64 " */", discr->uvalue);
+}
+
 static struct drgn_error *
 c_define_compound(struct drgn_qualified_type qualified_type, size_t indent,
 		  struct string_builder *sb)
@@ -432,7 +444,12 @@ c_define_compound(struct drgn_qualified_type qualified_type, size_t indent,
 		    !string_builder_appendf(sb, " : %" PRIu64,
 					    member_bit_field_size))
 				return &drgn_enomem;
-		if (!string_builder_append(sb, ";\n"))
+		if (!string_builder_appendc(sb, ';'))
+			return &drgn_enomem;
+		if (drgn_type_is_discr_union(qualified_type.type) &&
+		    !c_append_discr_comment(qualified_type.type, i, sb))
+			return &drgn_enomem;
+		if (!string_builder_appendc(sb, '\n'))
 			return &drgn_enomem;
 	}
 

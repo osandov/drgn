@@ -2825,9 +2825,9 @@ class Object:
 
         >>> print(obj.type_)
         union Option<u32> {
-                u32;
-                struct None None;
-                struct Some Some;
+                u32; /* discriminant */
+                struct None None; /* 0 */
+                struct Some Some; /* 1 */
         }
         >>> obj.type_.discriminants
         (0, 1)
