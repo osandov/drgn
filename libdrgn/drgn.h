@@ -3326,6 +3326,33 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 
 
 /**
+ * Get the discriminant of a discriminated union @ref drgn_object (see @ref
+ * drgn_type_is_discr_union()).
+ *
+ * @param[out] res Returned discriminant. May be the same as @p obj.
+ * @param[in] obj Object.
+ * @return @c NULL on success, non-@c NULL on error. @p res is not modified on
+ * error.
+ */
+struct drgn_error *drgn_object_discr(struct drgn_object *res, const struct drgn_object *obj);
+
+/**
+ * Get the active variant of a discriminated union @ref drgn_object (see @ref
+ * drgn_type_is_discr_union()).
+ *
+ * The active variant is the variant whose discriminant value is equal to the
+ * value of the discriminant, or the default variant if there is no such
+ * variant.
+ *
+ * @param[out] res Returned variant. May be the same as @p obj.
+ * @param[in] obj Object.
+ * @return @c NULL on success, an error with code @ref DRGN_ERROR_LOOKUP if no
+ * variant is active, other non-@c NULL on other errors. @p res is not modified
+ * on error.
+ */
+struct drgn_error *drgn_object_variant(struct drgn_object *res, const struct drgn_object *obj);
+
+/**
  * Get a subobject (member or element) of this object.
  *
  * @param[out] res Returned subobject. May be the same as @p obj.
