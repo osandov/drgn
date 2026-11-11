@@ -1089,6 +1089,7 @@ DEFINE_VECTOR(compound_initializer_stack, struct compound_initializer_state);
 struct compound_initializer_iter {
 	struct initializer_iter iter;
 	const struct drgn_object *obj;
+	struct drgn_type_member *members;
 	struct compound_initializer_stack stack;
 	enum drgn_format_object_flags flags;
 };
@@ -1172,8 +1173,7 @@ static void compound_initializer_iter_reset(struct initializer_iter *iter_)
 	struct compound_initializer_iter *iter =
 		container_of(iter_, struct compound_initializer_iter, iter);
 	compound_initializer_stack_resize(&iter->stack, 1);
-	compound_initializer_stack_first(&iter->stack)->member =
-		drgn_type_members(drgn_underlying_type(iter->obj->type));
+	compound_initializer_stack_first(&iter->stack)->member = iter->members;
 }
 
 static struct drgn_error *
@@ -1221,6 +1221,25 @@ c_format_compound_object(const struct drgn_object *obj,
 					 keyword);
 	}
 
+	struct drgn_type_member *members = drgn_type_members(underlying_type);
+	size_t num_members = drgn_type_num_members(underlying_type);
+	enum drgn_format_object_flags flags = options->flags;
+	/*
+	 * Only format the active variant of a discriminated union, or the
+	 * discriminant if no variant is active.
+	 */
+	if (drgn_type_is_discr_union(underlying_type)) {
+		size_t i;
+		err = drgn_object_variant_index(obj, &i);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
+			i = 0;
+		else if (err)
+			return err;
+		members += i;
+		num_members = 1;
+		flags |= DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS;
+	}
+
 	struct compound_initializer_iter iter = {
 		.iter = {
 			.next = compound_initializer_iter_next,
@@ -1230,8 +1249,9 @@ c_format_compound_object(const struct drgn_object *obj,
 				compound_initializer_append_designation : NULL,
 		},
 		.obj = obj,
+		.members = members,
 		.stack = VECTOR_INIT,
-		.flags = options->flags,
+		.flags = flags,
 	};
 	struct compound_initializer_state *new =
 		compound_initializer_stack_append_entry(&iter.stack);
@@ -1239,9 +1259,8 @@ c_format_compound_object(const struct drgn_object *obj,
 		err = &drgn_enomem;
 		goto out;
 	}
-	new->member = drgn_type_members(underlying_type);
-	new->end = add_to_possibly_null_pointer(new->member,
-						drgn_type_num_members(underlying_type));
+	new->member = members;
+	new->end = add_to_possibly_null_pointer(new->member, num_members);
 	new->bit_offset = 0;
 
 	/*
@@ -1249,8 +1268,8 @@ c_format_compound_object(const struct drgn_object *obj,
 	 * including member names, then we'll skip past zero members as we
 	 * iterate, so we don't need to do this.
 	 */
-	if (!(options->flags & (DRGN_FORMAT_OBJECT_MEMBER_NAMES
-				| DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS))
+	if (!(flags & (DRGN_FORMAT_OBJECT_MEMBER_NAMES
+		       | DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS))
 	    && new->member < new->end) {
 		DRGN_OBJECT(member, drgn_object_program(obj));
 		do {
