@@ -201,6 +201,22 @@ unsigned_long_long_die = DwarfDie(
         DwarfAttrib(DW_AT.name, DW_FORM.string, "unsigned long long"),
     ),
 )
+u128_die = DwarfDie(
+    DW_TAG.base_type,
+    (
+        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 16),
+        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "u128"),
+    ),
+)
+i128_die = DwarfDie(
+    DW_TAG.base_type,
+    (
+        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 16),
+        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "i128"),
+    ),
+)
 
 
 labeled_char_die = (DwarfLabel("char_die"), char_die)
@@ -240,6 +256,100 @@ def dwarf_program(
     if segments is not None:
         add_mock_memory_segments(prog, segments)
     return prog
+
+
+def variant_part_test_die(
+    variants,
+    *,
+    discr_type="unsigned_int_die",
+    discr_offset=0,
+    size=8,
+    variant_part_children=(),
+    children=(),
+):
+    """
+    Return a DW_TAG_structure_type DIE named "Enum" containing a
+    DW_TAG_variant_part, like a Rust enum.
+
+    variants is a sequence of (name, attribs) pairs, where attribs are the
+    attributes of the DW_TAG_variant, or DwarfDies to use as variants as is.
+    Each (name, attribs) variant has one member named name whose type is an
+    empty structure named name of the given size. If discr_type is None, the
+    variant part has no discriminant.
+    """
+    variant_part_attribs = []
+    variant_part_dies = []
+    if discr_type is not None:
+        variant_part_attribs.append(
+            DwarfAttrib(DW_AT.discr, DW_FORM.ref4, "discr_member_die")
+        )
+        variant_part_dies.append(DwarfLabel("discr_member_die"))
+        variant_part_dies.append(
+            DwarfDie(
+                DW_TAG.member,
+                (
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, discr_type),
+                    DwarfAttrib(
+                        DW_AT.data_member_location, DW_FORM.data1, discr_offset
+                    ),
+                    DwarfAttrib(DW_AT.artificial, DW_FORM.flag_present, True),
+                ),
+            )
+        )
+    variant_struct_dies = []
+    for variant in variants:
+        if isinstance(variant, DwarfDie):
+            variant_part_dies.append(variant)
+            continue
+        name, attribs = variant
+        variant_part_dies.append(
+            DwarfDie(
+                DW_TAG.variant,
+                attribs,
+                (
+                    DwarfDie(
+                        DW_TAG.member,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                            DwarfAttrib(
+                                DW_AT.type, DW_FORM.ref4, f"variant_{name}_die"
+                            ),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
+                        ),
+                    ),
+                ),
+            )
+        )
+        variant_struct_dies.append(DwarfLabel(f"variant_{name}_die"))
+        variant_struct_dies.append(
+            DwarfDie(
+                DW_TAG.structure_type,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, size),
+                ),
+            )
+        )
+    return DwarfDie(
+        DW_TAG.structure_type,
+        (
+            DwarfAttrib(DW_AT.name, DW_FORM.string, "Enum"),
+            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, size),
+        ),
+        (
+            *children,
+            DwarfDie(
+                DW_TAG.variant_part,
+                variant_part_attribs,
+                (*variant_part_dies, *variant_part_children),
+            ),
+            *variant_struct_dies,
+        ),
+    )
+
+
+def variant_test_member(prog, name, size=8):
+    return TypeMember(prog.struct_type(name, size, ()), name)
 
 
 def wrap_test_type_dies(*dies):
@@ -1755,6 +1865,440 @@ class TestTypes(TestCase):
                 ),
             ),
         )
+
+    def test_variant_part(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    (
+                        ("None", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                        ("Some", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 1),)),
+                    ),
+                    children=(
+                        DwarfDie(
+                            DW_TAG.template_type_parameter,
+                            (
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "T"),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_unsigned_int_die,
+                *labeled_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.union_type(
+                "Enum",
+                8,
+                (
+                    TypeMember(prog.int_type("unsigned int", 4, False)),
+                    variant_test_member(prog, "None"),
+                    variant_test_member(prog, "Some"),
+                ),
+                template_parameters=(
+                    TypeTemplateParameter(prog.int_type("int", 4, True), "T"),
+                ),
+                discriminants=(0, 1),
+            ),
+        )
+
+    def test_variant_part_default(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    (
+                        ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                        ("B", ()),
+                        ("C", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 2),)),
+                    ),
+                    discr_offset=4,
+                ),
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.union_type(
+                "Enum",
+                8,
+                (
+                    TypeMember(prog.int_type("unsigned int", 4, False), None, 32),
+                    variant_test_member(prog, "A"),
+                    variant_test_member(prog, "B"),
+                    variant_test_member(prog, "C"),
+                ),
+                discriminants=(0, None, 2),
+            ),
+        )
+
+    def test_variant_part_typedef_discr(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    (
+                        ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                        ("B", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 1),)),
+                    ),
+                    discr_type="typedef_die",
+                ),
+                DwarfLabel("typedef_die"),
+                DwarfDie(
+                    DW_TAG.typedef,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "u32"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "unsigned_int_die"),
+                    ),
+                ),
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.union_type(
+                "Enum",
+                8,
+                (
+                    TypeMember(
+                        prog.typedef_type(
+                            "u32", prog.int_type("unsigned int", 4, False)
+                        )
+                    ),
+                    variant_test_member(prog, "A"),
+                    variant_test_member(prog, "B"),
+                ),
+                discriminants=(0, 1),
+            ),
+        )
+
+    def _test_discr_values(self, discr_die, values, little_endian=True):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    [
+                        (f"V{i}", (DwarfAttrib(DW_AT.discr_value, form, value),))
+                        for i, (form, value, _) in enumerate(values)
+                    ],
+                    discr_type="discr_die",
+                    size=16,
+                ),
+                DwarfLabel("discr_die"),
+                discr_die,
+            ),
+            little_endian=little_endian,
+        )
+        self.assertEqual(
+            prog.type("TEST").type.discriminants,
+            tuple(expected for _, _, expected in values),
+        )
+
+    def test_variant_part_discr_value_unsigned(self):
+        self._test_discr_values(
+            unsigned_int_die,
+            (
+                (DW_FORM.data1, 0x80, 128),
+                (DW_FORM.data2, 0x8000, 32768),
+                (DW_FORM.data4, 0xFFFFFFFE, 4294967294),
+                (DW_FORM.data8, 7, 7),
+                (DW_FORM.udata, 5, 5),
+                (DW_FORM.sdata, -1, 4294967295),
+                (DW_FORM.block1, b"\x01\x02", 0x201),
+                (DW_FORM.data16, 3, 3),
+            ),
+        )
+
+    def test_variant_part_discr_value_signed(self):
+        self._test_discr_values(
+            int_die,
+            (
+                (DW_FORM.data1, 0xFF, -1),
+                (DW_FORM.data1, 0x7F, 127),
+                (DW_FORM.data2, 0xFFFE, -2),
+                (DW_FORM.data4, 0x80000000, -2147483648),
+                (DW_FORM.data8, 0xFFFFFFFFFFFFFFFD, -3),
+                (DW_FORM.udata, 0xFFFFFFFC, -4),
+                (DW_FORM.sdata, -5, -5),
+                (DW_FORM.block1, b"\xfa", -6),
+                (DW_FORM.data16, 2**128 - 7, -7),
+            ),
+        )
+
+    def test_variant_part_discr_value_signed_char(self):
+        self._test_discr_values(
+            signed_char_die,
+            ((DW_FORM.data1, 0xFF, -1), (DW_FORM.data1, 1, 1)),
+        )
+
+    def test_variant_part_discr_value_128(self):
+        for little_endian in (True, False):
+            byteorder = "little" if little_endian else "big"
+            with self.subTest(little_endian=little_endian):
+                self._test_discr_values(
+                    u128_die,
+                    (
+                        (DW_FORM.block1, (1).to_bytes(16, byteorder), 1),
+                        (DW_FORM.data16, 2**64 - 1, 2**64 - 1),
+                        (DW_FORM.data1, 0xFF, 255),
+                        (DW_FORM.udata, 2**64 - 2, 2**64 - 2),
+                    ),
+                    little_endian=little_endian,
+                )
+                self._test_discr_values(
+                    i128_die,
+                    (
+                        (DW_FORM.block1, b"\xff" * 16, -1),
+                        (DW_FORM.data16, 2**128 - 2**63, -(2**63)),
+                        (DW_FORM.data16, 2**63 - 1, 2**63 - 1),
+                        (DW_FORM.data1, 0xFE, -2),
+                        (DW_FORM.sdata, -3, -3),
+                    ),
+                    little_endian=little_endian,
+                )
+
+    def test_variant_part_discr_value_too_large(self):
+        for discr_die, discr_value in (
+            (u128_die, DwarfAttrib(DW_AT.discr_value, DW_FORM.data16, 2**64)),
+            (i128_die, DwarfAttrib(DW_AT.discr_value, DW_FORM.data16, 2**63)),
+            (i128_die, DwarfAttrib(DW_AT.discr_value, DW_FORM.data16, 2**127)),
+        ):
+            with self.subTest(discr_value=discr_value):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(
+                            (
+                                (
+                                    "A",
+                                    (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),),
+                                ),
+                                ("B", (discr_value,)),
+                            ),
+                            discr_type="discr_die",
+                            size=16,
+                        ),
+                        DwarfLabel("discr_die"),
+                        discr_die,
+                    )
+                )
+                self.assertIdentical(
+                    prog.type("TEST").type,
+                    prog.union_type(
+                        "Enum",
+                        16,
+                        (
+                            variant_test_member(prog, "A", 16),
+                            variant_test_member(prog, "B", 16),
+                        ),
+                    ),
+                )
+
+    def test_variant_part_invalid_discr_value(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    (("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.string, "foo"),)),)
+                ),
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertRaisesRegex(
+            BadDataError,
+            "DW_TAG_variant has invalid DW_AT_discr_value",
+            prog.type,
+            "TEST",
+        )
+
+    def test_variant_part_invalid_discr(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Enum"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.variant_part,
+                            (DwarfAttrib(DW_AT.discr, DW_FORM.data1, 0),),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertRaisesRegex(
+            BadDataError,
+            "DW_TAG_variant_part has invalid DW_AT_discr",
+            prog.type,
+            "TEST",
+        )
+
+    def test_variant_part_no_discr(self):
+        for variants in ((), ("A",), ("A", "B")):
+            with self.subTest(variants=variants):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(
+                            [(name, ()) for name in variants], discr_type=None
+                        ),
+                    )
+                )
+                self.assertIdentical(
+                    prog.type("TEST").type,
+                    prog.union_type(
+                        "Enum",
+                        8,
+                        [variant_test_member(prog, name) for name in variants],
+                    ),
+                )
+
+    def test_variant_part_no_discr_value(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die((("A", ()),)),
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.union_type(
+                "Enum",
+                8,
+                (
+                    TypeMember(prog.int_type("unsigned int", 4, False)),
+                    variant_test_member(prog, "A"),
+                ),
+                discriminants=(None,),
+            ),
+        )
+
+    def test_variant_part_unsupported_discr(self):
+        for name, variants, discr_type, extra_dies in (
+            (
+                "discr_list",
+                (
+                    ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                    (
+                        "B",
+                        (DwarfAttrib(DW_AT.discr_list, DW_FORM.block1, b"\x00\x01"),),
+                    ),
+                ),
+                "unsigned_int_die",
+                labeled_unsigned_int_die,
+            ),
+            (
+                "multiple defaults",
+                (
+                    ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                    ("B", ()),
+                    ("C", ()),
+                ),
+                "unsigned_int_die",
+                labeled_unsigned_int_die,
+            ),
+            (
+                "non-integer discriminant",
+                (
+                    ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                    ("B", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 1),)),
+                ),
+                "float_die",
+                labeled_float_die,
+            ),
+        ):
+            with self.subTest(name):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(variants, discr_type=discr_type),
+                        *extra_dies,
+                    )
+                )
+                self.assertIdentical(
+                    prog.type("TEST").type,
+                    prog.union_type(
+                        "Enum",
+                        8,
+                        [variant_test_member(prog, name) for name, _ in variants],
+                    ),
+                )
+
+    def test_variant_part_unsupported_shape(self):
+        def variant(*children):
+            return DwarfDie(
+                DW_TAG.variant,
+                (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 1),),
+                children,
+            )
+
+        def member(name, offset=0):
+            return DwarfDie(
+                DW_TAG.member,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                    DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, offset),
+                ),
+            )
+
+        variants = (("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),)
+        for name, kwds, member_names in (
+            (
+                "plain member",
+                {"variants": variants, "children": (member("x"),)},
+                ("x",),
+            ),
+            (
+                "multiple variant parts",
+                {
+                    "variants": variants,
+                    "children": (DwarfDie(DW_TAG.variant_part),),
+                },
+                (),
+            ),
+            (
+                "variant with no members",
+                {"variants": (*variants, variant())},
+                (),
+            ),
+            (
+                "variant with multiple members",
+                {"variants": (*variants, variant(member("x"), member("y", 4)))},
+                (),
+            ),
+            (
+                "nested variant part",
+                {
+                    "variants": (
+                        *variants,
+                        variant(member("x"), DwarfDie(DW_TAG.variant_part)),
+                    )
+                },
+                (),
+            ),
+            (
+                "extra member in variant part",
+                {"variants": variants, "variant_part_children": (member("x"),)},
+                (),
+            ),
+        ):
+            with self.subTest(name):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(**kwds),
+                        *labeled_unsigned_int_die,
+                        *labeled_int_die,
+                    )
+                )
+                int_type = prog.int_type("int", 4, True)
+                self.assertIdentical(
+                    prog.type("TEST").type,
+                    prog.struct_type(
+                        "Enum",
+                        8,
+                        [TypeMember(int_type, name) for name in member_names],
+                    ),
+                )
 
     def test_class(self):
         prog = dwarf_program(
