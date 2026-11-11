@@ -259,6 +259,11 @@ _drgn_la_LDFLAGS = $(AM_LDFLAGS) -avoid-version -module -shared -rpath $(pkgpyex
 _drgn_la_LIBADD = libdrgn_common_python.la
 endif
 
+if GDBINIT
+gdbinitdir = @DRGN_GDBINIT_DIR@
+gdbinit_DATA = ../drgn/internal/gdb_scripts/drgn_why_sleeping.py
+endif
+
 EXTRA_DIST = $(ARCH_DEFS_PYS) \
 	     $(STRSWITCH_INCS:.inc=.inc.strswitch) \
 	     Doxyfile \
