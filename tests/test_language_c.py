@@ -5,6 +5,7 @@ import operator
 
 from drgn import (
     AbsenceReason,
+    FaultError,
     Object,
     Qualifiers,
     Type,
@@ -3063,6 +3064,110 @@ class TestPrettyPrintObject(MockProgramTestCase):
 	.f = (float)1.0,
 }""",
         )
+
+    def test_discr_union(self):
+        obj = self.discr_union_object((0, 1), 1, 5)
+        self.assertEqual(
+            str(obj),
+            """\
+(union Option){
+	.Some = (struct Some){
+		.__0 = (u32)5,
+	},
+}""",
+        )
+        self.assertEqual(
+            obj.format_(members_same_line=True),
+            "(union Option){ .Some = (struct Some){ .__0 = (u32)5 } }",
+        )
+        self.assertEqual(
+            obj.format_(member_names=False, members_same_line=True),
+            "(union Option){ (struct Some){ (u32)5 } }",
+        )
+
+        obj = self.discr_union_object((0, 1), 0, 5)
+        self.assertEqual(
+            str(obj),
+            """\
+(union Option){
+	.None = (struct None){},
+}""",
+        )
+
+    def test_discr_union_default(self):
+        obj = self.discr_union_object((0, None), 7, 5)
+        self.assertEqual(
+            obj.format_(members_same_line=True),
+            "(union Option){ .Some = (struct Some){ .__0 = (u32)5 } }",
+        )
+
+    def test_discr_union_zero_variant(self):
+        for discr, expected in (
+            (0, "(union Option){ .None = (struct None){} }"),
+            (1, "(union Option){ .Some = (struct Some){} }"),
+        ):
+            with self.subTest(discr=discr):
+                obj = self.discr_union_object((0, 1), discr)
+                self.assertEqual(
+                    obj.format_(implicit_members=False, members_same_line=True),
+                    expected,
+                )
+                self.assertEqual(
+                    obj.format_(
+                        implicit_members=False,
+                        member_names=False,
+                        members_same_line=True,
+                    ),
+                    expected.replace(".None = ", "").replace(".Some = ", ""),
+                )
+
+    def test_discr_union_no_variant(self):
+        obj = self.discr_union_object((0, 1), 7, 5)
+        self.assertEqual(
+            str(obj),
+            """\
+(union Option){
+	(u32)7,
+}""",
+        )
+        obj = self.discr_union_object((1, 2), 0)
+        self.assertEqual(
+            obj.format_(implicit_members=False, members_same_line=True),
+            "(union Option){ (u32)0 }",
+        )
+
+    def test_discr_union_member(self):
+        type = self.prog.struct_type(
+            "foo",
+            12,
+            (
+                TypeMember(self.prog.int_type("int", 4, True), "x"),
+                TypeMember(self.discr_union_type((0, 1)), "e", 32),
+            ),
+        )
+        obj = Object.from_bytes_(
+            self.prog,
+            type,
+            (3).to_bytes(4, "little")
+            + (1).to_bytes(4, "little")
+            + (5).to_bytes(4, "little"),
+        )
+        self.assertEqual(
+            str(obj),
+            """\
+(struct foo){
+	.x = (int)3,
+	.e = (union Option){
+		.Some = (struct Some){
+			.__0 = (u32)5,
+		},
+	},
+}""",
+        )
+
+    def test_discr_union_fault(self):
+        obj = Object(self.prog, self.discr_union_type((0, 1)), address=0)
+        self.assertRaises(FaultError, str, obj)
 
     def test_enum(self):
         self.assertEqual(
