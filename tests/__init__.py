@@ -291,6 +291,7 @@ def identical(a, b):
                         "byteorder",
                         "type",
                         "members",
+                        "discriminants",
                         "enumerators",
                         "parameters",
                         "is_variadic",

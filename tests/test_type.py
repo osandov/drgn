@@ -398,6 +398,177 @@ class TestType(MockProgramTestCase):
             ),
         )
 
+    def test_discr_union(self):
+        u32 = self.prog.int_type("u32", 4, False)
+        none = self.prog.struct_type("None", 8, ())
+        some = self.prog.struct_type("Some", 8, (TypeMember(u32, "__0", 32),))
+        members = (TypeMember(u32), TypeMember(none, "None"), TypeMember(some, "Some"))
+
+        t = self.prog.union_type("Option<u32>", 8, members, discriminants=(0, 1))
+        self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertEqual(t.tag, "Option<u32>")
+        self.assertEqual(t.size, 8)
+        self.assertIdentical(
+            t.members,
+            (
+                TypeMember(u32, None, 0),
+                TypeMember(none, "None", 0),
+                TypeMember(some, "Some", 0),
+            ),
+        )
+        self.assertEqual(t.discriminants, (0, 1))
+        self.assertTrue(t.is_complete())
+        self.assertEqual(
+            repr(t),
+            "prog.union_type(tag='Option<u32>', size=8, members=(TypeMember(prog.type('u32'), bit_offset=0), TypeMember(prog.type('struct None'), name='None', bit_offset=0), TypeMember(prog.type('struct Some'), name='Some', bit_offset=0)), discriminants=(0, 1))",
+        )
+        self.assertEqual(sizeof(t), 8)
+
+        # Default variant.
+        t = self.prog.union_type("Option<&u32>", 8, members, discriminants=[0, None])
+        self.assertEqual(t.discriminants, (0, None))
+
+        # Signed discriminant.
+        i8 = self.prog.int_type("i8", 1, True)
+        t = self.prog.union_type(
+            "S",
+            8,
+            (TypeMember(i8), TypeMember(none, "A"), TypeMember(none, "B")),
+            discriminants=(-1, 1),
+        )
+        self.assertEqual(t.discriminants, (-1, 1))
+
+        # Full 64-bit range.
+        i64 = self.prog.int_type("i64", 8, True)
+        u64 = self.prog.int_type("u64", 8, False)
+        t = self.prog.union_type(
+            "S",
+            8,
+            (TypeMember(i64), TypeMember(none, "A"), TypeMember(none, "B")),
+            discriminants=(-(2**63), 2**63 - 1),
+        )
+        self.assertEqual(t.discriminants, (-(2**63), 2**63 - 1))
+        t = self.prog.union_type(
+            "U",
+            8,
+            (TypeMember(u64), TypeMember(none, "A")),
+            discriminants=(2**64 - 1,),
+        )
+        self.assertEqual(t.discriminants, (2**64 - 1,))
+
+        # Discriminant behind a typedef.
+        t = self.prog.union_type(
+            "T",
+            8,
+            (TypeMember(self.prog.typedef_type("discr_t", i8)), TypeMember(none, "A")),
+            discriminants=(-2,),
+        )
+        self.assertEqual(t.discriminants, (-2,))
+
+        # No variants.
+        t = self.prog.union_type("V", 8, (TypeMember(u32),), discriminants=())
+        self.assertEqual(t.discriminants, ())
+
+        # Ordinary unions don't have discriminants, and other types don't have
+        # the attribute.
+        self.assertIsNone(self.prog.union_type("U", 8, members).discriminants)
+        self.assertIsNone(
+            self.prog.union_type("U", 8, members, discriminants=None).discriminants
+        )
+        self.assertRaises(AttributeError, getattr, some, "discriminants")
+        self.assertRaises(AttributeError, getattr, u32, "discriminants")
+
+        self.assertRaisesRegex(
+            ValueError,
+            "one discriminant per variant",
+            self.prog.union_type,
+            "X",
+            8,
+            members,
+            discriminants=(0,),
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "one discriminant per variant",
+            self.prog.union_type,
+            "X",
+            8,
+            members,
+            discriminants=(0, 1, 2),
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "more than one default variant",
+            self.prog.union_type,
+            "X",
+            8,
+            members,
+            discriminants=(None, None),
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "must have discriminant member",
+            self.prog.union_type,
+            "X",
+            8,
+            (),
+            discriminants=(),
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "must have integer type",
+            self.prog.union_type,
+            "X",
+            8,
+            (TypeMember(none, "None"), TypeMember(some, "Some")),
+            discriminants=(0,),
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "incomplete union type must not have discriminants",
+            self.prog.union_type,
+            "X",
+            None,
+            None,
+            discriminants=(),
+        )
+        self.assertRaisesRegex(
+            TypeError,
+            "discriminants must be sequence or None",
+            self.prog.union_type,
+            "X",
+            8,
+            members,
+            discriminants=1,
+        )
+        self.assertRaises(
+            TypeError,
+            self.prog.union_type,
+            "X",
+            8,
+            members,
+            discriminants=("0", 1),
+        )
+        self.assertRaises(
+            (ValueError, OverflowError),
+            self.prog.union_type,
+            "X",
+            8,
+            members,
+            discriminants=(-1, 1),
+        )
+        self.assertRaises(
+            OverflowError,
+            self.prog.union_type,
+            "X",
+            8,
+            members,
+            discriminants=(2**64, 1),
+        )
+        self.assertRaises(
+            TypeError, self.prog.struct_type, "X", 8, members, discriminants=(0, 1)
+        )
+
     def test_class(self):
         t = self.prog.class_type(
             "coord",

@@ -230,6 +230,43 @@ static PyObject *DrgnType_get_members(DrgnType *self)
 	return_ptr(members_obj);
 }
 
+static PyObject *DrgnType_get_discriminants(DrgnType *self)
+{
+	if (drgn_type_kind(self->type) != DRGN_TYPE_UNION) {
+		return PyErr_Format(PyExc_AttributeError,
+				    "%s type does not have discriminants",
+				    drgn_type_kind_str(self->type));
+	}
+
+	if (!drgn_type_is_discr_union(self->type))
+		Py_RETURN_NONE;
+
+	const union drgn_type_discr *discrs = drgn_type_discrs(self->type);
+	size_t num_discrs = drgn_type_num_members(self->type) - 1;
+	size_t default_discr = drgn_type_default_discr(self->type);
+	bool is_signed = drgn_type_discr_is_signed(self->type);
+
+	_cleanup_pydecref_ PyObject *discrs_obj = PyTuple_New(num_discrs);
+	if (!discrs_obj)
+		return NULL;
+
+	for (size_t i = 0; i < num_discrs; i++) {
+		PyObject *item;
+		if (i + 1 == default_discr) {
+			Py_INCREF(Py_None);
+			item = Py_None;
+		} else if (is_signed) {
+			item = PyLong_FromInt64(discrs[i].svalue);
+		} else {
+			item = PyLong_FromUInt64(discrs[i].uvalue);
+		}
+		if (!item)
+			return NULL;
+		PyTuple_SET_ITEM(discrs_obj, i, item);
+	}
+	return_ptr(discrs_obj);
+}
+
 static PyObject *DrgnType_get_enumerators(DrgnType *self)
 {
 	if (!drgn_type_has_enumerators(self->type)) {
@@ -383,6 +420,7 @@ DrgnType_ATTR(length);
 DrgnType_ATTR(is_signed);
 DrgnType_ATTR(type);
 DrgnType_ATTR(members);
+DrgnType_ATTR(discriminants);
 DrgnType_ATTR(enumerators);
 DrgnType_ATTR(parameters);
 DrgnType_ATTR(is_variadic);
@@ -453,6 +491,8 @@ static PyGetSetDef DrgnType_getset[] = {
 	 &DrgnType_attr_type},
 	{"members", (getter)DrgnType_getter, NULL, drgn_Type_members_DOC,
 	 &DrgnType_attr_members},
+	{"discriminants", (getter)DrgnType_getter, NULL,
+	 drgn_Type_discriminants_DOC, &DrgnType_attr_discriminants},
 	{"enumerators", (getter)DrgnType_getter, NULL,
 	 drgn_Type_enumerators_DOC, &DrgnType_attr_enumerators},
 	{"parameters", (getter)DrgnType_getter, NULL, drgn_Type_parameters_DOC,
@@ -563,6 +603,13 @@ static PyObject *DrgnType_repr(DrgnType *self)
 		return NULL;
 	if (append_member(parts, self, &first, members) == -1)
 		return NULL;
+	if (drgn_type_is_discr_union(self->type)) {
+		_cleanup_pydecref_ PyObject *obj =
+			DrgnType_getter(self, &DrgnType_attr_discriminants);
+		if (!obj
+		    || append_field(parts, &first, "discriminants=%R", obj) < 0)
+			return NULL;
+	}
 	if (append_member(parts, self, &first, enumerators) == -1)
 		return NULL;
 	if (append_member(parts, self, &first, parameters) == -1)
@@ -1679,6 +1726,46 @@ unpack_template_parameter(struct drgn_template_parameters_builder *builder,
 	return 0;
 }
 
+static int unpack_discrs(struct drgn_compound_type_builder *builder,
+			 PyObject *members, PyObject *discrs)
+{
+	bool is_signed = false;
+	if (PyTuple_GET_SIZE(members) > 0) {
+		DrgnObject *discr = LazyObject_get_borrowed((LazyObject *)PyTuple_GET_ITEM(members, 0));
+		if (!discr)
+			return -1;
+		struct drgn_type *discr_type = drgn_underlying_type(discr->obj.type);
+		if (drgn_type_kind(discr_type) != DRGN_TYPE_INT) {
+			PyErr_SetString(PyExc_ValueError,
+					"discriminant member must have integer type");
+			return -1;
+		}
+		is_signed = drgn_type_is_signed(discr_type);
+	}
+	drgn_compound_type_builder_set_discr_union(builder, is_signed);
+
+	for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(discrs); i++) {
+		PyObject *item = PyTuple_GET_ITEM(discrs, i);
+		struct drgn_error *err;
+		if (item == Py_None) {
+			err = drgn_compound_type_builder_add_default_discr(builder);
+		} else {
+			_cleanup_pydecref_ PyObject *index = PyNumber_Index(item);
+			if (!index)
+				return -1;
+			union drgn_type_discr discr;
+			if ((is_signed ? PyLong_AsInt64(index, &discr.svalue) : PyLong_AsUInt64(index, &discr.uvalue)) < 0)
+				return -1;
+			err = drgn_compound_type_builder_add_discr(builder, discr);
+		}
+		if (err) {
+			set_drgn_error(err);
+			return -1;
+		}
+	}
+	return 0;
+}
+
 #define compound_type_arg_format "O|O&O$OO&O&"
 
 static DrgnType *Program_compound_type(Program *self, PyObject *args,
@@ -1689,17 +1776,24 @@ static DrgnType *Program_compound_type(Program *self, PyObject *args,
 		"tag", "size", "members", "template_parameters", "qualifiers",
 		"language", NULL,
 	};
+	static char *union_keywords[] = {
+		"tag", "size", "members", "template_parameters", "qualifiers",
+		"language", "discriminants", NULL,
+	};
 	PyObject *tag_obj;
 	struct index_arg size = { .allow_none = true, .is_none = true };
 	PyObject *members_obj = Py_None;
 	PyObject *template_parameters_obj = NULL;
 	enum drgn_qualifiers qualifiers = 0;
 	const struct drgn_language *language = NULL;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, arg_format, keywords,
+	PyObject *discrs_obj = Py_None;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, arg_format,
+					 kind == DRGN_TYPE_UNION ? union_keywords : keywords,
 					 &tag_obj, index_converter, &size,
 					 &members_obj, &template_parameters_obj,
 					 qualifiers_converter, &qualifiers,
-					 language_converter, &language))
+					 language_converter, &language,
+					 &discrs_obj))
 		return NULL;
 
 	const char *tag;
@@ -1744,6 +1838,23 @@ static DrgnType *Program_compound_type(Program *self, PyObject *args,
 	}
 	bool can_cache_members = true;
 
+	_cleanup_pydecref_ PyObject *cached_discrs = NULL;
+	if (discrs_obj != Py_None) {
+		if (members_obj == Py_None) {
+			PyErr_SetString(PyExc_ValueError,
+					"incomplete union type must not have discriminants");
+			return NULL;
+		}
+		if (!PySequence_Check(discrs_obj)) {
+			PyErr_SetString(PyExc_TypeError,
+					"discriminants must be sequence or None");
+			return NULL;
+		}
+		cached_discrs = PySequence_Tuple(discrs_obj);
+		if (!cached_discrs)
+			return NULL;
+	}
+
 	_cleanup_pydecref_ PyObject *cached_template_parameters;
 	if (template_parameters_obj) {
 		cached_template_parameters =
@@ -1765,6 +1876,8 @@ static DrgnType *Program_compound_type(Program *self, PyObject *args,
 				  &can_cache_members) == -1)
 			return NULL;
 	}
+	if (cached_discrs && unpack_discrs(&builder, cached_members, cached_discrs) < 0)
+		return NULL;
 	for (size_t i = 0; i < num_template_parameters; i++) {
 		if (unpack_template_parameter(&builder.template_builder,
 					      PyTuple_GET_ITEM(cached_template_parameters, i),
@@ -1826,7 +1939,7 @@ DrgnType *Program_struct_type(Program *self, PyObject *args, PyObject *kwds)
 DrgnType *Program_union_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	return Program_compound_type(self, args, kwds,
-				     compound_type_arg_format ":union_type",
+				     compound_type_arg_format "O:union_type",
 				     DRGN_TYPE_UNION);
 }
 
