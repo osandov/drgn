@@ -1358,6 +1358,224 @@ class TestValue(MockProgramTestCase):
         self.assertRaises(RecursionError, Object, self.prog, type, value)
 
 
+class TestDiscrUnion(MockProgramTestCase):
+    def test_discriminant(self):
+        obj = self.discr_union_object((0, 1), 1, 5)
+        self.assertIdentical(obj.discriminant_(), Object(self.prog, self.u32_type, 1))
+
+    def test_variant(self):
+        obj = self.discr_union_object((0, 1), 1, 5)
+        self.assertIdentical(
+            obj.variant_(), Object(self.prog, self.some_type, {"__0": 5})
+        )
+        obj = self.discr_union_object((0, 1), 0, 5)
+        self.assertIdentical(obj.variant_(), Object(self.prog, self.none_type, {}))
+
+    def test_variant_reference(self):
+        self.add_memory_segment(
+            (1).to_bytes(4, "little") + (5).to_bytes(4, "little"),
+            virt_addr=0xFFFF0000,
+        )
+        obj = Object(self.prog, self.discr_union_type((0, 1)), address=0xFFFF0000)
+        self.assertIdentical(
+            obj.discriminant_(), Object(self.prog, self.u32_type, address=0xFFFF0000)
+        )
+        self.assertIdentical(
+            obj.variant_(), Object(self.prog, self.some_type, address=0xFFFF0000)
+        )
+        self.assertEqual(obj.variant_().member_("__0").value_(), 5)
+
+        obj = Object(self.prog, self.discr_union_type((0, 1)), address=0xFFFF1000)
+        self.assertRaises(FaultError, obj.variant_)
+
+    def test_variant_default(self):
+        for discr, variant_type in (
+            (0, self.none_type),
+            (1, self.some_type),
+            (7, self.some_type),
+            (0xFFFFFFFF, self.some_type),
+        ):
+            with self.subTest(discr=discr):
+                obj = self.discr_union_object((0, None), discr)
+                self.assertIdentical(obj.variant_().type_, variant_type)
+
+    def test_variant_no_match(self):
+        obj = self.discr_union_object((0, 1), 7)
+        self.assertIdentical(obj.discriminant_(), Object(self.prog, self.u32_type, 7))
+        self.assertRaisesRegex(
+            LookupError, "discriminant does not match any variant", obj.variant_
+        )
+
+    def test_variant_signed(self):
+        i8 = self.prog.int_type("i8", 1, True)
+        type = self.discr_union_type((-1, 1), discr_type=i8)
+        obj = Object.from_bytes_(self.prog, type, b"\xff" + bytes(7))
+        self.assertIdentical(obj.discriminant_(), Object(self.prog, i8, -1))
+        self.assertIdentical(obj.variant_().type_, self.none_type)
+        obj = Object.from_bytes_(self.prog, type, b"\x01" + bytes(7))
+        self.assertIdentical(obj.variant_().type_, self.some_type)
+
+    def test_variant_128(self):
+        for discr_type, discrs, value, variant_type in (
+            (self.prog.int_type("u128", 16, False), (0, 1), 1, self.some_type),
+            (
+                self.prog.int_type("u128", 16, False),
+                (0, 2**64 - 1),
+                2**64 - 1,
+                self.some_type,
+            ),
+            (
+                self.prog.int_type("u128", 16, False),
+                (1, None),
+                2**64 + 1,
+                self.some_type,
+            ),
+            (self.prog.int_type("u128", 16, False), (1, 2), 2**64 + 1, None),
+            (self.prog.int_type("i128", 16, True), (-1, 1), -1, self.none_type),
+            (self.prog.int_type("i128", 16, True), (-1, 0), -(2**64), None),
+        ):
+            with self.subTest(discr_type=discr_type, value=value):
+                type = self.discr_union_type(discrs, discr_type=discr_type, size=16)
+                obj = Object.from_bytes_(
+                    self.prog,
+                    type,
+                    value.to_bytes(16, "little", signed=discr_type.is_signed),
+                )
+                if variant_type is None:
+                    self.assertRaises(LookupError, obj.variant_)
+                else:
+                    self.assertIdentical(obj.variant_().type_, variant_type)
+
+    def test_typedef(self):
+        type = self.prog.typedef_type("Option_u32", self.discr_union_type((0, 1)))
+        obj = Object.from_bytes_(self.prog, type, (1).to_bytes(8, "little"))
+        self.assertIdentical(obj.discriminant_(), Object(self.prog, self.u32_type, 1))
+        self.assertIdentical(obj.variant_().type_, self.some_type)
+
+    def test_pointer(self):
+        self.add_memory_segment(
+            (1).to_bytes(4, "little") + (5).to_bytes(4, "little"),
+            virt_addr=0xFFFF0000,
+        )
+        type = self.discr_union_type((0, 1))
+        ptr = Object(self.prog, self.prog.pointer_type(type), 0xFFFF0000)
+        self.assertIdentical(
+            ptr.discriminant_(), Object(self.prog, self.u32_type, address=0xFFFF0000)
+        )
+        self.assertIdentical(
+            ptr.variant_(), Object(self.prog, self.some_type, address=0xFFFF0000)
+        )
+
+        ptr = Object(
+            self.prog,
+            self.prog.typedef_type("OptionPtr", self.prog.pointer_type(type)),
+            0xFFFF0000,
+        )
+        self.assertIdentical(
+            ptr.variant_(), Object(self.prog, self.some_type, address=0xFFFF0000)
+        )
+
+        ptr = Object(self.prog, self.prog.pointer_type(type), 0xFFFF1000)
+        self.assertRaises(FaultError, ptr.variant_)
+
+    def test_absent(self):
+        obj = Object(self.prog, self.discr_union_type((0, 1)))
+        self.assertRaises(ObjectAbsentError, obj.discriminant_)
+        self.assertRaises(ObjectAbsentError, obj.variant_)
+
+    def test_not_discr_union(self):
+        for obj in (
+            Object(self.prog, self.option_type, {"i": 1}),
+            Object(self.prog, self.point_type, {}),
+            Object(self.prog, "int", 1),
+            Object(
+                self.prog,
+                self.prog.union_type("one", 4, (TypeMember(self.u32_type, "a"),)),
+                {},
+            ),
+            Object(self.prog, self.prog.pointer_type(self.point_type), 0),
+        ):
+            with self.subTest(type=obj.type_):
+                self.assertRaisesRegex(
+                    TypeError, "is not a discriminated union", obj.discriminant_
+                )
+                self.assertRaisesRegex(
+                    TypeError, "is not a discriminated union", obj.variant_
+                )
+        obj = Object(self.prog, "void *", 0)
+        self.assertRaises(TypeError, obj.discriminant_)
+        self.assertRaises(TypeError, obj.variant_)
+
+    def test_value(self):
+        self.assertEqual(
+            self.discr_union_object((0, 1), 1, 5).value_(), {"Some": {"__0": 5}}
+        )
+        self.assertEqual(self.discr_union_object((0, 1), 0, 5).value_(), {"None": {}})
+        self.assertEqual(
+            self.discr_union_object((0, None), 3).value_(), {"Some": {"__0": 0}}
+        )
+        self.assertRaisesRegex(
+            LookupError,
+            "discriminant does not match any variant",
+            self.discr_union_object((0, 1), 7).value_,
+        )
+
+    def test_value_member(self):
+        type = self.prog.struct_type(
+            "foo",
+            12,
+            (
+                TypeMember(self.u32_type, "x"),
+                TypeMember(self.discr_union_type((0, 1)), "e", 32),
+            ),
+        )
+        obj = Object.from_bytes_(
+            self.prog,
+            type,
+            (3).to_bytes(4, "little")
+            + (1).to_bytes(4, "little")
+            + (5).to_bytes(4, "little"),
+        )
+        self.assertEqual(obj.value_(), {"x": 3, "e": {"Some": {"__0": 5}}})
+
+    def test_init_value(self):
+        type = self.discr_union_type((0, 1))
+        self.assertRaisesRegex(
+            TypeError,
+            "discriminated unions are not supported",
+            Object,
+            self.prog,
+            type,
+            {"Some": {"__0": 5}},
+        )
+        self.assertRaisesRegex(
+            TypeError,
+            "discriminated unions are not supported",
+            Object,
+            self.prog,
+            type,
+            {},
+        )
+
+        struct_type = self.prog.struct_type(
+            "foo",
+            12,
+            (TypeMember(self.u32_type, "x"), TypeMember(type, "e", 32)),
+        )
+        self.assertIdentical(
+            Object(self.prog, struct_type, {"x": 1}),
+            Object.from_bytes_(self.prog, struct_type, (1).to_bytes(12, "little")),
+        )
+        self.assertRaisesRegex(
+            TypeError,
+            "discriminated unions are not supported",
+            Object,
+            self.prog,
+            struct_type,
+            {"e": {}},
+        )
+
+
 class TestAbsent(MockProgramTestCase):
     def test_basic(self):
         for obj in [

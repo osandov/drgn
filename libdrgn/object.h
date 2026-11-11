@@ -439,6 +439,16 @@ struct drgn_error *drgn_op_sub_pointers(struct drgn_object *res,
 					const struct drgn_object *lhs,
 					const struct drgn_object *rhs);
 
+/**
+ * Get the index of the active variant of a discriminated union @ref
+ * drgn_object (see @ref drgn_object_variant()).
+ *
+ * @param[out] ret Returned member index.
+ * @return @c NULL on success, an error with code @ref DRGN_ERROR_LOOKUP if no
+ * variant is active, other non-@c NULL on other errors.
+ */
+struct drgn_error *drgn_object_variant_index(const struct drgn_object *obj, size_t *ret);
+
 /** @} */
 
 #endif /* DRGN_OBJECT_H */

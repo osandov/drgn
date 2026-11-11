@@ -434,6 +434,32 @@ class MockProgramTestCase(TestCase):
         self.pid_type = self.prog.typedef_type(
             "pid_t", self.prog.int_type("int", 4, True)
         )
+        self.u32_type = self.prog.int_type("u32", 4, False)
+        self.none_type = self.prog.struct_type("None", 8, ())
+        self.some_type = self.prog.struct_type(
+            "Some", 8, (TypeMember(self.u32_type, "__0", 32),)
+        )
+
+    def discr_union_type(self, discrs, discr_type=None, size=8):
+        if discr_type is None:
+            discr_type = self.u32_type
+        return self.prog.union_type(
+            "Option",
+            size,
+            (
+                TypeMember(discr_type),
+                TypeMember(self.none_type, "None"),
+                TypeMember(self.some_type, "Some"),
+            ),
+            discriminants=discrs,
+        )
+
+    def discr_union_object(self, discrs, discr, payload=0):
+        return Object.from_bytes_(
+            self.prog,
+            self.discr_union_type(discrs),
+            discr.to_bytes(4, "little") + payload.to_bytes(4, "little"),
+        )
 
     def add_memory_segment(self, buf, virt_addr=None, phys_addr=None):
         if virt_addr is not None:
