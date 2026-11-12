@@ -96,6 +96,12 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 {
 	struct drgn_error *err;
 
+	if (drgn_type_is_discr_union(type->underlying_type)) {
+		set_error_type_name("cannot create '%s' value (discriminated unions are not supported)",
+				    drgn_object_type_qualified(type));
+		return -1;
+	}
+
 	if (!PyMapping_Check(value_obj)) {
 		set_error_type_name("'%s' value must be dictionary or mapping",
 				    drgn_object_type_qualified(type));
@@ -596,8 +602,14 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 
 	DRGN_OBJECT(member, drgn_object_program(obj));
 	struct drgn_type_member *members = drgn_type_members(underlying_type);
-	size_t num_members = drgn_type_num_members(underlying_type);
-	for (size_t i = 0; i < num_members; i++) {
+	size_t begin = 0, end = drgn_type_num_members(underlying_type);
+	if (drgn_type_is_discr_union(underlying_type)) {
+		err = drgn_object_variant_index(obj, &begin);
+		if (err)
+			return set_drgn_error(err);
+		end = begin + 1;
+	}
+	for (size_t i = begin; i < end; i++) {
 		struct drgn_qualified_type member_type;
 		uint64_t member_bit_field_size;
 		err = drgn_member_type(&members[i], &member_type,
@@ -1403,6 +1415,37 @@ static DrgnObject *DrgnObject_member(DrgnObject *self, PyObject *args,
 	return_ptr(res);
 }
 
+typedef struct drgn_error *drgn_discr_union_op(struct drgn_object *res, const struct drgn_object *obj);
+
+static DrgnObject *DrgnObject_discr_union_op(DrgnObject *self, drgn_discr_union_op *op)
+{
+	struct drgn_error *err;
+	_cleanup_pydecref_ DrgnObject *res = DrgnObject_alloc(DrgnObject_prog(self));
+	if (!res)
+		return NULL;
+	const struct drgn_object *obj = &self->obj;
+	if (drgn_type_kind(drgn_underlying_type(obj->type)) == DRGN_TYPE_POINTER) {
+		err = drgn_object_dereference(&res->obj, obj);
+		if (err)
+			return set_drgn_error(err);
+		obj = &res->obj;
+	}
+	err = op(&res->obj, obj);
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(res);
+}
+
+static DrgnObject *DrgnObject_discr(DrgnObject *self)
+{
+	return DrgnObject_discr_union_op(self, drgn_object_discr);
+}
+
+static DrgnObject *DrgnObject_variant(DrgnObject *self)
+{
+	return DrgnObject_discr_union_op(self, drgn_object_variant);
+}
+
 static DrgnObject *DrgnObject_subobject(DrgnObject *self, PyObject *args,
 					PyObject *kwds)
 {
@@ -1681,6 +1724,8 @@ static PyMethodDef DrgnObject_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Object_member__DOC},
 	{"subobject_", (PyCFunction)DrgnObject_subobject,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Object_subobject__DOC},
+	{"discriminant_", (PyCFunction)DrgnObject_discr, METH_NOARGS, drgn_Object_discriminant__DOC},
+	{"variant_", (PyCFunction)DrgnObject_variant, METH_NOARGS, drgn_Object_variant__DOC},
 	{"address_of_", (PyCFunction)DrgnObject_address_of, METH_NOARGS,
 	 drgn_Object_address_of__DOC},
 	{"read_", (PyCFunction)DrgnObject_read, METH_NOARGS,

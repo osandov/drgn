@@ -158,6 +158,8 @@ def _compile_debug_info(
                 buf.extend(value.to_bytes(4, byteorder))
             elif attrib.form in (DW_FORM.data8, DW_FORM.ref_sup8):
                 buf.extend(value.to_bytes(8, byteorder))
+            elif attrib.form == DW_FORM.data16:
+                buf.extend(value.to_bytes(16, byteorder))
             elif attrib.form == DW_FORM.udata:
                 _append_uleb128(buf, value)
             elif attrib.form == DW_FORM.sdata:

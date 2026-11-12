@@ -5955,6 +5955,174 @@ drgn_parse_template_parameter_pack(struct drgn_debug_info *dbinfo,
 	return NULL;
 }
 
+/*
+ * Parse a DW_AT_discr_value with the signedness and size of the discriminant
+ * type. If the value doesn't fit in 64 bits, sets *fits_ret to false.
+ */
+static struct drgn_error *parse_discr_value(Dwarf_Attribute *attr, struct drgn_type *discr_type, bool little_endian,
+					    union drgn_type_discr *ret, bool *fits_ret)
+{
+	bool is_signed = drgn_type_is_signed(discr_type);
+	uint64_t size = drgn_type_size(discr_type);
+	Dwarf_Block block;
+	uint64_t uvalue;
+	*fits_ret = true;
+	if (dwarf_formblock(attr, &block) == 0) {
+		if (block.length == 0)
+			goto invalid;
+		*fits_ret = deserialize_int64(block.data, block.length, little_endian, is_signed, &uvalue);
+	} else if (is_signed) {
+		Dwarf_Sword svalue;
+		if (dwarf_formsdata(attr, &svalue))
+			goto invalid;
+		uvalue = svalue;
+	} else if (dwarf_formudata(attr, &uvalue)) {
+		goto invalid;
+	}
+	if (size > 0 && size < 8)
+		uvalue = is_signed ? truncate_signed(uvalue, 8 * size) : truncate_unsigned(uvalue, 8 * size);
+	ret->uvalue = uvalue;
+	return NULL;
+
+invalid:
+	return drgn_error_create(DRGN_ERROR_BAD_DATA, "DW_TAG_variant has invalid DW_AT_discr_value");
+}
+
+struct drgn_dwarf_variant {
+	Dwarf_Die member;
+	union drgn_type_discr discr;
+	bool is_default;
+};
+
+DEFINE_VECTOR(drgn_dwarf_variant_vector, struct drgn_dwarf_variant);
+
+/*
+ * Get the only member of a DW_TAG_variant. Returns &drgn_not_found if it
+ * doesn't have exactly one member.
+ */
+static struct drgn_error *get_variant_member(Dwarf_Die *die, Dwarf_Die *ret)
+{
+	ret->addr = NULL;
+	Dwarf_Die child;
+	int r = dwarf_child(die, &child);
+	while (r == 0) {
+		switch (dwarf_tag(&child)) {
+		case DW_TAG_member:
+			if (ret->addr)
+				return &drgn_not_found;
+			*ret = child;
+			break;
+		case DW_TAG_variant_part:
+			return &drgn_not_found;
+		default:
+			break;
+		}
+		r = dwarf_siblingof(&child, &child);
+	}
+	if (r < 0)
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "libdw could not parse DIE children");
+	return ret->addr ? NULL : &drgn_not_found;
+}
+
+/*
+ * Parse a DW_TAG_variant_part that is the only member of a structure into a
+ * union of the variants. If the variant part has a usable discriminant, the
+ * union is a discriminated union, and the discriminant is the first member.
+ * Returns &drgn_not_found if a variant doesn't have exactly one member or the
+ * variant part has members other than the discriminant.
+ */
+static struct drgn_error *
+parse_variant_part(struct drgn_debug_info *dbinfo, struct drgn_elf_file *file, Dwarf_Die *die,
+		   const struct drgn_language *lang, bool little_endian, struct drgn_compound_type_builder *builder)
+{
+	struct drgn_error *err;
+
+	Dwarf_Attribute attr_mem, *attr;
+	Dwarf_Die discr_die = {};
+	if ((attr = dwarf_attr_integrate(die, DW_AT_discr, &attr_mem)) && !dwarf_formref_die(attr, &discr_die))
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "DW_TAG_variant_part has invalid DW_AT_discr");
+
+	struct drgn_type *discr_type = NULL;
+	if (discr_die.addr) {
+		struct drgn_qualified_type qualified_type;
+		err = drgn_type_from_dwarf_attr(dbinfo, file, &discr_die, lang, false, false, NULL, &qualified_type);
+		if (err)
+			return err;
+		discr_type = drgn_underlying_type(qualified_type.type);
+		if (drgn_type_kind(discr_type) != DRGN_TYPE_INT)
+			discr_type = NULL;
+	}
+
+	VECTOR(drgn_dwarf_variant_vector, variants);
+	size_t num_defaults = 0;
+	Dwarf_Die child;
+	int r = dwarf_child(die, &child);
+	while (r == 0) {
+		switch (dwarf_tag(&child)) {
+		case DW_TAG_member:
+			if (child.addr != discr_die.addr)
+				return &drgn_not_found;
+			break;
+		case DW_TAG_variant: {
+			struct drgn_dwarf_variant *variant = drgn_dwarf_variant_vector_append_entry(&variants);
+			if (!variant)
+				return &drgn_enomem;
+			variant->is_default = false;
+			err = get_variant_member(&child, &variant->member);
+			if (err)
+				return err;
+			if (!discr_type)
+				break;
+			if (dwarf_hasattr_integrate(&child, DW_AT_discr_list)) {
+				discr_type = NULL;
+				break;
+			}
+			attr = dwarf_attr_integrate(&child, DW_AT_discr_value, &attr_mem);
+			if (!attr) {
+				variant->is_default = true;
+				if (++num_defaults > 1)
+					discr_type = NULL;
+				break;
+			}
+			bool fits;
+			err = parse_discr_value(attr, discr_type, little_endian, &variant->discr, &fits);
+			if (err)
+				return err;
+			if (!fits)
+				discr_type = NULL;
+			break;
+		}
+		default:
+			break;
+		}
+		r = dwarf_siblingof(&child, &child);
+	}
+	if (r < 0)
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "libdw could not parse DIE children");
+
+	builder->kind = DRGN_TYPE_UNION;
+	if (discr_type) {
+		drgn_compound_type_builder_set_discr_union(builder, drgn_type_is_signed(discr_type));
+		err = parse_member(dbinfo, file, &discr_die, little_endian, false, builder);
+		if (err)
+			return err;
+	}
+	vector_for_each(drgn_dwarf_variant_vector, variant, &variants) {
+		err = parse_member(dbinfo, file, &variant->member, little_endian, false, builder);
+		if (err)
+			return err;
+		if (!discr_type)
+			continue;
+		if (variant->is_default)
+			err = drgn_compound_type_builder_add_default_discr(builder);
+		else
+			err = drgn_compound_type_builder_add_discr(builder, variant->discr);
+		if (err)
+			return err;
+	}
+	return NULL;
+}
+
 static struct drgn_error *
 drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			      struct drgn_elf_file *file, Dwarf_Die *die,
@@ -6009,8 +6177,9 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		dwarf_die_is_little_endian(die, false, &little_endian);
 	}
 
-	Dwarf_Die member = {}, child;
+	Dwarf_Die member = {}, variant_part = {}, child;
 	bool first_member = true;
+	size_t num_variant_parts = 0;
 	int r = dwarf_child(die, &child);
 	while (r == 0) {
 		switch (dwarf_tag(&child)) {
@@ -6026,6 +6195,12 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 					first_member = false;
 				}
 				member = child;
+			}
+			break;
+		case DW_TAG_variant_part:
+			if (!declaration) {
+				variant_part = child;
+				num_variant_parts++;
 			}
 			break;
 		case DW_TAG_template_type_parameter:
@@ -6059,6 +6234,10 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 				   kind != DRGN_TYPE_UNION && !first_member,
 				   &builder);
 		if (err)
+			return err;
+	} else if (num_variant_parts == 1) {
+		err = parse_variant_part(dbinfo, file, &variant_part, lang, little_endian, &builder);
+		if (err && err != &drgn_not_found)
 			return err;
 	}
 
