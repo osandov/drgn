@@ -65,6 +65,20 @@ AC_ARG_ENABLE([python-extension],
 			       from libdrgn])],
 	      [], [enable_python_extension=no])
 
+AC_ARG_WITH([gdbinit-dir],
+	    [AS_HELP_STRING([--with-gdbinit-dir=PATH],
+			    [directory for the GDB startup script
+			     @<:@default=${libexecdir}/drgn@:>@])],
+	    [], [with_gdbinit_dir='${libexecdir}/drgn'])
+AS_CASE(["x$with_gdbinit_dir"],
+	[x | xyes],
+	[AC_MSG_ERROR([--with-gdbinit-dir requires a non-empty directory])])
+AS_IF([test "x$with_gdbinit_dir" != xno],
+	[DRGN_GDBINIT_DIR=$with_gdbinit_dir],
+	[DRGN_GDBINIT_DIR=])
+AC_SUBST([DRGN_GDBINIT_DIR])
+AM_CONDITIONAL([GDBINIT], [test "x$with_gdbinit_dir" != xno])
+
 AM_CONDITIONAL([ENABLE_LIBDRGN], [test "x$enable_libdrgn" != xno])
 AM_CONDITIONAL([ENABLE_PYTHON],
 	       [test "x$enable_python" != xno || test "x$enable_python_extension" != xno])
