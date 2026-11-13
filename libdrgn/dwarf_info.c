@@ -5085,7 +5085,10 @@ absent:
 					drgn_type_type(qualified_type.type);
 				uint64_t element_size;
 				err = drgn_type_sizeof(element_type.type, &element_size);
-				if (!err && element_size > 0) {
+				if (err) {
+					err = NULL;
+				} else if (element_size > 0
+					   && sym->size % element_size == 0) {
 					uint64_t length = sym->size / element_size;
 					struct drgn_type *complete_array_type;
 					err = drgn_array_type_create(prog, element_type,
