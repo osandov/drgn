@@ -314,3 +314,26 @@ Thread Safety
 Only one thread at a time should access the same :class:`Program` (including
 :class:`Object`, :class:`Type`, :class:`StackTrace`, etc. from that program).
 It is safe to use different :class:`Program`\ s from concurrent threads.
+
+.. _threat-model:
+
+Security
+--------
+
+drgn's threat model is:
+
+* The target (core dump, process memory, etc.) is **not** trusted.
+* Debugging information (ELF, DWARF, etc.) is **not** trusted. Note that an
+  untrusted target can trigger untrusted debugging information to be loaded
+  (e.g., by file path or from debuginfod).
+* Python code executed or imported by the user is trusted. This includes
+  :ref:`plugins <writing-plugins>`, which are loaded automatically, and modules
+  in the current directory.
+
+A bug is a security issue if untrusted input can cause arbitrary code
+execution, memory corruption, or disclosure of drgn's memory. Denial of service
+(e.g., crashes, memory exhaustion, infinite loops) and incorrect output are
+considered normal bugs, not security issues.
+
+drgn is hardened against untrusted input, but it and its dependencies may still
+have issues. Consider running drgn in a sandbox when debugging untrusted input.
