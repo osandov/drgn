@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 import random
+import sys
 import unittest
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME
@@ -20,7 +21,8 @@ from drgn.helpers.experimental.kmodify import (
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 skip_unless_have_kmodify = unittest.skipUnless(
-    NORMALIZED_MACHINE_NAME == "x86_64",
+    NORMALIZED_MACHINE_NAME == "x86_64"
+    or (NORMALIZED_MACHINE_NAME == "ppc64" and sys.byteorder == "little"),
     f"kmodify is not implemented for {NORMALIZED_MACHINE_NAME}",
 )
 
