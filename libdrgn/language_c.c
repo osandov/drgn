@@ -15,6 +15,7 @@
 #include "c_lexer.h"
 #include "error.h"
 #include "language.h" // IWYU pragma: associated
+#include "language_rust.h"
 #include "lexer.h"
 #include "minmax.h"
 #include "object.h"
@@ -578,6 +579,14 @@ c_format_type_name_impl(struct drgn_qualified_type qualified_type,
 	} else {
 		return c_declare_variable(qualified_type, NULL, 0, false, sb);
 	}
+}
+
+static struct drgn_error *
+c_format_object_type_name(struct drgn_qualified_type qualified_type, struct string_builder *sb)
+{
+	if (drgn_type_language(qualified_type.type) == &drgn_language_rust)
+		return drgn_rust_append_type_name(qualified_type, sb);
+	return c_format_type_name_impl(qualified_type, sb);
 }
 
 static struct drgn_error *
@@ -1403,8 +1412,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 	if (options->flags & DRGN_FORMAT_OBJECT_TYPE_NAME) {
 		if (!string_builder_appendc(sb, '('))
 			return &drgn_enomem;
-		err = c_format_type_name_impl(drgn_object_qualified_type(obj),
-					      sb);
+		err = c_format_object_type_name(drgn_object_qualified_type(obj), sb);
 		if (err)
 			return err;
 		if (!string_builder_appendc(sb, ')'))
@@ -1706,8 +1714,7 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 
 		if (!string_builder_appendc(sb, '('))
 			return &drgn_enomem;
-		err = c_format_type_name_impl(drgn_object_qualified_type(obj),
-					      sb);
+		err = c_format_object_type_name(drgn_object_qualified_type(obj), sb);
 		if (err)
 			return err;
 		if (!string_builder_appendc(sb, ')'))
@@ -4035,7 +4042,7 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_rust = {
 	.name = "Rust",
 	.number = DRGN_LANGUAGE_RUST,
 	.has_namespaces = true,
-	.format_type_name = c_format_type_name,
+	.format_type_name = drgn_rust_format_type_name,
 	.format_type = c_format_type,
 	.format_variable_declaration = c_format_variable_declaration,
 	.format_object = c_format_object,

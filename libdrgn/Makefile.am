@@ -95,6 +95,8 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    language.c \
 			    language.h \
 			    language_c.c \
+			    language_rust.c \
+			    language_rust.h \
 			    lazy_object.c \
 			    lazy_object.h \
 			    lexer.c \
