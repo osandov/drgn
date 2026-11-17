@@ -2772,26 +2772,68 @@ static struct drgn_error *drgn_language_from_die(Dwarf_Die *die, bool fall_back,
 	return NULL;
 }
 
-const struct drgn_language *
-drgn_debug_info_main_language(struct drgn_debug_info *dbinfo)
+static const struct drgn_language *
+main_language_in_namespace(struct drgn_namespace_dwarf_index *ns,
+			   bool need_main_subprogram)
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index_iterator it;
 	const enum drgn_dwarf_index_tag tag = DRGN_DWARF_INDEX_subprogram;
-	err = drgn_dwarf_index_iterator_init(&it, &dbinfo->dwarf.global, "main",
-					     strlen("main"), &tag, 1);
+	err = drgn_dwarf_index_iterator_init(&it, ns, "main", strlen("main"),
+					     &tag, 1);
 	if (err) {
 		drgn_error_destroy(err);
 		return NULL;
 	}
 	Dwarf_Die die;
 	while (drgn_dwarf_index_iterator_next(&it, &die, NULL)) {
+		Dwarf_Attribute attr_mem, *attr;
+		bool main_subprogram;
+		if (need_main_subprogram &&
+		    (!(attr = dwarf_attr_integrate(&die, DW_AT_main_subprogram,
+						   &attr_mem)) ||
+		     dwarf_formflag(attr, &main_subprogram) ||
+		     !main_subprogram))
+			continue;
 		const struct drgn_language *lang;
 		err = drgn_language_from_die(&die, false, &lang);
 		if (err) {
 			drgn_error_destroy(err);
 			continue;
 		}
+		if (lang)
+			return lang;
+	}
+	return NULL;
+}
+
+const struct drgn_language *
+drgn_debug_info_main_language(struct drgn_debug_info *dbinfo)
+{
+	struct drgn_error *err;
+	struct drgn_namespace_dwarf_index *global = &dbinfo->dwarf.global;
+	const struct drgn_language *lang =
+		main_language_in_namespace(global, false);
+	if (lang)
+		return lang;
+
+	// Rust's main function is in the top-level namespace of the crate and
+	// has DW_AT_main_subprogram.
+	err = index_namespace(global);
+	if (err) {
+		drgn_error_destroy(err);
+		return NULL;
+	}
+	hash_table_for_each(drgn_dwarf_index_die_map, it,
+			    &global->map[DRGN_DWARF_INDEX_namespace]) {
+		struct drgn_namespace_dwarf_index *ns;
+		err = drgn_namespace_find_child(global, it.entry->key.str,
+						it.entry->key.len, &ns);
+		if (err) {
+			drgn_error_destroy(err);
+			continue;
+		}
+		lang = main_language_in_namespace(ns, true);
 		if (lang)
 			return lang;
 	}

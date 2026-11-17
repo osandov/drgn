@@ -7938,6 +7938,51 @@ class TestProgram(TestCase):
             Language.CPP,
         )
 
+    def test_language_main_subprogram(self):
+        def dies(main_subprogram):
+            return (
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "core"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.subprogram,
+                            (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "rtest"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.subprogram,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),
+                                *(
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.main_subprogram,
+                                            DW_FORM.flag_present,
+                                            True,
+                                        ),
+                                    )
+                                    if main_subprogram
+                                    else ()
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+
+        self.assertEqual(
+            dwarf_program(dies(True), lang=DW_LANG.Rust).language, Language.RUST
+        )
+        self.assertEqual(
+            dwarf_program(dies(False), lang=DW_LANG.Rust).language, DEFAULT_LANGUAGE
+        )
+
     def test_reference_counting(self):
         # Test that we keep the appropriate objects alive even if we don't have
         # an explicit reference (e.g., from a temporary variable).
