@@ -890,6 +890,9 @@ struct drgn_error *linux_helper_pid_task(struct drgn_object *res,
 	err = drgn_object_member(&first, &first, "first");
 	if (err)
 		return err;
+	err = drgn_object_read(&first, &first);
+	if (err)
+		return err;
 
 	err = drgn_object_bool(&first, &truthy);
 	if (err)
