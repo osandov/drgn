@@ -31,6 +31,9 @@ __all__ = (
     "list_last_entry",
     "list_next_entry",
     "list_prev_entry",
+    "validate_hlist",
+    "validate_hlist_for_each",
+    "validate_hlist_for_each_entry",
     "validate_list",
     "validate_list_count_nodes",
     "validate_list_for_each",
@@ -329,4 +332,76 @@ def hlist_for_each_entry(
     """
     type = head.prog_.type(type)
     for pos in hlist_for_each(head):
+        yield container_of(pos, type, member)
+
+
+def validate_hlist(head: Object) -> None:
+    """
+    Validate that the ``next`` and ``pprev`` pointers in a hash list are
+    consistent and that the hash list does not contain any cycles.
+
+    >>> validate_hlist(prog["my_hlist"].address_of_())
+    drgn.helpers.ValidationError: (struct hlist_node *)0xffffffffc02f2fe8 has pprev 0xffffffffc02f3018 instead of 0xffffffffc02f3000
+
+    :param head: ``struct hlist_head *``
+    :raises ValidationError: if the hash list is invalid
+    """
+    for _ in validate_hlist_for_each(head):
+        pass
+
+
+def validate_hlist_for_each(head: Object) -> Iterator[Object]:
+    """
+    Like :func:`hlist_for_each()`, but validates the hash list like
+    :func:`validate_hlist()` while iterating.
+
+    Note that this may yield duplicate nodes before a cycle is detected.
+
+    :param head: ``struct hlist_head *``
+    :raises ValidationError: if the hash list is invalid
+    """
+    # Brent's algorithm for cycle detection.
+    pnext = head.first.address_of_()
+    saved_pos = None
+    pos = pnext[0].read_()
+    power = n = 1
+    while pos:
+        pprev = pos.pprev.read_()
+        if pprev != pnext:
+            raise ValidationError(
+                f"{pos.format_(dereference=False, symbolize=False)}"
+                f" has pprev {pprev.format_(dereference=False, symbolize=False, type_name=False)}"
+                f" instead of {pnext.format_(dereference=False, symbolize=False, type_name=False)}"
+            )
+        if pos == saved_pos:
+            raise ValidationError(
+                f"cycle around {pos.format_(dereference=False, symbolize=False)}"
+            )
+        if power == n:
+            saved_pos = pos
+            power <<= 1
+            n = 0
+
+        yield pos
+        pnext = pos.next.address_of_()
+        pos = pnext[0].read_()
+        n += 1
+
+
+def validate_hlist_for_each_entry(
+    type: Union[str, Type], head: Object, member: str
+) -> Iterator[Object]:
+    """
+    Like :func:`hlist_for_each_entry()`, but validates the hash list like
+    :func:`validate_hlist()` while iterating.
+
+    Note that this may yield duplicate entries before a cycle is detected.
+
+    :param type: Entry type.
+    :param head: ``struct hlist_head *``
+    :param member: Name of list node member in entry type.
+    :raises ValidationError: if the hash list is invalid
+    """
+    type = head.prog_.type(type)
+    for pos in validate_hlist_for_each(head):
         yield container_of(pos, type, member)

@@ -3,7 +3,7 @@
 
 import collections
 
-from drgn import NULL
+from drgn import NULL, cast
 from drgn.helpers import ValidationError
 from drgn.helpers.linux.list import (
     hlist_empty,
@@ -21,6 +21,9 @@ from drgn.helpers.linux.list import (
     list_last_entry,
     list_next_entry,
     list_prev_entry,
+    validate_hlist,
+    validate_hlist_for_each,
+    validate_hlist_for_each_entry,
     validate_list,
     validate_list_count_nodes,
     validate_list_for_each,
@@ -231,6 +234,18 @@ class TestHlist(LinuxKernelTestCase):
         cls.full = cls.prog["drgn_test_full_hlist"].address_of_()
         cls.entries = cls.prog["drgn_test_hlist_entries"]
         cls.num_entries = 3
+        cls.corrupted = cls.prog["drgn_test_corrupted_hlist"].address_of_()
+        # struct list_head has the same layout as struct hlist_node, so a
+        # circular list looks like a hash list with a cycle and valid pprev
+        # pointers.
+        cls.cycles = [
+            cast("struct hlist_head *", cls.prog[name].address_of_())
+            for name in (
+                "drgn_test_empty_list",
+                "drgn_test_singular_list",
+                "drgn_test_full_list",
+            )
+        ]
 
     def node(self, n):
         return self.entries[n].node.address_of_()
@@ -261,4 +276,43 @@ class TestHlist(LinuxKernelTestCase):
                 hlist_for_each_entry("struct drgn_test_hlist_entry", self.full, "node")
             ),
             [self.entry(i) for i in range(self.num_entries)],
+        )
+
+    def test_validate_hlist(self):
+        for head in (self.empty, self.full):
+            validate_hlist(head)
+        for head in (self.corrupted, *self.cycles):
+            self.assertRaises(ValidationError, validate_hlist, head)
+
+    def test_validate_hlist_for_each(self):
+        for head in (self.empty, self.full):
+            self.assertEqual(
+                list(validate_hlist_for_each(head)), list(hlist_for_each(head))
+            )
+        self.assertRaises(
+            ValidationError,
+            collections.deque,
+            validate_hlist_for_each(self.corrupted),
+            0,
+        )
+
+    def test_validate_hlist_for_each_entry(self):
+        for head in (self.empty, self.full):
+            self.assertEqual(
+                list(
+                    validate_hlist_for_each_entry(
+                        "struct drgn_test_hlist_entry", head, "node"
+                    )
+                ),
+                list(
+                    hlist_for_each_entry("struct drgn_test_hlist_entry", head, "node")
+                ),
+            )
+        self.assertRaises(
+            ValidationError,
+            collections.deque,
+            validate_hlist_for_each_entry(
+                "struct drgn_test_hlist_entry", self.corrupted, "node"
+            ),
+            0,
         )

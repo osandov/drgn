@@ -588,6 +588,7 @@ struct drgn_test_list_entry drgn_test_anchored_list_entries[3];
 
 HLIST_HEAD(drgn_test_empty_hlist);
 HLIST_HEAD(drgn_test_full_hlist);
+HLIST_HEAD(drgn_test_corrupted_hlist);
 
 struct drgn_test_hlist_entry {
 	int value;
@@ -595,6 +596,7 @@ struct drgn_test_hlist_entry {
 };
 
 struct drgn_test_hlist_entry drgn_test_hlist_entries[3];
+struct drgn_test_hlist_entry drgn_test_corrupted_hlist_entries[3];
 
 struct drgn_test_custom_list_entry {
 	int value;
@@ -632,6 +634,32 @@ static void init_corrupted_list(void)
 	WRITE_ONCE(prev->next, new1);
 }
 
+// Emulate a race condition between two threads calling hlist_add_head() at the
+// same time.
+static void init_corrupted_hlist(void)
+{
+	struct hlist_head *head = &drgn_test_corrupted_hlist;
+	struct hlist_node *first = &drgn_test_corrupted_hlist_entries[0].node;
+	struct hlist_node *new1 = &drgn_test_corrupted_hlist_entries[1].node;
+	struct hlist_node *new2 = &drgn_test_corrupted_hlist_entries[2].node;
+
+	hlist_add_head(first, head);
+
+	// Thread 1 starts hlist_add_head().
+	new1->next = first;
+	first->pprev = &new1->next;
+
+	// Thread 2 races in and does its own hlist_add_head().
+	new2->next = first;
+	first->pprev = &new2->next;
+	WRITE_ONCE(head->first, new2);
+	new2->pprev = &head->first;
+
+	// Thread 1 finishes hlist_add_head().
+	WRITE_ONCE(head->first, new1);
+	new1->pprev = &head->first;
+}
+
 static void drgn_test_list_init(void)
 {
 	size_t i;
@@ -655,6 +683,7 @@ static void drgn_test_list_init(void)
 	}
 
 	init_corrupted_list();
+	init_corrupted_hlist();
 
 #define init_list_cycle(n)							\
 	do {									\
