@@ -2164,7 +2164,8 @@ DrgnType *Program_typedef_type(Program *self, PyObject *args, PyObject *kwds)
 DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"type", "size", "byteorder", "qualifiers", "language", NULL
+		"type", "size", "byteorder", "name", "qualifiers", "language",
+		NULL
 	};
 	DrgnType *referenced_type_obj;
 	struct index_arg size = { .allow_none = true, .is_none = true };
@@ -2173,15 +2174,29 @@ DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds)
 		.is_none = true,
 		.value = DRGN_PROGRAM_ENDIAN,
 	};
+	PyObject *name_obj = Py_None;
 	enum drgn_qualifiers qualifiers = 0;
 	const struct drgn_language *language = NULL;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O&O&$O&O&:pointer_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O&O&$OO&O&:pointer_type",
 					 keywords, &DrgnType_type,
 					 &referenced_type_obj, index_converter,
 					 &size, byteorder_converter, &byteorder,
-					 qualifiers_converter, &qualifiers,
-					 language_converter, &language))
+					 &name_obj, qualifiers_converter,
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
+
+	const char *name = NULL;
+	if (name_obj != Py_None) {
+		if (!PyUnicode_Check(name_obj)) {
+			PyErr_SetString(PyExc_TypeError,
+					"pointer_type() name must be str or None");
+			return NULL;
+		}
+		name = PyUnicode_AsUTF8(name_obj);
+		if (!name)
+			return NULL;
+	}
 
 	if (size.is_none) {
 		uint64_t address_size;
@@ -2192,15 +2207,23 @@ DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds)
 		size.uvalue = address_size;
 	}
 
+	if (name && !Program_hold_reserve(self, 1))
+		return NULL;
+
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_pointer_type_create(&self->prog,
 							  DrgnType_unwrap(referenced_type_obj),
 							  size.uvalue,
 							  byteorder.value,
-							  language,
+							  name, language,
 							  &qualified_type.type);
 	if (err)
 		return set_drgn_error(err);
+
+	bool new_name = name && drgn_type_name(qualified_type.type) == name;
+	if (new_name)
+		Program_hold_object(self, name_obj);
+
 	qualified_type.qualifiers = qualifiers;
 	_cleanup_pydecref_ DrgnType *type_obj =
 		(DrgnType *)DrgnType_wrap(qualified_type);
@@ -2208,7 +2231,8 @@ DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds)
 		return NULL;
 
 	if (DrgnType_cache_attr(type_obj, &DrgnType_attr_type,
-				(PyObject *)referenced_type_obj))
+				(PyObject *)referenced_type_obj) ||
+	    (new_name && DrgnType_cache_attr(type_obj, &DrgnType_attr_name, name_obj)))
 		return NULL;
 
 	return_ptr(type_obj);

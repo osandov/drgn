@@ -6446,6 +6446,15 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		return err;
 
 	Dwarf_Attribute attr_mem, *attr;
+	const char *name = NULL;
+	if ((attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem))) {
+		name = dwarf_formstring(attr);
+		if (!name) {
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
+						 "DW_TAG_pointer_type has invalid DW_AT_name");
+		}
+	}
+
 	uint64_t size;
 	if ((attr = dwarf_attr_integrate(die, DW_AT_byte_size, &attr_mem))) {
 		Dwarf_Word word;
@@ -6472,7 +6481,7 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	enum drgn_byte_order byte_order;
 	dwarf_die_byte_order(die, false, &byte_order);
 	return drgn_pointer_type_create(dbinfo->prog, referenced_type, size,
-					byte_order, lang, ret);
+					byte_order, name, lang, ret);
 }
 
 struct array_dimension {

@@ -1466,6 +1466,7 @@ class Program:
         size: Optional[int] = None,
         byteorder: Optional[str] = None,
         *,
+        name: Optional[str] = None,
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
@@ -1477,6 +1478,8 @@ class Program:
             default pointer size.
         :param byteorder: :attr:`Type.byteorder`, or ``None`` to use the
             program's default byte order.
+        :param name: :attr:`Type.name`, or ``None`` if the pointer type
+            doesn't have a name.
         :param qualifiers: :attr:`Type.qualifiers`
         :param lang: :attr:`Type.language`
         """
@@ -3607,7 +3610,8 @@ class Type:
     name: Final[str]
     """
     Name of this type. This is present for integer, boolean, floating-point,
-    and typedef types.
+    and typedef types, and for pointer types with a name (e.g., Rust pointer
+    types such as ``&T`` or ``*mut T``).
     """
 
     tag: Final[Optional[str]]

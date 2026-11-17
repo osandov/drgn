@@ -302,8 +302,8 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 	    drgn_type_is_complete(a) != drgn_type_is_complete(b) ||
 	    drgn_type_language(a) != drgn_type_language(b))
 		return false;
-	if (drgn_type_has_name(a) &&
-	    strcmp(drgn_type_name(a), drgn_type_name(b)) != 0)
+	if (drgn_type_has_name(a) != drgn_type_has_name(b) ||
+	    (drgn_type_has_name(a) && strcmp(drgn_type_name(a), drgn_type_name(b)) != 0))
 		return false;
 	if (drgn_type_has_size(a) && drgn_type_size(a) != drgn_type_size(b))
 		return false;
@@ -829,7 +829,7 @@ struct drgn_error *
 drgn_pointer_type_create(struct drgn_program *prog,
 			 struct drgn_qualified_type referenced_type,
 			 uint64_t size, enum drgn_byte_order byte_order,
-			 const struct drgn_language *lang,
+			 const char *name, const struct drgn_language *lang,
 			 struct drgn_type **ret)
 {
 	struct drgn_error *err;
@@ -843,6 +843,7 @@ drgn_pointer_type_create(struct drgn_program *prog,
 		._kind = DRGN_TYPE_POINTER,
 		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
 		._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
+		._name = name,
 		._size = size,
 		._type = referenced_type.type,
 		._qualifiers = referenced_type.qualifiers,
@@ -1023,6 +1024,7 @@ drgn_type_with_byte_order_impl(struct drgn_type **type,
 					       drgn_type_type(*type),
 					       drgn_type_size(*type),
 					       byte_order,
+					       drgn_type_has_name(*type) ? drgn_type_name(*type) : NULL,
 					       drgn_type_language(*type), type);
 		if (!err)
 			*underlying_type = *type;

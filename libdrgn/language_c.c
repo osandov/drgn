@@ -2666,7 +2666,7 @@ c_type_from_declarator(struct drgn_program *prog,
 				if (!err) {
 					err = drgn_pointer_type_create(prog, *ret,
 								       address_size,
-								       DRGN_PROGRAM_ENDIAN,
+								       DRGN_PROGRAM_ENDIAN, NULL,
 								       drgn_type_language(ret->type),
 								       &ret->type);
 				}
@@ -3491,7 +3491,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 		err = drgn_pointer_type_create(drgn_object_program(obj),
 					       drgn_type_type(type_ret->underlying_type),
 					       address_size,
-					       DRGN_PROGRAM_ENDIAN,
+					       DRGN_PROGRAM_ENDIAN, NULL,
 					       drgn_type_language(type_ret->underlying_type),
 					       &type_ret->type);
 		if (err)
@@ -3509,7 +3509,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 			return err;
 		err = drgn_pointer_type_create(drgn_object_program(obj),
 					       function_type, address_size,
-					       DRGN_PROGRAM_ENDIAN,
+					       DRGN_PROGRAM_ENDIAN, NULL,
 					       drgn_type_language(type_ret->underlying_type),
 					       &type_ret->type);
 		if (err)

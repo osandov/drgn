@@ -1648,7 +1648,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 		return err;
 	struct drgn_qualified_type result_type;
 	err = drgn_pointer_type_create(drgn_object_program(obj), qualified_type,
-				       address_size, DRGN_PROGRAM_ENDIAN,
+				       address_size, DRGN_PROGRAM_ENDIAN, NULL,
 				       drgn_type_language(qualified_type.type),
 				       &result_type.type);
 	if (err)
@@ -1927,7 +1927,7 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 		return err;
 	struct drgn_qualified_type result_type;
 	err = drgn_pointer_type_create(drgn_object_program(obj), qualified_type,
-				       address_size, DRGN_PROGRAM_ENDIAN,
+				       address_size, DRGN_PROGRAM_ENDIAN, NULL,
 				       drgn_type_language(qualified_type.type),
 				       &result_type.type);
 	if (err)

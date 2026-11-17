@@ -403,6 +403,8 @@ drgn_typedef_type_create(struct drgn_program *prog, const char *name,
  * @param[in] prog Program owning type.
  * @param[in] referenced_type Type referenced by the pointer type.
  * @param[in] size Size of the type in bytes.
+ * @param[in] name Name of the type or @c NULL if it doesn't have a name. The
+ * string must remain valid for the lifetime of @p prog.
  * @param[in] lang Language of the type or @c NULL for the default language of
  * @p prog.
  * @param[out] ret Returned type.
@@ -412,7 +414,7 @@ struct drgn_error *
 drgn_pointer_type_create(struct drgn_program *prog,
 			 struct drgn_qualified_type referenced_type,
 			 uint64_t size, enum drgn_byte_order byte_order,
-			 const struct drgn_language *lang,
+			 const char *name, const struct drgn_language *lang,
 			 struct drgn_type **ret);
 
 /**

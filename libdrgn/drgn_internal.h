@@ -122,6 +122,13 @@ const struct drgn_language *drgn_type_language(struct drgn_type *type)
 }
 
 DRGN_ACCESSOR_LINKAGE
+bool drgn_type_has_name(struct drgn_type *type)
+{
+	enum drgn_type_kind kind = drgn_type_kind(type);
+	return drgn_type_kind_has_name(kind) || (kind == DRGN_TYPE_POINTER && type->_name);
+}
+
+DRGN_ACCESSOR_LINKAGE
 const char *drgn_type_name(struct drgn_type *type)
 {
 	assert(drgn_type_has_name(type));

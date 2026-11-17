@@ -3255,6 +3255,40 @@ class TestTypes(TestCase):
             prog.type("TEST").type, prog.pointer_type(prog.void_type())
         )
 
+    def test_pointer_name(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.pointer_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "&int"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                    ),
+                ),
+                *labeled_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.pointer_type(prog.int_type("int", 4, True), name="&int"),
+        )
+
+    def test_pointer_invalid_name(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.pointer_type,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.data1, 0),),
+                )
+            )
+        )
+        self.assertRaisesRegex(
+            BadDataError,
+            "DW_TAG_pointer_type has invalid DW_AT_name",
+            prog.type,
+            "TEST",
+        )
+
     def test_array(self):
         prog = dwarf_program(
             wrap_test_type_dies(

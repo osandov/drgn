@@ -3608,11 +3608,12 @@ static inline bool drgn_type_kind_has_name(enum drgn_type_kind kind)
 		kind == DRGN_TYPE_FLOAT ||
 		kind == DRGN_TYPE_TYPEDEF);
 }
-/** Get whether a type has a name. @sa drgn_type_kind_has_name() */
-static inline bool drgn_type_has_name(struct drgn_type *type)
-{
-	return drgn_type_kind_has_name(drgn_type_kind(type));
-}
+/**
+ * Get whether a type has a name. This is true for kinds of types that have a
+ * name and for pointer types with a name. @sa drgn_type_kind_has_name()
+ */
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_has_name(struct drgn_type *type);
 /**
  * Get the name of a type. @ref drgn_type_has_name() must be true for this type.
  */

@@ -989,6 +989,34 @@ class TestType(MockProgramTestCase):
         self.assertEqual(sizeof(t), 8)
 
         self.assertRaises(TypeError, self.prog.pointer_type, 4)
+        self.assertRaisesRegex(
+            AttributeError, "does not have a name", getattr, t, "name"
+        )
+
+    def test_pointer_name(self):
+        int_type = self.prog.int_type("i32", 4, True)
+        t = self.prog.pointer_type(int_type, name="&i32")
+        self.assertEqual(t.kind, TypeKind.POINTER)
+        self.assertEqual(t.name, "&i32")
+        self.assertIdentical(t.type, int_type)
+        self.assertEqual(
+            repr(t),
+            "prog.pointer_type(name='&i32', type=prog.int_type(name='i32', size=4, is_signed=True))",
+        )
+
+        self.assertEqual(t._ptr, self.prog.pointer_type(int_type, name="&i32")._ptr)
+        self.assertNotEqual(
+            t._ptr, self.prog.pointer_type(int_type, name="&mut i32")._ptr
+        )
+        self.assertNotEqual(t._ptr, self.prog.pointer_type(int_type)._ptr)
+
+        self.assertRaisesRegex(
+            TypeError,
+            "name must be str or None",
+            self.prog.pointer_type,
+            int_type,
+            name=1,
+        )
 
     def test_pointer_byteorder(self):
         self.assertIdentical(
