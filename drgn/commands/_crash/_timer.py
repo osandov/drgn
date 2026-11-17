@@ -144,9 +144,18 @@ for hrtimer in hrtimer_clock_base_for_each(clock_base.address_of_()):
                 ]
                 # Walking the hrtimer queue is racy. Retry a limited number of
                 # times on live kernels.
-                for _ in range(1000 if (prog.flags & ProgramFlags.IS_LIVE) else 1):
+                live = bool(prog.flags & ProgramFlags.IS_LIVE)
+                prev_hrtimers = None
+                for _ in range(1000 if live else 1):
                     try:
-                        for hrtimer in hrtimer_clock_base_for_each(clock_base):
+                        hrtimers = list(hrtimer_clock_base_for_each(clock_base))
+                        # If the tree is rebalanced while we're walking it, we
+                        # can silently miss timers, so walk it until we get the
+                        # same result twice in a row.
+                        if live and hrtimers != prev_hrtimers:
+                            prev_hrtimers = hrtimers
+                            continue
+                        for hrtimer in hrtimers:
                             expires = ktime_to_ns(hrtimer.node.expires).value_()
                             rows.append(
                                 (
