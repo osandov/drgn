@@ -12,4 +12,9 @@ struct drgn_error *drgn_rust_append_type_name(struct drgn_qualified_type qualifi
 
 struct drgn_error *drgn_rust_format_type_name(struct drgn_qualified_type qualified_type, char **ret);
 
+struct drgn_error *drgn_rust_format_type(struct drgn_qualified_type qualified_type, char **ret);
+
+struct drgn_error *drgn_rust_format_variable_declaration(struct drgn_qualified_type qualified_type, const char *name,
+							 char **ret);
+
 #endif /* DRGN_LANGUAGE_RUST_H */
