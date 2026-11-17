@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from drgn import FaultError
+from drgn.helpers import ValidationError
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.percpu import per_cpu
 from drgn.helpers.linux.timer import hrtimer_clock_base_for_each, timer_base_for_each
@@ -20,7 +21,7 @@ class TestTimer(LinuxKernelTestCase):
                     try:
                         if timer in timer_base_for_each(base):
                             return
-                    except FaultError:
+                    except (FaultError, ValidationError):
                         pass
         self.fail("timer not found")
 

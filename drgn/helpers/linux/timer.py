@@ -13,7 +13,7 @@ from typing import Iterator, Sequence
 
 from drgn import Object, Program
 from drgn.helpers.common.prog import takes_program_or_default
-from drgn.helpers.linux.list import hlist_for_each_entry
+from drgn.helpers.linux.list import validate_hlist_for_each_entry
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 __all__ = (
@@ -78,9 +78,13 @@ def timer_base_for_each(base: Object) -> Iterator[Object]:
 
     :param base: ``struct timer_base *``
     :return: Iterator of ``struct timer_list *`` objects.
+    :raises ValidationError: if a timer list is invalid (e.g., because it was
+        modified while iterating)
     """
     for head in base.vectors:
-        yield from hlist_for_each_entry(
+        # Timer structures are modified frequently, so check for cycles and
+        # invalid entries.
+        yield from validate_hlist_for_each_entry(
             "struct timer_list", head.address_of_(), "entry"
         )
 

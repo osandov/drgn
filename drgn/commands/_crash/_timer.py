@@ -13,6 +13,7 @@ from drgn.commands._crash.common import (
     crash_command,
     parse_cpuspec,
 )
+from drgn.helpers import ValidationError
 from drgn.helpers.common.format import CellFormat, RowOptions, print_table
 from drgn.helpers.linux.percpu import per_cpu
 from drgn.helpers.linux.timekeeping import ktime_get_coarse_ns, ktime_to_ns
@@ -233,7 +234,7 @@ for timer in timer_base_for_each(base):
                                 )
                             )
                         break
-                    except FaultError:
+                    except (FaultError, ValidationError):
                         timer_rows.clear()
                 else:
                     rows.append(("", "(corrupted)"))
