@@ -630,9 +630,14 @@ class TestTypes(TestCase):
                 "WithUnit",
                 4,
                 (
-                    TypeMember(prog.int_type("int", 4, True), "x", 0),
-                    TypeMember(prog.struct_type("()", 0, ()), "u", 32),
+                    TypeMember(
+                        prog.int_type("int", 4, True, language=Language.RUST), "x", 0
+                    ),
+                    TypeMember(
+                        prog.struct_type("()", 0, (), language=Language.RUST), "u", 32
+                    ),
                 ),
+                language=Language.RUST,
             ),
         )
         obj = Object.from_bytes_(prog, prog.type("TEST"), b"\x01\x00\x00\x00")
@@ -1225,6 +1230,64 @@ class TestTypes(TestCase):
                         language=Language.CPP,
                     ),
                 )
+
+    def test_incomplete_to_complete_namespace_rust(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.pointer_type,
+                    (
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "incomplete_struct_die"),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "core"),),
+                    (
+                        DwarfLabel("incomplete_struct_die"),
+                        DwarfDie(
+                            DW_TAG.structure_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "Point"),
+                                DwarfAttrib(
+                                    DW_AT.declaration, DW_FORM.flag_present, True
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "core"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.structure_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "Point"),
+                                DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                            ),
+                        ),
+                    ),
+                ),
+                # Incorrect structure we should not access
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Point"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.Rust,
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.pointer_type(
+                prog.struct_type("Point", 8, (), language=Language.RUST),
+                language=Language.RUST,
+            ),
+        )
 
     def test_incomplete_to_complete_specification(self):
         for version in (4, 5):
@@ -4555,6 +4618,11 @@ class TestTypes(TestCase):
                     prog.type("TEST").type,
                     prog.int_type("int", 4, True, language=Language.C),
                 )
+        prog = dwarf_program(wrap_test_type_dies(int_die), lang=DW_LANG.Rust)
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.int_type("int", 4, True, language=Language.RUST),
+        )
         prog = dwarf_program(wrap_test_type_dies(int_die), lang=DW_LANG.BLISS)
         self.assertIdentical(
             prog.type("TEST").type,
@@ -7799,6 +7867,7 @@ class TestProgram(TestCase):
         self.assertEqual(
             dwarf_program(dies, lang=DW_LANG.C_plus_plus_14).language, Language.CPP
         )
+        self.assertEqual(dwarf_program(dies, lang=DW_LANG.Rust).language, Language.RUST)
 
         self.assertEqual(
             dwarf_program(dies, lang=DW_LANG.C_plus_plus).object("main").type_.language,

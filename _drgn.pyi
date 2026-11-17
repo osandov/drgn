@@ -2402,6 +2402,9 @@ class Language:
     CPP: ClassVar[Language]
     """The C++ programming language."""
 
+    RUST: ClassVar[Language]
+    """The Rust programming language."""
+
 class Object:
     """
     An ``Object`` represents a symbol or value in a program. An object may

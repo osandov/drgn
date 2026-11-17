@@ -2762,6 +2762,9 @@ static struct drgn_error *drgn_language_from_die(Dwarf_Die *die, bool fall_back,
 	case DW_LANG_C_plus_plus_14:
 		*ret = &drgn_language_cpp;
 		break;
+	case DW_LANG_Rust:
+		*ret = &drgn_language_rust;
+		break;
 	default:
 		*ret = fall_back ? &drgn_default_language : NULL;
 		break;

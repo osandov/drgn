@@ -306,6 +306,8 @@ struct drgn_language; // IWYU pragma: export
 extern const struct drgn_language drgn_language_c;
 /** C++ */
 extern const struct drgn_language drgn_language_cpp;
+/** Rust */
+extern const struct drgn_language drgn_language_rust;
 
 /** Get the name of a @ref drgn_language. */
 const char *drgn_language_name(const struct drgn_language *lang);
