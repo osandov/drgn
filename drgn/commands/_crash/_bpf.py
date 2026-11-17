@@ -66,18 +66,18 @@ def _get_map_uid(bpf_map: Object) -> str:
     # This was removed in v5.11 by commit 80ee81e0403c ("bpf: Eliminate
     # rlimit-based memory accounting infra for bpf maps").
     try:
-        user_ptr = bpf_map.memory.user
+        user_ptr = bpf_map.memory.user.read_()
     except AttributeError:
         # Linux 4.10 to 5.2: bpf_map.user
         # Commit aaac3ba95e4c ("bpf: charge user for creation of BPF maps and
         # programs") (in v4.10) added the user field directly to struct bpf_map.
         # This was moved into struct bpf_map_memory in v5.3.
         try:
-            user_ptr = bpf_map.user
+            user_ptr = bpf_map.user.read_()
         except AttributeError:
             pass
 
-    if user_ptr is not None:
+    if user_ptr:
         try:
             return str(kuid_val(user_ptr.uid))
         except AttributeError:
