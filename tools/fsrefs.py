@@ -7,22 +7,15 @@ import typing
 from typing import Any, Callable, Iterable, Iterator, Optional, Sequence, Union
 
 from drgn import FaultError, Object, Program, TypeKind, cast, container_of
+from drgn.helpers.linux._fsrefs import for_each_task_file_reference
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
-from drgn.helpers.linux.fs import (
-    d_path,
-    fget,
-    for_each_file,
-    for_each_mount,
-    inode_path,
-    mount_dst,
-)
+from drgn.helpers.linux.fs import d_path, fget, for_each_mount, inode_path, mount_dst
 from drgn.helpers.linux.idr import idr_for_each_entry
 from drgn.helpers.linux.list import (
     hlist_for_each_entry,
     list_empty,
     list_for_each_entry,
 )
-from drgn.helpers.linux.mm import for_each_vma
 from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.pid import find_task, for_each_task
 from drgn.helpers.linux.plist import plist_for_each_entry
@@ -220,21 +213,6 @@ def visit_tasks(
                     return "checking task"
 
             with warn_on_fault(task_fault_warning):
-                files: Optional[Object] = task.files.read_()
-                fs: Optional[Object] = task.fs.read_()
-                mm: Optional[Object] = task.mm.read_()
-
-                # If this task is not the thread group leader, don't bother
-                # checking it again unless it has its own context.
-                group_leader = task.group_leader.read_()
-                if task != group_leader:
-                    if files and files == group_leader.files:
-                        files = None
-                    if fs and fs == group_leader.fs:
-                        fs = None
-                    if mm and mm == group_leader.mm:
-                        mm = None
-
                 if check_mounts:
                     nsproxy = task.nsproxy.read_()
                     if nsproxy:
@@ -255,39 +233,14 @@ def visit_tasks(
                             checked_mnt_ns.add(mnt_ns.value_())
 
                 if check_tasks:
-                    if files:
-                        for fd, file in for_each_file(task):
-                            with ignore_fault:
-                                match = visitor.visit_file(file)
-                                if match:
-                                    print(f"{task_id()} fd {fd} {match}")
-
-                    if fs:
+                    for reference in for_each_task_file_reference(task):
                         with ignore_fault:
-                            match = visitor.visit_path(fs.root.address_of_())
+                            if reference.is_path:
+                                match = visitor.visit_path(reference.object)
+                            else:
+                                match = visitor.visit_file(reference.object)
                             if match:
-                                print(f"{task_id()} root {match}")
-                        with ignore_fault:
-                            match = visitor.visit_path(fs.pwd.address_of_())
-                            if match:
-                                print(f"{task_id()} cwd {match}")
-
-                    if mm:
-                        exe_file = mm.exe_file.read_()
-                        if exe_file:
-                            match = visitor.visit_file(exe_file)
-                            if match:
-                                print(f"{task_id()} exe {match}")
-
-                        for vma in for_each_vma(mm):
-                            with ignore_fault:
-                                file = vma.vm_file.read_()
-                                if file:
-                                    match = visitor.visit_file(file)
-                                    if match:
-                                        print(
-                                            f"{task_id()} vma {hex(vma.vm_start)}-{hex(vma.vm_end)} {match}"
-                                        )
+                                print(f"{task_id()} {reference.usage} {match}")
 
 
 def visit_binfmt_misc(prog: Program, visitor: "Visitor") -> None:
