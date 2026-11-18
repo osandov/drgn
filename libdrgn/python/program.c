@@ -1013,6 +1013,27 @@ static PyObject *Program_set_linux_kernel_custom(Program *self, PyObject *args,
 	Py_RETURN_NONE;
 }
 
+static PyObject *Program_set_userspace_custom(Program *self, PyObject *args,
+                                              PyObject *kwds)
+{
+	static char *keywords[] = {"is_live", "aarch64_insn_pac_mask", NULL};
+	struct drgn_error *err;
+	uint64_t aarch64_insn_pac_mask = 0;
+	int is_live = 0;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+	                                 "|$pO&:set_userspace_custom", keywords,
+	                                 &is_live, &u64_converter,
+	                                 &aarch64_insn_pac_mask))
+		return NULL;
+
+	err = drgn_program_set_userspace_custom(&self->prog, is_live,
+	                                        aarch64_insn_pac_mask);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"pid", NULL};
@@ -2299,6 +2320,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_set_kernel_DOC},
 	{"set_linux_kernel_custom", (PyCFunction)Program_set_linux_kernel_custom,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_linux_kernel_custom_DOC},
+	{"set_userspace_custom", (PyCFunction)Program_set_userspace_custom,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_userspace_custom_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_pid_DOC},
 	{"set_qemu_qmp", (PyCFunction)Program_set_qemu_qmp,
