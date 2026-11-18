@@ -450,16 +450,28 @@ class TestMm(MmTestCase):
         # read across two second-level page table entries. (The same for 64KB
         # pages is 512MB + 1, which is too big to test reliably in vmtest.)
         max_size = 32 * 1024 * 1024 + 1
-        expected = os.getrandom(max_size)
-        while len(expected) < max_size:
-            expected += os.getrandom(max_size - len(expected))
-        address = ctypes.memmove(expected, expected, 0)
-        expected = memoryview(expected)
-        for size in (1, 65537, max_size):
-            with self.subTest(size=size):
-                self.assertEqual(
-                    access_process_vm(task, address, size), expected[:size]
-                )
+        for hugepage in (False, True):
+            with self.subTest(hugepage=hugepage), mmap.mmap(
+                -1, max_size, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS
+            ) as map:
+                try:
+                    map.madvise(
+                        mmap.MADV_HUGEPAGE if hugepage else mmap.MADV_NOHUGEPAGE
+                    )
+                except OSError as e:
+                    # EINVAL means CONFIG_TRANSPARENT_HUGEPAGE=n.
+                    if e.errno != errno.EINVAL:
+                        raise
+                    if hugepage:
+                        self.skipTest("kernel does not support transparent hugepages")
+                while map.tell() < max_size:
+                    map.write(os.getrandom(max_size - map.tell()))
+                address = ctypes.addressof(ctypes.c_char.from_buffer(map))
+                for size in (1, 65537, max_size):
+                    with self.subTest(size=size):
+                        self.assertEqual(
+                            access_process_vm(task, address, size), map[:size]
+                        )
 
     @skip_unless_have_full_mm_support
     def test_access_remote_vm_init_mm(self):
