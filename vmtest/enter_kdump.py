@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 from _drgn_util.platform import NORMALIZED_MACHINE_NAME, SYS
+from util import KernelVersion
 
 KEXEC_FILE_ON_CRASH = 2
 KEXEC_FILE_NO_INITRAMFS = 4
@@ -24,6 +25,13 @@ def main() -> None:
             # `nosmp` is required to avoid QEMU sporadically failing an internal
             # assertion when using emulation.
             cmdline += b" nosmp"
+        # Before Linux kernel commit 60ece0833b6c ("net/9p: allocate appropriate
+        # reduced message buffers") (in v6.1), 9p requests allocate msize-sized
+        # buffers, which can fail in the kdump kernel. Reduce msize to 32k,
+        # which should basically never fail because it is within
+        # PAGE_ALLOC_COSTLY_ORDER.
+        if KernelVersion(os.uname().release) < KernelVersion("6.1"):
+            cmdline = re.sub(rb"\bmsize=[0-9]+", b"msize=32768", cmdline)
 
     # On RISC-V, kexec_file_load() is supported for Image (vmlinuz) files only
     # since Linux kernel commit 809a11eea8e8 ("riscv: kexec_file: Support

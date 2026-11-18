@@ -304,7 +304,7 @@ def run_in_vm(
     # multidevs was added in QEMU 4.2.0.
     if qemu_version >= (4, 2):
         virtfs_options += ",multidevs=remap"
-    _9pfs_mount_options = f"trans=virtio,cache=loose,msize={1024 * 1024}"
+    _9pfs_mount_options = f"trans=virtio,cache=loose,msize={256 * 1024}"
 
     with contextlib.ExitStack() as exit_stack:
         temp_path = Path(
