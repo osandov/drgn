@@ -92,6 +92,12 @@ umount -n -l /mnt
 # Enable cgroup controllers.
 echo +cpu > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
 
+# Don't use transparent hugepages automatically. Collapsing can race with MM
+# tests.
+if [ -e /sys/kernel/mm/transparent_hugepage/enabled ]; then
+	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+fi
+
 # Load kernel modules.
 mkdir -p "/lib/modules/$RELEASE"
 mount --bind {kernel_dir} "/lib/modules/$RELEASE"
