@@ -8,9 +8,12 @@
 #include "cfi.h"
 #include "error.h"
 #include "helpers.h"
+#include "linux_kernel.h"
+#include "memory_reader.h"
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
 #include "register_state.h"
+#include "symbol.h"
 
 /*
  * The ABI specification can be found at:
@@ -167,7 +170,43 @@ apply_elf_reloc_arm(const struct drgn_relocating_section *relocating,
 	}
 }
 
+// Resolve swapper_pg_dir to a physical address so reading it does not recurse
+// back into the page table iterator. Use the same heuristic fallbacks as the
+// crash utility. Derive PAGE_OFFSET by rounding _stext's address down to a 32
+// MB boundary. This heuristic works for all standard Arm VMSPLIT
+// configurations. PHYS_OFFSET is normally the lowest physical address among
+// file-backed ELF core PT_LOAD segments, so estimate it as such.
+static struct drgn_error *
+linux_kernel_resolve_swapper_pg_dir_arm(struct drgn_program *prog,
+					uint64_t swapper_pg_dir,
+					uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	_cleanup_symbol_ struct drgn_symbol *stext = NULL;
+	err = drgn_program_find_symbol_by_name(prog, "_stext", &stext);
+	if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
+		return drgn_error_create(DRGN_ERROR_LOOKUP,
+					 "could not find _stext to determine PAGE_OFFSET");
+	} else if (err) {
+		return err;
+	}
+	uint32_t page_offset = stext->address & ~UINT32_C(0x01ffffff);
+
+	uint64_t phys_offset;
+	if (!drgn_memory_reader_min_file_segment_physical_address(
+		    &prog->reader, &phys_offset)) {
+		return drgn_error_create(DRGN_ERROR_LOOKUP,
+					 "could not determine PHYS_OFFSET from core file segments");
+	}
+
+	*ret = swapper_pg_dir - page_offset + phys_offset;
+	return NULL;
+}
+
 struct pgtable_iterator_arm {
+	uint64_t swapper_pg_dir_phys;
+	bool swapper_pg_dir_resolved;
 	union {
 		// For LPAE.
 		struct {
@@ -189,6 +228,9 @@ linux_kernel_pgtable_iterator_arch_create_arm(struct drgn_program *prog,
 	struct pgtable_iterator_arm *it_arch = malloc(sizeof(*it_arch));
 	if (!it_arch)
 		return &drgn_enomem;
+
+	it_arch->swapper_pg_dir_phys = 0;
+	it_arch->swapper_pg_dir_resolved = false;
 	*ret = it_arch;
 	return NULL;
 }
@@ -199,6 +241,42 @@ static void linux_kernel_pgtable_iterator_init_arm(struct drgn_program *prog,
 	struct pgtable_iterator_arm *it_arch = it->arch;
 	memset(it_arch->cached_entries, 0, sizeof(it_arch->cached_entries));
 	it_arch->cached_virt_addr = 0;
+}
+
+static struct drgn_error *
+linux_kernel_pgtable_iterator_root_arm(struct drgn_program *prog,
+				       struct pgtable_iterator *it,
+				       uint64_t *pgtable_ret,
+				       bool *physical_ret)
+{
+	struct drgn_error *err;
+
+	*pgtable_ret = it->pgtable;
+	*physical_ret = false;
+	if (it->pgtable != prog->vmcoreinfo.swapper_pg_dir)
+		return NULL;
+
+	struct pgtable_iterator_arm *it_arch = it->arch;
+	if (it_arch->swapper_pg_dir_resolved) {
+		*pgtable_ret = it_arch->swapper_pg_dir_phys;
+		*physical_ret = true;
+		return NULL;
+	}
+
+	drgn_memory_read_fn read_fn =
+		drgn_memory_reader_segment_read_fn(&prog->reader, it->pgtable,
+						   false);
+	if (read_fn && read_fn != read_memory_via_pgtable)
+		return NULL;
+
+	err = linux_kernel_resolve_swapper_pg_dir_arm(
+		prog, it->pgtable, &it_arch->swapper_pg_dir_phys);
+	if (err)
+		return err;
+	it_arch->swapper_pg_dir_resolved = true;
+	*pgtable_ret = it_arch->swapper_pg_dir_phys;
+	*physical_ret = true;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -213,8 +291,13 @@ linux_kernel_pgtable_iterator_next_arm_lpae(struct drgn_program *prog,
 
 	const uint64_t phys_addr_mask = 0xfffffff000;
 	uint32_t index_mask = 0x3;
-	uint64_t table = it->pgtable;
-	bool table_physical = false;
+	uint64_t table;
+	bool table_physical;
+	err = linux_kernel_pgtable_iterator_root_arm(prog, it, &table,
+						     &table_physical);
+	if (err)
+		return err;
+
 	for (int level = 2;; level--) {
 		int level_shift = 12 + 9 * level;
 		uint32_t index = (virt_addr >> level_shift) & index_mask;
@@ -265,11 +348,17 @@ linux_kernel_pgtable_iterator_next_arm(struct drgn_program *prog,
 	}
 
 	const uint32_t virt_addr = it->virt_addr;
+	uint64_t table;
+	bool table_physical;
+	err = linux_kernel_pgtable_iterator_root_arm(prog, it, &table,
+						     &table_physical);
+	if (err)
+		return err;
 
 	uint32_t index = virt_addr >> 20;
 	if (it_arch->cached_index != index || !it_arch->cached_entry) {
-		err = drgn_program_read_u32(prog, it->pgtable + index * 4,
-					    false, &it_arch->cached_entry);
+		err = drgn_program_read_u32(prog, table + index * 4,
+					    table_physical, &it_arch->cached_entry);
 		if (err)
 			return err;
 		it_arch->cached_index = index;
@@ -295,7 +384,7 @@ linux_kernel_pgtable_iterator_next_arm(struct drgn_program *prog,
 		return NULL;
 	}
 
-	uint32_t table = entry & ~((UINT32_C(1) << 10) - 1);
+	table = entry & ~((UINT32_C(1) << 10) - 1);
 	index = (virt_addr >> 12) & 0xff;
 	err = drgn_program_read_u32(prog, table + index * 4, true, &entry);
 	if (err)

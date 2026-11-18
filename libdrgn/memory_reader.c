@@ -180,6 +180,38 @@ bool drgn_memory_reader_empty_virtual(struct drgn_memory_reader *reader)
 	return drgn_memory_segment_tree_empty(&reader->virtual_segments);
 }
 
+drgn_memory_read_fn
+drgn_memory_reader_segment_read_fn(struct drgn_memory_reader *reader,
+				   uint64_t address, bool physical)
+{
+	struct drgn_memory_segment_tree *tree = (physical ?
+						 &reader->physical_segments :
+						 &reader->virtual_segments);
+	struct drgn_memory_segment *segment =
+		drgn_memory_segment_tree_search_le(tree, &address).entry;
+	if (!segment || address > segment->max_address)
+		return NULL;
+	return segment->read_fn;
+}
+
+bool drgn_memory_reader_min_file_segment_physical_address(
+	struct drgn_memory_reader *reader, uint64_t *ret)
+{
+	// ELF core PT_LOAD ranges use drgn_read_memory_file for their physical
+	// segments. Other backends may instead expose physical memory through a
+	// catch-all segment whose start is not the lowest saved physical address.
+	// Therefore, only consider segments read by drgn_read_memory_file.
+	for (struct drgn_memory_segment_tree_iterator it =
+		     drgn_memory_segment_tree_first(&reader->physical_segments);
+	     it.entry; it = drgn_memory_segment_tree_next(it)) {
+		if (it.entry->read_fn == drgn_read_memory_file) {
+			*ret = it.entry->min_address;
+			return true;
+		}
+	}
+	return false;
+}
+
 struct drgn_error *
 drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 			       uint64_t min_address, uint64_t max_address,
