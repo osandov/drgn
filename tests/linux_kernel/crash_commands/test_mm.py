@@ -5,11 +5,14 @@
 import mmap
 import os
 import re
+import subprocess
+import time
 
 from drgn import Object
 from drgn.helpers.linux.cpumask import for_each_online_cpu
-from drgn.helpers.linux.mm import PFN_PHYS, TaskRss, phys_to_virt
+from drgn.helpers.linux.mm import PFN_PHYS, TaskRss, for_each_vma, phys_to_virt
 from drgn.helpers.linux.percpu import per_cpu_ptr
+from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
     skip_if_highmem,
     skip_unless_have_full_mm_support,
@@ -283,3 +286,129 @@ class TestVm(CrashCommandTestCase):
         self.assertNotIn("VMA", cmd.stdout)
 
         self.assertFalse(cmd.drgn_option.globals["mm"])
+
+    def test_m_dump_mm_struct(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -m")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("struct mm_struct", cmd.stdout)
+        self.assertIn("mmap", cmd.stdout)
+        self.assertIn("pgd", cmd.stdout)
+
+        self.assertIsInstance(cmd.drgn_option.globals["mm"], Object)
+
+    def test_m_kernel_thread(self):
+        cmd = self.check_crash_command("vm -m 2")
+        self.assertIn("(no mm_struct)", cmd.stdout)
+        self.assertFalse(cmd.drgn_option.globals["mm"])
+
+    def test_v_dump_vma_structs(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -v")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("struct vm_area_struct", cmd.stdout)
+        self.assertIn("vm_start", cmd.stdout)
+        self.assertIn("vm_end", cmd.stdout)
+        self.assertIn("vm_flags", cmd.stdout)
+
+        self.assertIsInstance(cmd.drgn_option.globals["vma"], Object)
+
+    def test_v_kernel_thread(self):
+        cmd = self.check_crash_command("vm -v 2")
+        self.assertIn("(no mm_struct)", cmd.stdout)
+        self.assertNotIn("vm_area_struct", cmd.stdout)
+
+    def test_x_mm_struct_hex(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -m -x")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("struct mm_struct", cmd.stdout)
+
+    def test_d_mm_struct_dec(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -m -d")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("struct mm_struct", cmd.stdout)
+
+    def test_f_decode_flags(self):
+        cmd = self.check_crash_command("vm -f 75")
+        self.assertIn("75: (READ|EXEC|MAYREAD|MAYWRITE|MAYEXEC)", cmd.stdout)
+
+        self.assertEqual(cmd.drgn_option.globals["vm_flags"], 0x75)
+        self.assertIsInstance(cmd.drgn_option.globals["decoded"], str)
+
+    def test_f_decode_zero(self):
+        cmd = self.check_crash_command("vm -f 0")
+        self.assertIn("0: (0)", cmd.stdout)
+
+    def test_r_reference(self):
+        self.run_crash_command("set -p")
+
+        cmd = self.check_crash_command("vm -R libc")
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("VMA", cmd.stdout)
+        self.assertIn("libc", cmd.stdout)
+
+        self.assertIn("ref", cmd.drgn_option.globals)
+        self.assertIsInstance(cmd.drgn_option.globals["ref"], str)
+        self.assertEqual(cmd.drgn_option.globals["ref"], "libc")
+
+    def test_r_reference_kernel_thread(self):
+        cmd = self.check_crash_command("vm -R 75 2")
+        self.assertIn("PID: 2", cmd.stdout)
+        self.assertRegex(cmd.stdout, r"\bMM\s+PGD\s+RSS\s+TOTAL_VM\s+0\s+0\s+0k\s+0k\b")
+        self.assertNotIn("VMA", cmd.stdout)
+
+    @skip_unless_have_full_mm_support
+    def test_p_page_translation(self):
+        self.run_crash_command("set -p")
+
+        proc = subprocess.Popen(["sleep", "60"])
+        try:
+            time.sleep(0.1)
+            cmd = self.check_crash_command(f"vm -p {proc.pid}", mode="capture")
+            self.assertIn(f"PID: {proc.pid}", cmd.stdout)
+            self.assertIn("VIRTUAL", cmd.stdout)
+            self.assertIn("PHYSICAL", cmd.stdout)
+            self.assertIn("VMA", cmd.stdout)
+        finally:
+            proc.kill()
+            proc.wait()
+
+    @skip_unless_have_full_mm_support
+    def test_P_specific_vma(self):
+        self.run_crash_command("set -p")
+
+        task = find_task(self.prog, os.getpid())
+        vma_addr = next(for_each_vma(task.mm)).value_()
+        cmd = self.check_crash_command(
+            f"vm -P {vma_addr:x} {os.getpid()}", mode="capture"
+        )
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("VIRTUAL", cmd.stdout)
+
+    def test_M_manual_mm(self):
+        self.run_crash_command("set -p")
+
+        task = find_task(self.prog, os.getpid())
+        mm = task.mm.read_()
+        mm_addr = mm.value_()
+        cmd = self.check_crash_command(
+            f"vm -M {mm_addr:x} {os.getpid()}", mode="capture"
+        )
+        self.assertIn(f"PID: {os.getpid()}", cmd.stdout)
+        self.assertIn("MM", cmd.stdout)
+        self.assertIn(f"{mm_addr:x}", cmd.stdout)
+
+    def test_M_manual_mm_drgn(self):
+        self.run_crash_command("set -p")
+
+        task = find_task(self.prog, os.getpid())
+        mm = task.mm.read_()
+        mm_addr = mm.value_()
+        cmd = self.check_crash_command(f"vm -M {mm_addr:x} {os.getpid()}")
+        self.assertIsInstance(cmd.drgn_option.globals["mm"], Object)
