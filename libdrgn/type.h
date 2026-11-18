@@ -88,7 +88,7 @@ DEFINE_HASH_MAP_TYPE(drgn_member_map, struct drgn_member_key,
 		      struct drgn_member_value);
 DEFINE_HASH_SET_TYPE(drgn_type_set, struct drgn_type *);
 
-DEFINE_HASH_SET_TYPE(drgn_type_name_set, const char *);
+DEFINE_HASH_SET_TYPE(drgn_type_name_set, struct nstring);
 #endif
 
 /**

@@ -331,8 +331,7 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 DEFINE_HASH_SET_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash_pair,
 			  drgn_type_dedupe_eq);
 
-DEFINE_HASH_SET_FUNCTIONS(drgn_type_name_set, c_string_key_hash_pair,
-			  c_string_key_eq);
+DEFINE_HASH_SET_FUNCTIONS(drgn_type_name_set, nstring_hash_pair, nstring_eq);
 
 DEFINE_VECTOR_FUNCTIONS(drgn_typep_vector);
 
@@ -1457,7 +1456,7 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 	drgn_dedupe_type_set_deinit(&prog->dedupe_types);
 
 	hash_table_for_each(drgn_type_name_set, it, &prog->type_names)
-		free((char *)*it.entry);
+		free((char *)it.entry->str);
 	drgn_type_name_set_deinit(&prog->type_names);
 
 	drgn_handler_list_deinit(struct drgn_type_finder, finder,
@@ -1472,17 +1471,18 @@ struct drgn_error *drgn_program_intern_type_name(struct drgn_program *prog,
 						 size_t name_len,
 						 const char **ret)
 {
-	_cleanup_free_ char *copy = strndup(name, name_len);
-	if (!copy)
-		return &drgn_enomem;
-	const char *key = copy;
+	struct nstring key = { name, name_len };
 	struct hash_pair hp = drgn_type_name_set_hash(&key);
 	struct drgn_type_name_set_iterator it =
 		drgn_type_name_set_search_hashed(&prog->type_names, &key, hp);
 	if (it.entry) {
-		*ret = *it.entry;
+		*ret = it.entry->str;
 		return NULL;
 	}
+	_cleanup_free_ char *copy = strndup(name, name_len);
+	if (!copy)
+		return &drgn_enomem;
+	key.str = copy;
 	if (drgn_type_name_set_insert_searched(&prog->type_names, &key, hp,
 					       NULL) < 0)
 		return &drgn_enomem;
