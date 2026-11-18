@@ -76,3 +76,29 @@ If you build drgn from source, you can also run it without installing it::
 
     $ python3 setup.py build_ext -i
     $ python3 -m drgn --help
+
+.. _gdb-installation:
+
+GDB Integration
+---------------
+
+To load ``drgn-why-sleeping``, source the script included in the Python package,
+replacing the example path with its absolute path in your installation or source
+checkout:
+
+.. code-block:: text
+
+    (gdb) source /path/to/site-packages/drgn/internal/gdb_scripts/drgn_why_sleeping.py
+
+Add the ``source`` command to ``~/.gdbinit`` to load it in future sessions;
+installing the Python package does not register it automatically.
+
+GDB's Python interpreter must be able to import drgn.
+
+Makefile installation defaults to ``${libexecdir}/drgn``, requiring explicit
+sourcing. Use ``--with-gdbinit-dir=PATH`` to select GDB's startup directory
+(``/etc/gdbinit.d`` on Fedora), or ``--without-gdbinit-dir`` to disable
+installation. ``DESTDIR`` supports staging. Pip includes the script but does
+not install it into GDB's startup directory.
+
+See :ref:`gdb-usage` for requirements and usage.
