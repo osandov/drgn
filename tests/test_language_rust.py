@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from drgn import Language, Object, Qualifiers, TypeEnumerator, TypeMember, TypeParameter
-from tests import MockProgramTestCase
+from tests import MockProgramTestCase, TestCase, mock_program
 
 
 class RustTestCase(MockProgramTestCase):
@@ -361,3 +361,144 @@ class TestVariableDeclaration(RustTestCase):
             self.prog.pointer_type(self.point, name="&Point").variable_declaration("p"),
             "p: &Point",
         )
+
+
+class TestFindType(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.types = []
+        self.prog = mock_program(types=self.types)
+        self.prog.language = Language.RUST
+        self.point = self.prog.struct_type("Point", 8, ())
+
+        def rust_struct(name, size=8):
+            return self.prog.struct_type(name, size, ())
+
+        self.types.extend(
+            [
+                self.point,
+                self.prog.int_type("u32", 4, False),
+                rust_struct("Vec<i32, Global>", 24),
+                rust_struct("Option<&[u8]>", 16),
+                rust_struct("Pin<Box<dyn Future<Output=()>>>", 16),
+                rust_struct("Array<3>", 3),
+                rust_struct("Ref<u8>"),
+                rust_struct("(i32, u8)"),
+                rust_struct("(u8,)", 1),
+                rust_struct("()", 0),
+                rust_struct("!", 0),
+                rust_struct("dyn Foo + Send", 0),
+                rust_struct("&str", 16),
+                rust_struct("<Dog as Animal>::{vtable_type}", 24),
+                rust_struct("core::{impl#0}::Foo"),
+            ]
+        )
+
+    def assertFindType(self, name, expected):
+        self.assertIdentical(self.prog.type(name), expected)
+
+    def test_found(self):
+        for name, expected in (
+            ("Point", self.point),
+            ("u32", self.types[1]),
+            ("Vec< i32 ,Global >", self.types[2]),
+            ("Option<&[u8]>", self.types[3]),
+            ("Pin<Box<dyn Future<Output = ()>>>", self.types[4]),
+            ("Array<3>", self.types[5]),
+            ("Ref<'a, u8>", self.types[6]),
+            ("( i32 , u8 )", self.types[7]),
+            ("(i32, u8,)", self.types[7]),
+            ("(u8,)", self.types[8]),
+            ("( )", self.types[9]),
+            ("!", self.types[10]),
+            ("dyn Foo+Send+'static", self.types[11]),
+            ("&str", self.types[12]),
+            ("< Dog as Animal >::{vtable_type}", self.types[13]),
+            ("core::{impl#0}::Foo", self.types[14]),
+            ("(Point)", self.point),
+        ):
+            with self.subTest(name=name):
+                self.assertFindType(name, expected)
+
+    def test_primitive(self):
+        for name, expected in (
+            ("bool", self.prog.bool_type("bool", 1)),
+            ("char", self.prog.int_type("char", 4, False)),
+            ("i8", self.prog.int_type("i8", 1, True)),
+            ("u128", self.prog.int_type("u128", 16, False)),
+            ("isize", self.prog.int_type("isize", 8, True)),
+            ("usize", self.prog.int_type("usize", 8, False)),
+            ("f32", self.prog.float_type("f32", 4)),
+            ("f64", self.prog.float_type("f64", 8)),
+        ):
+            with self.subTest(name=name):
+                self.assertFindType(name, expected)
+
+    def test_pointer(self):
+        for name, canonical in (
+            ("&Point", "&Point"),
+            ("&'a Point", "&Point"),
+            ("& mut Point", "&mut Point"),
+            ("*const Point", "*const Point"),
+            ("*mut Point", "*mut Point"),
+        ):
+            with self.subTest(name=name):
+                self.assertFindType(
+                    name, self.prog.pointer_type(self.point, name=canonical)
+                )
+        self.assertEqual(self.prog.type("&Point")._ptr, self.prog.type("&Point")._ptr)
+        self.assertFindType(
+            "&&str", self.prog.pointer_type(self.types[12], name="&&str")
+        )
+
+    def test_array(self):
+        self.assertFindType("[Point; 4]", self.prog.array_type(self.point, 4))
+        self.assertFindType("[Point; 0x10]", self.prog.array_type(self.point, 16))
+        self.assertFindType("[Point]", self.prog.array_type(self.point))
+        self.assertFindType(
+            "[&Point; 2]",
+            self.prog.array_type(self.prog.pointer_type(self.point, name="&Point"), 2),
+        )
+
+    def test_not_found(self):
+        for name in (
+            "Nope",
+            "rtest::Point",
+            "Vec<u8>",
+            "str",
+            "&[Point]",
+            "&dyn Foo",
+            "*const (dyn Foo + Send)",
+            "&mut str",
+        ):
+            with self.subTest(name=name):
+                self.assertRaisesRegex(
+                    LookupError, "could not find", self.prog.type, name
+                )
+
+    def test_not_implemented(self):
+        for name in ("fn(u8) -> u8", "unsafe fn()", 'extern "C" fn()'):
+            with self.subTest(name=name):
+                self.assertRaisesRegex(
+                    NotImplementedError,
+                    "function pointer types are not implemented",
+                    self.prog.type,
+                    name,
+                )
+
+    def test_syntax_error(self):
+        for name, message in (
+            ("", "expected type"),
+            ("&", "expected type"),
+            ("*Point", "expected 'const' or 'mut'"),
+            ("[Point; x]", "expected array length"),
+            ("[Point; 4", "expected ']'"),
+            ("Vec<u8", "expected ',' or '>'"),
+            ("(u8 u8)", "expected ',' or '\\)'"),
+            ("Point Point", "expected end of type name"),
+            ("<Dog Animal>::X", "expected 'as'"),
+            ("a:b", "expected '::'"),
+            ("Point$", "invalid character"),
+        ):
+            with self.subTest(name=name):
+                self.assertRaisesRegex(SyntaxError, message, self.prog.type, name)

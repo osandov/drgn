@@ -87,6 +87,8 @@ struct drgn_member_value {
 DEFINE_HASH_MAP_TYPE(drgn_member_map, struct drgn_member_key,
 		      struct drgn_member_value);
 DEFINE_HASH_SET_TYPE(drgn_type_set, struct drgn_type *);
+
+DEFINE_HASH_SET_TYPE(drgn_type_name_set, const char *);
 #endif
 
 /**
@@ -632,6 +634,22 @@ struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,
 					       size_t name_len,
 					       const char *filename,
 					       struct drgn_qualified_type *ret);
+
+/**
+ * Get a copy of a type name owned by a @ref drgn_program.
+ *
+ * Equal names return the same copy, which remains valid for the lifetime of
+ * the program.
+ *
+ * @param[in] name Name, which doesn't need to be null-terminated.
+ * @param[in] name_len Length of @p name in bytes.
+ * @param[out] ret Returned copy.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_intern_type_name(struct drgn_program *prog,
+						 const char *name,
+						 size_t name_len,
+						 const char **ret);
 
 /** Find a primitive type in a @ref drgn_program. */
 struct drgn_error *

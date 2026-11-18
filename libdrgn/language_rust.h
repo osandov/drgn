@@ -17,4 +17,7 @@ struct drgn_error *drgn_rust_format_type(struct drgn_qualified_type qualified_ty
 struct drgn_error *drgn_rust_format_variable_declaration(struct drgn_qualified_type qualified_type, const char *name,
 							 char **ret);
 
+struct drgn_error *drgn_rust_find_type(const struct drgn_language *lang, struct drgn_program *prog, const char *name,
+				       const char *filename, struct drgn_qualified_type *ret);
+
 #endif /* DRGN_LANGUAGE_RUST_H */

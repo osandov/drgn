@@ -331,6 +331,9 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 DEFINE_HASH_SET_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash_pair,
 			  drgn_type_dedupe_eq);
 
+DEFINE_HASH_SET_FUNCTIONS(drgn_type_name_set, c_string_key_hash_pair,
+			  c_string_key_eq);
+
 DEFINE_VECTOR_FUNCTIONS(drgn_typep_vector);
 
 static struct drgn_error *find_or_create_type(struct drgn_type *key,
@@ -1403,6 +1406,7 @@ void drgn_program_init_types(struct drgn_program *prog)
 		type->_language = drgn_languages[i];
 	}
 	drgn_dedupe_type_set_init(&prog->dedupe_types);
+	drgn_type_name_set_init(&prog->type_names);
 	drgn_typep_vector_init(&prog->created_types);
 	drgn_member_map_init(&prog->members);
 	drgn_type_set_init(&prog->members_cached);
@@ -1452,11 +1456,38 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 		free(*it.entry);
 	drgn_dedupe_type_set_deinit(&prog->dedupe_types);
 
+	hash_table_for_each(drgn_type_name_set, it, &prog->type_names)
+		free((char *)*it.entry);
+	drgn_type_name_set_deinit(&prog->type_names);
+
 	drgn_handler_list_deinit(struct drgn_type_finder, finder,
 				 &prog->type_finders,
 		if (finder->ops.destroy)
 			finder->ops.destroy(finder->arg);
 	);
+}
+
+struct drgn_error *drgn_program_intern_type_name(struct drgn_program *prog,
+						 const char *name,
+						 size_t name_len,
+						 const char **ret)
+{
+	_cleanup_free_ char *copy = strndup(name, name_len);
+	if (!copy)
+		return &drgn_enomem;
+	const char *key = copy;
+	struct hash_pair hp = drgn_type_name_set_hash(&key);
+	struct drgn_type_name_set_iterator it =
+		drgn_type_name_set_search_hashed(&prog->type_names, &key, hp);
+	if (it.entry) {
+		*ret = *it.entry;
+		return NULL;
+	}
+	if (drgn_type_name_set_insert_searched(&prog->type_names, &key, hp,
+					       NULL) < 0)
+		return &drgn_enomem;
+	*ret = no_cleanup_ptr(copy);
+	return NULL;
 }
 
 struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,

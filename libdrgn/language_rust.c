@@ -1,15 +1,24 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <ctype.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "array.h"
+#include "cleanup.h"
 #include "error.h"
+#include "language.h"
 #include "language_rust.h"
+#include "lexer.h"
+#include "program.h"
 #include "string_builder.h"
 #include "type.h"
 #include "util.h"
+#include "vector.h"
 
 static struct drgn_error *rust_append_function_type_name(struct drgn_type *type, struct string_builder *sb)
 {
@@ -404,4 +413,738 @@ struct drgn_error *drgn_rust_format_variable_declaration(struct drgn_qualified_t
 		return &drgn_enomem;
 	*ret = string_builder_steal(&sb);
 	return NULL;
+}
+
+enum {
+	RUST_TOKEN_EOF = -1,
+	// Single-character punctuation tokens are their character.
+	RUST_TOKEN_IDENTIFIER = 256,
+	RUST_TOKEN_NUMBER,
+	RUST_TOKEN_STRING,
+	RUST_TOKEN_SEGMENT,
+	RUST_TOKEN_LIFETIME,
+	RUST_TOKEN_COLON_COLON,
+	RUST_TOKEN_ARROW,
+	RUST_TOKEN_ELLIPSIS,
+};
+
+static struct drgn_error *rust_lexer_func(struct drgn_lexer *lexer, struct drgn_token *token)
+{
+	const char *p = lexer->p;
+
+	while (isspace((unsigned char)*p))
+		p++;
+	token->value = p;
+	switch (*p) {
+	case '\0':
+		token->kind = RUST_TOKEN_EOF;
+		break;
+	case '&':
+	case '*':
+	case '[':
+	case ']':
+	case '(':
+	case ')':
+	case '<':
+	case '>':
+	case ',':
+	case ';':
+	case '!':
+	case '+':
+	case '=':
+		token->kind = *p++;
+		break;
+	case ':':
+		if (p[1] != ':')
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected '::'");
+		token->kind = RUST_TOKEN_COLON_COLON;
+		p += 2;
+		break;
+	case '-':
+		if (p[1] != '>')
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected '->'");
+		token->kind = RUST_TOKEN_ARROW;
+		p += 2;
+		break;
+	case '.':
+		if (p[1] != '.' || p[2] != '.')
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected '...'");
+		token->kind = RUST_TOKEN_ELLIPSIS;
+		p += 3;
+		break;
+	case '{':
+		token->kind = RUST_TOKEN_SEGMENT;
+		p = strchr(p, '}');
+		if (!p)
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected '}'");
+		p++;
+		break;
+	case '"':
+		token->kind = RUST_TOKEN_STRING;
+		p = strchr(p + 1, '"');
+		if (!p)
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected '\"'");
+		p++;
+		break;
+	case '\'':
+		token->kind = RUST_TOKEN_LIFETIME;
+		do {
+			p++;
+		} while (isalnum((unsigned char)*p) || *p == '_');
+		break;
+	default:
+		if (isalpha((unsigned char)*p) || *p == '_') {
+			token->kind = RUST_TOKEN_IDENTIFIER;
+			do {
+				p++;
+			} while (isalnum((unsigned char)*p) || *p == '_');
+		} else if (isdigit((unsigned char)*p)) {
+			token->kind = RUST_TOKEN_NUMBER;
+			do {
+				p++;
+			} while (isalnum((unsigned char)*p) || *p == '_');
+		} else {
+			return drgn_error_format(DRGN_ERROR_SYNTAX, "invalid character '%c'", *p);
+		}
+		break;
+	}
+	token->len = p - token->value;
+	lexer->p = p;
+	return NULL;
+}
+
+static bool rust_token_is_keyword(const struct drgn_token *token, const char *keyword)
+{
+	return token->kind == RUST_TOKEN_IDENTIFIER && token->len == strlen(keyword) &&
+	       memcmp(token->value, keyword, token->len) == 0;
+}
+
+enum rust_type_expr_kind {
+	// Looked up by its canonical name.
+	RUST_TYPE_EXPR_NAMED,
+	// &T, &mut T, *const T, or *mut T.
+	RUST_TYPE_EXPR_POINTER,
+	// [T; N].
+	RUST_TYPE_EXPR_ARRAY,
+	// [T].
+	RUST_TYPE_EXPR_SLICE,
+	// (T).
+	RUST_TYPE_EXPR_PAREN,
+};
+
+struct rust_type_expr {
+	enum rust_type_expr_kind kind;
+	// Range of the canonical name in rust_type_parser::canonical.
+	size_t start, end;
+	// For RUST_TYPE_EXPR_NAMED: kinds of types to look up.
+	uint64_t kinds;
+	// For RUST_TYPE_EXPR_NAMED: whether this is a single identifier.
+	bool is_identifier;
+	// Whether this is a dynamically sized type: str, [T], or dyn T.
+	bool is_unsized;
+	// For RUST_TYPE_EXPR_ARRAY: length.
+	uint64_t length;
+	// For RUST_TYPE_EXPR_POINTER, RUST_TYPE_EXPR_ARRAY,
+	// RUST_TYPE_EXPR_SLICE, and RUST_TYPE_EXPR_PAREN: index of operand.
+	size_t operand;
+};
+
+DEFINE_VECTOR(rust_type_expr_vector, struct rust_type_expr);
+
+struct rust_type_parser {
+	struct drgn_lexer lexer;
+	struct string_builder canonical;
+	struct rust_type_expr_vector exprs;
+};
+
+static void rust_type_parser_deinit(struct rust_type_parser *parser)
+{
+	rust_type_expr_vector_deinit(&parser->exprs);
+	string_builder_deinit(&parser->canonical);
+	drgn_lexer_deinit(&parser->lexer);
+}
+
+#define RUST_NOMINAL_TYPE_KINDS							\
+	((UINT64_C(1) << DRGN_TYPE_STRUCT) | (UINT64_C(1) << DRGN_TYPE_UNION) |	\
+	 (UINT64_C(1) << DRGN_TYPE_CLASS) | (UINT64_C(1) << DRGN_TYPE_ENUM) | (UINT64_C(1) << DRGN_TYPE_TYPEDEF))
+
+#define RUST_BASE_TYPE_KINDS							\
+	((UINT64_C(1) << DRGN_TYPE_INT) | (UINT64_C(1) << DRGN_TYPE_BOOL) | (UINT64_C(1) << DRGN_TYPE_FLOAT))
+
+// rustc represents tuples, trait objects, and fat pointers as structures, and
+// (), !, and other zero-sized base types are represented as empty structures.
+#define RUST_STRUCTURAL_TYPE_KINDS ((UINT64_C(1) << DRGN_TYPE_STRUCT) | RUST_BASE_TYPE_KINDS)
+
+static struct drgn_error *rust_expect(struct rust_type_parser *parser, int kind, const char *what)
+{
+	struct drgn_error *err;
+	struct drgn_token token;
+
+	err = drgn_lexer_pop(&parser->lexer, &token);
+	if (err)
+		return err;
+	if (token.kind != kind)
+		return drgn_error_format(DRGN_ERROR_SYNTAX, "expected %s", what);
+	return NULL;
+}
+
+static struct drgn_error *rust_append_token(struct rust_type_parser *parser, const struct drgn_token *token)
+{
+	if (!string_builder_appendn(&parser->canonical, token->value, token->len))
+		return &drgn_enomem;
+	return NULL;
+}
+
+static struct drgn_error *rust_append(struct rust_type_parser *parser, const char *str)
+{
+	if (!string_builder_append(&parser->canonical, str))
+		return &drgn_enomem;
+	return NULL;
+}
+
+static struct drgn_error *rust_parse_type(struct rust_type_parser *parser, size_t *ret);
+
+static struct drgn_error *rust_parse_generic_args(struct rust_type_parser *parser)
+{
+	struct drgn_error *err;
+	struct drgn_token token;
+	bool first = true;
+
+	err = rust_append(parser, "<");
+	if (err)
+		return err;
+	for (;;) {
+		err = drgn_lexer_pop(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind == '>')
+			break;
+		if (token.kind == RUST_TOKEN_LIFETIME) {
+			err = drgn_lexer_pop(&parser->lexer, &token);
+			if (err)
+				return err;
+			if (token.kind == '>')
+				break;
+			if (token.kind != ',')
+				return drgn_error_create(DRGN_ERROR_SYNTAX, "expected ',' or '>'");
+			continue;
+		}
+
+		if (!first) {
+			err = rust_append(parser, ", ");
+			if (err)
+				return err;
+		}
+		first = false;
+
+		if (token.kind == RUST_TOKEN_NUMBER) {
+			err = rust_append_token(parser, &token);
+			if (err)
+				return err;
+		} else {
+			struct drgn_token next;
+			if (token.kind == RUST_TOKEN_IDENTIFIER) {
+				err = drgn_lexer_peek(&parser->lexer, &next);
+				if (err)
+					return err;
+			} else {
+				next.kind = RUST_TOKEN_EOF;
+			}
+			if (next.kind == '=') {
+				err = drgn_lexer_pop(&parser->lexer, &next);
+				if (!err)
+					err = rust_append_token(parser, &token);
+				if (!err)
+					err = rust_append(parser, "=");
+				if (err)
+					return err;
+			} else {
+				err = drgn_lexer_push(&parser->lexer, &token);
+				if (err)
+					return err;
+			}
+			size_t unused;
+			err = rust_parse_type(parser, &unused);
+			if (err)
+				return err;
+		}
+
+		err = drgn_lexer_pop(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind == '>')
+			break;
+		if (token.kind != ',')
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected ',' or '>'");
+	}
+	return rust_append(parser, ">");
+}
+
+static struct drgn_error *rust_parse_path(struct rust_type_parser *parser, bool *is_identifier_ret)
+{
+	struct drgn_error *err;
+	struct drgn_token token;
+	bool is_identifier = true;
+
+	err = drgn_lexer_peek(&parser->lexer, &token);
+	if (err)
+		return err;
+	if (token.kind == RUST_TOKEN_COLON_COLON) {
+		err = drgn_lexer_pop(&parser->lexer, &token);
+		if (!err)
+			err = rust_append(parser, "::");
+		if (err)
+			return err;
+		is_identifier = false;
+	}
+
+	for (;;) {
+		err = drgn_lexer_pop(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind != RUST_TOKEN_IDENTIFIER && token.kind != RUST_TOKEN_SEGMENT)
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected identifier");
+		err = rust_append_token(parser, &token);
+		if (err)
+			return err;
+
+		err = drgn_lexer_peek(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind == '<') {
+			err = drgn_lexer_pop(&parser->lexer, &token);
+			if (!err)
+				err = rust_parse_generic_args(parser);
+			if (err)
+				return err;
+			is_identifier = false;
+			err = drgn_lexer_peek(&parser->lexer, &token);
+			if (err)
+				return err;
+		}
+		if (token.kind != RUST_TOKEN_COLON_COLON)
+			break;
+		err = drgn_lexer_pop(&parser->lexer, &token);
+		if (!err)
+			err = rust_append(parser, "::");
+		if (err)
+			return err;
+		is_identifier = false;
+	}
+	if (is_identifier_ret)
+		*is_identifier_ret = is_identifier;
+	return NULL;
+}
+
+static struct drgn_error *rust_parse_qualified_path(struct rust_type_parser *parser)
+{
+	struct drgn_error *err;
+	struct drgn_token token;
+
+	err = rust_append(parser, "<");
+	if (err)
+		return err;
+	size_t unused;
+	err = rust_parse_type(parser, &unused);
+	if (err)
+		return err;
+	err = drgn_lexer_pop(&parser->lexer, &token);
+	if (err)
+		return err;
+	if (!rust_token_is_keyword(&token, "as"))
+		return drgn_error_create(DRGN_ERROR_SYNTAX, "expected 'as'");
+	err = rust_append(parser, " as ");
+	if (!err)
+		err = rust_parse_path(parser, NULL);
+	if (!err)
+		err = rust_expect(parser, '>', "'>'");
+	if (!err)
+		err = rust_append(parser, ">");
+	if (!err)
+		err = rust_expect(parser, RUST_TOKEN_COLON_COLON, "'::'");
+	if (!err)
+		err = rust_append(parser, "::");
+	if (!err)
+		err = rust_parse_path(parser, NULL);
+	return err;
+}
+
+static struct drgn_error *rust_parse_dyn(struct rust_type_parser *parser)
+{
+	struct drgn_error *err;
+	struct drgn_token token;
+	bool first = true;
+
+	err = rust_append(parser, "dyn ");
+	if (err)
+		return err;
+	for (;;) {
+		err = drgn_lexer_peek(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind == RUST_TOKEN_LIFETIME) {
+			err = drgn_lexer_pop(&parser->lexer, &token);
+		} else {
+			if (!first)
+				err = rust_append(parser, " + ");
+			if (!err)
+				err = rust_parse_path(parser, NULL);
+			first = false;
+		}
+		if (err)
+			return err;
+		err = drgn_lexer_peek(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind != '+')
+			break;
+		err = drgn_lexer_pop(&parser->lexer, &token);
+		if (err)
+			return err;
+	}
+	return NULL;
+}
+
+static struct drgn_error *rust_parse_parenthesized(struct rust_type_parser *parser, struct rust_type_expr *expr)
+{
+	struct drgn_error *err;
+	struct drgn_token token;
+
+	err = rust_append(parser, "(");
+	if (err)
+		return err;
+	err = drgn_lexer_peek(&parser->lexer, &token);
+	if (err)
+		return err;
+	if (token.kind == ')') {
+		err = drgn_lexer_pop(&parser->lexer, &token);
+		if (!err)
+			err = rust_append(parser, ")");
+		expr->kind = RUST_TYPE_EXPR_NAMED;
+		expr->kinds = RUST_STRUCTURAL_TYPE_KINDS;
+		return err;
+	}
+
+	err = rust_parse_type(parser, &expr->operand);
+	if (err)
+		return err;
+	err = drgn_lexer_pop(&parser->lexer, &token);
+	if (err)
+		return err;
+	if (token.kind == ')') {
+		expr->kind = RUST_TYPE_EXPR_PAREN;
+		return rust_append(parser, ")");
+	}
+
+	expr->kind = RUST_TYPE_EXPR_NAMED;
+	expr->kinds = RUST_STRUCTURAL_TYPE_KINDS;
+	for (size_t num_elements = 1;; num_elements++) {
+		if (token.kind != ',')
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected ',' or ')'");
+		err = drgn_lexer_peek(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind == ')') {
+			err = drgn_lexer_pop(&parser->lexer, &token);
+			if (!err)
+				err = rust_append(parser, num_elements == 1 ? ",)" : ")");
+			return err;
+		}
+		err = rust_append(parser, ", ");
+		if (err)
+			return err;
+		size_t unused;
+		err = rust_parse_type(parser, &unused);
+		if (err)
+			return err;
+		err = drgn_lexer_pop(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind == ')')
+			return rust_append(parser, ")");
+	}
+}
+
+static struct drgn_error *rust_parse_array_length(const struct drgn_token *token, uint64_t *ret)
+{
+	char buf[32];
+
+	if (token->kind != RUST_TOKEN_NUMBER || token->len >= sizeof(buf))
+		return drgn_error_create(DRGN_ERROR_SYNTAX, "expected array length");
+	memcpy(buf, token->value, token->len);
+	buf[token->len] = '\0';
+	char *end;
+	errno = 0;
+	*ret = strtoull(buf, &end, 0);
+	if (errno == ERANGE)
+		return drgn_error_create(DRGN_ERROR_OVERFLOW, "array length is too large");
+	if (*end)
+		return drgn_error_create(DRGN_ERROR_SYNTAX, "invalid array length");
+	return NULL;
+}
+
+static struct drgn_error *rust_parse_type(struct rust_type_parser *parser, size_t *ret)
+{
+	struct drgn_error *err;
+	struct drgn_token token;
+	struct rust_type_expr expr = { .start = parser->canonical.len };
+
+	drgn_recursion_guard(1000, "maximum type name depth exceeded");
+
+	err = drgn_lexer_pop(&parser->lexer, &token);
+	if (err)
+		return err;
+	switch (token.kind) {
+	case '&': {
+		err = drgn_lexer_peek(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind == RUST_TOKEN_LIFETIME) {
+			err = drgn_lexer_pop(&parser->lexer, &token);
+			if (!err)
+				err = drgn_lexer_peek(&parser->lexer, &token);
+			if (err)
+				return err;
+		}
+		bool is_mut = rust_token_is_keyword(&token, "mut");
+		if (is_mut) {
+			err = drgn_lexer_pop(&parser->lexer, &token);
+			if (err)
+				return err;
+		}
+		err = rust_append(parser, is_mut ? "&mut " : "&");
+		if (err)
+			return err;
+		expr.kind = RUST_TYPE_EXPR_POINTER;
+		err = rust_parse_type(parser, &expr.operand);
+		break;
+	}
+	case '*':
+		err = drgn_lexer_pop(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (rust_token_is_keyword(&token, "const"))
+			err = rust_append(parser, "*const ");
+		else if (rust_token_is_keyword(&token, "mut"))
+			err = rust_append(parser, "*mut ");
+		else
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected 'const' or 'mut' after '*'");
+		if (err)
+			return err;
+		expr.kind = RUST_TYPE_EXPR_POINTER;
+		err = rust_parse_type(parser, &expr.operand);
+		break;
+	case '[':
+		err = rust_append(parser, "[");
+		if (!err)
+			err = rust_parse_type(parser, &expr.operand);
+		if (!err)
+			err = drgn_lexer_pop(&parser->lexer, &token);
+		if (err)
+			return err;
+		if (token.kind == ';') {
+			err = drgn_lexer_pop(&parser->lexer, &token);
+			if (!err)
+				err = rust_parse_array_length(&token, &expr.length);
+			if (err)
+				return err;
+			if (!string_builder_appendf(&parser->canonical, "; %" PRIu64 "]", expr.length))
+				return &drgn_enomem;
+			expr.kind = RUST_TYPE_EXPR_ARRAY;
+			err = rust_expect(parser, ']', "']'");
+		} else if (token.kind == ']') {
+			expr.kind = RUST_TYPE_EXPR_SLICE;
+			expr.is_unsized = true;
+			err = rust_append(parser, "]");
+		} else {
+			return drgn_error_create(DRGN_ERROR_SYNTAX, "expected ';' or ']'");
+		}
+		break;
+	case '(':
+		err = rust_parse_parenthesized(parser, &expr);
+		break;
+	case '!':
+		expr.kind = RUST_TYPE_EXPR_NAMED;
+		expr.kinds = RUST_STRUCTURAL_TYPE_KINDS;
+		err = rust_append(parser, "!");
+		break;
+	case '<':
+		expr.kind = RUST_TYPE_EXPR_NAMED;
+		expr.kinds = RUST_NOMINAL_TYPE_KINDS;
+		err = rust_parse_qualified_path(parser);
+		break;
+	case RUST_TOKEN_IDENTIFIER:
+		if (rust_token_is_keyword(&token, "dyn")) {
+			expr.kind = RUST_TYPE_EXPR_NAMED;
+			expr.kinds = RUST_STRUCTURAL_TYPE_KINDS;
+			expr.is_unsized = true;
+			err = rust_parse_dyn(parser);
+			break;
+		}
+		if (rust_token_is_keyword(&token, "fn") || rust_token_is_keyword(&token, "unsafe") ||
+		    rust_token_is_keyword(&token, "extern")) {
+			return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+						 "function pointer types are not implemented");
+		}
+		fallthrough;
+	case RUST_TOKEN_SEGMENT:
+	case RUST_TOKEN_COLON_COLON:
+		err = drgn_lexer_push(&parser->lexer, &token);
+		if (err)
+			return err;
+		expr.kind = RUST_TYPE_EXPR_NAMED;
+		expr.kinds = RUST_NOMINAL_TYPE_KINDS;
+		err = rust_parse_path(parser, &expr.is_identifier);
+		expr.is_unsized = rust_token_is_keyword(&token, "str") && expr.is_identifier;
+		break;
+	default:
+		return drgn_error_create(DRGN_ERROR_SYNTAX, "expected type");
+	}
+	if (err)
+		return err;
+
+	if (expr.kind == RUST_TYPE_EXPR_PAREN)
+		expr.is_unsized = rust_type_expr_vector_at(&parser->exprs, expr.operand)->is_unsized;
+	expr.end = parser->canonical.len;
+	*ret = rust_type_expr_vector_size(&parser->exprs);
+	if (!rust_type_expr_vector_append(&parser->exprs, &expr))
+		return &drgn_enomem;
+	return NULL;
+}
+
+static const struct {
+	const char *name;
+	enum drgn_type_kind kind;
+	// 0 means the size of a pointer.
+	uint8_t size;
+	bool is_signed;
+} rust_primitive_types[] = {
+	{ "bool", DRGN_TYPE_BOOL, 1 },
+	{ "char", DRGN_TYPE_INT, 4, false },
+	{ "i8", DRGN_TYPE_INT, 1, true },
+	{ "i16", DRGN_TYPE_INT, 2, true },
+	{ "i32", DRGN_TYPE_INT, 4, true },
+	{ "i64", DRGN_TYPE_INT, 8, true },
+	{ "i128", DRGN_TYPE_INT, 16, true },
+	{ "isize", DRGN_TYPE_INT, 0, true },
+	{ "u8", DRGN_TYPE_INT, 1, false },
+	{ "u16", DRGN_TYPE_INT, 2, false },
+	{ "u32", DRGN_TYPE_INT, 4, false },
+	{ "u64", DRGN_TYPE_INT, 8, false },
+	{ "u128", DRGN_TYPE_INT, 16, false },
+	{ "usize", DRGN_TYPE_INT, 0, false },
+	{ "f32", DRGN_TYPE_FLOAT, 4 },
+	{ "f64", DRGN_TYPE_FLOAT, 8 },
+};
+
+static struct drgn_error *rust_find_primitive_type(struct drgn_program *prog, const char *name, size_t name_len,
+						   const char *filename, struct drgn_qualified_type *ret)
+{
+	struct drgn_error *err;
+
+	for (size_t i = 0; i < array_size(rust_primitive_types); i++) {
+		if (strlen(rust_primitive_types[i].name) != name_len ||
+		    memcmp(rust_primitive_types[i].name, name, name_len) != 0)
+			continue;
+
+		err = drgn_program_find_type_impl(prog, RUST_BASE_TYPE_KINDS, name, name_len, filename, ret);
+		if (err != &drgn_not_found)
+			return err;
+
+		uint64_t size = rust_primitive_types[i].size;
+		if (size == 0) {
+			err = drgn_program_address_size(prog, &size);
+			if (err)
+				return err;
+		}
+		ret->qualifiers = 0;
+		switch (rust_primitive_types[i].kind) {
+		case DRGN_TYPE_BOOL:
+			return drgn_bool_type_create(prog, rust_primitive_types[i].name, size, DRGN_PROGRAM_ENDIAN,
+						     &drgn_language_rust, &ret->type);
+		case DRGN_TYPE_FLOAT:
+			return drgn_float_type_create(prog, rust_primitive_types[i].name, size, DRGN_PROGRAM_ENDIAN,
+						      &drgn_language_rust, &ret->type);
+		default:
+			return drgn_int_type_create(prog, rust_primitive_types[i].name, size,
+						    rust_primitive_types[i].is_signed, DRGN_PROGRAM_ENDIAN,
+						    &drgn_language_rust, &ret->type);
+		}
+	}
+	return &drgn_not_found;
+}
+
+static struct drgn_error *rust_resolve_type(struct rust_type_parser *parser, struct drgn_program *prog,
+					    const char *filename, size_t index, struct drgn_qualified_type *ret)
+{
+	struct drgn_error *err;
+	struct rust_type_expr *expr = rust_type_expr_vector_at(&parser->exprs, index);
+	const char *name = parser->canonical.str + expr->start;
+	size_t name_len = expr->end - expr->start;
+	struct drgn_qualified_type operand_type;
+
+	SWITCH_ENUM(expr->kind) {
+	case RUST_TYPE_EXPR_NAMED:
+		if (expr->is_identifier) {
+			err = rust_find_primitive_type(prog, name, name_len, filename, ret);
+			if (err != &drgn_not_found)
+				return err;
+		}
+		return drgn_program_find_type_impl(prog, expr->kinds, name, name_len, filename, ret);
+	case RUST_TYPE_EXPR_POINTER: {
+		err = drgn_program_find_type_impl(prog, UINT64_C(1) << DRGN_TYPE_STRUCT, name, name_len, filename, ret);
+		if (err != &drgn_not_found || rust_type_expr_vector_at(&parser->exprs, expr->operand)->is_unsized)
+			return err;
+		err = rust_resolve_type(parser, prog, filename, expr->operand, &operand_type);
+		if (err)
+			return err;
+		const char *interned_name;
+		err = drgn_program_intern_type_name(prog, name, name_len, &interned_name);
+		if (err)
+			return err;
+		uint64_t size;
+		err = drgn_program_address_size(prog, &size);
+		if (err)
+			return err;
+		ret->qualifiers = 0;
+		return drgn_pointer_type_create(prog, operand_type, size, DRGN_PROGRAM_ENDIAN, interned_name,
+						&drgn_language_rust, &ret->type);
+	}
+	case RUST_TYPE_EXPR_ARRAY:
+	case RUST_TYPE_EXPR_SLICE: {
+		uint64_t length = expr->length;
+		bool is_array = expr->kind == RUST_TYPE_EXPR_ARRAY;
+		err = rust_resolve_type(parser, prog, filename, expr->operand, &operand_type);
+		if (err)
+			return err;
+		ret->qualifiers = 0;
+		if (is_array)
+			return drgn_array_type_create(prog, operand_type, length, &drgn_language_rust, &ret->type);
+		return drgn_incomplete_array_type_create(prog, operand_type, &drgn_language_rust, &ret->type);
+	}
+	case RUST_TYPE_EXPR_PAREN:
+		return rust_resolve_type(parser, prog, filename, expr->operand, ret);
+	default:
+		UNREACHABLE();
+	}
+}
+
+struct drgn_error *drgn_rust_find_type(const struct drgn_language *lang, struct drgn_program *prog, const char *name,
+				       const char *filename, struct drgn_qualified_type *ret)
+{
+	struct drgn_error *err;
+	_cleanup_(rust_type_parser_deinit) struct rust_type_parser parser = {
+		.lexer = DRGN_LEXER_INIT(rust_lexer_func, name),
+		.canonical = STRING_BUILDER_INIT,
+		.exprs = VECTOR_INIT,
+	};
+
+	size_t index;
+	err = rust_parse_type(&parser, &index);
+	if (err)
+		return err;
+	err = rust_expect(&parser, RUST_TOKEN_EOF, "end of type name");
+	if (err)
+		return err;
+	return rust_resolve_type(&parser, prog, filename, index, ret);
 }
