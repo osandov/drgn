@@ -244,6 +244,7 @@ def run_in_vm(
     test_kmod: TestKmodMode = TestKmodMode.NONE,
     interactive: bool = False,
     outfile: Optional[TextIO] = None,
+    timeout: Optional[float] = None,
 ) -> int:
     if root_dir is None:
         if kernel.arch is HOST_ARCHITECTURE:
@@ -438,12 +439,15 @@ def run_in_vm(
                 raise LostVMError(
                     f"QEMU did not connect within {server_sock.gettimeout()} seconds"
                 )
+            sock.settimeout(timeout)
             status_buf = bytearray()
             while True:
                 try:
                     buf = sock.recv(4)
                 except ConnectionResetError:
                     buf = b""
+                except socket.timeout:
+                    raise LostVMError(f"VM timed out after {timeout} seconds")
                 if not buf:
                     break
                 status_buf.extend(buf)

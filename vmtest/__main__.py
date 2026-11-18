@@ -553,6 +553,7 @@ fi
                 test_kmod=TestKmodMode.BUILD,
                 outfile=outfile,
                 extra_kernel_cmdline=extra_kernel_cmdline,
+                timeout=60 * 60,
             )
             return status == 0
         except (
