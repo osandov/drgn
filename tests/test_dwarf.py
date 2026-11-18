@@ -4802,6 +4802,70 @@ class TestTypes(TestCase):
                 )
                 self.assertIdentical(prog.type("struct point"), prog.type("TEST").type)
 
+    def test_rust_type_names(self):
+        def struct_die(name, size):
+            return DwarfDie(
+                DW_TAG.structure_type,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, size),
+                ),
+            )
+
+        def namespace_die(name, *children):
+            return DwarfDie(
+                DW_TAG.namespace,
+                (DwarfAttrib(DW_AT.name, DW_FORM.string, name),),
+                children,
+            )
+
+        structural_names = (
+            ("&dyn rtest::Animal", 16),
+            ("(alloc::string::String, u8)", 32),
+            ("<rtest::Point as core::fmt::Debug>::{vtable_type}", 24),
+        )
+        prog = dwarf_program(
+            (
+                namespace_die("rtest", struct_die("Point", 8)),
+                namespace_die(
+                    "alloc", namespace_die("string", struct_die("String", 24))
+                ),
+                *(struct_die(name, size) for name, size in structural_names),
+                DwarfDie(
+                    DW_TAG.base_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "()"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.Rust,
+        )
+        prog.language = Language.RUST
+
+        point = prog.type("rtest::Point")
+        self.assertIdentical(
+            point, prog.struct_type("Point", 8, (), language=Language.RUST)
+        )
+        self.assertIdentical(
+            prog.type("alloc::string::String"),
+            prog.struct_type("String", 24, (), language=Language.RUST),
+        )
+        for name, size in structural_names:
+            with self.subTest(name=name):
+                self.assertIdentical(
+                    prog.type(name),
+                    prog.struct_type(name, size, (), language=Language.RUST),
+                )
+        self.assertIdentical(
+            prog.type("()"), prog.struct_type("()", 0, (), language=Language.RUST)
+        )
+        self.assertIdentical(
+            prog.type("&rtest::Point"),
+            prog.pointer_type(point, name="&rtest::Point", language=Language.RUST),
+        )
+
     def test_namespaces(self):
         def make_composite_die(tag: DW_TAG, name: str) -> DwarfDie:
             return DwarfDie(

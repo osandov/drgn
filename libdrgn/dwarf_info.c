@@ -6923,11 +6923,9 @@ find_enclosing_namespace(struct drgn_namespace_dwarf_index *global_namespace,
 		*name += 2;
 	}
 
-	const char *template_parameters_start = memchr(*name, '<', *name_len);
-	ptrdiff_t searchable_len =
-		template_parameters_start ?
-				  template_parameters_start - *name:
-				  *name_len;
+	size_t searchable_len = 0;
+	while (searchable_len < *name_len && !strchr("<([&* ", (*name)[searchable_len]))
+		searchable_len++;
 	const char *colons;
 	while ((colons = memmem(*name, searchable_len, "::", 2))) {
 		err = drgn_namespace_find_child(*namespace_ret, *name,
