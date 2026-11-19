@@ -188,6 +188,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	free(prog->vmcoreinfo.raw);
 
 	drgn_qmp_conn_deinit(&prog->qmp_conn);
+	drgn_bpf_memory_destroy(prog->bpf_memory);
 #ifdef WITH_LIBKDUMPFILE
 	if (prog->kdump_ctx)
 		kdump_free(prog->kdump_ctx);

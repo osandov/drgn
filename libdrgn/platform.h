@@ -433,8 +433,10 @@ struct drgn_architecture_info {
 	 * Return the address and size of the direct mapping virtual address
 	 * range.
 	 *
-	 * This is a hack which is only called when debugging a live Linux
-	 * kernel older than v4.11.
+	 * This is called when debugging a live Linux kernel through
+	 * /proc/kcore older than v4.11, and when reading a live kernel's
+	 * memory with BPF (see linux_kernel_bpf.c), after VMCOREINFO has been
+	 * parsed if it could be.
 	 */
 	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *prog,
 									uint64_t *address_ret,

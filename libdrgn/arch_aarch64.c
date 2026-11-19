@@ -9,6 +9,7 @@
 
 #include "array.h"
 #include "error.h"
+#include "linux_kernel.h"
 #include "log.h"
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
@@ -746,6 +747,56 @@ linux_kernel_section_size_bits_fallback_aarch64(struct drgn_program *prog)
 	return 30;
 }
 
+// The kernel's PHYS_OFFSET: from VMCOREINFO if it has it, else memstart_addr.
+static struct drgn_error *linux_kernel_phys_offset_aarch64(struct drgn_program *prog,
+							   uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	static const char key[] = "NUMBER(PHYS_OFFSET)=";
+	const char *raw = prog->vmcoreinfo.raw;
+	const char *p = raw ? memmem(raw, prog->vmcoreinfo.raw_size, key,
+				     sizeof(key) - 1) : NULL;
+	if (p) {
+		*ret = strtoull(p + sizeof(key) - 1, NULL, 0);
+		return NULL;
+	}
+
+	unsigned long memstart_addr_address;
+	err = proc_kallsyms_symbol_addr("memstart_addr",
+					&memstart_addr_address);
+	if (err)
+		return err;
+	return drgn_program_read_u64(prog, memstart_addr_address, false, ret);
+}
+
+static struct drgn_error *
+linux_kernel_live_direct_mapping_fallback_aarch64(struct drgn_program *prog,
+						  uint64_t *address_ret,
+						  uint64_t *size_ret)
+{
+	struct drgn_error *err;
+
+	// __phys_to_virt(pa) = (pa - PHYS_OFFSET) | PAGE_OFFSET, where
+	// PAGE_OFFSET = -(1 << VA_BITS). Since Linux kernel commit 7bc1a0f9e176
+	// ("arm64: mm: use single quantity to represent the PA to VA
+	// translation") (in v5.10), this also holds for 52-bit VA_BITS on
+	// hardware with fewer bits: memstart_addr absorbs the difference.
+	uint64_t va_bits = prog->vmcoreinfo.va_bits;
+	if (va_bits < 36 || va_bits > 52) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "VMCOREINFO does not contain valid VA_BITS");
+	}
+	uint64_t phys_offset;
+	err = linux_kernel_phys_offset_aarch64(prog, &phys_offset);
+	if (err)
+		return err;
+	*address_ret = -(UINT64_C(1) << va_bits) - phys_offset;
+	// The linear map is the lower half of the kernel's address space.
+	*size_ret = UINT64_C(1) << (va_bits - 1);
+	return NULL;
+}
+
 static uint64_t untagged_addr_aarch64(uint64_t addr)
 {
 	/* Apply TBI by sign extending bit 55 into bits 56-63. */
@@ -777,6 +828,8 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 		linux_kernel_pgtable_iterator_next_aarch64,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_aarch64,
+	.linux_kernel_live_direct_mapping_fallback =
+		linux_kernel_live_direct_mapping_fallback_aarch64,
 	// MAX_PHYSMEM_BITS depends on CONFIG_ARM64_PA_BITS. Use the default
 	// fallback.
 	.untagged_addr = untagged_addr_aarch64,

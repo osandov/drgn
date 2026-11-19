@@ -80,6 +80,8 @@ struct drgn_program {
 	kdump_ctx_t *kdump_ctx;
 #endif
 	struct drgn_qmp_conn qmp_conn;
+	/* Live kernel memory read with BPF (see linux_kernel_bpf.c). */
+	struct drgn_bpf_memory *bpf_memory;
 
 	/*
 	 * Types.

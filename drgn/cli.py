@@ -483,6 +483,12 @@ def _main() -> None:
         "at the given address, which may be a Unix domain socket path "
         "or a TCP address as host:port",
     )
+    program_group.add_argument(
+        "--bpf",
+        action="store_true",
+        help="debug the running kernel, reading its memory with BPF instead of "
+        "/proc/kcore (for kernels without /proc/kcore; requires Linux 5.14 or newer)",
+    )
 
     symbol_group = parser.add_argument_group("debugging symbols")
     symbol_group.add_argument(
@@ -688,6 +694,11 @@ def _main() -> None:
                 )
         elif args.qemu is not None:
             prog.set_qemu_qmp(args.qemu)
+        elif args.bpf:
+            try:
+                prog.set_kernel_bpf()
+            except PermissionError as e:
+                sys.exit(f"{e}\nerror: reading kernel memory with BPF requires root")
         else:
             _set_kernel_with_sudo_fallback(prog)
     except OSError as e:
