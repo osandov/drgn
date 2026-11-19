@@ -1882,6 +1882,22 @@ drgn_type_has_member_len(struct drgn_type *type, const char *member_name,
 	return NULL;
 }
 
+LIBDRGN_PUBLIC struct drgn_error *drgn_type_source_location(struct drgn_type *type, int64_t member_index,
+							    const char **filename_ret, int *line_ret, int *column_ret)
+{
+	if (member_index >= 0) {
+		if (!drgn_type_has_members(type))
+			return drgn_type_error("'%s' is not a structure, union, or class", type);
+		if (member_index >= drgn_type_num_members(type))
+			return drgn_error_create(DRGN_ERROR_OUT_OF_BOUNDS, "member index out of range");
+	}
+	*filename_ret = NULL;
+	*line_ret = *column_ret = 0;
+	if (!drgn_type_has_die_addr(type))
+		return NULL;
+	return drgn_dwarf_type_source_location(type, member_index, filename_ret, line_ret, column_ret);
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_type_element_info(struct drgn_type *type, bool *is_pointer_ret,
 		       struct drgn_qualified_type *element_type_ret,

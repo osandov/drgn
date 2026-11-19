@@ -5,6 +5,7 @@
 
 #include <stdarg.h>
 
+#include "../error.h"
 #include "../lazy_object.h"
 #include "../platform.h"
 #include "../program.h"
@@ -767,6 +768,116 @@ static PyObject *DrgnType_has_member(DrgnType *self, PyObject *args,
 	Py_RETURN_BOOL(has_member);
 }
 
+static PyObject *member_source_location_name(PyObject *name, PyObject *unused)
+{
+	Py_INCREF(name);
+	return name;
+}
+
+static PyMethodDef type_source_location_name_def = {
+	.ml_name = "name",
+	.ml_meth = (PyCFunction)DrgnType_type_name,
+	.ml_flags = METH_NOARGS,
+};
+
+static PyMethodDef member_source_location_name_def = {
+	.ml_name = "name",
+	.ml_meth = member_source_location_name,
+	.ml_flags = METH_NOARGS,
+};
+
+static PyObject *source_location_wrap(const char *filename, int line, int column, PyMethodDef *name_def,
+				      PyObject *name_self)
+{
+	if (!filename)
+		Py_RETURN_NONE;
+	return PyObject_CallFunction(SourceLocation_type, "siiN", filename, line, column,
+				     PyCFunction_New(name_def, name_self));
+}
+
+/*
+ * Get the index of a member of a type from its index or its name. Returns 0 on
+ * success, -1 on error.
+ */
+static int DrgnType_member_index(DrgnType *self, PyObject *member, size_t *ret)
+{
+	struct drgn_error *err;
+
+	if (!drgn_type_has_members(self->type)) {
+		err = drgn_type_error("'%s' is not a structure, union, or class", self->type);
+		set_drgn_error(err);
+		return -1;
+	}
+	struct drgn_type_member *members = drgn_type_members(self->type);
+	size_t num_members = drgn_type_num_members(self->type);
+	if (PyUnicode_Check(member)) {
+		const char *name = PyUnicode_AsUTF8(member);
+		if (!name)
+			return -1;
+		for (size_t i = 0; i < num_members; i++) {
+			if (members[i].name && strcmp(members[i].name, name) == 0) {
+				*ret = i;
+				return 0;
+			}
+		}
+		_cleanup_free_ char *type_name = NULL;
+		err = drgn_format_type_name(DrgnType_unwrap(self), &type_name);
+		if (err) {
+			set_drgn_error(err);
+			return -1;
+		}
+		PyErr_Format(PyExc_LookupError, "'%s' has no member '%s'", type_name, name);
+		return -1;
+	}
+	Py_ssize_t index = PyNumber_AsSsize_t(member, PyExc_IndexError);
+	if (index == -1 && PyErr_Occurred())
+		return -1;
+	if (index < 0 || (size_t)index >= num_members) {
+		PyErr_SetString(PyExc_IndexError, "member index out of range");
+		return -1;
+	}
+	*ret = index;
+	return 0;
+}
+
+static PyObject *DrgnType_source_location(DrgnType *self, PyObject *args, PyObject *kwds)
+{
+	struct drgn_error *err;
+
+	static char *keywords[] = {"member", NULL};
+	PyObject *member = Py_None;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O:source_location", keywords, &member))
+		return NULL;
+
+	int64_t member_index = -1;
+	if (member != Py_None) {
+		size_t i;
+		if (DrgnType_member_index(self, member, &i))
+			return NULL;
+		member_index = i;
+	}
+
+	const char *filename;
+	int line, column;
+	err = drgn_type_source_location(self->type, member_index, &filename, &line, &column);
+	if (err)
+		return set_drgn_error(err);
+	if (member_index < 0)
+		return source_location_wrap(filename, line, column, &type_source_location_name_def, (PyObject *)self);
+
+	const char *member_name = drgn_type_members(self->type)[member_index].name;
+	_cleanup_pydecref_ PyObject *name;
+	if (member_name) {
+		name = PyUnicode_FromString(member_name);
+		if (!name)
+			return NULL;
+	} else {
+		name = Py_None;
+		Py_INCREF(name);
+	}
+	return source_location_wrap(filename, line, column, &member_source_location_name_def, name);
+}
+
 static PyMethodDef DrgnType_methods[] = {
 	{"type_name", (PyCFunction)DrgnType_type_name, METH_NOARGS,
 	 drgn_Type_type_name_DOC},
@@ -786,6 +897,8 @@ static PyMethodDef DrgnType_methods[] = {
 	 drgn_Type_member_DOC},
 	{"has_member", (PyCFunction)DrgnType_has_member,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Type_has_member_DOC},
+	{"source_location", (PyCFunction)DrgnType_source_location,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Type_source_location_DOC},
 	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
 	 METH_VARARGS | METH_KEYWORDS},
 	{},

@@ -4623,8 +4623,11 @@ static int dwarf_bytesize64(Dwarf_Die *die, uint64_t *ret)
 	return 0;
 }
 
-struct drgn_error *drgn_dwarf_type_alignment(struct drgn_type *type,
-					     uint64_t *ret)
+/*
+ * Get the DIE that a type was parsed from. Returns &drgn_not_found if the type
+ * wasn't parsed from DWARF.
+ */
+static struct drgn_error *drgn_type_dwarf_die(struct drgn_type *type, Dwarf_Die *ret)
 {
 	uintptr_t die_addr = drgn_type_die_addr(type);
 	if (!die_addr)
@@ -4636,10 +4639,20 @@ struct drgn_error *drgn_dwarf_type_alignment(struct drgn_type *type,
 		return drgn_error_create(DRGN_ERROR_BAD_DATA,
 					 "DIE from unknown DWARF CU");
 	}
-	Dwarf_Die die = {
+	*ret = (Dwarf_Die){
 		.addr = (void *)die_addr,
 		.cu = cu->libdw_cu,
 	};
+	return NULL;
+}
+
+struct drgn_error *drgn_dwarf_type_alignment(struct drgn_type *type,
+					     uint64_t *ret)
+{
+	Dwarf_Die die;
+	struct drgn_error *err = drgn_type_dwarf_die(type, &die);
+	if (err)
+		return err;
 	Dwarf_Attribute attr_mem, *attr;
 	if (!(attr = dwarf_attr_integrate(&die, DW_AT_alignment, &attr_mem)))
 		return &drgn_not_found;
@@ -6297,6 +6310,121 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 
 	return drgn_compound_type_create(&builder, tag, size, !declaration,
 					 lang, ret);
+}
+
+static void dwarf_die_source_location(Dwarf_Die *die, const char **filename_ret, int *line_ret, int *column_ret)
+{
+	*filename_ret = dwarf_decl_file(die);
+	if (!*filename_ret)
+		return;
+	if (dwarf_decl_line(die, line_ret))
+		*line_ret = 0;
+	if (dwarf_decl_column(die, column_ret))
+		*column_ret = 0;
+}
+
+/*
+ * Find the DIE of member member_idx of a type parsed by
+ * drgn_compound_type_from_dwarf(). Returns &drgn_not_found if it can't be
+ * found.
+ *
+ * This repeats how the parser numbered the members, which has one of two
+ * shapes. A structure, union, or class has a member for each DW_TAG_member
+ * child, in order:
+ *
+ *   DW_TAG_structure_type "point"
+ *     DW_TAG_member "x"                    member 0
+ *     DW_TAG_member "y"                    member 1
+ *
+ * A structure with no DW_TAG_member children and exactly one
+ * DW_TAG_variant_part, like a Rust enum or coroutine, is parsed as a union
+ * with a member for each DW_TAG_variant: the variant's only DW_TAG_member. If
+ * the parser could use the discriminant that DW_AT_discr refers to, the type
+ * is a discriminated union, and the discriminant is member 0:
+ *
+ *   DW_TAG_structure_type "{async_fn_env#0}"
+ *     DW_TAG_variant_part (DW_AT_discr)
+ *       DW_TAG_member "__state"            member 0 (discriminant)
+ *       DW_TAG_variant
+ *         DW_TAG_member "0" (Unresumed)    member 1
+ *       DW_TAG_variant
+ *         DW_TAG_member "1" (Returned)     member 2
+ *       DW_TAG_variant
+ *         DW_TAG_member "2" (Panicked)     member 3
+ *       DW_TAG_variant
+ *         DW_TAG_member "3" (Suspend0)     member 4
+ *
+ * Otherwise, the variants are members 0, 1, and so on.
+ *
+ * i is the member index of the DIE being visited.
+ */
+static struct drgn_error *find_member_die(struct drgn_type *type, Dwarf_Die *die, size_t member_idx, Dwarf_Die *ret)
+{
+	Dwarf_Die variant_part = {}, child;
+	size_t i = 0, num_variant_parts = 0;
+	int r = dwarf_child(die, &child);
+	while (r == 0) {
+		switch (dwarf_tag(&child)) {
+		case DW_TAG_member:
+			if (i == member_idx) {
+				*ret = child;
+				return NULL;
+			}
+			i++;
+			break;
+		case DW_TAG_variant_part:
+			variant_part = child;
+			num_variant_parts++;
+			break;
+		default:
+			break;
+		}
+		r = dwarf_siblingof(&child, &child);
+	}
+	if (r < 0)
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "libdw could not parse DIE children");
+	// The rest handles a lone DW_TAG_variant_part parsed as a union.
+	if (i != 0 || num_variant_parts != 1)
+		return &drgn_not_found;
+
+	if (drgn_type_is_discr_union(type)) {
+		// Member 0 is the discriminant.
+		if (member_idx == 0) {
+			Dwarf_Attribute attr_mem, *attr;
+			if (!(attr = dwarf_attr_integrate(&variant_part, DW_AT_discr, &attr_mem)) ||
+			    !dwarf_formref_die(attr, ret))
+				return &drgn_not_found;
+			return NULL;
+		}
+		i = 1;
+	}
+	r = dwarf_child(&variant_part, &child);
+	while (r == 0) {
+		if (dwarf_tag(&child) == DW_TAG_variant) {
+			if (i == member_idx)
+				return get_variant_member(&child, ret);
+			i++;
+		}
+		r = dwarf_siblingof(&child, &child);
+	}
+	if (r < 0)
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "libdw could not parse DIE children");
+	return &drgn_not_found;
+}
+
+struct drgn_error *drgn_dwarf_type_source_location(struct drgn_type *type, int64_t member_index,
+						   const char **filename_ret, int *line_ret, int *column_ret)
+{
+	Dwarf_Die die;
+	struct drgn_error *err = drgn_type_dwarf_die(type, &die);
+	if (!err && member_index >= 0)
+		err = find_member_die(type, &die, member_index, &die);
+	if (err == &drgn_not_found)
+		return NULL;
+	else if (err)
+		return err;
+	dwarf_die_source_location(&die, filename_ret, line_ret, column_ret);
+	return NULL;
 }
 
 static struct drgn_error *

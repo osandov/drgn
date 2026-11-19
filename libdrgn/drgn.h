@@ -4099,6 +4099,24 @@ static inline struct drgn_error *drgn_type_has_member(struct drgn_type *type,
 }
 
 /**
+ * Get the source code location where a type or one of its members is declared.
+ *
+ * This is only available for structure, union, class, enumerated, and function
+ * types parsed from debugging information.
+ *
+ * @param[in] type Type.
+ * @param[in] member_index Index of a member in @ref drgn_type_members(), or
+ * negative to get the location of the type itself.
+ * @param[out] filename_ret Returned filename, or @c NULL if the location is not
+ * known. It is valid until the program is destroyed; it should not be freed.
+ * @param[out] line_ret Returned line number. Returned as 0 if unknown.
+ * @param[out] column_ret Returned column number. Returned as 0 if unknown.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_type_source_location(struct drgn_type *type, int64_t member_index, const char **filename_ret,
+					     int *line_ret, int *column_ret);
+
+/**
  * Get the element type and size of an array or pointer @ref drgn_type.
  *
  * @param[in] type Array or pointer type.

@@ -5288,6 +5288,111 @@ class TestTypes(TestCase):
         self.assertEqual(alignof(prog.type("DECLARED").type), 64)
         self.assertEqual(alignof(type), 64)
 
+    def test_source_location(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                        DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.c"),
+                        DwarfAttrib(DW_AT.decl_line, DW_FORM.data1, 1),
+                        DwarfAttrib(DW_AT.decl_column, DW_FORM.data1, 8),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                                DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.c"),
+                                DwarfAttrib(DW_AT.decl_line, DW_FORM.data1, 2),
+                                DwarfAttrib(DW_AT.decl_column, DW_FORM.data1, 6),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                ),
+                            ),
+                        ),
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 4
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+            )
+        )
+        type = prog.type("TEST").type
+        self.assertEqual(type.source_location(), ("/usr/src/foo.c", 1, 8))
+        self.assertEqual(
+            str(type.source_location()), "struct point at /usr/src/foo.c:1:8"
+        )
+        self.assertEqual(type.source_location(0), ("/usr/src/foo.c", 2, 6))
+        self.assertEqual(type.source_location("x"), ("/usr/src/foo.c", 2, 6))
+        self.assertEqual(str(type.source_location("x")), "x at /usr/src/foo.c:2:6")
+        self.assertIsNone(type.source_location("y"))
+        self.assertIsNone(type.members[0].type.source_location())
+        self.assertIsNone(prog.pointer_type(type).source_location())
+        self.assertIsNone(prog.struct_type("point", 8, ()).source_location())
+        self.assertRaises(IndexError, type.source_location, 2)
+        self.assertRaises(IndexError, type.source_location, -1)
+        self.assertRaisesRegex(
+            LookupError, "has no member 'z'", type.source_location, "z"
+        )
+        self.assertRaises(TypeError, type.members[0].type.source_location, 0)
+
+    def test_variant_source_location(self):
+        def variant(name, discr_value, line):
+            return DwarfDie(
+                DW_TAG.variant,
+                (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, discr_value),),
+                (
+                    DwarfDie(
+                        DW_TAG.member,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.rs"),
+                            DwarfAttrib(DW_AT.decl_line, DW_FORM.data1, line),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
+                        ),
+                    ),
+                ),
+            )
+
+        variants = (variant("Unresumed", 0, 10), variant("Suspend0", 3, 12))
+        for discr_type in ("unsigned_int_die", None):
+            with self.subTest(discr_type=discr_type):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(variants, discr_type=discr_type),
+                        *labeled_unsigned_int_die,
+                        *labeled_int_die,
+                    ),
+                    lang=DW_LANG.Rust,
+                )
+                type = prog.type("TEST").type
+                self.assertEqual(type.language, Language.RUST)
+                first = 0 if discr_type is None else 1
+                if discr_type is not None:
+                    self.assertIsNone(type.source_location(0))
+                self.assertEqual(
+                    type.source_location(first), ("/usr/src/foo.rs", 10, 0)
+                )
+                self.assertEqual(
+                    type.source_location(first + 1), ("/usr/src/foo.rs", 12, 0)
+                )
+                self.assertEqual(
+                    type.source_location("Suspend0"), ("/usr/src/foo.rs", 12, 0)
+                )
+
     def test_many_skipped_attribs(self):
         prog = dwarf_program(
             (

@@ -3808,6 +3808,30 @@ class Type:
             type
         """
 
+    def source_location(
+        self, member: Union[int, str, None] = None
+    ) -> Optional[SourceLocation]:
+        """
+        Get the source code location where this type or one of its members is
+        declared.
+
+        The location of a type is only available for structure, union, class,
+        enumerated, and function types parsed from debugging information.
+
+        :param member: If ``None``, get the location of this type. Otherwise,
+            get the location of a member of this type, given as the index of
+            the member in :attr:`members` or as the name of a member of this
+            type (not of its unnamed members).
+        :return: Location, or ``None`` if it is not known. Its
+            :meth:`SourceLocation.name()` is :meth:`type_name()` for this type
+            or the name of the member.
+        :raises TypeError: if *member* is not ``None`` and this type is not a
+            structure, union, or class type
+        :raises IndexError: if *member* is an index out of range
+        :raises LookupError: if this type has no member named *member*
+        """
+        ...
+
     def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
 class TypeMember:
