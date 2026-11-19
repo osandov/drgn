@@ -2762,9 +2762,47 @@ static struct drgn_error *drgn_language_from_die(Dwarf_Die *die, bool fall_back,
 	case DW_LANG_C_plus_plus_14:
 		*ret = &drgn_language_cpp;
 		break;
+	case DW_LANG_Rust:
+		*ret = &drgn_language_rust;
+		break;
 	default:
 		*ret = fall_back ? &drgn_default_language : NULL;
 		break;
+	}
+	return NULL;
+}
+
+static const struct drgn_language *
+main_language_in_namespace(struct drgn_namespace_dwarf_index *ns,
+			   bool need_main_subprogram)
+{
+	struct drgn_error *err;
+	struct drgn_dwarf_index_iterator it;
+	const enum drgn_dwarf_index_tag tag = DRGN_DWARF_INDEX_subprogram;
+	err = drgn_dwarf_index_iterator_init(&it, ns, "main", strlen("main"),
+					     &tag, 1);
+	if (err) {
+		drgn_error_destroy(err);
+		return NULL;
+	}
+	Dwarf_Die die;
+	while (drgn_dwarf_index_iterator_next(&it, &die, NULL)) {
+		Dwarf_Attribute attr_mem, *attr;
+		bool main_subprogram;
+		if (need_main_subprogram &&
+		    (!(attr = dwarf_attr_integrate(&die, DW_AT_main_subprogram,
+						   &attr_mem)) ||
+		     dwarf_formflag(attr, &main_subprogram) ||
+		     !main_subprogram))
+			continue;
+		const struct drgn_language *lang;
+		err = drgn_language_from_die(&die, false, &lang);
+		if (err) {
+			drgn_error_destroy(err);
+			continue;
+		}
+		if (lang)
+			return lang;
 	}
 	return NULL;
 }
@@ -2773,22 +2811,29 @@ const struct drgn_language *
 drgn_debug_info_main_language(struct drgn_debug_info *dbinfo)
 {
 	struct drgn_error *err;
-	struct drgn_dwarf_index_iterator it;
-	const enum drgn_dwarf_index_tag tag = DRGN_DWARF_INDEX_subprogram;
-	err = drgn_dwarf_index_iterator_init(&it, &dbinfo->dwarf.global, "main",
-					     strlen("main"), &tag, 1);
+	struct drgn_namespace_dwarf_index *global = &dbinfo->dwarf.global;
+	const struct drgn_language *lang =
+		main_language_in_namespace(global, false);
+	if (lang)
+		return lang;
+
+	// Rust's main function is in the top-level namespace of the crate and
+	// has DW_AT_main_subprogram.
+	err = index_namespace(global);
 	if (err) {
 		drgn_error_destroy(err);
 		return NULL;
 	}
-	Dwarf_Die die;
-	while (drgn_dwarf_index_iterator_next(&it, &die, NULL)) {
-		const struct drgn_language *lang;
-		err = drgn_language_from_die(&die, false, &lang);
+	hash_table_for_each(drgn_dwarf_index_die_map, it,
+			    &global->map[DRGN_DWARF_INDEX_namespace]) {
+		struct drgn_namespace_dwarf_index *ns;
+		err = drgn_namespace_find_child(global, it.entry->key.str,
+						it.entry->key.len, &ns);
 		if (err) {
 			drgn_error_destroy(err);
 			continue;
 		}
+		lang = main_language_in_namespace(ns, true);
 		if (lang)
 			return lang;
 	}
@@ -5418,6 +5463,13 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 					 "DW_TAG_base_type has missing or invalid DW_AT_byte_size");
 	}
 
+	/* Rust's unit type, (), is a zero-sized base type. Represent it as an empty structure. */
+	if (size == 0) {
+		_cleanup_(drgn_compound_type_builder_deinit) struct drgn_compound_type_builder builder;
+		drgn_compound_type_builder_init(&builder, dbinfo->prog, DRGN_TYPE_STRUCT);
+		return drgn_compound_type_create(&builder, name, 0, true, lang, ret);
+	}
+
 	enum drgn_byte_order byte_order;
 	err = dwarf_die_byte_order(die, true, &byte_order);
 	if (err)
@@ -5957,6 +6009,174 @@ drgn_parse_template_parameter_pack(struct drgn_debug_info *dbinfo,
 	return NULL;
 }
 
+/*
+ * Parse a DW_AT_discr_value with the signedness and size of the discriminant
+ * type. If the value doesn't fit in 64 bits, sets *fits_ret to false.
+ */
+static struct drgn_error *parse_discr_value(Dwarf_Attribute *attr, struct drgn_type *discr_type, bool little_endian,
+					    union drgn_type_discr *ret, bool *fits_ret)
+{
+	bool is_signed = drgn_type_is_signed(discr_type);
+	uint64_t size = drgn_type_size(discr_type);
+	Dwarf_Block block;
+	uint64_t uvalue;
+	*fits_ret = true;
+	if (dwarf_formblock(attr, &block) == 0) {
+		if (block.length == 0)
+			goto invalid;
+		*fits_ret = deserialize_int64(block.data, block.length, little_endian, is_signed, &uvalue);
+	} else if (is_signed) {
+		Dwarf_Sword svalue;
+		if (dwarf_formsdata(attr, &svalue))
+			goto invalid;
+		uvalue = svalue;
+	} else if (dwarf_formudata(attr, &uvalue)) {
+		goto invalid;
+	}
+	if (size > 0 && size < 8)
+		uvalue = is_signed ? truncate_signed(uvalue, 8 * size) : truncate_unsigned(uvalue, 8 * size);
+	ret->uvalue = uvalue;
+	return NULL;
+
+invalid:
+	return drgn_error_create(DRGN_ERROR_BAD_DATA, "DW_TAG_variant has invalid DW_AT_discr_value");
+}
+
+struct drgn_dwarf_variant {
+	Dwarf_Die member;
+	union drgn_type_discr discr;
+	bool is_default;
+};
+
+DEFINE_VECTOR(drgn_dwarf_variant_vector, struct drgn_dwarf_variant);
+
+/*
+ * Get the only member of a DW_TAG_variant. Returns &drgn_not_found if it
+ * doesn't have exactly one member.
+ */
+static struct drgn_error *get_variant_member(Dwarf_Die *die, Dwarf_Die *ret)
+{
+	ret->addr = NULL;
+	Dwarf_Die child;
+	int r = dwarf_child(die, &child);
+	while (r == 0) {
+		switch (dwarf_tag(&child)) {
+		case DW_TAG_member:
+			if (ret->addr)
+				return &drgn_not_found;
+			*ret = child;
+			break;
+		case DW_TAG_variant_part:
+			return &drgn_not_found;
+		default:
+			break;
+		}
+		r = dwarf_siblingof(&child, &child);
+	}
+	if (r < 0)
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "libdw could not parse DIE children");
+	return ret->addr ? NULL : &drgn_not_found;
+}
+
+/*
+ * Parse a DW_TAG_variant_part that is the only member of a structure into a
+ * union of the variants. If the variant part has a usable discriminant, the
+ * union is a discriminated union, and the discriminant is the first member.
+ * Returns &drgn_not_found if a variant doesn't have exactly one member or the
+ * variant part has members other than the discriminant.
+ */
+static struct drgn_error *
+parse_variant_part(struct drgn_debug_info *dbinfo, struct drgn_elf_file *file, Dwarf_Die *die,
+		   const struct drgn_language *lang, bool little_endian, struct drgn_compound_type_builder *builder)
+{
+	struct drgn_error *err;
+
+	Dwarf_Attribute attr_mem, *attr;
+	Dwarf_Die discr_die = {};
+	if ((attr = dwarf_attr_integrate(die, DW_AT_discr, &attr_mem)) && !dwarf_formref_die(attr, &discr_die))
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "DW_TAG_variant_part has invalid DW_AT_discr");
+
+	struct drgn_type *discr_type = NULL;
+	if (discr_die.addr) {
+		struct drgn_qualified_type qualified_type;
+		err = drgn_type_from_dwarf_attr(dbinfo, file, &discr_die, lang, false, false, NULL, &qualified_type);
+		if (err)
+			return err;
+		discr_type = drgn_underlying_type(qualified_type.type);
+		if (drgn_type_kind(discr_type) != DRGN_TYPE_INT)
+			discr_type = NULL;
+	}
+
+	VECTOR(drgn_dwarf_variant_vector, variants);
+	size_t num_defaults = 0;
+	Dwarf_Die child;
+	int r = dwarf_child(die, &child);
+	while (r == 0) {
+		switch (dwarf_tag(&child)) {
+		case DW_TAG_member:
+			if (child.addr != discr_die.addr)
+				return &drgn_not_found;
+			break;
+		case DW_TAG_variant: {
+			struct drgn_dwarf_variant *variant = drgn_dwarf_variant_vector_append_entry(&variants);
+			if (!variant)
+				return &drgn_enomem;
+			variant->is_default = false;
+			err = get_variant_member(&child, &variant->member);
+			if (err)
+				return err;
+			if (!discr_type)
+				break;
+			if (dwarf_hasattr_integrate(&child, DW_AT_discr_list)) {
+				discr_type = NULL;
+				break;
+			}
+			attr = dwarf_attr_integrate(&child, DW_AT_discr_value, &attr_mem);
+			if (!attr) {
+				variant->is_default = true;
+				if (++num_defaults > 1)
+					discr_type = NULL;
+				break;
+			}
+			bool fits;
+			err = parse_discr_value(attr, discr_type, little_endian, &variant->discr, &fits);
+			if (err)
+				return err;
+			if (!fits)
+				discr_type = NULL;
+			break;
+		}
+		default:
+			break;
+		}
+		r = dwarf_siblingof(&child, &child);
+	}
+	if (r < 0)
+		return drgn_error_create(DRGN_ERROR_BAD_DATA, "libdw could not parse DIE children");
+
+	builder->kind = DRGN_TYPE_UNION;
+	if (discr_type) {
+		drgn_compound_type_builder_set_discr_union(builder, drgn_type_is_signed(discr_type));
+		err = parse_member(dbinfo, file, &discr_die, little_endian, false, builder);
+		if (err)
+			return err;
+	}
+	vector_for_each(drgn_dwarf_variant_vector, variant, &variants) {
+		err = parse_member(dbinfo, file, &variant->member, little_endian, false, builder);
+		if (err)
+			return err;
+		if (!discr_type)
+			continue;
+		if (variant->is_default)
+			err = drgn_compound_type_builder_add_default_discr(builder);
+		else
+			err = drgn_compound_type_builder_add_discr(builder, variant->discr);
+		if (err)
+			return err;
+	}
+	return NULL;
+}
+
 static struct drgn_error *
 drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			      struct drgn_elf_file *file, Dwarf_Die *die,
@@ -6011,8 +6231,9 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		dwarf_die_is_little_endian(die, false, &little_endian);
 	}
 
-	Dwarf_Die member = {}, child;
+	Dwarf_Die member = {}, variant_part = {}, child;
 	bool first_member = true;
+	size_t num_variant_parts = 0;
 	int r = dwarf_child(die, &child);
 	while (r == 0) {
 		switch (dwarf_tag(&child)) {
@@ -6028,6 +6249,12 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 					first_member = false;
 				}
 				member = child;
+			}
+			break;
+		case DW_TAG_variant_part:
+			if (!declaration) {
+				variant_part = child;
+				num_variant_parts++;
 			}
 			break;
 		case DW_TAG_template_type_parameter:
@@ -6061,6 +6288,10 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 				   kind != DRGN_TYPE_UNION && !first_member,
 				   &builder);
 		if (err)
+			return err;
+	} else if (num_variant_parts == 1) {
+		err = parse_variant_part(dbinfo, file, &variant_part, lang, little_endian, &builder);
+		if (err && err != &drgn_not_found)
 			return err;
 	}
 
@@ -6260,6 +6491,15 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		return err;
 
 	Dwarf_Attribute attr_mem, *attr;
+	const char *name = NULL;
+	if ((attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem))) {
+		name = dwarf_formstring(attr);
+		if (!name) {
+			return drgn_error_create(DRGN_ERROR_BAD_DATA,
+						 "DW_TAG_pointer_type has invalid DW_AT_name");
+		}
+	}
+
 	uint64_t size;
 	if ((attr = dwarf_attr_integrate(die, DW_AT_byte_size, &attr_mem))) {
 		Dwarf_Word word;
@@ -6286,7 +6526,7 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	enum drgn_byte_order byte_order;
 	dwarf_die_byte_order(die, false, &byte_order);
 	return drgn_pointer_type_create(dbinfo->prog, referenced_type, size,
-					byte_order, lang, ret);
+					byte_order, name, lang, ret);
 }
 
 struct array_dimension {
@@ -6725,11 +6965,9 @@ find_enclosing_namespace(struct drgn_namespace_dwarf_index *global_namespace,
 		*name += 2;
 	}
 
-	const char *template_parameters_start = memchr(*name, '<', *name_len);
-	ptrdiff_t searchable_len =
-		template_parameters_start ?
-				  template_parameters_start - *name:
-				  *name_len;
+	size_t searchable_len = 0;
+	while (searchable_len < *name_len && !strchr("<([&* ", (*name)[searchable_len]))
+		searchable_len++;
 	const char *colons;
 	while ((colons = memmem(*name, searchable_len, "::", 2))) {
 		err = drgn_namespace_find_child(*namespace_ret, *name,

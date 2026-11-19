@@ -15,6 +15,7 @@
 #include "c_lexer.h"
 #include "error.h"
 #include "language.h" // IWYU pragma: associated
+#include "language_rust.h"
 #include "lexer.h"
 #include "minmax.h"
 #include "object.h"
@@ -388,6 +389,18 @@ c_declare_variable(struct drgn_qualified_type qualified_type,
 	}
 }
 
+static bool c_append_discr_comment(struct drgn_type *type, size_t i, struct string_builder *sb)
+{
+	if (i == 0)
+		return string_builder_append(sb, " /* discriminant */");
+	if (i == drgn_type_default_discr(type))
+		return string_builder_append(sb, " /* default */");
+	union drgn_type_discr *discr = &drgn_type_discrs(type)[i - 1];
+	if (drgn_type_discr_is_signed(type))
+		return string_builder_appendf(sb, " /* %" PRId64 " */", discr->svalue);
+	return string_builder_appendf(sb, " /* %" PRIu64 " */", discr->uvalue);
+}
+
 static struct drgn_error *
 c_define_compound(struct drgn_qualified_type qualified_type, size_t indent,
 		  struct string_builder *sb)
@@ -432,7 +445,12 @@ c_define_compound(struct drgn_qualified_type qualified_type, size_t indent,
 		    !string_builder_appendf(sb, " : %" PRIu64,
 					    member_bit_field_size))
 				return &drgn_enomem;
-		if (!string_builder_append(sb, ";\n"))
+		if (!string_builder_appendc(sb, ';'))
+			return &drgn_enomem;
+		if (drgn_type_is_discr_union(qualified_type.type) &&
+		    !c_append_discr_comment(qualified_type.type, i, sb))
+			return &drgn_enomem;
+		if (!string_builder_appendc(sb, '\n'))
 			return &drgn_enomem;
 	}
 
@@ -561,6 +579,14 @@ c_format_type_name_impl(struct drgn_qualified_type qualified_type,
 	} else {
 		return c_declare_variable(qualified_type, NULL, 0, false, sb);
 	}
+}
+
+static struct drgn_error *
+c_format_object_type_name(struct drgn_qualified_type qualified_type, struct string_builder *sb)
+{
+	if (drgn_type_language(qualified_type.type) == &drgn_language_rust)
+		return drgn_rust_append_type_name(qualified_type, sb);
+	return c_format_type_name_impl(qualified_type, sb);
 }
 
 static struct drgn_error *
@@ -1089,6 +1115,7 @@ DEFINE_VECTOR(compound_initializer_stack, struct compound_initializer_state);
 struct compound_initializer_iter {
 	struct initializer_iter iter;
 	const struct drgn_object *obj;
+	struct drgn_type_member *members;
 	struct compound_initializer_stack stack;
 	enum drgn_format_object_flags flags;
 };
@@ -1172,8 +1199,7 @@ static void compound_initializer_iter_reset(struct initializer_iter *iter_)
 	struct compound_initializer_iter *iter =
 		container_of(iter_, struct compound_initializer_iter, iter);
 	compound_initializer_stack_resize(&iter->stack, 1);
-	compound_initializer_stack_first(&iter->stack)->member =
-		drgn_type_members(drgn_underlying_type(iter->obj->type));
+	compound_initializer_stack_first(&iter->stack)->member = iter->members;
 }
 
 static struct drgn_error *
@@ -1221,6 +1247,25 @@ c_format_compound_object(const struct drgn_object *obj,
 					 keyword);
 	}
 
+	struct drgn_type_member *members = drgn_type_members(underlying_type);
+	size_t num_members = drgn_type_num_members(underlying_type);
+	enum drgn_format_object_flags flags = options->flags;
+	/*
+	 * Only format the active variant of a discriminated union, or the
+	 * discriminant if no variant is active.
+	 */
+	if (drgn_type_is_discr_union(underlying_type)) {
+		size_t i;
+		err = drgn_object_variant_index(obj, &i);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
+			i = 0;
+		else if (err)
+			return err;
+		members += i;
+		num_members = 1;
+		flags |= DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS;
+	}
+
 	struct compound_initializer_iter iter = {
 		.iter = {
 			.next = compound_initializer_iter_next,
@@ -1230,8 +1275,9 @@ c_format_compound_object(const struct drgn_object *obj,
 				compound_initializer_append_designation : NULL,
 		},
 		.obj = obj,
+		.members = members,
 		.stack = VECTOR_INIT,
-		.flags = options->flags,
+		.flags = flags,
 	};
 	struct compound_initializer_state *new =
 		compound_initializer_stack_append_entry(&iter.stack);
@@ -1239,9 +1285,8 @@ c_format_compound_object(const struct drgn_object *obj,
 		err = &drgn_enomem;
 		goto out;
 	}
-	new->member = drgn_type_members(underlying_type);
-	new->end = add_to_possibly_null_pointer(new->member,
-						drgn_type_num_members(underlying_type));
+	new->member = members;
+	new->end = add_to_possibly_null_pointer(new->member, num_members);
 	new->bit_offset = 0;
 
 	/*
@@ -1249,8 +1294,8 @@ c_format_compound_object(const struct drgn_object *obj,
 	 * including member names, then we'll skip past zero members as we
 	 * iterate, so we don't need to do this.
 	 */
-	if (!(options->flags & (DRGN_FORMAT_OBJECT_MEMBER_NAMES
-				| DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS))
+	if (!(flags & (DRGN_FORMAT_OBJECT_MEMBER_NAMES
+		       | DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS))
 	    && new->member < new->end) {
 		DRGN_OBJECT(member, drgn_object_program(obj));
 		do {
@@ -1367,8 +1412,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 	if (options->flags & DRGN_FORMAT_OBJECT_TYPE_NAME) {
 		if (!string_builder_appendc(sb, '('))
 			return &drgn_enomem;
-		err = c_format_type_name_impl(drgn_object_qualified_type(obj),
-					      sb);
+		err = c_format_object_type_name(drgn_object_qualified_type(obj), sb);
 		if (err)
 			return err;
 		if (!string_builder_appendc(sb, ')'))
@@ -1670,8 +1714,7 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 
 		if (!string_builder_appendc(sb, '('))
 			return &drgn_enomem;
-		err = c_format_type_name_impl(drgn_object_qualified_type(obj),
-					      sb);
+		err = c_format_object_type_name(drgn_object_qualified_type(obj), sb);
 		if (err)
 			return err;
 		if (!string_builder_appendc(sb, ')'))
@@ -2630,7 +2673,7 @@ c_type_from_declarator(struct drgn_program *prog,
 				if (!err) {
 					err = drgn_pointer_type_create(prog, *ret,
 								       address_size,
-								       DRGN_PROGRAM_ENDIAN,
+								       DRGN_PROGRAM_ENDIAN, NULL,
 								       drgn_type_language(ret->type),
 								       &ret->type);
 				}
@@ -3455,7 +3498,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 		err = drgn_pointer_type_create(drgn_object_program(obj),
 					       drgn_type_type(type_ret->underlying_type),
 					       address_size,
-					       DRGN_PROGRAM_ENDIAN,
+					       DRGN_PROGRAM_ENDIAN, NULL,
 					       drgn_type_language(type_ret->underlying_type),
 					       &type_ret->type);
 		if (err)
@@ -3473,7 +3516,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 			return err;
 		err = drgn_pointer_type_create(drgn_object_program(obj),
 					       function_type, address_size,
-					       DRGN_PROGRAM_ENDIAN,
+					       DRGN_PROGRAM_ENDIAN, NULL,
 					       drgn_type_language(type_ret->underlying_type),
 					       &type_ret->type);
 		if (err)
@@ -3972,6 +4015,38 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_cpp = {
 	.format_variable_declaration = c_format_variable_declaration,
 	.format_object = c_format_object,
 	.find_type = c_family_find_type,
+	.type_subobject = c_family_type_subobject,
+	.integer_literal = c_integer_literal,
+	.bool_literal = c_bool_literal,
+	.float_literal = c_float_literal,
+	.op_cast = c_op_cast,
+	.op_implicit_convert = c_op_implicit_convert,
+	.op_bool = c_op_bool,
+	.op_cmp = c_op_cmp,
+	.op_add = c_op_add,
+	.op_sub = c_op_sub,
+	.op_mul = c_op_mul,
+	.op_div = c_op_div,
+	.op_mod = c_op_mod,
+	.op_lshift = c_op_lshift,
+	.op_rshift = c_op_rshift,
+	.op_and = c_op_and,
+	.op_or = c_op_or,
+	.op_xor = c_op_xor,
+	.op_pos = c_op_pos,
+	.op_neg = c_op_neg,
+	.op_not = c_op_not,
+};
+
+LIBDRGN_PUBLIC const struct drgn_language drgn_language_rust = {
+	.name = "Rust",
+	.number = DRGN_LANGUAGE_RUST,
+	.has_namespaces = true,
+	.format_type_name = drgn_rust_format_type_name,
+	.format_type = drgn_rust_format_type,
+	.format_variable_declaration = drgn_rust_format_variable_declaration,
+	.format_object = c_format_object,
+	.find_type = drgn_rust_find_type,
 	.type_subobject = c_family_type_subobject,
 	.integer_literal = c_integer_literal,
 	.bool_literal = c_bool_literal,

@@ -87,6 +87,8 @@ struct drgn_member_value {
 DEFINE_HASH_MAP_TYPE(drgn_member_map, struct drgn_member_key,
 		      struct drgn_member_value);
 DEFINE_HASH_SET_TYPE(drgn_type_set, struct drgn_type *);
+
+DEFINE_HASH_SET_TYPE(drgn_type_name_set, struct nstring);
 #endif
 
 /**
@@ -198,12 +200,20 @@ drgn_template_parameters_builder_add(struct drgn_template_parameters_builder *bu
 				     const char *name, bool is_default);
 
 DEFINE_VECTOR_TYPE(drgn_type_member_vector, struct drgn_type_member);
+DEFINE_VECTOR_TYPE(drgn_type_discr_vector, union drgn_type_discr);
 
 /** Builder for members of a structure, union, or class type. */
 struct drgn_compound_type_builder {
 	struct drgn_template_parameters_builder template_builder;
 	enum drgn_type_kind kind;
 	struct drgn_type_member_vector members;
+	/** Whether to create a discriminated union. */
+	bool is_discr_union;
+	/** Whether the discriminant is signed. */
+	bool discr_is_signed;
+	struct drgn_type_discr_vector discrs;
+	/** Member index of the default variant, or 0 if there is none. */
+	size_t default_discr;
 };
 
 /**
@@ -233,6 +243,43 @@ struct drgn_error *
 drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder,
 				      const union drgn_lazy_object *object,
 				      const char *name, uint64_t bit_offset);
+
+/**
+ * Make a @ref drgn_compound_type_builder create a discriminated union (see @ref
+ * drgn_type_is_discr_union()).
+ *
+ * The builder must be for a union type. For each variant (each member after
+ * the discriminant), @ref drgn_compound_type_builder_add_discr() or @ref
+ * drgn_compound_type_builder_add_default_discr() must be called.
+ *
+ * @param[in] discr_is_signed Whether the discriminant (the first member) is
+ * signed.
+ */
+void
+drgn_compound_type_builder_set_discr_union(struct drgn_compound_type_builder *builder,
+					   bool discr_is_signed);
+
+/**
+ * Add the discriminant value of the next variant to a @ref
+ * drgn_compound_type_builder.
+ *
+ * @ref drgn_compound_type_builder_set_discr_union() must have been called.
+ */
+struct drgn_error *
+drgn_compound_type_builder_add_discr(struct drgn_compound_type_builder *builder,
+				     union drgn_type_discr discr);
+
+/**
+ * Make the next variant of a @ref drgn_compound_type_builder the default
+ * variant.
+ *
+ * @ref drgn_compound_type_builder_set_discr_union() must have been called.
+ *
+ * @return @c NULL on success, non-@c NULL if there is already a default
+ * variant.
+ */
+struct drgn_error *
+drgn_compound_type_builder_add_default_discr(struct drgn_compound_type_builder *builder);
 
 /**
  * Create a structure, union, or class type.
@@ -358,6 +405,8 @@ drgn_typedef_type_create(struct drgn_program *prog, const char *name,
  * @param[in] prog Program owning type.
  * @param[in] referenced_type Type referenced by the pointer type.
  * @param[in] size Size of the type in bytes.
+ * @param[in] name Name of the type or @c NULL if it doesn't have a name. The
+ * string must remain valid for the lifetime of @p prog.
  * @param[in] lang Language of the type or @c NULL for the default language of
  * @p prog.
  * @param[out] ret Returned type.
@@ -367,7 +416,7 @@ struct drgn_error *
 drgn_pointer_type_create(struct drgn_program *prog,
 			 struct drgn_qualified_type referenced_type,
 			 uint64_t size, enum drgn_byte_order byte_order,
-			 const struct drgn_language *lang,
+			 const char *name, const struct drgn_language *lang,
 			 struct drgn_type **ret);
 
 /**
@@ -585,6 +634,22 @@ struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,
 					       size_t name_len,
 					       const char *filename,
 					       struct drgn_qualified_type *ret);
+
+/**
+ * Get a copy of a type name owned by a @ref drgn_program.
+ *
+ * Equal names return the same copy, which remains valid for the lifetime of
+ * the program.
+ *
+ * @param[in] name Name, which doesn't need to be null-terminated.
+ * @param[in] name_len Length of @p name in bytes.
+ * @param[out] ret Returned copy.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_intern_type_name(struct drgn_program *prog,
+						 const char *name,
+						 size_t name_len,
+						 const char **ret);
 
 /** Find a primitive type in a @ref drgn_program. */
 struct drgn_error *

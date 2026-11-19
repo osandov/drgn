@@ -302,8 +302,8 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 	    drgn_type_is_complete(a) != drgn_type_is_complete(b) ||
 	    drgn_type_language(a) != drgn_type_language(b))
 		return false;
-	if (drgn_type_has_name(a) &&
-	    strcmp(drgn_type_name(a), drgn_type_name(b)) != 0)
+	if (drgn_type_has_name(a) != drgn_type_has_name(b) ||
+	    (drgn_type_has_name(a) && strcmp(drgn_type_name(a), drgn_type_name(b)) != 0))
 		return false;
 	if (drgn_type_has_size(a) && drgn_type_size(a) != drgn_type_size(b))
 		return false;
@@ -330,6 +330,8 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 // hash and comparison functions ignore attributes exclusive to those types.
 DEFINE_HASH_SET_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash_pair,
 			  drgn_type_dedupe_eq);
+
+DEFINE_HASH_SET_FUNCTIONS(drgn_type_name_set, nstring_hash_pair, nstring_eq);
 
 DEFINE_VECTOR_FUNCTIONS(drgn_typep_vector);
 
@@ -520,6 +522,7 @@ drgn_template_parameters_builder_add(struct drgn_template_parameters_builder *bu
 }
 
 DEFINE_VECTOR_FUNCTIONS(drgn_type_member_vector);
+DEFINE_VECTOR_FUNCTIONS(drgn_type_discr_vector);
 
 void drgn_compound_type_builder_init(struct drgn_compound_type_builder *builder,
 				     struct drgn_program *prog,
@@ -531,6 +534,10 @@ void drgn_compound_type_builder_init(struct drgn_compound_type_builder *builder,
 	drgn_template_parameters_builder_init(&builder->template_builder, prog);
 	builder->kind = kind;
 	drgn_type_member_vector_init(&builder->members);
+	builder->is_discr_union = false;
+	builder->discr_is_signed = false;
+	drgn_type_discr_vector_init(&builder->discrs);
+	builder->default_discr = 0;
 }
 
 void
@@ -539,6 +546,7 @@ drgn_compound_type_builder_deinit(struct drgn_compound_type_builder *builder)
 	vector_for_each(drgn_type_member_vector, member, &builder->members)
 		drgn_lazy_object_deinit(&member->object);
 	drgn_type_member_vector_deinit(&builder->members);
+	drgn_type_discr_vector_deinit(&builder->discrs);
 	drgn_template_parameters_builder_deinit(&builder->template_builder);
 }
 
@@ -562,6 +570,54 @@ drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder
 	return NULL;
 }
 
+void
+drgn_compound_type_builder_set_discr_union(struct drgn_compound_type_builder *builder,
+					   bool discr_is_signed)
+{
+	assert(builder->kind == DRGN_TYPE_UNION);
+	builder->is_discr_union = true;
+	builder->discr_is_signed = discr_is_signed;
+}
+
+struct drgn_error *
+drgn_compound_type_builder_add_discr(struct drgn_compound_type_builder *builder,
+				     union drgn_type_discr discr)
+{
+	assert(builder->is_discr_union);
+	if (!drgn_type_discr_vector_append(&builder->discrs, &discr))
+		return &drgn_enomem;
+	return NULL;
+}
+
+struct drgn_error *
+drgn_compound_type_builder_add_default_discr(struct drgn_compound_type_builder *builder)
+{
+	if (builder->default_discr) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "discriminated union must not have more than one default variant");
+	}
+	struct drgn_error *err = drgn_compound_type_builder_add_discr(builder, (union drgn_type_discr){});
+	if (err)
+		return err;
+	builder->default_discr = drgn_type_discr_vector_size(&builder->discrs);
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_compound_type_builder_check_discr(struct drgn_compound_type_builder *builder)
+{
+	size_t num_members = drgn_type_member_vector_size(&builder->members);
+	if (num_members == 0) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "discriminated union must have discriminant member");
+	}
+	if (drgn_type_discr_vector_size(&builder->discrs) != num_members - 1) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "discriminated union must have one discriminant per variant");
+	}
+	return NULL;
+}
+
 struct drgn_error *
 drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 			  const char *tag, uint64_t size, bool is_complete,
@@ -581,10 +637,22 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 		}
 	}
 
+	enum drgn_type_flags flags = is_complete ? DRGN_TYPE_FLAG_IS_COMPLETE : 0;
+	if (builder->is_discr_union) {
+		struct drgn_error *err = drgn_compound_type_builder_check_discr(builder);
+		if (err)
+			return err;
+		flags |= DRGN_TYPE_FLAG_DISCR_UNION;
+		if (builder->discr_is_signed)
+			flags |= DRGN_TYPE_FLAG_DISCR_IS_SIGNED;
+	}
+
 	drgn_type_member_vector_shrink_to_fit(&builder->members);
+	drgn_type_discr_vector_shrink_to_fit(&builder->discrs);
 	drgn_type_template_parameter_vector_shrink_to_fit(&builder->template_builder.parameters);
 
-	_cleanup_free_ struct drgn_compound_type *type = malloc(sizeof(*type));
+	_cleanup_free_ struct drgn_compound_type *type =
+		malloc(builder->is_discr_union ? sizeof(struct drgn_discr_union_type) : sizeof(*type));
 	if (!type || !drgn_typep_vector_append(&prog->created_types,
 					       (struct drgn_type **)&type))
 		return &drgn_enomem;
@@ -594,7 +662,7 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 				.type = {
 					._kind = builder->kind,
 					._primitive = DRGN_NOT_PRIMITIVE_TYPE,
-					._flags = is_complete ? DRGN_TYPE_FLAG_IS_COMPLETE : 0,
+					._flags = flags,
 					._tag = tag,
 					._size = size,
 					._program = prog,
@@ -603,6 +671,12 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 			},
 		},
 	};
+	if (builder->is_discr_union) {
+		struct drgn_discr_union_type *discr_union = (struct drgn_discr_union_type *)type;
+		drgn_type_discr_vector_steal(&builder->discrs, &discr_union->_discrs, NULL);
+		drgn_type_discr_vector_init(&builder->discrs);
+		discr_union->_default_discr = builder->default_discr;
+	}
 	drgn_type_member_vector_steal(&builder->members,
 				      &type->templated.extended.type._members,
 				      &type->_num_members);
@@ -757,7 +831,7 @@ struct drgn_error *
 drgn_pointer_type_create(struct drgn_program *prog,
 			 struct drgn_qualified_type referenced_type,
 			 uint64_t size, enum drgn_byte_order byte_order,
-			 const struct drgn_language *lang,
+			 const char *name, const struct drgn_language *lang,
 			 struct drgn_type **ret)
 {
 	struct drgn_error *err;
@@ -771,6 +845,7 @@ drgn_pointer_type_create(struct drgn_program *prog,
 		._kind = DRGN_TYPE_POINTER,
 		._primitive = DRGN_NOT_PRIMITIVE_TYPE,
 		._flags = DRGN_TYPE_FLAG_IS_COMPLETE,
+		._name = name,
 		._size = size,
 		._type = referenced_type.type,
 		._qualifiers = referenced_type.qualifiers,
@@ -951,6 +1026,7 @@ drgn_type_with_byte_order_impl(struct drgn_type **type,
 					       drgn_type_type(*type),
 					       drgn_type_size(*type),
 					       byte_order,
+					       drgn_type_has_name(*type) ? drgn_type_name(*type) : NULL,
 					       drgn_type_language(*type), type);
 		if (!err)
 			*underlying_type = *type;
@@ -1329,6 +1405,7 @@ void drgn_program_init_types(struct drgn_program *prog)
 		type->_language = drgn_languages[i];
 	}
 	drgn_dedupe_type_set_init(&prog->dedupe_types);
+	drgn_type_name_set_init(&prog->type_names);
 	drgn_typep_vector_init(&prog->created_types);
 	drgn_member_map_init(&prog->members);
 	drgn_type_set_init(&prog->members_cached);
@@ -1349,6 +1426,8 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 				drgn_lazy_object_deinit(&members[j].object);
 			free(members);
 		}
+		if (drgn_type_is_discr_union(type))
+			free(drgn_type_discrs(type));
 		if (drgn_type_has_enumerators(type))
 			free(drgn_type_enumerators(type));
 		if (drgn_type_has_parameters(type)) {
@@ -1376,11 +1455,39 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 		free(*it.entry);
 	drgn_dedupe_type_set_deinit(&prog->dedupe_types);
 
+	hash_table_for_each(drgn_type_name_set, it, &prog->type_names)
+		free((char *)it.entry->str);
+	drgn_type_name_set_deinit(&prog->type_names);
+
 	drgn_handler_list_deinit(struct drgn_type_finder, finder,
 				 &prog->type_finders,
 		if (finder->ops.destroy)
 			finder->ops.destroy(finder->arg);
 	);
+}
+
+struct drgn_error *drgn_program_intern_type_name(struct drgn_program *prog,
+						 const char *name,
+						 size_t name_len,
+						 const char **ret)
+{
+	struct nstring key = { name, name_len };
+	struct hash_pair hp = drgn_type_name_set_hash(&key);
+	struct drgn_type_name_set_iterator it =
+		drgn_type_name_set_search_hashed(&prog->type_names, &key, hp);
+	if (it.entry) {
+		*ret = it.entry->str;
+		return NULL;
+	}
+	_cleanup_free_ char *copy = strndup(name, name_len);
+	if (!copy)
+		return &drgn_enomem;
+	key.str = copy;
+	if (drgn_type_name_set_insert_searched(&prog->type_names, &key, hp,
+					       NULL) < 0)
+		return &drgn_enomem;
+	*ret = no_cleanup_ptr(copy);
+	return NULL;
 }
 
 struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,

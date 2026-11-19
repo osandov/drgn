@@ -92,6 +92,8 @@ struct drgn_program {
 	struct drgn_type *primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
 	/** Cache of deduplicated types. */
 	struct drgn_dedupe_type_set dedupe_types;
+	/** Type names returned by drgn_program_intern_type_name(). */
+	struct drgn_type_name_set type_names;
 	/**
 	 * List of created types that are not deduplicated: types with non-empty
 	 * lists of members, parameters, template parameters, or enumerators.

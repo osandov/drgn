@@ -63,6 +63,7 @@ int add_languages(void)
 	static const char * const attr_names[] = {
 		[DRGN_LANGUAGE_C] = "C",
 		[DRGN_LANGUAGE_CPP] = "CPP",
+		[DRGN_LANGUAGE_RUST] = "RUST",
 	};
 	static_assert(array_size(attr_names) == DRGN_NUM_LANGUAGES,
 		      "missing language in attr_names");

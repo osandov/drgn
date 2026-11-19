@@ -10,6 +10,7 @@
 const struct drgn_language * const drgn_languages[] = {
 	[DRGN_LANGUAGE_C] = &drgn_language_c,
 	[DRGN_LANGUAGE_CPP] = &drgn_language_cpp,
+	[DRGN_LANGUAGE_RUST] = &drgn_language_rust,
 };
 static_assert(array_size(drgn_languages) == DRGN_NUM_LANGUAGES,
 	      "missing language in drgn_languages");
