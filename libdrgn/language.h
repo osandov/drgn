@@ -43,6 +43,7 @@
 enum drgn_language_number {
 	DRGN_LANGUAGE_C,
 	DRGN_LANGUAGE_CPP,
+	DRGN_LANGUAGE_RUST,
 	DRGN_NUM_LANGUAGES,
 };
 

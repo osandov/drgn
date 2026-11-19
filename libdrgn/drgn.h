@@ -306,6 +306,8 @@ struct drgn_language; // IWYU pragma: export
 extern const struct drgn_language drgn_language_c;
 /** C++ */
 extern const struct drgn_language drgn_language_cpp;
+/** Rust */
+extern const struct drgn_language drgn_language_rust;
 
 /** Get the name of a @ref drgn_language. */
 const char *drgn_language_name(const struct drgn_language *lang);
@@ -3326,6 +3328,33 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 
 
 /**
+ * Get the discriminant of a discriminated union @ref drgn_object (see @ref
+ * drgn_type_is_discr_union()).
+ *
+ * @param[out] res Returned discriminant. May be the same as @p obj.
+ * @param[in] obj Object.
+ * @return @c NULL on success, non-@c NULL on error. @p res is not modified on
+ * error.
+ */
+struct drgn_error *drgn_object_discr(struct drgn_object *res, const struct drgn_object *obj);
+
+/**
+ * Get the active variant of a discriminated union @ref drgn_object (see @ref
+ * drgn_type_is_discr_union()).
+ *
+ * The active variant is the variant whose discriminant value is equal to the
+ * value of the discriminant, or the default variant if there is no such
+ * variant.
+ *
+ * @param[out] res Returned variant. May be the same as @p obj.
+ * @param[in] obj Object.
+ * @return @c NULL on success, an error with code @ref DRGN_ERROR_LOOKUP if no
+ * variant is active, other non-@c NULL on other errors. @p res is not modified
+ * on error.
+ */
+struct drgn_error *drgn_object_variant(struct drgn_object *res, const struct drgn_object *obj);
+
+/**
  * Get a subobject (member or element) of this object.
  *
  * @param[out] res Returned subobject. May be the same as @p obj.
@@ -3503,6 +3532,18 @@ struct drgn_type_enumerator {
 	};
 };
 
+/**
+ * Discriminant value of a variant of a discriminated union type.
+ *
+ * @sa drgn_type_discrs()
+ */
+union drgn_type_discr {
+	/** Discriminant value if the discriminant is signed. */
+	int64_t svalue;
+	/** Discriminant value if the discriminant is unsigned. */
+	uint64_t uvalue;
+};
+
 /** Parameter of a function type. */
 struct drgn_type_parameter {
 	/**
@@ -3569,11 +3610,12 @@ static inline bool drgn_type_kind_has_name(enum drgn_type_kind kind)
 		kind == DRGN_TYPE_FLOAT ||
 		kind == DRGN_TYPE_TYPEDEF);
 }
-/** Get whether a type has a name. @sa drgn_type_kind_has_name() */
-static inline bool drgn_type_has_name(struct drgn_type *type)
-{
-	return drgn_type_kind_has_name(drgn_type_kind(type));
-}
+/**
+ * Get whether a type has a name. This is true for kinds of types that have a
+ * name and for pointer types with a name. @sa drgn_type_kind_has_name()
+ */
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_has_name(struct drgn_type *type);
 /**
  * Get the name of a type. @ref drgn_type_has_name() must be true for this type.
  */
@@ -3701,6 +3743,41 @@ struct drgn_type_member *drgn_type_members(struct drgn_type *type);
  */
 DRGN_ACCESSOR_LINKAGE
 size_t drgn_type_num_members(struct drgn_type *type);
+
+/**
+ * Get whether a type is a discriminated union.
+ *
+ * A discriminated union is a union type whose first member is the discriminant
+ * and whose other members are variants. The value of the discriminant selects
+ * the active variant. Rust enums are represented this way.
+ */
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_is_discr_union(struct drgn_type *type);
+/**
+ * Get whether the discriminant of a type is signed. @ref
+ * drgn_type_is_discr_union() must be true for this type.
+ */
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_discr_is_signed(struct drgn_type *type);
+/**
+ * Get the discriminant values of the variants of a type. @ref
+ * drgn_type_is_discr_union() must be true for this type.
+ *
+ * There is one entry for each variant (@ref drgn_type_num_members() - 1
+ * entries): entry @c i is for member <tt>i + 1</tt>. The entry for the default
+ * variant (@ref drgn_type_default_discr()) is unused.
+ */
+DRGN_ACCESSOR_LINKAGE
+union drgn_type_discr *drgn_type_discrs(struct drgn_type *type);
+/**
+ * Get the member index of the default variant of a type, or 0 if it doesn't
+ * have one. @ref drgn_type_is_discr_union() must be true for this type.
+ *
+ * The default variant is active when the discriminant doesn't match any other
+ * variant.
+ */
+DRGN_ACCESSOR_LINKAGE
+size_t drgn_type_default_discr(struct drgn_type *type);
 
 /**
  * Get whether a kind of type has a wrapped type. This is true for enumerated,
@@ -4020,6 +4097,39 @@ static inline struct drgn_error *drgn_type_has_member(struct drgn_type *type,
 	return drgn_type_has_member_len(type, member_name, strlen(member_name),
 					ret);
 }
+
+/**
+ * Get the source code location where a type or one of its members is declared.
+ *
+ * This is only available for structure, union, class, enumerated, and function
+ * types parsed from debugging information.
+ *
+ * @param[in] type Type.
+ * @param[in] member_index Index of a member in @ref drgn_type_members(), or
+ * negative to get the location of the type itself.
+ * @param[out] filename_ret Returned filename, or @c NULL if the location is not
+ * known. It is valid until the program is destroyed; it should not be freed.
+ * @param[out] line_ret Returned line number. Returned as 0 if unknown.
+ * @param[out] column_ret Returned column number. Returned as 0 if unknown.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_type_source_location(struct drgn_type *type, int64_t member_index, const char **filename_ret,
+					     int *line_ret, int *column_ret);
+
+/**
+ * Get the fully qualified name of a structure, union, class, or enumerated
+ * type.
+ *
+ * This is the tag of the type prefixed with the names of the namespaces and
+ * types that contain it, separated by "::". For languages without namespaces
+ * and for types that weren't parsed from debugging information, it is the tag.
+ *
+ * @param[in] type Structure, union, class, or enumerated type.
+ * @param[out] ret Returned name, or @c NULL if the type is anonymous. On
+ * success, it must be freed with @c free().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_type_fully_qualified_name(struct drgn_type *type, char **ret);
 
 /**
  * Get the element type and size of an array or pointer @ref drgn_type.

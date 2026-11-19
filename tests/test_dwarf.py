@@ -201,6 +201,22 @@ unsigned_long_long_die = DwarfDie(
         DwarfAttrib(DW_AT.name, DW_FORM.string, "unsigned long long"),
     ),
 )
+u128_die = DwarfDie(
+    DW_TAG.base_type,
+    (
+        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 16),
+        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "u128"),
+    ),
+)
+i128_die = DwarfDie(
+    DW_TAG.base_type,
+    (
+        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 16),
+        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "i128"),
+    ),
+)
 
 
 labeled_char_die = (DwarfLabel("char_die"), char_die)
@@ -240,6 +256,100 @@ def dwarf_program(
     if segments is not None:
         add_mock_memory_segments(prog, segments)
     return prog
+
+
+def variant_part_test_die(
+    variants,
+    *,
+    discr_type="unsigned_int_die",
+    discr_offset=0,
+    size=8,
+    variant_part_children=(),
+    children=(),
+):
+    """
+    Return a DW_TAG_structure_type DIE named "Enum" containing a
+    DW_TAG_variant_part, like a Rust enum.
+
+    variants is a sequence of (name, attribs) pairs, where attribs are the
+    attributes of the DW_TAG_variant, or DwarfDies to use as variants as is.
+    Each (name, attribs) variant has one member named name whose type is an
+    empty structure named name of the given size. If discr_type is None, the
+    variant part has no discriminant.
+    """
+    variant_part_attribs = []
+    variant_part_dies = []
+    if discr_type is not None:
+        variant_part_attribs.append(
+            DwarfAttrib(DW_AT.discr, DW_FORM.ref4, "discr_member_die")
+        )
+        variant_part_dies.append(DwarfLabel("discr_member_die"))
+        variant_part_dies.append(
+            DwarfDie(
+                DW_TAG.member,
+                (
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, discr_type),
+                    DwarfAttrib(
+                        DW_AT.data_member_location, DW_FORM.data1, discr_offset
+                    ),
+                    DwarfAttrib(DW_AT.artificial, DW_FORM.flag_present, True),
+                ),
+            )
+        )
+    variant_struct_dies = []
+    for variant in variants:
+        if isinstance(variant, DwarfDie):
+            variant_part_dies.append(variant)
+            continue
+        name, attribs = variant
+        variant_part_dies.append(
+            DwarfDie(
+                DW_TAG.variant,
+                attribs,
+                (
+                    DwarfDie(
+                        DW_TAG.member,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                            DwarfAttrib(
+                                DW_AT.type, DW_FORM.ref4, f"variant_{name}_die"
+                            ),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
+                        ),
+                    ),
+                ),
+            )
+        )
+        variant_struct_dies.append(DwarfLabel(f"variant_{name}_die"))
+        variant_struct_dies.append(
+            DwarfDie(
+                DW_TAG.structure_type,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, size),
+                ),
+            )
+        )
+    return DwarfDie(
+        DW_TAG.structure_type,
+        (
+            DwarfAttrib(DW_AT.name, DW_FORM.string, "Enum"),
+            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, size),
+        ),
+        (
+            *children,
+            DwarfDie(
+                DW_TAG.variant_part,
+                variant_part_attribs,
+                (*variant_part_dies, *variant_part_children),
+            ),
+            *variant_struct_dies,
+        ),
+    )
+
+
+def variant_test_member(prog, name, size=8):
+    return TypeMember(prog.struct_type(name, size, ()), name)
 
 
 def wrap_test_type_dies(*dies):
@@ -467,6 +577,71 @@ class TestTypes(TestCase):
             )
         )
         self.assertIdentical(prog.type("TEST").type, prog.float_type("float", 4, "big"))
+
+    def test_zero_size_base_type(self):
+        # Rust's unit type.
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "WithUnit"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "u"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 4
+                                ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "unit_die"),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+                DwarfLabel("unit_die"),
+                DwarfDie(
+                    DW_TAG.base_type,
+                    (
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "()"),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.Rust,
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.struct_type(
+                "WithUnit",
+                4,
+                (
+                    TypeMember(
+                        prog.int_type("int", 4, True, language=Language.RUST), "x", 0
+                    ),
+                    TypeMember(
+                        prog.struct_type("()", 0, (), language=Language.RUST), "u", 32
+                    ),
+                ),
+                language=Language.RUST,
+            ),
+        )
+        obj = Object.from_bytes_(prog, prog.type("TEST"), b"\x01\x00\x00\x00")
+        self.assertEqual(obj.value_(), {"x": 1, "u": {}})
 
     def test_byteorder_by_name(self):
         # The only producer that uses DW_AT_endianity that I could find is GCC
@@ -1055,6 +1230,64 @@ class TestTypes(TestCase):
                         language=Language.CPP,
                     ),
                 )
+
+    def test_incomplete_to_complete_namespace_rust(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.pointer_type,
+                    (
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "incomplete_struct_die"),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "core"),),
+                    (
+                        DwarfLabel("incomplete_struct_die"),
+                        DwarfDie(
+                            DW_TAG.structure_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "Point"),
+                                DwarfAttrib(
+                                    DW_AT.declaration, DW_FORM.flag_present, True
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "core"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.structure_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "Point"),
+                                DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                            ),
+                        ),
+                    ),
+                ),
+                # Incorrect structure we should not access
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Point"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.Rust,
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.pointer_type(
+                prog.struct_type("Point", 8, (), language=Language.RUST),
+                language=Language.RUST,
+            ),
+        )
 
     def test_incomplete_to_complete_specification(self):
         for version in (4, 5):
@@ -1755,6 +1988,440 @@ class TestTypes(TestCase):
                 ),
             ),
         )
+
+    def test_variant_part(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    (
+                        ("None", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                        ("Some", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 1),)),
+                    ),
+                    children=(
+                        DwarfDie(
+                            DW_TAG.template_type_parameter,
+                            (
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "T"),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_unsigned_int_die,
+                *labeled_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.union_type(
+                "Enum",
+                8,
+                (
+                    TypeMember(prog.int_type("unsigned int", 4, False)),
+                    variant_test_member(prog, "None"),
+                    variant_test_member(prog, "Some"),
+                ),
+                template_parameters=(
+                    TypeTemplateParameter(prog.int_type("int", 4, True), "T"),
+                ),
+                discriminants=(0, 1),
+            ),
+        )
+
+    def test_variant_part_default(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    (
+                        ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                        ("B", ()),
+                        ("C", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 2),)),
+                    ),
+                    discr_offset=4,
+                ),
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.union_type(
+                "Enum",
+                8,
+                (
+                    TypeMember(prog.int_type("unsigned int", 4, False), None, 32),
+                    variant_test_member(prog, "A"),
+                    variant_test_member(prog, "B"),
+                    variant_test_member(prog, "C"),
+                ),
+                discriminants=(0, None, 2),
+            ),
+        )
+
+    def test_variant_part_typedef_discr(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    (
+                        ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                        ("B", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 1),)),
+                    ),
+                    discr_type="typedef_die",
+                ),
+                DwarfLabel("typedef_die"),
+                DwarfDie(
+                    DW_TAG.typedef,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "u32"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "unsigned_int_die"),
+                    ),
+                ),
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.union_type(
+                "Enum",
+                8,
+                (
+                    TypeMember(
+                        prog.typedef_type(
+                            "u32", prog.int_type("unsigned int", 4, False)
+                        )
+                    ),
+                    variant_test_member(prog, "A"),
+                    variant_test_member(prog, "B"),
+                ),
+                discriminants=(0, 1),
+            ),
+        )
+
+    def _test_discr_values(self, discr_die, values, little_endian=True):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    [
+                        (f"V{i}", (DwarfAttrib(DW_AT.discr_value, form, value),))
+                        for i, (form, value, _) in enumerate(values)
+                    ],
+                    discr_type="discr_die",
+                    size=16,
+                ),
+                DwarfLabel("discr_die"),
+                discr_die,
+            ),
+            little_endian=little_endian,
+        )
+        self.assertEqual(
+            prog.type("TEST").type.discriminants,
+            tuple(expected for _, _, expected in values),
+        )
+
+    def test_variant_part_discr_value_unsigned(self):
+        self._test_discr_values(
+            unsigned_int_die,
+            (
+                (DW_FORM.data1, 0x80, 128),
+                (DW_FORM.data2, 0x8000, 32768),
+                (DW_FORM.data4, 0xFFFFFFFE, 4294967294),
+                (DW_FORM.data8, 7, 7),
+                (DW_FORM.udata, 5, 5),
+                (DW_FORM.sdata, -1, 4294967295),
+                (DW_FORM.block1, b"\x01\x02", 0x201),
+                (DW_FORM.data16, 3, 3),
+            ),
+        )
+
+    def test_variant_part_discr_value_signed(self):
+        self._test_discr_values(
+            int_die,
+            (
+                (DW_FORM.data1, 0xFF, -1),
+                (DW_FORM.data1, 0x7F, 127),
+                (DW_FORM.data2, 0xFFFE, -2),
+                (DW_FORM.data4, 0x80000000, -2147483648),
+                (DW_FORM.data8, 0xFFFFFFFFFFFFFFFD, -3),
+                (DW_FORM.udata, 0xFFFFFFFC, -4),
+                (DW_FORM.sdata, -5, -5),
+                (DW_FORM.block1, b"\xfa", -6),
+                (DW_FORM.data16, 2**128 - 7, -7),
+            ),
+        )
+
+    def test_variant_part_discr_value_signed_char(self):
+        self._test_discr_values(
+            signed_char_die,
+            ((DW_FORM.data1, 0xFF, -1), (DW_FORM.data1, 1, 1)),
+        )
+
+    def test_variant_part_discr_value_128(self):
+        for little_endian in (True, False):
+            byteorder = "little" if little_endian else "big"
+            with self.subTest(little_endian=little_endian):
+                self._test_discr_values(
+                    u128_die,
+                    (
+                        (DW_FORM.block1, (1).to_bytes(16, byteorder), 1),
+                        (DW_FORM.data16, 2**64 - 1, 2**64 - 1),
+                        (DW_FORM.data1, 0xFF, 255),
+                        (DW_FORM.udata, 2**64 - 2, 2**64 - 2),
+                    ),
+                    little_endian=little_endian,
+                )
+                self._test_discr_values(
+                    i128_die,
+                    (
+                        (DW_FORM.block1, b"\xff" * 16, -1),
+                        (DW_FORM.data16, 2**128 - 2**63, -(2**63)),
+                        (DW_FORM.data16, 2**63 - 1, 2**63 - 1),
+                        (DW_FORM.data1, 0xFE, -2),
+                        (DW_FORM.sdata, -3, -3),
+                    ),
+                    little_endian=little_endian,
+                )
+
+    def test_variant_part_discr_value_too_large(self):
+        for discr_die, discr_value in (
+            (u128_die, DwarfAttrib(DW_AT.discr_value, DW_FORM.data16, 2**64)),
+            (i128_die, DwarfAttrib(DW_AT.discr_value, DW_FORM.data16, 2**63)),
+            (i128_die, DwarfAttrib(DW_AT.discr_value, DW_FORM.data16, 2**127)),
+        ):
+            with self.subTest(discr_value=discr_value):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(
+                            (
+                                (
+                                    "A",
+                                    (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),),
+                                ),
+                                ("B", (discr_value,)),
+                            ),
+                            discr_type="discr_die",
+                            size=16,
+                        ),
+                        DwarfLabel("discr_die"),
+                        discr_die,
+                    )
+                )
+                self.assertIdentical(
+                    prog.type("TEST").type,
+                    prog.union_type(
+                        "Enum",
+                        16,
+                        (
+                            variant_test_member(prog, "A", 16),
+                            variant_test_member(prog, "B", 16),
+                        ),
+                    ),
+                )
+
+    def test_variant_part_invalid_discr_value(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die(
+                    (("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.string, "foo"),)),)
+                ),
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertRaisesRegex(
+            BadDataError,
+            "DW_TAG_variant has invalid DW_AT_discr_value",
+            prog.type,
+            "TEST",
+        )
+
+    def test_variant_part_invalid_discr(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Enum"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.variant_part,
+                            (DwarfAttrib(DW_AT.discr, DW_FORM.data1, 0),),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertRaisesRegex(
+            BadDataError,
+            "DW_TAG_variant_part has invalid DW_AT_discr",
+            prog.type,
+            "TEST",
+        )
+
+    def test_variant_part_no_discr(self):
+        for variants in ((), ("A",), ("A", "B")):
+            with self.subTest(variants=variants):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(
+                            [(name, ()) for name in variants], discr_type=None
+                        ),
+                    )
+                )
+                self.assertIdentical(
+                    prog.type("TEST").type,
+                    prog.union_type(
+                        "Enum",
+                        8,
+                        [variant_test_member(prog, name) for name in variants],
+                    ),
+                )
+
+    def test_variant_part_no_discr_value(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                variant_part_test_die((("A", ()),)),
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.union_type(
+                "Enum",
+                8,
+                (
+                    TypeMember(prog.int_type("unsigned int", 4, False)),
+                    variant_test_member(prog, "A"),
+                ),
+                discriminants=(None,),
+            ),
+        )
+
+    def test_variant_part_unsupported_discr(self):
+        for name, variants, discr_type, extra_dies in (
+            (
+                "discr_list",
+                (
+                    ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                    (
+                        "B",
+                        (DwarfAttrib(DW_AT.discr_list, DW_FORM.block1, b"\x00\x01"),),
+                    ),
+                ),
+                "unsigned_int_die",
+                labeled_unsigned_int_die,
+            ),
+            (
+                "multiple defaults",
+                (
+                    ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                    ("B", ()),
+                    ("C", ()),
+                ),
+                "unsigned_int_die",
+                labeled_unsigned_int_die,
+            ),
+            (
+                "non-integer discriminant",
+                (
+                    ("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),
+                    ("B", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 1),)),
+                ),
+                "float_die",
+                labeled_float_die,
+            ),
+        ):
+            with self.subTest(name):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(variants, discr_type=discr_type),
+                        *extra_dies,
+                    )
+                )
+                self.assertIdentical(
+                    prog.type("TEST").type,
+                    prog.union_type(
+                        "Enum",
+                        8,
+                        [variant_test_member(prog, name) for name, _ in variants],
+                    ),
+                )
+
+    def test_variant_part_unsupported_shape(self):
+        def variant(*children):
+            return DwarfDie(
+                DW_TAG.variant,
+                (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 1),),
+                children,
+            )
+
+        def member(name, offset=0):
+            return DwarfDie(
+                DW_TAG.member,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                    DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, offset),
+                ),
+            )
+
+        variants = (("A", (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, 0),)),)
+        for name, kwds, member_names in (
+            (
+                "plain member",
+                {"variants": variants, "children": (member("x"),)},
+                ("x",),
+            ),
+            (
+                "multiple variant parts",
+                {
+                    "variants": variants,
+                    "children": (DwarfDie(DW_TAG.variant_part),),
+                },
+                (),
+            ),
+            (
+                "variant with no members",
+                {"variants": (*variants, variant())},
+                (),
+            ),
+            (
+                "variant with multiple members",
+                {"variants": (*variants, variant(member("x"), member("y", 4)))},
+                (),
+            ),
+            (
+                "nested variant part",
+                {
+                    "variants": (
+                        *variants,
+                        variant(member("x"), DwarfDie(DW_TAG.variant_part)),
+                    )
+                },
+                (),
+            ),
+            (
+                "extra member in variant part",
+                {"variants": variants, "variant_part_children": (member("x"),)},
+                (),
+            ),
+        ):
+            with self.subTest(name):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(**kwds),
+                        *labeled_unsigned_int_die,
+                        *labeled_int_die,
+                    )
+                )
+                int_type = prog.int_type("int", 4, True)
+                self.assertIdentical(
+                    prog.type("TEST").type,
+                    prog.struct_type(
+                        "Enum",
+                        8,
+                        [TypeMember(int_type, name) for name in member_names],
+                    ),
+                )
 
     def test_class(self):
         prog = dwarf_program(
@@ -2649,6 +3316,40 @@ class TestTypes(TestCase):
         prog = dwarf_program(wrap_test_type_dies(DwarfDie(DW_TAG.pointer_type, ())))
         self.assertIdentical(
             prog.type("TEST").type, prog.pointer_type(prog.void_type())
+        )
+
+    def test_pointer_name(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.pointer_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "&int"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                    ),
+                ),
+                *labeled_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.pointer_type(prog.int_type("int", 4, True), name="&int"),
+        )
+
+    def test_pointer_invalid_name(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.pointer_type,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.data1, 0),),
+                )
+            )
+        )
+        self.assertRaisesRegex(
+            BadDataError,
+            "DW_TAG_pointer_type has invalid DW_AT_name",
+            prog.type,
+            "TEST",
         )
 
     def test_array(self):
@@ -3917,6 +4618,11 @@ class TestTypes(TestCase):
                     prog.type("TEST").type,
                     prog.int_type("int", 4, True, language=Language.C),
                 )
+        prog = dwarf_program(wrap_test_type_dies(int_die), lang=DW_LANG.Rust)
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.int_type("int", 4, True, language=Language.RUST),
+        )
         prog = dwarf_program(wrap_test_type_dies(int_die), lang=DW_LANG.BLISS)
         self.assertIdentical(
             prog.type("TEST").type,
@@ -4095,6 +4801,70 @@ class TestTypes(TestCase):
                     ),
                 )
                 self.assertIdentical(prog.type("struct point"), prog.type("TEST").type)
+
+    def test_rust_type_names(self):
+        def struct_die(name, size):
+            return DwarfDie(
+                DW_TAG.structure_type,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, size),
+                ),
+            )
+
+        def namespace_die(name, *children):
+            return DwarfDie(
+                DW_TAG.namespace,
+                (DwarfAttrib(DW_AT.name, DW_FORM.string, name),),
+                children,
+            )
+
+        structural_names = (
+            ("&dyn rtest::Animal", 16),
+            ("(alloc::string::String, u8)", 32),
+            ("<rtest::Point as core::fmt::Debug>::{vtable_type}", 24),
+        )
+        prog = dwarf_program(
+            (
+                namespace_die("rtest", struct_die("Point", 8)),
+                namespace_die(
+                    "alloc", namespace_die("string", struct_die("String", 24))
+                ),
+                *(struct_die(name, size) for name, size in structural_names),
+                DwarfDie(
+                    DW_TAG.base_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "()"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.Rust,
+        )
+        prog.language = Language.RUST
+
+        point = prog.type("rtest::Point")
+        self.assertIdentical(
+            point, prog.struct_type("Point", 8, (), language=Language.RUST)
+        )
+        self.assertIdentical(
+            prog.type("alloc::string::String"),
+            prog.struct_type("String", 24, (), language=Language.RUST),
+        )
+        for name, size in structural_names:
+            with self.subTest(name=name):
+                self.assertIdentical(
+                    prog.type(name),
+                    prog.struct_type(name, size, (), language=Language.RUST),
+                )
+        self.assertIdentical(
+            prog.type("()"), prog.struct_type("()", 0, (), language=Language.RUST)
+        )
+        self.assertIdentical(
+            prog.type("&rtest::Point"),
+            prog.pointer_type(point, name="&rtest::Point", language=Language.RUST),
+        )
 
     def test_namespaces(self):
         def make_composite_die(tag: DW_TAG, name: str) -> DwarfDie:
@@ -4463,6 +5233,304 @@ class TestTypes(TestCase):
             )
         )
         self.assertEqual(alignof(prog.type("TEST")), 64)
+
+    def test_alignment_after_declaration(self):
+        prog = dwarf_program(
+            (
+                DwarfLabel("complete_die"),
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "cacheline"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 64),
+                        DwarfAttrib(DW_AT.alignment, DW_FORM.data1, 64),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfLabel("declaration_die"),
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "cacheline"),
+                        DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.typedef,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "COMPLETE"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "complete_die"),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.typedef,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "DECLARED"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "declaration_die"),
+                    ),
+                ),
+                *labeled_int_die,
+            )
+        )
+        type = prog.type("COMPLETE").type
+        self.assertEqual(alignof(type), 64)
+        self.assertEqual(alignof(prog.type("DECLARED").type), 64)
+        self.assertEqual(alignof(type), 64)
+
+    def test_source_location(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                        DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.c"),
+                        DwarfAttrib(DW_AT.decl_line, DW_FORM.data1, 1),
+                        DwarfAttrib(DW_AT.decl_column, DW_FORM.data1, 8),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                                DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.c"),
+                                DwarfAttrib(DW_AT.decl_line, DW_FORM.data1, 2),
+                                DwarfAttrib(DW_AT.decl_column, DW_FORM.data1, 6),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                ),
+                            ),
+                        ),
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 4
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+            )
+        )
+        type = prog.type("TEST").type
+        self.assertEqual(type.source_location(), ("/usr/src/foo.c", 1, 8))
+        self.assertEqual(
+            str(type.source_location()), "struct point at /usr/src/foo.c:1:8"
+        )
+        self.assertEqual(type.source_location(0), ("/usr/src/foo.c", 2, 6))
+        self.assertEqual(type.source_location("x"), ("/usr/src/foo.c", 2, 6))
+        self.assertEqual(str(type.source_location("x")), "x at /usr/src/foo.c:2:6")
+        self.assertIsNone(type.source_location("y"))
+        self.assertIsNone(type.members[0].type.source_location())
+        self.assertIsNone(prog.pointer_type(type).source_location())
+        self.assertIsNone(prog.struct_type("point", 8, ()).source_location())
+        self.assertRaises(IndexError, type.source_location, 2)
+        self.assertRaises(IndexError, type.source_location, -1)
+        self.assertRaisesRegex(
+            LookupError, "has no member 'z'", type.source_location, "z"
+        )
+        self.assertRaises(TypeError, type.members[0].type.source_location, 0)
+
+    def test_variant_source_location(self):
+        def variant(name, discr_value, line):
+            return DwarfDie(
+                DW_TAG.variant,
+                (DwarfAttrib(DW_AT.discr_value, DW_FORM.data1, discr_value),),
+                (
+                    DwarfDie(
+                        DW_TAG.member,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.rs"),
+                            DwarfAttrib(DW_AT.decl_line, DW_FORM.data1, line),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
+                        ),
+                    ),
+                ),
+            )
+
+        variants = (variant("Unresumed", 0, 10), variant("Suspend0", 3, 12))
+        for discr_type in ("unsigned_int_die", None):
+            with self.subTest(discr_type=discr_type):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        variant_part_test_die(variants, discr_type=discr_type),
+                        *labeled_unsigned_int_die,
+                        *labeled_int_die,
+                    ),
+                    lang=DW_LANG.Rust,
+                )
+                type = prog.type("TEST").type
+                self.assertEqual(type.language, Language.RUST)
+                first = 0 if discr_type is None else 1
+                if discr_type is not None:
+                    self.assertIsNone(type.source_location(0))
+                self.assertEqual(
+                    type.source_location(first), ("/usr/src/foo.rs", 10, 0)
+                )
+                self.assertEqual(
+                    type.source_location(first + 1), ("/usr/src/foo.rs", 12, 0)
+                )
+                self.assertEqual(
+                    type.source_location("Suspend0"), ("/usr/src/foo.rs", 12, 0)
+                )
+
+    def test_fully_qualified_name(self):
+        dies = (
+            DwarfDie(
+                DW_TAG.typedef,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST"),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, "inner_die"),
+                ),
+            ),
+            DwarfDie(
+                DW_TAG.typedef,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "ANONYMOUS"),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, "anonymous_die"),
+                ),
+            ),
+            DwarfDie(
+                DW_TAG.namespace,
+                (DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),),
+                (
+                    DwarfDie(
+                        DW_TAG.namespace,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.structure_type,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "outer"),
+                                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                                ),
+                                (
+                                    DwarfLabel("inner_die"),
+                                    DwarfDie(
+                                        DW_TAG.structure_type,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "inner"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.byte_size, DW_FORM.data1, 0
+                                            ),
+                                        ),
+                                    ),
+                                    DwarfLabel("anonymous_die"),
+                                    DwarfDie(
+                                        DW_TAG.structure_type,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.byte_size, DW_FORM.data1, 0
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        for lang, name in (
+            (DW_LANG.C_plus_plus, "a::(anonymous namespace)::outer::inner"),
+            (DW_LANG.C, "inner"),
+        ):
+            with self.subTest(lang=lang):
+                prog = dwarf_program(dies, lang=lang)
+                self.assertEqual(prog.type("TEST").type.fully_qualified_name(), name)
+                self.assertIsNone(prog.type("ANONYMOUS").type.fully_qualified_name())
+        prog = dwarf_program(dies, lang=DW_LANG.C_plus_plus)
+        self.assertEqual(
+            prog.struct_type(
+                "foo", 0, (), language=Language.CPP
+            ).fully_qualified_name(),
+            "foo",
+        )
+        self.assertRaises(TypeError, prog.int_type("int", 4, True).fully_qualified_name)
+
+    def test_rust_fully_qualified_name(self):
+        def typedef_die(name, label):
+            return DwarfDie(
+                DW_TAG.typedef,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, label),
+                ),
+            )
+
+        def namespace_die(name, *children):
+            return DwarfDie(
+                DW_TAG.namespace,
+                (DwarfAttrib(DW_AT.name, DW_FORM.string, name),),
+                children,
+            )
+
+        def struct_die(name, *children):
+            return DwarfDie(
+                DW_TAG.structure_type,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                ),
+                children,
+            )
+
+        prog = dwarf_program(
+            (
+                typedef_die("OPTION", "option_die"),
+                typedef_die("ENV", "env_die"),
+                typedef_die("STATE", "state_die"),
+                namespace_die(
+                    "core",
+                    namespace_die(
+                        "option", DwarfLabel("option_die"), struct_die("Option<u32>")
+                    ),
+                ),
+                namespace_die(
+                    "atest",
+                    namespace_die(
+                        "leaf",
+                        DwarfLabel("env_die"),
+                        struct_die(
+                            "{async_fn_env#0}",
+                            DwarfLabel("state_die"),
+                            struct_die("Suspend0"),
+                        ),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.Rust,
+        )
+        for name, fully_qualified_name in (
+            ("OPTION", "core::option::Option<u32>"),
+            ("ENV", "atest::leaf::{async_fn_env#0}"),
+            ("STATE", "atest::leaf::{async_fn_env#0}::Suspend0"),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    prog.type(name).type.fully_qualified_name(), fully_qualified_name
+                )
 
     def test_many_skipped_attribs(self):
         prog = dwarf_program(
@@ -7161,10 +8229,56 @@ class TestProgram(TestCase):
         self.assertEqual(
             dwarf_program(dies, lang=DW_LANG.C_plus_plus_14).language, Language.CPP
         )
+        self.assertEqual(dwarf_program(dies, lang=DW_LANG.Rust).language, Language.RUST)
 
         self.assertEqual(
             dwarf_program(dies, lang=DW_LANG.C_plus_plus).object("main").type_.language,
             Language.CPP,
+        )
+
+    def test_language_main_subprogram(self):
+        def dies(main_subprogram):
+            return (
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "core"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.subprogram,
+                            (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "rtest"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.subprogram,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),
+                                *(
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.main_subprogram,
+                                            DW_FORM.flag_present,
+                                            True,
+                                        ),
+                                    )
+                                    if main_subprogram
+                                    else ()
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+
+        self.assertEqual(
+            dwarf_program(dies(True), lang=DW_LANG.Rust).language, Language.RUST
+        )
+        self.assertEqual(
+            dwarf_program(dies(False), lang=DW_LANG.Rust).language, DEFAULT_LANGUAGE
         )
 
     def test_reference_counting(self):

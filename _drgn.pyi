@@ -1352,10 +1352,14 @@ class Program:
         template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
+        discriminants: Optional[Sequence[Optional[IntegerLike]]] = None,
     ) -> Type:
         """
         Create a new union type. It has kind :attr:`TypeKind.UNION`. Otherwise,
         this is the same as as :meth:`struct_type()`.
+
+        :param discriminants: :attr:`Type.discriminants`. If not ``None``,
+            the first member must have an integer type.
         """
         ...
 
@@ -1462,6 +1466,7 @@ class Program:
         size: Optional[int] = None,
         byteorder: Optional[str] = None,
         *,
+        name: Optional[str] = None,
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
@@ -1473,6 +1478,8 @@ class Program:
             default pointer size.
         :param byteorder: :attr:`Type.byteorder`, or ``None`` to use the
             program's default byte order.
+        :param name: :attr:`Type.name`, or ``None`` if the pointer type
+            doesn't have a name.
         :param qualifiers: :attr:`Type.qualifiers`
         :param lang: :attr:`Type.language`
         """
@@ -2395,6 +2402,9 @@ class Language:
     CPP: ClassVar[Language]
     """The C++ programming language."""
 
+    RUST: ClassVar[Language]
+    """The Rust programming language."""
+
 class Object:
     """
     An ``Object`` represents a symbol or value in a program. An object may
@@ -2715,8 +2725,9 @@ class Object:
         object of the directly corresponding Python type (``int``, ``float``,
         ``bool``). For pointers, this returns the address value of the pointer.
         For enums, this returns an ``int``. For structures and unions, this
-        returns a ``dict`` of members. For arrays, this returns a ``list`` of
-        values.
+        returns a ``dict`` of members. For discriminated unions, the ``dict``
+        only contains the active variant (see :meth:`variant_()`). For arrays,
+        this returns a ``list`` of values.
 
         .. note::
             Helpers that wish to accept an argument that may be an
@@ -2735,6 +2746,8 @@ class Object:
         :raises FaultError: if reading the object causes a bad memory access
         :raises TypeError: if this object has an unreadable type (e.g.,
             ``void``)
+        :raises LookupError: if this object is, or contains, a discriminated
+            union with no active variant
         """
         ...
 
@@ -2790,6 +2803,50 @@ class Object:
         True
 
         :param designator: One or more member references or array subscripts.
+        """
+        ...
+
+    def discriminant_(self) -> Object:
+        """
+        Get the discriminant of this object.
+
+        This is valid for discriminated unions (see
+        :attr:`Type.discriminants`) and pointers to them. If the object is a
+        pointer, it is automatically dereferenced first.
+
+        :raises TypeError: if this object is not a discriminated union or a
+            pointer to one
+        """
+        ...
+
+    def variant_(self) -> Object:
+        """
+        Get the active variant of this object.
+
+        This is valid for discriminated unions (see
+        :attr:`Type.discriminants`) and pointers to them. If the object is a
+        pointer, it is automatically dereferenced first. The active variant is
+        the member whose discriminant value is equal to the value of the
+        discriminant, or the default variant if there is no such member.
+
+        >>> print(obj.type_)
+        union Option<u32> {
+                u32; /* discriminant */
+                struct None None; /* 0 */
+                struct Some Some; /* 1 */
+        }
+        >>> obj.type_.discriminants
+        (0, 1)
+        >>> print(obj.discriminant_())
+        (u32)1
+        >>> print(obj.variant_())
+        (struct Some){
+                .__0 = (u32)5,
+        }
+
+        :raises TypeError: if this object is not a discriminated union or a
+            pointer to one
+        :raises LookupError: if no variant is active
         """
         ...
 
@@ -3556,7 +3613,8 @@ class Type:
     name: Final[str]
     """
     Name of this type. This is present for integer, boolean, floating-point,
-    and typedef types.
+    and typedef types, and for pointer types with a name (e.g., Rust pointer
+    types such as ``&T`` or ``*mut T``).
     """
 
     tag: Final[Optional[str]]
@@ -3606,6 +3664,21 @@ class Type:
     """
     List of members of this type, or ``None`` if this is an incomplete type.
     This is present for structure, union, and class types.
+    """
+
+    discriminants: Final[Optional[Sequence[Optional[int]]]]
+    """
+    List of discriminant values of the variants of this type, or ``None`` if
+    this is not a discriminated union. This is only present for union types.
+
+    A discriminated union is a union whose first member is the discriminant
+    and whose other members are variants. The value of the discriminant
+    selects the active variant. Rust enums are represented this way.
+
+    There is one discriminant value for each variant: ``discriminants[i]`` is
+    the value for ``members[i + 1]``. A variant whose discriminant value is
+    ``None`` is the default variant, which is active when the discriminant
+    doesn't match any other variant.
     """
 
     enumerators: Final[Optional[Sequence[TypeEnumerator]]]
@@ -3734,6 +3807,52 @@ class Type:
         :raises TypeError: if this type is not a structure, union, or class
             type
         """
+
+    def source_location(
+        self, member: Union[int, str, None] = None
+    ) -> Optional[SourceLocation]:
+        """
+        Get the source code location where this type or one of its members is
+        declared.
+
+        The location of a type is only available for structure, union, class,
+        enumerated, and function types parsed from debugging information.
+
+        :param member: If ``None``, get the location of this type. Otherwise,
+            get the location of a member of this type, given as the index of
+            the member in :attr:`members` or as the name of a member of this
+            type (not of its unnamed members).
+        :return: Location, or ``None`` if it is not known. Its
+            :meth:`SourceLocation.name()` is :meth:`type_name()` for this type
+            or the name of the member.
+        :raises TypeError: if *member* is not ``None`` and this type is not a
+            structure, union, or class type
+        :raises IndexError: if *member* is an index out of range
+        :raises LookupError: if this type has no member named *member*
+        """
+        ...
+
+    def fully_qualified_name(self) -> Optional[str]:
+        """
+        Get the fully qualified name of this structure, union, class, or
+        enumerated type.
+
+        This is :attr:`tag` prefixed with the names of the namespaces and types
+        that contain this type, separated by ``::``. For languages without
+        namespaces and for types that weren't parsed from debugging
+        information, it is :attr:`tag`.
+
+        >>> type = prog.type("core::option::Option<u32>")
+        >>> type.tag
+        'Option<u32>'
+        >>> type.fully_qualified_name()
+        'core::option::Option<u32>'
+
+        :return: Name, or ``None`` if this type is anonymous.
+        :raises TypeError: if this type is not a structure, union, class, or
+            enumerated type
+        """
+        ...
 
     def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 

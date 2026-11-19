@@ -25,6 +25,8 @@ enum drgn_type_flags {
 	DRGN_TYPE_FLAG_IS_SIGNED = 1 << 1,
 	DRGN_TYPE_FLAG_LITTLE_ENDIAN = 1 << 2,
 	DRGN_TYPE_FLAG_IS_VARIADIC = 1 << 3,
+	DRGN_TYPE_FLAG_DISCR_UNION = 1 << 4,
+	DRGN_TYPE_FLAG_DISCR_IS_SIGNED = 1 << 5,
 };
 
 // Common part of all types. In order to keep it as compact as possible, it uses
@@ -77,6 +79,13 @@ struct drgn_compound_type {
 	size_t _num_members;
 };
 
+// Union type with DRGN_TYPE_FLAG_DISCR_UNION.
+struct drgn_discr_union_type {
+	struct drgn_compound_type compound;
+	union drgn_type_discr *_discrs;
+	size_t _default_discr;
+};
+
 struct drgn_enum_type {
 	struct drgn_extended_type extended;
 	size_t _num_enumerators;
@@ -110,6 +119,13 @@ DRGN_ACCESSOR_LINKAGE
 const struct drgn_language *drgn_type_language(struct drgn_type *type)
 {
 	return type->_language;
+}
+
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_has_name(struct drgn_type *type)
+{
+	enum drgn_type_kind kind = drgn_type_kind(type);
+	return drgn_type_kind_has_name(kind) || (kind == DRGN_TYPE_POINTER && type->_name);
 }
 
 DRGN_ACCESSOR_LINKAGE
@@ -159,6 +175,33 @@ size_t drgn_type_num_members(struct drgn_type *type)
 {
 	assert(drgn_type_has_members(type));
 	return ((struct drgn_compound_type *)type)->_num_members;
+}
+
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_is_discr_union(struct drgn_type *type)
+{
+	return type->_flags & DRGN_TYPE_FLAG_DISCR_UNION;
+}
+
+DRGN_ACCESSOR_LINKAGE
+bool drgn_type_discr_is_signed(struct drgn_type *type)
+{
+	assert(drgn_type_is_discr_union(type));
+	return type->_flags & DRGN_TYPE_FLAG_DISCR_IS_SIGNED;
+}
+
+DRGN_ACCESSOR_LINKAGE
+union drgn_type_discr *drgn_type_discrs(struct drgn_type *type)
+{
+	assert(drgn_type_is_discr_union(type));
+	return ((struct drgn_discr_union_type *)type)->_discrs;
+}
+
+DRGN_ACCESSOR_LINKAGE
+size_t drgn_type_default_discr(struct drgn_type *type)
+{
+	assert(drgn_type_is_discr_union(type));
+	return ((struct drgn_discr_union_type *)type)->_default_discr;
 }
 
 DRGN_ACCESSOR_LINKAGE
