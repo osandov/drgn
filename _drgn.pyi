@@ -3832,6 +3832,28 @@ class Type:
         """
         ...
 
+    def fully_qualified_name(self) -> Optional[str]:
+        """
+        Get the fully qualified name of this structure, union, class, or
+        enumerated type.
+
+        This is :attr:`tag` prefixed with the names of the namespaces and types
+        that contain this type, separated by ``::``. For languages without
+        namespaces and for types that weren't parsed from debugging
+        information, it is :attr:`tag`.
+
+        >>> type = prog.type("core::option::Option<u32>")
+        >>> type.tag
+        'Option<u32>'
+        >>> type.fully_qualified_name()
+        'core::option::Option<u32>'
+
+        :return: Name, or ``None`` if this type is anonymous.
+        :raises TypeError: if this type is not a structure, union, class, or
+            enumerated type
+        """
+        ...
+
     def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
 class TypeMember:

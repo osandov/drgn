@@ -878,6 +878,17 @@ static PyObject *DrgnType_source_location(DrgnType *self, PyObject *args, PyObje
 	return source_location_wrap(filename, line, column, &member_source_location_name_def, name);
 }
 
+static PyObject *DrgnType_fully_qualified_name(DrgnType *self)
+{
+	_cleanup_free_ char *name = NULL;
+	struct drgn_error *err = drgn_type_fully_qualified_name(self->type, &name);
+	if (err)
+		return set_drgn_error(err);
+	if (!name)
+		Py_RETURN_NONE;
+	return PyUnicode_FromString(name);
+}
+
 static PyMethodDef DrgnType_methods[] = {
 	{"type_name", (PyCFunction)DrgnType_type_name, METH_NOARGS,
 	 drgn_Type_type_name_DOC},
@@ -899,6 +910,8 @@ static PyMethodDef DrgnType_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Type_has_member_DOC},
 	{"source_location", (PyCFunction)DrgnType_source_location,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Type_source_location_DOC},
+	{"fully_qualified_name", (PyCFunction)DrgnType_fully_qualified_name,
+	 METH_NOARGS, drgn_Type_fully_qualified_name_DOC},
 	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
 	 METH_VARARGS | METH_KEYWORDS},
 	{},

@@ -5393,6 +5393,145 @@ class TestTypes(TestCase):
                     type.source_location("Suspend0"), ("/usr/src/foo.rs", 12, 0)
                 )
 
+    def test_fully_qualified_name(self):
+        dies = (
+            DwarfDie(
+                DW_TAG.typedef,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST"),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, "inner_die"),
+                ),
+            ),
+            DwarfDie(
+                DW_TAG.typedef,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "ANONYMOUS"),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, "anonymous_die"),
+                ),
+            ),
+            DwarfDie(
+                DW_TAG.namespace,
+                (DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),),
+                (
+                    DwarfDie(
+                        DW_TAG.namespace,
+                        (),
+                        (
+                            DwarfDie(
+                                DW_TAG.structure_type,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "outer"),
+                                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                                ),
+                                (
+                                    DwarfLabel("inner_die"),
+                                    DwarfDie(
+                                        DW_TAG.structure_type,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name, DW_FORM.string, "inner"
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.byte_size, DW_FORM.data1, 0
+                                            ),
+                                        ),
+                                    ),
+                                    DwarfLabel("anonymous_die"),
+                                    DwarfDie(
+                                        DW_TAG.structure_type,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.byte_size, DW_FORM.data1, 0
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        for lang, name in (
+            (DW_LANG.C_plus_plus, "a::(anonymous namespace)::outer::inner"),
+            (DW_LANG.C, "inner"),
+        ):
+            with self.subTest(lang=lang):
+                prog = dwarf_program(dies, lang=lang)
+                self.assertEqual(prog.type("TEST").type.fully_qualified_name(), name)
+                self.assertIsNone(prog.type("ANONYMOUS").type.fully_qualified_name())
+        prog = dwarf_program(dies, lang=DW_LANG.C_plus_plus)
+        self.assertEqual(
+            prog.struct_type(
+                "foo", 0, (), language=Language.CPP
+            ).fully_qualified_name(),
+            "foo",
+        )
+        self.assertRaises(TypeError, prog.int_type("int", 4, True).fully_qualified_name)
+
+    def test_rust_fully_qualified_name(self):
+        def typedef_die(name, label):
+            return DwarfDie(
+                DW_TAG.typedef,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, label),
+                ),
+            )
+
+        def namespace_die(name, *children):
+            return DwarfDie(
+                DW_TAG.namespace,
+                (DwarfAttrib(DW_AT.name, DW_FORM.string, name),),
+                children,
+            )
+
+        def struct_die(name, *children):
+            return DwarfDie(
+                DW_TAG.structure_type,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                ),
+                children,
+            )
+
+        prog = dwarf_program(
+            (
+                typedef_die("OPTION", "option_die"),
+                typedef_die("ENV", "env_die"),
+                typedef_die("STATE", "state_die"),
+                namespace_die(
+                    "core",
+                    namespace_die(
+                        "option", DwarfLabel("option_die"), struct_die("Option<u32>")
+                    ),
+                ),
+                namespace_die(
+                    "atest",
+                    namespace_die(
+                        "leaf",
+                        DwarfLabel("env_die"),
+                        struct_die(
+                            "{async_fn_env#0}",
+                            DwarfLabel("state_die"),
+                            struct_die("Suspend0"),
+                        ),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.Rust,
+        )
+        for name, fully_qualified_name in (
+            ("OPTION", "core::option::Option<u32>"),
+            ("ENV", "atest::leaf::{async_fn_env#0}"),
+            ("STATE", "atest::leaf::{async_fn_env#0}::Suspend0"),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    prog.type(name).type.fully_qualified_name(), fully_qualified_name
+                )
+
     def test_many_skipped_attribs(self):
         prog = dwarf_program(
             (

@@ -4117,6 +4117,21 @@ struct drgn_error *drgn_type_source_location(struct drgn_type *type, int64_t mem
 					     int *line_ret, int *column_ret);
 
 /**
+ * Get the fully qualified name of a structure, union, class, or enumerated
+ * type.
+ *
+ * This is the tag of the type prefixed with the names of the namespaces and
+ * types that contain it, separated by "::". For languages without namespaces
+ * and for types that weren't parsed from debugging information, it is the tag.
+ *
+ * @param[in] type Structure, union, class, or enumerated type.
+ * @param[out] ret Returned name, or @c NULL if the type is anonymous. On
+ * success, it must be freed with @c free().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_type_fully_qualified_name(struct drgn_type *type, char **ret);
+
+/**
  * Get the element type and size of an array or pointer @ref drgn_type.
  *
  * @param[in] type Array or pointer type.

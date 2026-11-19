@@ -6427,6 +6427,49 @@ struct drgn_error *drgn_dwarf_type_source_location(struct drgn_type *type, int64
 	return NULL;
 }
 
+struct drgn_error *drgn_dwarf_type_append_scopes(struct drgn_type *type, struct string_builder *sb)
+{
+	struct drgn_error *err;
+
+	Dwarf_Die die;
+	err = drgn_type_dwarf_die(type, &die);
+	if (err == &drgn_not_found)
+		return NULL;
+	else if (err)
+		return err;
+
+	_cleanup_free_ Dwarf_Die *ancestors = NULL;
+	size_t num_ancestors;
+	err = drgn_find_die_ancestors(&die, &ancestors, &num_ancestors);
+	if (err)
+		return err;
+
+	for (size_t i = 0; i < num_ancestors; i++) {
+		switch (dwarf_tag(&ancestors[i])) {
+#define X(name) case DW_TAG_##name: break;
+		DRGN_DWARF_INDEX_NAMESPACE_TAGS
+#undef X
+		default:
+			continue;
+		}
+
+		const char *name;
+		Dwarf_Attribute attr_mem, *attr;
+		if ((attr = dwarf_attr_integrate(&ancestors[i], DW_AT_name, &attr_mem))) {
+			name = dwarf_formstring(attr);
+			if (!name)
+				return drgn_error_libdw();
+		} else if (dwarf_tag(&ancestors[i]) == DW_TAG_namespace) {
+			name = "(anonymous namespace)";
+		} else {
+			continue;
+		}
+		if (!string_builder_append(sb, name) || !string_builder_append(sb, "::"))
+			return &drgn_enomem;
+	}
+	return NULL;
+}
+
 static struct drgn_error *
 parse_enumerator(Dwarf_Die *die, struct drgn_enum_type_builder *builder,
 		 bool *is_signed)

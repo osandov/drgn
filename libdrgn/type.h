@@ -611,6 +611,10 @@ struct drgn_error *drgn_dwarf_type_alignment(struct drgn_type *type,
 struct drgn_error *drgn_dwarf_type_source_location(struct drgn_type *type, int64_t member_index,
 						   const char **filename_ret, int *line_ret, int *column_ret);
 
+struct string_builder;
+
+struct drgn_error *drgn_dwarf_type_append_scopes(struct drgn_type *type, struct string_builder *sb);
+
 /** Initialize type-related fields in a @ref drgn_program. */
 void drgn_program_init_types(struct drgn_program *prog);
 /** Deinitialize type-related fields in a @ref drgn_program. */

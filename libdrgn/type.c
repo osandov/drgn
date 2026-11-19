@@ -14,6 +14,7 @@
 #include "lazy_object.h"
 #include "program.h"
 #include "platform.h"
+#include "string_builder.h"
 #include "type.h"
 #include "util.h"
 
@@ -1896,6 +1897,29 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_type_source_location(struct drgn_type *ty
 	if (!drgn_type_has_die_addr(type))
 		return NULL;
 	return drgn_dwarf_type_source_location(type, member_index, filename_ret, line_ret, column_ret);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_type_fully_qualified_name(struct drgn_type *type, char **ret)
+{
+	struct drgn_error *err;
+
+	if (!drgn_type_has_tag(type))
+		return drgn_type_error("'%s' is not a structure, union, class, or enumerated type", type);
+	const char *tag = drgn_type_tag(type);
+	if (!tag) {
+		*ret = NULL;
+		return NULL;
+	}
+	STRING_BUILDER(sb);
+	if (drgn_type_language(type)->has_namespaces) {
+		err = drgn_dwarf_type_append_scopes(type, &sb);
+		if (err)
+			return err;
+	}
+	if (!string_builder_append(&sb, tag) || !string_builder_null_terminate(&sb))
+		return &drgn_enomem;
+	*ret = string_builder_steal(&sb);
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
