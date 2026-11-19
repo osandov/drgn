@@ -468,6 +468,66 @@ class TestTypes(TestCase):
         )
         self.assertIdentical(prog.type("TEST").type, prog.float_type("float", 4, "big"))
 
+    def test_zero_size_base_type(self):
+        # Rust's unit type.
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "WithUnit"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "u"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 4
+                                ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "unit_die"),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+                DwarfLabel("unit_die"),
+                DwarfDie(
+                    DW_TAG.base_type,
+                    (
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "()"),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.Rust,
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.struct_type(
+                "WithUnit",
+                4,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "x", 0),
+                    TypeMember(prog.struct_type("()", 0, ()), "u", 32),
+                ),
+            ),
+        )
+        obj = Object.from_bytes_(prog, prog.type("TEST"), b"\x01\x00\x00\x00")
+        self.assertEqual(obj.value_(), {"x": 1, "u": {}})
+
     def test_byteorder_by_name(self):
         # The only producer that uses DW_AT_endianity that I could find is GCC
         # for the scalar_storage_order type attribute (see
