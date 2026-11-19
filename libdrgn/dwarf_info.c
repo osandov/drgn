@@ -6689,7 +6689,7 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 	}
 	if (err)
 		return err;
-	if (drgn_type_has_die_addr(ret->type))
+	if (drgn_type_has_die_addr(ret->type) && !drgn_type_die_addr(ret->type))
 		drgn_type_init_die_addr(ret->type, (uintptr_t)die->addr);
 
 	entry.value.type = ret->type;
