@@ -1352,10 +1352,14 @@ class Program:
         template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
+        discriminants: Optional[Sequence[Optional[IntegerLike]]] = None,
     ) -> Type:
         """
         Create a new union type. It has kind :attr:`TypeKind.UNION`. Otherwise,
         this is the same as as :meth:`struct_type()`.
+
+        :param discriminants: :attr:`Type.discriminants`. If not ``None``,
+            the first member must have an integer type.
         """
         ...
 
@@ -2715,8 +2719,9 @@ class Object:
         object of the directly corresponding Python type (``int``, ``float``,
         ``bool``). For pointers, this returns the address value of the pointer.
         For enums, this returns an ``int``. For structures and unions, this
-        returns a ``dict`` of members. For arrays, this returns a ``list`` of
-        values.
+        returns a ``dict`` of members. For discriminated unions, the ``dict``
+        only contains the active variant (see :meth:`variant_()`). For arrays,
+        this returns a ``list`` of values.
 
         .. note::
             Helpers that wish to accept an argument that may be an
@@ -2735,6 +2740,8 @@ class Object:
         :raises FaultError: if reading the object causes a bad memory access
         :raises TypeError: if this object has an unreadable type (e.g.,
             ``void``)
+        :raises LookupError: if this object is, or contains, a discriminated
+            union with no active variant
         """
         ...
 
@@ -2790,6 +2797,50 @@ class Object:
         True
 
         :param designator: One or more member references or array subscripts.
+        """
+        ...
+
+    def discriminant_(self) -> Object:
+        """
+        Get the discriminant of this object.
+
+        This is valid for discriminated unions (see
+        :attr:`Type.discriminants`) and pointers to them. If the object is a
+        pointer, it is automatically dereferenced first.
+
+        :raises TypeError: if this object is not a discriminated union or a
+            pointer to one
+        """
+        ...
+
+    def variant_(self) -> Object:
+        """
+        Get the active variant of this object.
+
+        This is valid for discriminated unions (see
+        :attr:`Type.discriminants`) and pointers to them. If the object is a
+        pointer, it is automatically dereferenced first. The active variant is
+        the member whose discriminant value is equal to the value of the
+        discriminant, or the default variant if there is no such member.
+
+        >>> print(obj.type_)
+        union Option<u32> {
+                u32; /* discriminant */
+                struct None None; /* 0 */
+                struct Some Some; /* 1 */
+        }
+        >>> obj.type_.discriminants
+        (0, 1)
+        >>> print(obj.discriminant_())
+        (u32)1
+        >>> print(obj.variant_())
+        (struct Some){
+                .__0 = (u32)5,
+        }
+
+        :raises TypeError: if this object is not a discriminated union or a
+            pointer to one
+        :raises LookupError: if no variant is active
         """
         ...
 
@@ -3606,6 +3657,21 @@ class Type:
     """
     List of members of this type, or ``None`` if this is an incomplete type.
     This is present for structure, union, and class types.
+    """
+
+    discriminants: Final[Optional[Sequence[Optional[int]]]]
+    """
+    List of discriminant values of the variants of this type, or ``None`` if
+    this is not a discriminated union. This is only present for union types.
+
+    A discriminated union is a union whose first member is the discriminant
+    and whose other members are variants. The value of the discriminant
+    selects the active variant. Rust enums are represented this way.
+
+    There is one discriminant value for each variant: ``discriminants[i]`` is
+    the value for ``members[i + 1]``. A variant whose discriminant value is
+    ``None`` is the default variant, which is active when the discriminant
+    doesn't match any other variant.
     """
 
     enumerators: Final[Optional[Sequence[TypeEnumerator]]]

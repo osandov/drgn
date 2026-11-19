@@ -1788,6 +1788,91 @@ drgn_object_member_dereference(struct drgn_object *res,
 					      member_bit_field_size);
 }
 
+static struct drgn_error drgn_no_active_variant =
+	DRGN_ERROR_INIT(DRGN_ERROR_LOOKUP, "discriminant does not match any variant");
+
+static struct drgn_error *drgn_object_discr_union_member(struct drgn_object *res, const struct drgn_object *obj,
+							 size_t i)
+{
+	struct drgn_error *err;
+	struct drgn_type_member *member = &drgn_type_members(drgn_underlying_type(obj->type))[i];
+	struct drgn_qualified_type member_type;
+	uint64_t member_bit_field_size;
+	err = drgn_member_type(member, &member_type, &member_bit_field_size);
+	if (err)
+		return err;
+	return drgn_object_fragment(res, obj, member_type, member->bit_offset, member_bit_field_size);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_object_discr(struct drgn_object *res, const struct drgn_object *obj)
+{
+	if (drgn_object_program(res) != drgn_object_program(obj))
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, "objects are from different programs");
+	if (!drgn_type_is_discr_union(drgn_underlying_type(obj->type)))
+		return drgn_type_error("'%s' is not a discriminated union", obj->type);
+	return drgn_object_discr_union_member(res, obj, 0);
+}
+
+struct drgn_error *drgn_object_variant_index(const struct drgn_object *obj, size_t *ret)
+{
+	struct drgn_error *err;
+	struct drgn_type *type = drgn_underlying_type(obj->type);
+	if (!drgn_type_is_discr_union(type))
+		return drgn_type_error("'%s' is not a discriminated union", obj->type);
+
+	DRGN_OBJECT(discr, drgn_object_program(obj));
+	err = drgn_object_discr_union_member(&discr, obj, 0);
+	if (err)
+		return err;
+	uint64_t uvalue;
+	bool fits;
+	if (discr.encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG || discr.encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG) {
+		union drgn_value value_mem;
+		const union drgn_value *value;
+		err = drgn_object_read_value(&discr, &value_mem, &value);
+		if (err)
+			return err;
+		fits = deserialize_int64(value->bufp, drgn_object_size(&discr), discr.little_endian,
+					 drgn_type_discr_is_signed(type), &uvalue);
+		drgn_object_deinit_value(&discr, value);
+	} else {
+		union drgn_value value;
+		err = drgn_object_read_integer(&discr, &value);
+		if (err)
+			return err;
+		uvalue = value.uvalue;
+		fits = true;
+	}
+
+	union drgn_type_discr *discrs = drgn_type_discrs(type);
+	size_t num_members = drgn_type_num_members(type);
+	size_t default_discr = drgn_type_default_discr(type);
+	if (fits) {
+		for (size_t i = 1; i < num_members; i++) {
+			if (i != default_discr && discrs[i - 1].uvalue == uvalue) {
+				*ret = i;
+				return NULL;
+			}
+		}
+	}
+	if (default_discr == 0)
+		return &drgn_no_active_variant;
+	*ret = default_discr;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_object_variant(struct drgn_object *res, const struct drgn_object *obj)
+{
+	struct drgn_error *err;
+	if (drgn_object_program(res) != drgn_object_program(obj))
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, "objects are from different programs");
+	size_t i;
+	err = drgn_object_variant_index(obj, &i);
+	if (err)
+		return err;
+	return drgn_object_discr_union_member(res, obj, i);
+}
+
 LIBDRGN_PUBLIC
 struct drgn_error *drgn_object_subobject(struct drgn_object *res,
 					 const struct drgn_object *obj,

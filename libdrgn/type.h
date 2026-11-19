@@ -198,12 +198,20 @@ drgn_template_parameters_builder_add(struct drgn_template_parameters_builder *bu
 				     const char *name, bool is_default);
 
 DEFINE_VECTOR_TYPE(drgn_type_member_vector, struct drgn_type_member);
+DEFINE_VECTOR_TYPE(drgn_type_discr_vector, union drgn_type_discr);
 
 /** Builder for members of a structure, union, or class type. */
 struct drgn_compound_type_builder {
 	struct drgn_template_parameters_builder template_builder;
 	enum drgn_type_kind kind;
 	struct drgn_type_member_vector members;
+	/** Whether to create a discriminated union. */
+	bool is_discr_union;
+	/** Whether the discriminant is signed. */
+	bool discr_is_signed;
+	struct drgn_type_discr_vector discrs;
+	/** Member index of the default variant, or 0 if there is none. */
+	size_t default_discr;
 };
 
 /**
@@ -233,6 +241,43 @@ struct drgn_error *
 drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder,
 				      const union drgn_lazy_object *object,
 				      const char *name, uint64_t bit_offset);
+
+/**
+ * Make a @ref drgn_compound_type_builder create a discriminated union (see @ref
+ * drgn_type_is_discr_union()).
+ *
+ * The builder must be for a union type. For each variant (each member after
+ * the discriminant), @ref drgn_compound_type_builder_add_discr() or @ref
+ * drgn_compound_type_builder_add_default_discr() must be called.
+ *
+ * @param[in] discr_is_signed Whether the discriminant (the first member) is
+ * signed.
+ */
+void
+drgn_compound_type_builder_set_discr_union(struct drgn_compound_type_builder *builder,
+					   bool discr_is_signed);
+
+/**
+ * Add the discriminant value of the next variant to a @ref
+ * drgn_compound_type_builder.
+ *
+ * @ref drgn_compound_type_builder_set_discr_union() must have been called.
+ */
+struct drgn_error *
+drgn_compound_type_builder_add_discr(struct drgn_compound_type_builder *builder,
+				     union drgn_type_discr discr);
+
+/**
+ * Make the next variant of a @ref drgn_compound_type_builder the default
+ * variant.
+ *
+ * @ref drgn_compound_type_builder_set_discr_union() must have been called.
+ *
+ * @return @c NULL on success, non-@c NULL if there is already a default
+ * variant.
+ */
+struct drgn_error *
+drgn_compound_type_builder_add_default_discr(struct drgn_compound_type_builder *builder);
 
 /**
  * Create a structure, union, or class type.
