@@ -4464,6 +4464,60 @@ class TestTypes(TestCase):
         )
         self.assertEqual(alignof(prog.type("TEST")), 64)
 
+    def test_alignment_after_declaration(self):
+        prog = dwarf_program(
+            (
+                DwarfLabel("complete_die"),
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "cacheline"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 64),
+                        DwarfAttrib(DW_AT.alignment, DW_FORM.data1, 64),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfLabel("declaration_die"),
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "cacheline"),
+                        DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.typedef,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "COMPLETE"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "complete_die"),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.typedef,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "DECLARED"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "declaration_die"),
+                    ),
+                ),
+                *labeled_int_die,
+            )
+        )
+        type = prog.type("COMPLETE").type
+        self.assertEqual(alignof(type), 64)
+        self.assertEqual(alignof(prog.type("DECLARED").type), 64)
+        self.assertEqual(alignof(type), 64)
+
     def test_many_skipped_attribs(self):
         prog = dwarf_program(
             (
