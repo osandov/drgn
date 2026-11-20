@@ -24,6 +24,11 @@
  * through the kernel's direct mapping, which is found with the architecture's
  * linux_kernel_live_direct_mapping_fallback() hook. User virtual addresses are
  * translated by drgn's page table walker, which reads physical memory.
+ *
+ * VMCOREINFO is read from the kernel's vmcoreinfo_data. Kernels built without
+ * CONFIG_VMCORE_INFO (like Android GKI kernels) don't have it, so for those,
+ * it is built from /proc/kallsyms and memory (see
+ * linux_kernel_synthesize_vmcoreinfo()).
  */
 
 #include <errno.h>
@@ -524,8 +529,18 @@ drgn_program_set_kernel_bpf(struct drgn_program *prog)
 
 	bool have_physical = false;
 	if (!had_vmcoreinfo) {
-		err = bpf_read_vmcoreinfo(prog);
-		if (err == &drgn_not_found) {
+		// DRGN_SYNTHESIZE_VMCOREINFO=1 ignores the kernel's VMCOREINFO
+		// (for testing).
+		const char *env = getenv("DRGN_SYNTHESIZE_VMCOREINFO");
+		bool synthesize = env && atoi(env);
+		err = synthesize ? &drgn_not_found : bpf_read_vmcoreinfo(prog);
+		if (err == &drgn_not_found
+		    && (synthesize
+			|| access("/sys/kernel/vmcoreinfo", F_OK) != 0)) {
+			// The kernel was built without CONFIG_VMCORE_INFO (or
+			// we were asked to pretend it was). Build it instead.
+			err = linux_kernel_synthesize_vmcoreinfo(prog);
+		} else if (err == &drgn_not_found) {
 			// No vmcoreinfo_data symbol (e.g., the kernel was built
 			// without CONFIG_KALLSYMS_ALL). Read the VMCOREINFO
 			// note at the physical address in sysfs instead, if

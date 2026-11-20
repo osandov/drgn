@@ -194,6 +194,20 @@ struct drgn_program {
 				 */
 				uint64_t kaslr_offset;
 				/**
+				 * If VMCOREINFO was synthesized because the
+				 * kernel doesn't have it, the address of
+				 * `_text`, which @ref kaslr_offset is computed
+				 * from once the kernel image is found.
+				 * Otherwise, 0.
+				 */
+				uint64_t synthesized_text_address;
+				/**
+				 * Whether @ref kaslr_offset isn't known yet
+				 * because VMCOREINFO was synthesized and the
+				 * kernel image hasn't been found.
+				 */
+				bool kaslr_offset_unknown;
+				/**
 				 * The offset from physical memory address 0 of
 				 * the kernel image on s390x.
 				 */
@@ -202,7 +216,9 @@ struct drgn_program {
 				uint64_t swapper_pg_dir;
 				/**
 				 * Length of mem_section array (i.e.,
-				 * `NR_SECTION_ROOTS`).
+				 * `NR_SECTION_ROOTS`). If VMCOREINFO was
+				 * synthesized, initially 0, but computed from
+				 * debug info and cached later.
 				 */
 				uint64_t mem_section_length;
 				/**

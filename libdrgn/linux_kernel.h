@@ -24,6 +24,9 @@ struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 
 struct drgn_error *read_vmcoreinfo_fallback(struct drgn_program *prog);
 
+struct drgn_error *
+linux_kernel_synthesize_vmcoreinfo(struct drgn_program *prog);
+
 struct drgn_bpf_memory;
 
 void drgn_bpf_memory_destroy(struct drgn_bpf_memory *mem);
