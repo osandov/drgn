@@ -878,6 +878,18 @@ struct drgn_error *drgn_program_set_qemu_qmp_fd(struct drgn_program *prog,
 						int fd);
 
 /**
+ * Set a @ref drgn_program to the running Linux kernel, reading its memory with
+ * BPF instead of `/proc/kcore`.
+ *
+ * This works on kernels without `/proc/kcore`, including kernels without
+ * VMCOREINFO. It requires Linux 5.14 or newer and root, or `CAP_BPF` and
+ * `CAP_PERFMON`.
+ *
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_kernel_bpf(struct drgn_program *prog);
+
+/**
  * Create a @ref drgn_program from a core dump file.
  *
  * The type of program (e.g., userspace or kernel) is determined automatically.

@@ -3,6 +3,7 @@
 
 #include <byteswap.h>
 #include <elf.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -14,6 +15,7 @@
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
 #include "register_state.h"
+#include "string_builder.h"
 #include "util.h"
 
 #include "arch_x86_64_defs.inc"
@@ -555,6 +557,62 @@ linux_kernel_live_direct_mapping_fallback_x86_64(struct drgn_program *prog,
 }
 
 static struct drgn_error *
+linux_kernel_live_vmcoreinfo_fallback_x86_64(struct drgn_program *prog,
+					     struct string_builder *sb)
+{
+	struct drgn_error *err;
+
+	// swapper_pg_dir is defined to init_top_pgt on x86-64.
+	unsigned long init_top_pgt, phys_base_address;
+	err = proc_kallsyms_symbol_addr("init_top_pgt", &init_top_pgt);
+	if (!err)
+		err = proc_kallsyms_symbol_addr("phys_base", &phys_base_address);
+	if (err == &drgn_not_found) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "kernel doesn't have VMCOREINFO or the symbols needed to build it");
+	} else if (err) {
+		return err;
+	}
+	uint64_t phys_base;
+	err = drgn_program_read_u64(prog, phys_base_address, false, &phys_base);
+	if (err)
+		return err;
+
+	// With 5-level page tables, the direct mapping is below the 4-level
+	// address space.
+	bool pgtable_l5_enabled = false;
+	unsigned long page_offset_base_address;
+	err = proc_kallsyms_symbol_addr("page_offset_base",
+					&page_offset_base_address);
+	if (!err) {
+		uint64_t page_offset_base;
+		err = drgn_program_read_u64(prog, page_offset_base_address,
+					    false, &page_offset_base);
+		if (err)
+			return err;
+		pgtable_l5_enabled =
+			page_offset_base < UINT64_C(0xffff800000000000);
+	} else if (err != &drgn_not_found) {
+		return err;
+	}
+
+	if (!string_builder_appendf(sb,
+				    "PAGESIZE=4096\n"
+				    "SYMBOL(swapper_pg_dir)=%lx\n"
+				    "NUMBER(phys_base)=%" PRId64 "\n"
+				    "NUMBER(pgtable_l5_enabled)=%d\n"
+				    "NUMBER(SECTION_SIZE_BITS)=%d\n"
+				    "NUMBER(MAX_PHYSMEM_BITS)=%d\n",
+				    // Like the kernel, print it as a long.
+				    init_top_pgt, (int64_t)phys_base,
+				    pgtable_l5_enabled,
+				    // See the fallbacks below.
+				    27, pgtable_l5_enabled ? 52 : 46))
+		return &drgn_enomem;
+	return NULL;
+}
+
+static struct drgn_error *
 linux_kernel_direct_mapping_offset_x86_64(struct drgn_program *prog,
 					  uint64_t *address_ret)
 {
@@ -723,6 +781,8 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.apply_elf_reloc = apply_elf_reloc_x86_64,
 	.linux_kernel_live_direct_mapping_fallback =
 		linux_kernel_live_direct_mapping_fallback_x86_64,
+	.linux_kernel_live_vmcoreinfo_fallback =
+		linux_kernel_live_vmcoreinfo_fallback_x86_64,
 	.linux_kernel_direct_mapping_offset =
 		linux_kernel_direct_mapping_offset_x86_64,
 	.linux_kernel_pgtable_iterator_arch_create =

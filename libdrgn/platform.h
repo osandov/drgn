@@ -19,6 +19,8 @@
 #include "drgn_internal.h"
 #include "util.h"
 
+struct string_builder;
+
 struct drgn_orc_entry;
 struct drgn_register_state;
 
@@ -433,12 +435,26 @@ struct drgn_architecture_info {
 	 * Return the address and size of the direct mapping virtual address
 	 * range.
 	 *
-	 * This is a hack which is only called when debugging a live Linux
-	 * kernel older than v4.11.
+	 * This is called when debugging a live Linux kernel through
+	 * /proc/kcore older than v4.11, and when reading a live kernel's
+	 * memory with BPF (see linux_kernel_bpf.c), after VMCOREINFO has been
+	 * parsed if it could be.
 	 */
 	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *prog,
 									uint64_t *address_ret,
 									uint64_t *size_ret);
+	/**
+	 * Build the architecture-specific part of VMCOREINFO for a live Linux
+	 * kernel that doesn't have one (see
+	 * linux_kernel_synthesize_vmcoreinfo()).
+	 *
+	 * This appends lines for at least `PAGESIZE` and
+	 * `SYMBOL(swapper_pg_dir)`, plus whatever else the architecture needs
+	 * to translate addresses. It may read kernel virtual memory and
+	 * `/proc/kallsyms`.
+	 */
+	struct drgn_error *(*linux_kernel_live_vmcoreinfo_fallback)(struct drgn_program *prog,
+								    struct string_builder *sb);
 	/**
 	 * Return the address of the direct mapping virtual address range.
 	 *

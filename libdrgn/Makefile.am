@@ -101,6 +101,7 @@ libdrgn_common_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			    lexer.h \
 			    linux_kernel.c \
 			    linux_kernel.h \
+			    linux_kernel_bpf.c \
 			    linux_kernel_helpers.c \
 			    log.c \
 			    log.h \

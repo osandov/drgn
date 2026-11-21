@@ -1352,6 +1352,35 @@ static bool elf_dso_bias(struct drgn_program *prog, Elf *elf,
 	return false;
 }
 
+// If VMCOREINFO was synthesized, it doesn't have KERNELOFFSET. Compute it from
+// the kernel image: its lowest loadable kernel address is where _text is
+// linked.
+static void linux_kernel_set_kaslr_offset(struct drgn_program *prog, Elf *elf)
+{
+	size_t phnum;
+	if (elf_getphdrnum(elf, &phnum) != 0)
+		return;
+	uint64_t link_address = UINT64_MAX;
+	for (size_t i = 0; i < phnum; i++) {
+		GElf_Phdr phdr_mem, *phdr = gelf_getphdr(elf, i, &phdr_mem);
+		if (!phdr)
+			return;
+		// Skip the per-CPU segment, which is linked at 0 on x86-64.
+		if (phdr->p_type == PT_LOAD
+		    && (phdr->p_vaddr & (UINT64_C(1) << 63))
+		    && phdr->p_vaddr < link_address)
+			link_address = phdr->p_vaddr;
+	}
+	if (link_address == UINT64_MAX)
+		return;
+	prog->vmcoreinfo.kaslr_offset =
+		prog->vmcoreinfo.synthesized_text_address - link_address;
+	prog->vmcoreinfo.kaslr_offset_unknown = false;
+	drgn_log_debug(prog,
+		       "got KERNELOFFSET 0x%" PRIx64 " from _text and kernel image",
+		       prog->vmcoreinfo.kaslr_offset);
+}
+
 static bool drgn_module_elf_file_bias(struct drgn_module *module,
 				      struct drgn_elf_file *file, uint64_t *ret)
 {
@@ -1359,6 +1388,8 @@ static bool drgn_module_elf_file_bias(struct drgn_module *module,
 	SWITCH_ENUM(module->kind) {
 	case DRGN_MODULE_MAIN:
 		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+			if (prog->vmcoreinfo.kaslr_offset_unknown)
+				linux_kernel_set_kaslr_offset(prog, file->elf);
 			*ret = prog->vmcoreinfo.kaslr_offset;
 			drgn_log_debug(prog,
 				       "got bias 0x%" PRIx64 " from VMCOREINFO",

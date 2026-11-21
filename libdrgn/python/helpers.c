@@ -294,6 +294,10 @@ PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *arg)
 	Program *prog = (Program *)arg;
 	if (!(prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
 		return PyErr_Format(PyExc_ValueError, "not Linux kernel");
+	if (prog->prog.vmcoreinfo.kaslr_offset_unknown) {
+		return PyErr_Format(PyExc_ValueError,
+				    "KASLR offset is not known until the kernel image is loaded");
+	}
 	return PyLong_FromUInt64(prog->prog.vmcoreinfo.kaslr_offset);
 }
 

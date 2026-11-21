@@ -107,7 +107,12 @@ class LinuxKernelTestCase(TestCase):
             if run_tests:
                 prog = drgn.Program()
                 try:
-                    prog.set_kernel()
+                    # DRGN_TEST_KERNEL_BPF=1 runs the tests with memory read
+                    # with BPF instead of /proc/kcore.
+                    if int(os.environ.get("DRGN_TEST_KERNEL_BPF", "0")):
+                        prog.set_kernel_bpf()
+                    else:
+                        prog.set_kernel()
                 except PermissionError:
                     if force_run:
                         raise

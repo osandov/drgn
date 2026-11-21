@@ -818,6 +818,27 @@ class Program:
         """
         ...
 
+    def set_kernel_bpf(self) -> None:
+        """
+        Set the program to the running Linux kernel, reading its memory with
+        BPF instead of ``/proc/kcore``.
+
+        This can debug kernels that don't have ``/proc/kcore`` (for example,
+        kernels built without ``CONFIG_PROC_KCORE``, like Android GKI kernels).
+        It requires Linux 5.14 or newer and root privileges (or
+        ``CAP_BPF`` and ``CAP_PERFMON``). It does not load any debugging
+        symbols; see :meth:`load_default_debug_info()`.
+
+        If the kernel was built without ``CONFIG_VMCORE_INFO``, the information
+        that drgn normally gets from VMCOREINFO is determined from
+        ``/proc/kallsyms`` and kernel memory instead, or from debug info once
+        it is loaded. This is currently supported on x86-64 and AArch64. On
+        AArch64 with 64 KB pages, the size of the physical address space can't
+        be determined, so helpers that need it, like
+        :func:`~drgn.helpers.linux.mm.pfn_to_page()`, don't work.
+        """
+        ...
+
     def set_linux_kernel_custom(
         self, vmcoreinfo: Union[str, bytes], is_live: bool
     ) -> None:

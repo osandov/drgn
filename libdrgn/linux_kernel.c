@@ -14,6 +14,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 
 #include "array.h"
@@ -165,6 +166,142 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_program *prog)
 	}
 
 	return drgn_program_parse_vmcoreinfo(prog, buf + 24, nhdr->n_descsz);
+}
+
+// Symbols that the kernel adds to VMCOREINFO with VMCOREINFO_SYMBOL() in an
+// architecture-independent way, or that drgn helpers look for there.
+// VMCOREINFO_SYMBOL_ARRAY() symbols like mem_section are left out: their value
+// depends on whether they are arrays or pointers.
+static const char * const vmcoreinfo_symbols[] = {
+	"init_uts_ns",
+	"node_online_map",
+	"_stext",
+	"mem_map",
+	"contig_page_data",
+	"kallsyms_names",
+	"kallsyms_num_syms",
+	"kallsyms_token_table",
+	"kallsyms_token_index",
+	"kallsyms_offsets",
+	"kallsyms_relative_base",
+	"kallsyms_addresses",
+};
+
+// Append a SYMBOL() line for each of vmcoreinfo_symbols that is in
+// /proc/kallsyms.
+static struct drgn_error *
+append_vmcoreinfo_symbols(struct string_builder *sb)
+{
+	struct drgn_error *err = NULL;
+	unsigned long addresses[array_size(vmcoreinfo_symbols)] = {};
+	bool found[array_size(vmcoreinfo_symbols)] = {};
+
+	FILE *file = fopen("/proc/kallsyms", "r");
+	if (!file)
+		return drgn_error_create_os("fopen", errno, "/proc/kallsyms");
+	_cleanup_free_ char *line = NULL;
+	size_t n = 0;
+	for (;;) {
+		errno = 0;
+		if (getline(&line, &n, file) == -1) {
+			if (errno) {
+				err = drgn_error_create_os("getline", errno,
+							   "/proc/kallsyms");
+			}
+			break;
+		}
+		// Module symbols come after the core kernel's and have a
+		// module name.
+		if (strchr(line, '['))
+			break;
+		char *end;
+		unsigned long address = strtoul(line, &end, 16);
+		char name[64];
+		if (sscanf(end, " %*c %63s", name) != 1)
+			continue;
+		for (size_t i = 0; i < array_size(vmcoreinfo_symbols); i++) {
+			if (!found[i] && strcmp(name, vmcoreinfo_symbols[i]) == 0) {
+				addresses[i] = address;
+				found[i] = true;
+			}
+		}
+	}
+	fclose(file);
+	if (err)
+		return err;
+
+	for (size_t i = 0; i < array_size(vmcoreinfo_symbols); i++) {
+		if (found[i]
+		    && !string_builder_appendf(sb, "SYMBOL(%s)=%lx\n",
+					       vmcoreinfo_symbols[i],
+					       addresses[i]))
+			return &drgn_enomem;
+	}
+	return NULL;
+}
+
+/*
+ * Build VMCOREINFO for a live kernel that doesn't have one (i.e., one built
+ * without CONFIG_VMCORE_INFO, like Android GKI kernels) from uname(),
+ * /proc/kallsyms, and kernel memory. This requires that kernel virtual memory
+ * can be read without VMCOREINFO, as it can with BPF.
+ *
+ * The result has OSRELEASE, PAGESIZE, the SYMBOL() entries that are in
+ * /proc/kallsyms, and the architecture's values for address translation and
+ * sparse memory. Values that depend on types, like LENGTH(mem_section) and the
+ * page type values, are left out and computed from debug info when needed
+ * instead. The build ID isn't needed: for a live kernel, it's read from
+ * /sys/kernel/notes.
+ *
+ * KERNELOFFSET is also left out: the address that the kernel is linked at
+ * depends on the configuration and version, including stable backports. It is
+ * computed from _text and the kernel image when it is found (see
+ * drgn_module_elf_file_bias()).
+ */
+struct drgn_error *
+linux_kernel_synthesize_vmcoreinfo(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+	if (!prog->platform.arch->linux_kernel_live_vmcoreinfo_fallback) {
+		return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
+					 "kernel doesn't have VMCOREINFO, and building it is not supported on %s",
+					 prog->platform.arch->name);
+	}
+
+	struct utsname uts;
+	if (uname(&uts) < 0)
+		return drgn_error_create_os("uname", errno, NULL);
+	unsigned long text;
+	err = proc_kallsyms_symbol_addr("_text", &text);
+	if (err == &drgn_not_found) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "kernel doesn't have VMCOREINFO or _text symbol");
+	} else if (err) {
+		return err;
+	}
+
+	STRING_BUILDER(sb);
+	if (!string_builder_appendf(&sb, "OSRELEASE=%s\n", uts.release))
+		return &drgn_enomem;
+	err = prog->platform.arch->linux_kernel_live_vmcoreinfo_fallback(prog,
+									 &sb);
+	if (err)
+		return err;
+	err = append_vmcoreinfo_symbols(&sb);
+	if (err)
+		return err;
+
+	err = drgn_program_parse_vmcoreinfo(prog, sb.str, sb.len);
+	if (err)
+		return err;
+	prog->vmcoreinfo.synthesized_text_address = text;
+	prog->vmcoreinfo.kaslr_offset_unknown = true;
+	drgn_log_info(prog,
+		      "kernel doesn't have VMCOREINFO; built it from /proc/kallsyms and memory");
+	drgn_log_debug(prog, "synthesized VMCOREINFO:\n%s",
+		       prog->vmcoreinfo.raw);
+	return NULL;
 }
 
 #define LINUX_KERNEL_GET_PRIMITIVE(name, primitive_type, signed_unsigned, expr)	\
@@ -374,6 +511,19 @@ linux_kernel_get_vmcoreinfo(struct drgn_program *prog, struct drgn_object *ret)
 					   prog->vmcoreinfo.raw_size, 0, 0);
 }
 
+// Whether the kernel uses SPARSEMEM, i.e., whether mem_section_length is known
+// or can be computed (see linux_kernel_get_mem_section_length()).
+static bool linux_kernel_has_sparsemem(struct drgn_program *prog)
+{
+	return prog->vmcoreinfo.mem_section_length
+	       || (prog->vmcoreinfo.synthesized_text_address
+		   && prog->vmcoreinfo.max_physmem_bits
+		   && prog->vmcoreinfo.section_size_bits);
+}
+
+static struct drgn_error *
+linux_kernel_get_mem_section_length(struct drgn_program *prog, uint64_t *ret);
+
 // The vmemmap address can vary depending on architecture, kernel version,
 // configuration options, and KASLR. However, we can get it generically from the
 // section_mem_map of any valid mem_section.
@@ -426,7 +576,10 @@ linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 	if (err)
 		return err;
 
-	const uint64_t nr_section_roots = prog->vmcoreinfo.mem_section_length;
+	uint64_t nr_section_roots;
+	err = linux_kernel_get_mem_section_length(prog, &nr_section_roots);
+	if (err)
+		return err;
 	uint64_t sections_per_root;
 	if (drgn_type_kind(mem_section.type) == DRGN_TYPE_ARRAY) {
 		// If !CONFIG_SPARSEMEM_EXTREME, mem_section is
@@ -516,10 +669,7 @@ static struct drgn_error *linux_kernel_get_vmemmap(struct drgn_program *prog,
 static struct drgn_error *
 linux_kernel_get_nr_section_roots_impl(struct drgn_program *prog, uint64_t *ret)
 {
-	if (prog->vmcoreinfo.mem_section_length == 0)
-		return &drgn_not_found;
-	*ret = prog->vmcoreinfo.mem_section_length;
-	return NULL;
+	return linux_kernel_get_mem_section_length(prog, ret);
 }
 LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(nr_section_roots, DRGN_C_TYPE_UNSIGNED_LONG)
 
@@ -533,7 +683,7 @@ linux_kernel_get_sections_per_root_impl(struct drgn_program *prog, uint64_t *ret
 		return NULL;
 	}
 
-	if (!prog->vmcoreinfo.mem_section_length) // !SPARSEMEM
+	if (!linux_kernel_has_sparsemem(prog))
 		return &drgn_not_found;
 
 	DRGN_OBJECT(mem_section, prog);
@@ -586,6 +736,63 @@ linux_kernel_get_sections_per_root_impl(struct drgn_program *prog, uint64_t *ret
 }
 LINUX_KERNEL_GET_PRIMITIVE_WRAPPER(sections_per_root, DRGN_C_TYPE_UNSIGNED_LONG)
 
+// Get the length of the mem_section array (i.e., NR_SECTION_ROOTS). This is
+// normally LENGTH(mem_section) in VMCOREINFO. A VMCOREINFO built by
+// linux_kernel_synthesize_vmcoreinfo() doesn't have it, because it depends on
+// sizeof(struct mem_section), so it is computed from debug info the way the
+// kernel does instead.
+static struct drgn_error *
+linux_kernel_get_mem_section_length(struct drgn_program *prog, uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	if (prog->vmcoreinfo.mem_section_length) {
+		*ret = prog->vmcoreinfo.mem_section_length;
+		return NULL;
+	}
+	if (!linux_kernel_has_sparsemem(prog))
+		return &drgn_not_found;
+
+	int max_physmem_bits = prog->vmcoreinfo.max_physmem_bits;
+	int section_size_bits = prog->vmcoreinfo.section_size_bits;
+	if (section_size_bits > max_physmem_bits || max_physmem_bits >= 64) {
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "invalid MAX_PHYSMEM_BITS or SECTION_SIZE_BITS");
+	}
+
+	DRGN_OBJECT(mem_section, prog);
+	err = drgn_program_find_object(prog, "mem_section", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &mem_section);
+	if (err)
+		return err;
+	struct drgn_type *type = drgn_underlying_type(mem_section.type);
+	uint64_t length;
+	if (drgn_type_kind(type) == DRGN_TYPE_ARRAY
+	    && drgn_type_is_complete(type)) {
+		// mem_section is an array of NR_SECTION_ROOTS.
+		length = drgn_type_length(type);
+	} else {
+		// NR_SECTION_ROOTS = DIV_ROUND_UP(NR_MEM_SECTIONS,
+		//                                 SECTIONS_PER_ROOT)
+		// NR_MEM_SECTIONS = 1 << (MAX_PHYSMEM_BITS - SECTION_SIZE_BITS)
+		uint64_t sections_per_root;
+		err = linux_kernel_get_sections_per_root_impl(prog,
+							      &sections_per_root);
+		if (err)
+			return err;
+		uint64_t nr_mem_sections =
+			UINT64_C(1) << (max_physmem_bits - section_size_bits);
+		length = (nr_mem_sections + sections_per_root - 1)
+			 / sections_per_root;
+	}
+	if (length == 0) {
+		return drgn_error_create(DRGN_ERROR_BAD_DATA,
+					 "mem_section has invalid length");
+	}
+	*ret = prog->vmcoreinfo.mem_section_length = length;
+	return NULL;
+}
+
 static struct drgn_error *
 linux_kernel_get_section_size_bits_impl(struct drgn_program *prog, int64_t *ret)
 {
@@ -593,7 +800,7 @@ linux_kernel_get_section_size_bits_impl(struct drgn_program *prog, int64_t *ret)
 		*ret = prog->vmcoreinfo.section_size_bits;
 		return NULL;
 	}
-	if (!prog->vmcoreinfo.mem_section_length // !SPARSEMEM
+	if (!linux_kernel_has_sparsemem(prog)
 	    || !prog->has_platform
 	    || !prog->platform.arch->linux_kernel_section_size_bits_fallback)
 		return &drgn_not_found;
@@ -616,7 +823,7 @@ linux_kernel_get_max_physmem_bits_impl(struct drgn_program *prog, int64_t *ret)
 		return NULL;
 	}
 
-	if (!prog->vmcoreinfo.mem_section_length) // !SPARSEMEM
+	if (!linux_kernel_has_sparsemem(prog))
 		return &drgn_not_found;
 
 	// Before Linux kernel commit 1d50e5d0c505 ("crash_core, vmcoreinfo:

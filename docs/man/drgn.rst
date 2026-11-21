@@ -66,6 +66,12 @@ One of these options may be given to specify what program to debug.
    address, which may be a Unix domain socket path or a TCP address as
    ``host:port``.
 
+.. option:: --bpf
+
+   Debug the running kernel, reading its memory with BPF instead of
+   ``/proc/kcore``. This is for kernels without ``/proc/kcore`` and requires
+   Linux 5.14 or newer.
+
 Debugging Symbols
 ^^^^^^^^^^^^^^^^^
 

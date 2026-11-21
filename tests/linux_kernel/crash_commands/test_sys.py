@@ -43,6 +43,10 @@ class TestSys(CrashCommandTestCase):
             "MACHINE",
             "MEMORY",
         ):
+            # sys only prints DUMPFILE when there is a core dump (e.g., not
+            # when kernel memory is read with BPF).
+            if field == "DUMPFILE" and self.prog.core_dump_path is None:
+                continue
             self.assertRegex(cmd.stdout, rf"(?m)^\s*{field}:")
 
         for variable in (

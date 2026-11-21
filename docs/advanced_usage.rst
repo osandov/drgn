@@ -327,6 +327,14 @@ Some of drgn's behavior can be modified through environment variables:
     dump capture kernel from a vmcore created by a hypervisor. This setting is
     only respected when using libkdumpfile to debug a core dump file.
 
+.. envvar:: DRGN_SYNTHESIZE_VMCOREINFO
+
+    Whether :meth:`drgn.Program.set_kernel_bpf()` should ignore the kernel's
+    VMCOREINFO and build it from ``/proc/kallsyms`` and kernel memory, as it
+    does for kernels built without ``CONFIG_VMCORE_INFO`` (0 or 1). The default
+    is 0. This environment variable is mainly intended for testing and may be
+    ignored in the future.
+
 .. envvar:: DRGN_USE_SYS_MODULE
 
     Whether drgn should use ``/sys/module`` to find information about loaded

@@ -4,15 +4,19 @@
 #include <assert.h>
 #include <byteswap.h>
 #include <elf.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/auxv.h>
 
 #include "array.h"
 #include "error.h"
+#include "linux_kernel.h"
 #include "log.h"
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
 #include "register_state.h"
+#include "string_builder.h"
 #include "symbol.h"
 #include "util.h"
 
@@ -746,6 +750,205 @@ linux_kernel_section_size_bits_fallback_aarch64(struct drgn_program *prog)
 	return 30;
 }
 
+// The kernel's PHYS_OFFSET: from VMCOREINFO if it has it, else memstart_addr.
+static struct drgn_error *linux_kernel_phys_offset_aarch64(struct drgn_program *prog,
+							   uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	static const char key[] = "NUMBER(PHYS_OFFSET)=";
+	const char *raw = prog->vmcoreinfo.raw;
+	const char *p = raw ? memmem(raw, prog->vmcoreinfo.raw_size, key,
+				     sizeof(key) - 1) : NULL;
+	if (p) {
+		*ret = strtoull(p + sizeof(key) - 1, NULL, 0);
+		return NULL;
+	}
+
+	unsigned long memstart_addr_address;
+	err = proc_kallsyms_symbol_addr("memstart_addr",
+					&memstart_addr_address);
+	if (err)
+		return err;
+	return drgn_program_read_u64(prog, memstart_addr_address, false, ret);
+}
+
+static struct drgn_error *
+linux_kernel_live_direct_mapping_fallback_aarch64(struct drgn_program *prog,
+						  uint64_t *address_ret,
+						  uint64_t *size_ret)
+{
+	struct drgn_error *err;
+
+	// __phys_to_virt(pa) = (pa - PHYS_OFFSET) | PAGE_OFFSET, where
+	// PAGE_OFFSET = -(1 << VA_BITS). Since Linux kernel commit 7bc1a0f9e176
+	// ("arm64: mm: use single quantity to represent the PA to VA
+	// translation") (in v5.10), this also holds for 52-bit VA_BITS on
+	// hardware with fewer bits: memstart_addr absorbs the difference.
+	uint64_t va_bits = prog->vmcoreinfo.va_bits;
+	if (va_bits < 36 || va_bits > 52) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "VMCOREINFO does not contain valid VA_BITS");
+	}
+	uint64_t phys_offset;
+	err = linux_kernel_phys_offset_aarch64(prog, &phys_offset);
+	if (err)
+		return err;
+	*address_ret = -(UINT64_C(1) << va_bits) - phys_offset;
+	// The linear map is the lower half of the kernel's address space.
+	*size_ret = UINT64_C(1) << (va_bits - 1);
+	return NULL;
+}
+
+static struct drgn_error *kallsyms_u64(struct drgn_program *prog,
+				       const char *name, uint64_t *ret)
+{
+	unsigned long address;
+	struct drgn_error *err = proc_kallsyms_symbol_addr(name, &address);
+	if (err == &drgn_not_found) {
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "kernel doesn't have VMCOREINFO or %s symbol",
+					 name);
+	} else if (err) {
+		return err;
+	}
+	return drgn_program_read_u64(prog, address, false, ret);
+}
+
+static struct drgn_error *
+linux_kernel_live_vmcoreinfo_fallback_aarch64(struct drgn_program *prog,
+					       struct string_builder *sb)
+{
+	struct drgn_error *err;
+
+	unsigned long text, swapper_pg_dir, linux_banner;
+	err = proc_kallsyms_symbol_addr("_text", &text);
+	if (!err)
+		err = proc_kallsyms_symbol_addr("swapper_pg_dir",
+						&swapper_pg_dir);
+	if (!err)
+		err = proc_kallsyms_symbol_addr("linux_banner", &linux_banner);
+	if (err == &drgn_not_found) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "kernel doesn't have VMCOREINFO or the symbols needed to build it");
+	} else if (err) {
+		return err;
+	}
+	uint64_t kimage_voffset, phys_offset;
+	err = kallsyms_u64(prog, "kimage_voffset", &kimage_voffset);
+	if (err)
+		return err;
+	err = kallsyms_u64(prog, "memstart_addr", &phys_offset);
+	if (err)
+		return err;
+
+	// The page size is in the flags of the Image header at _text (see
+	// Documentation/arch/arm64/booting.rst).
+	uint8_t header[64];
+	err = drgn_program_read_memory(prog, header, text, sizeof(header),
+				       false);
+	if (err)
+		return err;
+	uint64_t page_size = 4096;
+	if (memcmp(&header[56], "ARM\x64", 4) == 0) {
+		// The flags field is little-endian; bits 1-2 are the page size.
+		switch ((header[24] >> 1) & 3) {
+		case 2:
+			page_size = 16384;
+			break;
+		case 3:
+			page_size = 65536;
+			break;
+		}
+	}
+
+	// No symbol records VA_BITS. Find the value for which the direct
+	// mapping address of linux_banner's physical address has the same
+	// contents as linux_banner: __phys_to_virt(pa) =
+	// (pa - PHYS_OFFSET) | PAGE_OFFSET, and PAGE_OFFSET = -(1 << VA_BITS).
+	char banner[64], probe[64];
+	err = drgn_program_read_memory(prog, banner, linux_banner,
+				       sizeof(banner), false);
+	if (err)
+		return err;
+	uint64_t pa = linux_banner - kimage_voffset;
+	static const int candidates[] = { 39, 48, 52, 47, 42, 36 };
+	int va_bits = 0;
+	array_for_each(bits, candidates) {
+		uint64_t address = pa - phys_offset - (UINT64_C(1) << *bits);
+		// If memstart_addr is negative (see below), the wrong VA_BITS
+		// can give an address outside of the kernel half.
+		if (!(address & (UINT64_C(1) << 63)))
+			continue;
+		err = drgn_program_read_memory(prog, probe, address,
+					       sizeof(probe), false);
+		if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
+			continue;
+		if (err)
+			return err;
+		if (memcmp(banner, probe, sizeof(banner)) == 0) {
+			va_bits = *bits;
+			break;
+		}
+	}
+	if (!va_bits) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "kernel doesn't have VMCOREINFO, and VA_BITS could not be determined");
+	}
+	// A kernel built with 52-bit VA_BITS on hardware that only supports
+	// 48 bits (47 with 16k pages) makes memstart_addr negative to keep
+	// the direct mapping in the smaller range (see arm64_memblock_init()).
+	int va_bits_actual = va_bits;
+	if (va_bits == 52 && (int64_t)phys_offset < 0)
+		va_bits_actual = page_size == 16384 ? 47 : 48;
+
+	// The kernel only reports the pointer authentication mask if it
+	// supports pointer authentication, which it also reports to userspace
+	// as HWCAP_PACA. This is the kernel that drgn is running on.
+	uint64_t pac_mask = 0;
+#ifdef __aarch64__
+	if (getauxval(AT_HWCAP) & (UINT64_C(1) << 30)) // HWCAP_PACA
+		pac_mask = -(UINT64_C(1) << va_bits_actual); // GENMASK(63, vabits_actual)
+#endif
+
+	if (!string_builder_appendf(sb,
+				    "PAGESIZE=%" PRIu64 "\n"
+				    "SYMBOL(swapper_pg_dir)=%lx\n"
+				    "NUMBER(VA_BITS)=%d\n"
+				    "NUMBER(kimage_voffset)=0x%" PRIx64 "\n"
+				    "NUMBER(PHYS_OFFSET)=0x%" PRIx64 "\n"
+				    "NUMBER(TCR_EL1_T1SZ)=%d\n"
+				    "NUMBER(KERNELPACMASK)=0x%" PRIx64 "\n"
+				    // Since Linux kernel commit f0b13ee23241
+				    // ("arm64/sparsemem: reduce
+				    // SECTION_SIZE_BITS") (in v5.12).
+				    "NUMBER(SECTION_SIZE_BITS)=%d\n",
+				    page_size, swapper_pg_dir, va_bits,
+				    kimage_voffset, phys_offset,
+				    64 - va_bits_actual, pac_mask,
+				    page_size == 65536 ? 29 : 27))
+		return &drgn_enomem;
+
+	// MAX_PHYSMEM_BITS is CONFIG_ARM64_PA_BITS. With 4k and 16k pages, 52-bit
+	// PAs need LPA2, which is used if and only if VA_BITS is 52 and
+	// vabits_actual is 52. Since Linux kernel commit bf74bb73cd87
+	// ("arm64/mm: Reduce PA space to 48 bits when LPA2 is not enabled") (in
+	// v6.14, and backported to stable kernels), MAX_PHYSMEM_BITS is 48
+	// otherwise. Before that, it is 52 if VA_BITS is 52 even without LPA2,
+	// but no memory can be above 48 bits then, so using 48 only leaves out
+	// mem_section roots that are always empty.
+	//
+	// With 64k pages, 52-bit PAs don't need LPA2 and are a configuration
+	// option that can't be detected, so it is left out, and helpers that
+	// need it don't work.
+	if (page_size != 65536) {
+		if (!string_builder_appendf(sb, "NUMBER(MAX_PHYSMEM_BITS)=%d\n",
+					    va_bits_actual == 52 ? 52 : 48))
+			return &drgn_enomem;
+	}
+	return NULL;
+}
+
 static uint64_t untagged_addr_aarch64(uint64_t addr)
 {
 	/* Apply TBI by sign extending bit 55 into bits 56-63. */
@@ -777,6 +980,10 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 		linux_kernel_pgtable_iterator_next_aarch64,
 	.linux_kernel_section_size_bits_fallback =
 		linux_kernel_section_size_bits_fallback_aarch64,
+	.linux_kernel_live_direct_mapping_fallback =
+		linux_kernel_live_direct_mapping_fallback_aarch64,
+	.linux_kernel_live_vmcoreinfo_fallback =
+		linux_kernel_live_vmcoreinfo_fallback_aarch64,
 	// MAX_PHYSMEM_BITS depends on CONFIG_ARM64_PA_BITS. Use the default
 	// fallback.
 	.untagged_addr = untagged_addr_aarch64,
