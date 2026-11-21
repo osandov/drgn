@@ -132,7 +132,8 @@ def version_header() -> str:
     libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
     lzma = f'with{"" if drgn._with_lzma else "out"} lzma'
     pcre2 = f'with{"" if drgn._with_pcre2 else "out"} pcre2'
-    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {debuginfod}, {json_c}, {libkdumpfile}, {lzma}, {pcre2})"
+    bpf = f'with{"" if drgn._with_libbpf else "out"} libbpf'
+    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {debuginfod}, {json_c}, {libkdumpfile}, {lzma}, {pcre2}, {bpf})"
 
 
 def default_globals(prog: drgn.Program) -> Dict[str, Any]:
@@ -362,6 +363,11 @@ class _NoSymbolsByAction(_TrySymbolsByBaseAction):
 
 
 def _load_debugging_symbols(prog: drgn.Program, args: argparse.Namespace) -> None:
+    if args.btf:
+        from drgn.helpers.experimental.btf import load_builtin_btf
+
+        load_builtin_btf(prog)
+        return
     enable_debug_info_finders = getattr(args, "enable_debug_info_finders", ())
     disable_debug_info_finders = getattr(args, "disable_debug_info_finders", ())
     if enable_debug_info_finders or disable_debug_info_finders:
@@ -496,6 +502,12 @@ def _main() -> None:
         "then it is ignored. This option may be given more than once",
     )
     default_symbols_group = symbol_group.add_mutually_exclusive_group()
+    default_symbols_group.add_argument(
+        "-B",
+        "--btf",
+        action="store_true",
+        help="load BTF: all other arguments ignored",
+    )
     default_symbols_group.add_argument(
         "--main-symbols",
         dest="default_symbols",

@@ -75,6 +75,18 @@ curl -L "$check_url" | tar -xz --strip-components=1
 make -j$(($(nproc) + 1))
 make install
 
+# CentOS 7 has no libbpf, and CentOS 8 ships 0.5.0, neither of which are new
+# enough for our 1.0.0 minimum.
+libbpf_version=1.7.0
+libbpf_url=https://github.com/libbpf/libbpf/archive/refs/tags/v$libbpf_version.tar.gz
+mkdir /tmp/libbpf
+cd /tmp/libbpf
+curl -L "$libbpf_url" | tar -xz --strip-components=1
+make -j$(($(nproc) + 1)) -C src
+# CentOS 7's kernel does not even have BTF, so we need to be sure to install
+# libbpf's bundled UAPI headers.
+make -C src install install_uapi_headers
+
 ldconfig
 
 mkdir /tmp/drgn

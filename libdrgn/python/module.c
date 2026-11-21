@@ -183,6 +183,43 @@ static PyObject *Module_try_file(Module *self, PyObject *args, PyObject *kwds)
 	Py_RETURN_NONE;
 }
 
+static PyObject *Module_add_btf(Module *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {
+		"kind", "data", "main_module_base", NULL
+	};
+	const char *kind = NULL;
+	const char *btf_data = NULL;
+	Py_ssize_t btf_size = 0;
+	PyObject *main_module_base_obj = Py_None;
+	int main_module_base = DRGN_TRISTATE_DEFAULT;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sz#|$O:add_btf", keywords,
+	                                 &kind, &btf_data, &btf_size, &main_module_base_obj))
+		return NULL;
+	if (main_module_base_obj != Py_None) {
+		main_module_base = PyObject_IsTrue(main_module_base_obj);
+		if (main_module_base < 0)
+			return NULL;
+	}
+
+	enum drgn_btf_kind kind_val;
+	if (strcmp(kind, "main") == 0)
+		kind_val = DRGN_BTF_MAIN;
+	else if (strcmp(kind, "global") == 0)
+		kind_val = DRGN_BTF_GLOBAL;
+	else
+		return PyErr_Format(PyExc_ValueError,
+		                    "Invalid BTF kind \"%s\", expected main or global",
+		                    kind);
+
+	struct drgn_error *err = drgn_module_add_btf(self->module, kind_val,
+	                                             btf_data, btf_size,
+	                                             main_module_base);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static Program *Module_get_prog(Module *self, void *arg)
 {
 	Program *prog = Module_prog(self);
@@ -501,6 +538,8 @@ static PyMethodDef Module_methods[] = {
 	 drgn_Module_wanted_supplementary_debug_file_DOC},
 	{"try_file", (PyCFunction)Module_try_file,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Module_try_file_DOC},
+	{"add_btf", (PyCFunction)Module_add_btf,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Module_add_btf_DOC},
 	{},
 };
 
