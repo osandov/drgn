@@ -435,6 +435,47 @@ explicitly::
             int counter;
     } atomic_t
 
+.. _gdb-usage:
+
+GDB Integration
+---------------
+
+The ``drgn-why-sleeping`` GDB command shows the selected thread's kernel stack
+and variables. It supports local native Linux debugging, GDB must run in the
+initial PID namespace. First,
+:ref:`load the command <gdb-installation>`. It requires
+:doc:`debugging symbols matching the running kernel <getting_debugging_symbols>`
+and access to ``/proc/kcore``. If access is denied, the command attempts to open
+it using sudo.
+
+Enable non-stop mode before starting or attaching to the process. Replace
+``PID`` with the process ID and ``THREAD_NUM`` with the GDB thread number:
+
+.. code-block:: text
+
+    (gdb) set non-stop on
+    (gdb) attach PID
+    (gdb) info threads
+    (gdb) thread THREAD_NUM
+    (gdb) continue &
+    (gdb) drgn-why-sleeping
+
+Explicitly select the intended thread: in non-stop mode, a breakpoint in another
+thread does not necessarily select it. Resume the thread before inspecting its
+blocking location, a stopped thread may show ``ptrace_stop`` instead. Live reads
+are not an atomic snapshot, and the thread can change state during inspection.
+
+Select a frame by its zero-based index or function name to print local variables.
+Additional arguments select variables or dot-separated member paths:
+
+.. code-block:: text
+
+    (gdb) drgn-why-sleeping 6
+    (gdb) drgn-why-sleeping vfs_read count file.f_flags
+
+Indices depend on the stack, and optimization may make variables unavailable.
+See ``help drgn-why-sleeping`` for full syntax.
+
 Next Steps
 ----------
 
