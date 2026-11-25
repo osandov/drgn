@@ -261,6 +261,44 @@ class TestFiles(CrashCommandTestCase):
         self.assertRegex(cmd.stdout, r"\nNo open files\n$")
 
 
+class TestFuser(CrashCommandTestCase):
+    def test_path_and_inode(self):
+        with tempfile.NamedTemporaryFile() as f:
+            expected = (
+                rf'(?m)^\s*{os.getpid()}\s+[0-9a-f]+\s+"[^"]*"\s+fd {f.fileno()}\b'
+            )
+            cmd = self.check_crash_command(f"fuser {f.name}")
+            self.assertRegex(cmd.stdout, expected)
+
+            inode = fget(find_task(self.prog, os.getpid()), f.fileno()).f_inode
+            cmd = self.check_crash_command(f"fuser {inode.value_():x}")
+            self.assertRegex(cmd.stdout, expected)
+
+    def test_mmap(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "file")
+            with open(path, "wb") as f:
+                f.truncate(mmap.PAGESIZE)
+
+            with open(path, "rb") as f:
+                mapping = mmap.mmap(f.fileno(), mmap.PAGESIZE, access=mmap.ACCESS_READ)
+                f.close()
+                try:
+                    cmd = self.check_crash_command(f"fuser {path}")
+                    self.assertRegex(cmd.stdout, rf"(?m)^\s*{os.getpid()}\s+.*\bmmap\b")
+                finally:
+                    mapping.close()
+
+    def test_cwd(self):
+        def chdir(path):
+            os.chdir(path)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with fork_and_stop(chdir, tmpdir) as (pid, _):
+                cmd = self.check_crash_command(f"fuser {tmpdir}")
+            self.assertRegex(cmd.stdout, rf"(?m)^\s*{pid}\s+.*\bcwd\b")
+
+
 class TestMount(CrashCommandTestCase):
     def test_no_options(self):
         self.run_crash_command("set 1")
